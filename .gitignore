@@ -1,0 +1,38 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+tmp
+out-tsc
+
+# IDE
+/.idea
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.sublime-workspace
+
+# Test output
+/coverage
+testem.log
+test-output
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Nx
+.nx/cache
+.nx/workspace-data
+
+# Logs
+npm-debug.log
+yarn-error.log
+
+# Local cache
+**/.cache/
+
+.claude

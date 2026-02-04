@@ -1,0 +1,48 @@
+{
+  "name": "shield-interceptor",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/shield-interceptor/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build-cjs": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["^build"],
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "libs/shield-interceptor/dist",
+        "main": "libs/shield-interceptor/src/index.ts",
+        "additionalEntryPoints": [
+          "libs/shield-interceptor/src/register.ts",
+          "libs/shield-interceptor/src/require.ts"
+        ],
+        "tsConfig": "libs/shield-interceptor/tsconfig.lib.json",
+        "format": ["esm", "cjs"],
+        "declaration": true,
+        "declarationRootDir": "libs/shield-interceptor/src",
+        "bundle": true,
+        "thirdParty": false,
+        "platform": "node",
+        "assets": ["libs/shield-interceptor/README.md", "LICENSE", "libs/shield-interceptor/package.json"],
+        "esbuildOptions": {
+          "outExtension": { ".js": ".js" },
+          "external": ["@agenshield/ipc"]
+        }
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-cjs"],
+      "options": {
+        "command": "node scripts/strip-dist-from-pkg.js libs/shield-interceptor/dist/package.json"
+      }
+    },
+    "nx-release-publish": {
+      "executor": "@nx/js:release-publish",
+      "dependsOn": ["build"],
+      "options": {
+        "packageRoot": "libs/shield-interceptor/dist"
+      }
+    }
+  }
+}

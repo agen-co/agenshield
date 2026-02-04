@@ -1,0 +1,36 @@
+{
+  "name": "@agenshield/broker",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AgenShield broker daemon with Unix socket and HTTP fallback",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "agenshield-broker": "./dist/main.js",
+    "shield-client": "./dist/client/shield-client.js"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "development": "./src/client/index.ts",
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js",
+      "default": "./dist/client/index.js"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@agenshield/ipc": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

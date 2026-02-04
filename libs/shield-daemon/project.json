@@ -1,0 +1,45 @@
+{
+  "name": "shield-daemon",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/shield-daemon/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build-cjs": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["^build"],
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "libs/shield-daemon/dist",
+        "main": "libs/shield-daemon/src/index.ts",
+        "additionalEntryPoints": ["libs/shield-daemon/src/main.ts"],
+        "tsConfig": "libs/shield-daemon/tsconfig.lib.json",
+        "format": ["esm"],
+        "declaration": true,
+        "declarationRootDir": "libs/shield-daemon/src",
+        "bundle": true,
+        "thirdParty": false,
+        "platform": "node",
+        "assets": ["libs/shield-daemon/README.md", "LICENSE", "libs/shield-daemon/package.json"],
+        "esbuildOptions": {
+          "outExtension": { ".js": ".js" },
+          "external": ["@agenshield/ipc", "@agenshield/sandbox", "fastify", "@fastify/*"]
+        }
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-cjs"],
+      "options": {
+        "command": "node scripts/strip-dist-from-pkg.js libs/shield-daemon/dist/package.json"
+      }
+    },
+    "nx-release-publish": {
+      "executor": "@nx/js:release-publish",
+      "dependsOn": ["build"],
+      "options": {
+        "packageRoot": "libs/shield-daemon/dist"
+      }
+    }
+  }
+}

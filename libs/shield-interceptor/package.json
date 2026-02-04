@@ -1,0 +1,38 @@
+{
+  "name": "@agenshield/interceptor",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Node.js runtime interception via ESM loader and CJS preload",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./register": {
+      "development": "./src/register.ts",
+      "types": "./dist/register.d.ts",
+      "import": "./dist/register.js",
+      "default": "./dist/register.js"
+    },
+    "./require": {
+      "development": "./src/require.ts",
+      "types": "./dist/require.d.ts",
+      "require": "./dist/require.cjs",
+      "default": "./dist/require.cjs"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@agenshield/ipc": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

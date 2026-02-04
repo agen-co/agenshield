@@ -1,0 +1,39 @@
+{
+  "name": "cli",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/cli/src",
+  "projectType": "library",
+  "tags": ["scope:libs", "scope:publishable", "versioning:independent"],
+  "targets": {
+    "build-tsc": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "libs/cli/dist",
+        "main": "libs/cli/src/index.ts",
+        "tsConfig": "libs/cli/tsconfig.lib.json",
+        "assets": ["libs/cli/README.md", "libs/cli/CHANGELOG.md", "LICENSE"]
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-tsc"],
+      "options": {
+        "command": "node scripts/strip-dist-from-pkg.js libs/cli/dist/package.json"
+      }
+    },
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx tsx libs/cli/src/cli.ts"
+      }
+    },
+    "nx-release-publish": {
+      "executor": "@nx/js:release-publish",
+      "dependsOn": ["build"],
+      "options": {
+        "packageRoot": "libs/cli/dist"
+      }
+    }
+  }
+}

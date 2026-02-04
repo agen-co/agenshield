@@ -1,0 +1,36 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "baseUrl": ".",
+    "rootDir": ".",
+    "strict": true,
+    "sourceMap": true,
+    "inlineSources": true,
+    "noImplicitAny": false,
+    "declaration": false,
+    "moduleResolution": "node",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "resolveJsonModule": true,
+    "strictPropertyInitialization": false,
+    "esModuleInterop": true,
+    "importHelpers": true,
+    "target": "es2022",
+    "module": "esnext",
+    "lib": ["es2022", "dom"],
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
+    "paths": {
+      "agenshield": ["libs/cli/src/index.ts"],
+      "@agenshield/ipc": ["libs/shield-ipc/src/index.ts"],
+      "@agenshield/daemon": ["libs/shield-daemon/src/index.ts"],
+      "@agenshield/sandbox": ["libs/shield-sandbox/src/index.ts"],
+      "@agenshield/broker": ["libs/shield-broker/src/index.ts"],
+      "@agenshield/interceptor": ["libs/shield-interceptor/src/index.ts"],
+      "@agenshield/patcher": ["libs/shield-patcher/src/index.ts"],
+      "@agenshield/skills": ["libs/shield-skills/src/index.ts"],
+      "@agenshield/ui": ["apps/shield-ui/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "tmp"]
+}

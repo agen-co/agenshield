@@ -1,0 +1,43 @@
+{
+  "name": "shield-sandbox",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/shield-sandbox/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build-cjs": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["^build"],
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "libs/shield-sandbox/dist",
+        "main": "libs/shield-sandbox/src/index.ts",
+        "tsConfig": "libs/shield-sandbox/tsconfig.lib.json",
+        "format": ["esm"],
+        "declaration": true,
+        "declarationRootDir": "libs/shield-sandbox/src",
+        "bundle": true,
+        "thirdParty": false,
+        "platform": "node",
+        "assets": ["libs/shield-sandbox/package.json"],
+        "esbuildOptions": {
+          "outExtension": { ".js": ".js" }
+        }
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-cjs"],
+      "options": {
+        "command": "node scripts/strip-dist-from-pkg.js libs/shield-sandbox/dist/package.json"
+      }
+    },
+    "nx-release-publish": {
+      "executor": "@nx/js:release-publish",
+      "dependsOn": ["build"],
+      "options": {
+        "packageRoot": "libs/shield-sandbox/dist"
+      }
+    }
+  }
+}

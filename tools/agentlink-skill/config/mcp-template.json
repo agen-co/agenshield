@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "agentlink-marketplace": {
+      "url": "https://mcp.marketplace.frontegg.com/mcp",
+      "transport": "http",
+      "auth": {
+        "type": "oauth",
+        "tokenProvider": "agentlink-secure-integrations"
+      },
+      "metadata": {
+        "name": "AgentLink Marketplace",
+        "description": "Secure third-party integrations via AgentLink cloud vault",
+        "categories": ["integrations", "productivity", "security"],
+        "features": [
+          "Credentials never stored locally",
+          "Server-side credential injection",
+          "Audit logging",
+          "Instant revocation"
+        ]
+      }
+    }
+  }
+}

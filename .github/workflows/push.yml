@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "next/**"
+      - "release/**"
+  pull_request:
+    branches:
+      - main
+      - "next/**"
+      - "release/**"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: agenshield-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    env:
+      NX_DAEMON: "false"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "yarn"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Set Nx SHAs
+        uses: nrwl/nx-set-shas@v4
+
+      - name: Run linter
+        run: npx nx affected -t lint
+        continue-on-error: true
+
+      - name: Run prettier
+        run: npx prettier --check .
+        continue-on-error: true
+
+      - name: Build libraries
+        id: build
+        run: npx nx affected -t build
+        continue-on-error: true
+
+      - name: Retry build with cache reset
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "Build failed, resetting NX cache and retrying..."
+          npx nx reset
+          npx nx affected -t build --skip-nx-cache
+
+      - name: Cache build artifacts
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            node_modules
+            libs/*/dist
+          key: build-${{ github.sha }}
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      NX_DAEMON: "false"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "yarn"
+
+      - name: Restore build artifacts
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            libs/*/dist
+          key: build-${{ github.sha }}
+
+      - name: Set Nx SHAs
+        uses: nrwl/nx-set-shas@v4
+
+      - name: Test libraries
+        id: test
+        run: npx nx affected -t test --passWithNoTests 2>&1 | tee test-output.txt
+        continue-on-error: true
+
+      - name: Log failed tests to summary
+        if: steps.test.outcome == 'failure'
+        run: |
+          echo "## Test Failures" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -A 5 "FAIL\|Error:" test-output.txt | head -100 >> $GITHUB_STEP_SUMMARY || echo "Could not extract failure details" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail if tests failed
+        if: steps.test.outcome == 'failure'
+        run: exit 1

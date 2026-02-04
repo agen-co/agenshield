@@ -1,0 +1,367 @@
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Release type"
+        required: true
+        type: choice
+        options:
+          - stable
+          - rc
+          - beta
+        default: stable
+      pre_release_number:
+        description: "Pre-release number (for rc/beta, leave empty for auto-increment)"
+        required: false
+        type: string
+      dry_run:
+        description: "Dry run (skip actual publish)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+concurrency:
+  group: publish-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      NX_DAEMON: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate branch
+        id: context
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Get current branch
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          # Validate branch is a release branch
+          if [[ ! "$BRANCH" =~ ^release/[0-9]+\.[0-9]+\.x$ ]]; then
+            echo "::error::This workflow must be run from a release/X.Y.x branch. Current branch: $BRANCH"
+            exit 1
+          fi
+
+          # Extract release line (X.Y) from release/X.Y.x
+          RELEASE_LINE=$(echo "$BRANCH" | sed 's/release\/\([0-9]*\.[0-9]*\).*/\1/')
+          echo "release_line=$RELEASE_LINE" >> "$GITHUB_OUTPUT"
+
+          echo "Branch: $BRANCH"
+          echo "Release line: $RELEASE_LINE"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "yarn"
+          registry-url: "https://registry.npmjs.org/"
+
+      - name: Update npm CLI for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Compute version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_LINE="${{ steps.context.outputs.release_line }}"
+          RELEASE_TYPE="${{ inputs.release_type }}"
+          PRE_RELEASE_NUM="${{ inputs.pre_release_number }}"
+
+          # Fetch all tags
+          git fetch --tags
+
+          # Use compute-next-patch script
+          if [ -n "$PRE_RELEASE_NUM" ]; then
+            VERSION=$(node scripts/compute-next-patch.mjs "$RELEASE_LINE" "$RELEASE_TYPE" "$PRE_RELEASE_NUM")
+          else
+            VERSION=$(node scripts/compute-next-patch.mjs "$RELEASE_LINE" "$RELEASE_TYPE")
+          fi
+
+          # Determine if this is a pre-release
+          IS_PRERELEASE="false"
+          NPM_TAG="latest"
+          if [[ "$VERSION" == *"-rc."* ]]; then
+            IS_PRERELEASE="true"
+            NPM_TAG="rc"
+          elif [[ "$VERSION" == *"-beta."* ]]; then
+            IS_PRERELEASE="true"
+            NPM_TAG="beta"
+          fi
+
+          # Check if tag already exists
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists!"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "release_type=$RELEASE_TYPE" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=$NPM_TAG" >> "$GITHUB_OUTPUT"
+
+          echo "Version: $VERSION"
+          echo "Release type: $RELEASE_TYPE"
+          echo "Is prerelease: $IS_PRERELEASE"
+          echo "NPM tag: $NPM_TAG"
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get previous version
+        id: prev_version
+        run: |
+          RELEASE_LINE="${{ steps.context.outputs.release_line }}"
+          # Get the latest stable tag for this release line
+          PREV_TAG=$(git tag --list "v${RELEASE_LINE}.*" --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ -z "$PREV_TAG" ]; then
+            # No previous tag in this line, try previous minor
+            PREV_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          fi
+          echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+          echo "Previous tag: $PREV_TAG"
+
+      - name: Generate diff
+        id: diff
+        run: |
+          PREV_TAG="${{ steps.prev_version.outputs.prev_tag }}"
+          if [ -n "$PREV_TAG" ]; then
+            DIFF=$(git diff "$PREV_TAG"..HEAD \
+              --stat --patch \
+              -- '*.ts' '*.js' '*.json' ':!package-lock.json' ':!*.test.ts' ':!*.spec.ts' \
+              | head -c 50000)
+          else
+            DIFF="Initial release - no previous version to compare"
+          fi
+          # Use file to avoid shell escaping issues
+          echo "$DIFF" > /tmp/diff.txt
+
+      - name: Generate AI changelog
+        id: ai_changelog
+        if: ${{ inputs.dry_run != true && inputs.release_type == 'stable' }}
+        uses: actions/github-script@v7
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          VERSION: v${{ steps.version.outputs.version }}
+          VERSION_MINOR: ${{ steps.context.outputs.release_line }}
+        with:
+          script: |
+            const fs = require('fs');
+            const diff = fs.readFileSync('/tmp/diff.txt', 'utf8');
+            const releaseDate = new Date().toISOString().split('T')[0];
+            const version = process.env.VERSION;
+            const versionNum = version.replace('v', '');
+
+            const prompt = `You are a technical writer for AgenShield, a security daemon for AI agents.
+
+            Version: ${version}
+            Release Date: ${releaseDate}
+
+            Git diff:
+            \`\`\`
+            ${diff.substring(0, 40000)}
+            \`\`\`
+
+            Generate two outputs:
+
+            1. CHANGELOG entry (Keep a Changelog format):
+            ## [${versionNum}] - ${releaseDate}
+            ### Added/Changed/Fixed/Security (only include relevant sections)
+            - Concise description of changes
+
+            2. A SINGLE Mintlify <Card> component (NOT the full file, just the Card):
+            <Card
+              title="AgenShield ${version}: Brief title"
+              href="https://github.com/agen-co/agenshield/releases/tag/${version}"
+              cta="View full changelog"
+            >
+              **Feature** – Description.
+              - Details if needed
+            </Card>
+
+            IMPORTANT: For cardMdx, output ONLY the <Card>...</Card> component, nothing else.
+
+            Output ONLY valid JSON: {"changelog": "...", "cardMdx": "<Card...>...</Card>"}`;
+
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model: 'gpt-4-turbo-preview',
+                messages: [{ role: 'user', content: prompt }],
+                response_format: { type: 'json_object' }
+              })
+            });
+
+            if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
+            const data = await response.json();
+            const result = JSON.parse(data.choices[0].message.content);
+
+            // Write card MDX to file to avoid shell escaping issues
+            fs.writeFileSync('/tmp/card-mdx.txt', result.cardMdx);
+
+            core.setOutput('changelog', result.changelog);
+            core.setOutput('has_card_mdx', result.cardMdx ? 'true' : 'false');
+
+      - name: Update package version
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          npx nx release version "${{ steps.version.outputs.version }}" \
+            --projects=cli --git-tag=false --git-commit=false
+
+      - name: Commit version bump
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "chore(release): v${{ steps.version.outputs.version }}"
+            git push origin HEAD
+          fi
+
+      - name: Build package
+        run: npx nx run cli:build
+
+      - name: Publish to npm
+        if: ${{ inputs.dry_run != true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NPM_TAG="${{ steps.version.outputs.npm_tag }}"
+          DIST_PATH="libs/cli/dist"
+
+          echo "Publishing agenshield from $DIST_PATH with tag $NPM_TAG..."
+          npm publish "$DIST_PATH" --access public --tag "$NPM_TAG"
+
+          echo "Successfully published agenshield@${{ steps.version.outputs.version }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create and push git tag
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v$VERSION"
+          BRANCH="${{ steps.context.outputs.branch }}"
+
+          # Fetch latest to ensure we tag the committed version
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+          git pull origin "$BRANCH"
+
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+          echo "Created and pushed tag: $TAG"
+
+      - name: Prepare release body
+        id: release_body
+        env:
+          CHANGELOG: ${{ steps.ai_changelog.outputs.changelog }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          RELEASE_TYPE="${{ steps.version.outputs.release_type }}"
+          RELEASE_LINE="${{ steps.context.outputs.release_line }}"
+          BRANCH="${{ steps.context.outputs.branch }}"
+          IS_PRERELEASE="${{ steps.version.outputs.is_prerelease }}"
+
+          # Start building the release body
+          {
+            echo "## Release v${VERSION}"
+            echo ""
+            echo "**Release type:** ${RELEASE_TYPE}"
+            echo "**Release line:** ${RELEASE_LINE}.x"
+            echo "**Branch:** ${BRANCH}"
+          } > /tmp/release-body.md
+
+          # Add AI-generated changelog if available
+          if [ -f /tmp/card-mdx.txt ] && [ -s /tmp/card-mdx.txt ] && [ -n "$CHANGELOG" ]; then
+            echo "" >> /tmp/release-body.md
+            echo "$CHANGELOG" >> /tmp/release-body.md
+          fi
+
+          # Add installation section
+          {
+            echo ""
+            echo "### Installation"
+            echo ""
+            echo '```bash'
+            echo "npm install agenshield@${VERSION}"
+            echo '```'
+          } >> /tmp/release-body.md
+
+          # Add pre-release note if applicable
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            echo "" >> /tmp/release-body.md
+            echo "> **Note:** This is a pre-release version." >> /tmp/release-body.md
+          fi
+
+          # Add Card MDX as hidden comment for docs sync (only for stable releases)
+          # NOTE: Content is sanitized to prevent --> from breaking the HTML comment.
+          # Consumer must reverse: replace "--&gt;" with "-->" after extraction.
+          if [ -f /tmp/card-mdx.txt ] && [ -s /tmp/card-mdx.txt ]; then
+            echo "" >> /tmp/release-body.md
+            echo "<!--" >> /tmp/release-body.md
+            echo "CARD_MDX_START" >> /tmp/release-body.md
+            sed 's/-->/--\&gt;/g' /tmp/card-mdx.txt >> /tmp/release-body.md
+            echo "CARD_MDX_END" >> /tmp/release-body.md
+            echo "-->" >> /tmp/release-body.md
+          fi
+
+      - name: Create GitHub Release
+        if: ${{ inputs.dry_run != true }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          prerelease: ${{ steps.version.outputs.is_prerelease }}
+          generate_release_notes: false
+          body_path: /tmp/release-body.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "## Dry Run Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "> **This was a dry run. No packages were published.**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Release Complete" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Version | \`${{ steps.version.outputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tag | \`v${{ steps.version.outputs.version }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Release type | ${{ steps.version.outputs.release_type }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| NPM tag | \`${{ steps.version.outputs.npm_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Pre-release | ${{ steps.version.outputs.is_prerelease }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch | \`${{ steps.context.outputs.branch }}\` |" >> "$GITHUB_STEP_SUMMARY"

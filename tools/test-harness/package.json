@@ -1,0 +1,34 @@
+{
+  "name": "dummy-openclaw",
+  "version": "1.0.0-dummy",
+  "description": "Dummy OpenClaw for AgenShield testing",
+  "main": "src/index.js",
+  "bin": {
+    "openclaw": "./bin/dummy-openclaw.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node bin/dummy-openclaw.js",
+    "test:network": "node bin/dummy-openclaw.js run --test-network",
+    "test:file": "node bin/dummy-openclaw.js run --test-file /etc/passwd",
+    "test:exec": "node bin/dummy-openclaw.js run --test-exec 'whoami'",
+    "test:all": "node bin/dummy-openclaw.js run --test-network --test-file /etc/passwd --test-exec 'whoami'"
+  },
+  "keywords": [
+    "openclaw",
+    "testing",
+    "agenshield"
+  ],
+  "author": "AgenShield",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

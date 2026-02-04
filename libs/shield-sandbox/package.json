@@ -1,0 +1,22 @@
+{
+  "name": "@agenshield/sandbox",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "User isolation and sandboxing utilities for AgenShield",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  }
+}

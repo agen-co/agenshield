@@ -1,0 +1,209 @@
+name: Create release branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      major_version:
+        description: "Major version (X in release/X.Y.x)"
+        required: true
+        type: string
+      minor_version:
+        description: "Minor version (Y in release/X.Y.x)"
+        required: true
+        type: string
+      base_branch:
+        description: "Base branch to create from"
+        required: false
+        type: string
+        default: "main"
+
+permissions:
+  contents: write
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      NX_DAEMON: "false"
+
+    steps:
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MAJOR="${{ inputs.major_version }}"
+          MINOR="${{ inputs.minor_version }}"
+
+          # Validate major version is a number
+          if ! [[ "$MAJOR" =~ ^[0-9]+$ ]]; then
+            echo "::error::Major version must be a positive integer. Got: $MAJOR"
+            exit 1
+          fi
+
+          # Validate minor version is a number
+          if ! [[ "$MINOR" =~ ^[0-9]+$ ]]; then
+            echo "::error::Minor version must be a positive integer. Got: $MINOR"
+            exit 1
+          fi
+
+          echo "Creating release branch for version $MAJOR.$MINOR.x"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.base_branch }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "yarn"
+          registry-url: "https://registry.npmjs.org/"
+
+      - name: Install deps
+        run: yarn install --frozen-lockfile
+
+      - name: Configure git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Check if branch already exists
+        id: check_branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MAJOR="${{ inputs.major_version }}"
+          MINOR="${{ inputs.minor_version }}"
+          BRANCH_NAME="release/${MAJOR}.${MINOR}.x"
+
+          # Check if branch exists on remote
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q .; then
+            echo "::error::Branch $BRANCH_NAME already exists on remote!"
+            exit 1
+          fi
+
+          echo "branch_name=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Calculate initial version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MAJOR="${{ inputs.major_version }}"
+          MINOR="${{ inputs.minor_version }}"
+          INITIAL_VERSION="${MAJOR}.${MINOR}.0"
+
+          echo "initial_version=$INITIAL_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Initial version: $INITIAL_VERSION"
+
+      - name: Create release branch
+        id: branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BRANCH_NAME="${{ steps.check_branch.outputs.branch_name }}"
+          BASE_BRANCH="${{ inputs.base_branch }}"
+
+          git fetch origin "$BASE_BRANCH" --tags
+          git switch -c "$BRANCH_NAME" "origin/$BASE_BRANCH"
+
+          echo "Created branch: $BRANCH_NAME"
+
+      - name: Apply version via Nx Release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          INITIAL_VERSION="${{ steps.version.outputs.initial_version }}"
+          echo "Setting version to $INITIAL_VERSION"
+
+          # Use Nx Release to set version (without git operations)
+          npx nx release version "$INITIAL_VERSION" --projects=cli --git-commit=false --git-tag=false
+
+      - name: Create release docs base marker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Create marker file for docs diffing
+          # This file records the commit SHA from which docs changes should be computed
+          MARKER_FILE=".release-docs-base"
+          BASE_SHA=$(git rev-parse HEAD)
+
+          echo "$BASE_SHA" > "$MARKER_FILE"
+          echo "Created $MARKER_FILE with base SHA: $BASE_SHA"
+
+      - name: Update CHANGELOG.md
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          INITIAL_VERSION="${{ steps.version.outputs.initial_version }}"
+          TODAY=$(date -u +"%Y-%m-%d")
+
+          # Update libs/cli/CHANGELOG.md
+          CHANGELOG_PATH="libs/cli/CHANGELOG.md"
+          if [ -f "$CHANGELOG_PATH" ]; then
+            # Add new version entry after [Unreleased]
+            sed -i.bak "s/## \[Unreleased\]/## [Unreleased]\n\n## [$INITIAL_VERSION] - $TODAY/" "$CHANGELOG_PATH"
+            rm -f "${CHANGELOG_PATH}.bak"
+            echo "Updated $CHANGELOG_PATH"
+          fi
+
+          # Update root CHANGELOG.md
+          ROOT_CHANGELOG="CHANGELOG.md"
+          if [ -f "$ROOT_CHANGELOG" ]; then
+            sed -i.bak "s/## \[Unreleased\]/## [Unreleased]\n\n## [$INITIAL_VERSION] - $TODAY/" "$ROOT_CHANGELOG"
+            rm -f "${ROOT_CHANGELOG}.bak"
+            echo "Updated $ROOT_CHANGELOG"
+          fi
+
+      - name: Commit changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          INITIAL_VERSION="${{ steps.version.outputs.initial_version }}"
+          BRANCH_NAME="${{ steps.check_branch.outputs.branch_name }}"
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "chore(release): initialize $BRANCH_NAME at v$INITIAL_VERSION" \
+              -m "- Set package version to $INITIAL_VERSION" \
+              -m "- Add .release-docs-base marker for docs diffing"
+            echo "Created initialization commit"
+          else
+            echo "No changes to commit"
+          fi
+
+      - name: Push branch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BRANCH_NAME="${{ steps.check_branch.outputs.branch_name }}"
+          git push --set-upstream origin "$BRANCH_NAME"
+          echo "Pushed $BRANCH_NAME to origin"
+
+      - name: Summary
+        run: |
+          echo "## Release Branch Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | \`${{ steps.check_branch.outputs.branch_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Initial Version** | \`${{ steps.version.outputs.initial_version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Base Branch** | \`${{ inputs.base_branch }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Create PRs targeting \`${{ steps.check_branch.outputs.branch_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. When ready to publish, run the **Publish Release** workflow from this branch" >> $GITHUB_STEP_SUMMARY
+          echo "3. Subsequent releases from this branch will increment: ${{ steps.version.outputs.initial_version }} -> x.y.1 -> x.y.2 ..." >> $GITHUB_STEP_SUMMARY

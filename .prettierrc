@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json.schemastore.org/prettierrc",
+  "printWidth": 120,
+  "tabWidth": 2,
+  "useTabs": false,
+  "semi": true,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "bracketSpacing": true,
+  "bracketSameLine": false,
+  "arrowParens": "always",
+  "quoteProps": "as-needed",
+  "endOfLine": "lf",
+  "proseWrap": "preserve",
+  "overrides": [
+    {
+      "files": ["*.md"],
+      "options": {
+        "proseWrap": "preserve"
+      }
+    },
+    {
+      "files": ["*.mdx"],
+      "options": {
+        "proseWrap": "preserve",
+        "printWidth": 120,
+        "embeddedLanguageFormatting": "off",
+        "jsxSingleQuote": false,
+        "bracketSameLine": false
+      }
+    },
+    {
+      "files": ["docs/**/*.mdx", "docs/**/*.md"],
+      "options": {
+        "proseWrap": "preserve",
+        "printWidth": 120,
+        "embeddedLanguageFormatting": "off",
+        "htmlWhitespaceSensitivity": "ignore",
+        "jsxSingleQuote": false,
+        "bracketSameLine": false,
+        "tabWidth": 2
+      }
+    },
+    {
+      "files": ["*.yml", "*.yaml"],
+      "options": {
+        "singleQuote": false
+      }
+    }
+  ]
+}

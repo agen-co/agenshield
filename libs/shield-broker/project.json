@@ -1,0 +1,49 @@
+{
+  "name": "shield-broker",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/shield-broker/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build-cjs": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["^build"],
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "libs/shield-broker/dist",
+        "main": "libs/shield-broker/src/index.ts",
+        "additionalEntryPoints": [
+          "libs/shield-broker/src/main.ts",
+          "libs/shield-broker/src/client/index.ts",
+          "libs/shield-broker/src/client/shield-client.ts"
+        ],
+        "tsConfig": "libs/shield-broker/tsconfig.lib.json",
+        "format": ["esm"],
+        "declaration": true,
+        "declarationRootDir": "libs/shield-broker/src",
+        "bundle": true,
+        "thirdParty": false,
+        "platform": "node",
+        "assets": ["libs/shield-broker/README.md", "LICENSE", "libs/shield-broker/package.json"],
+        "esbuildOptions": {
+          "outExtension": { ".js": ".js" },
+          "external": ["@agenshield/ipc"]
+        }
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-cjs"],
+      "options": {
+        "command": "node scripts/strip-dist-from-pkg.js libs/shield-broker/dist/package.json"
+      }
+    },
+    "nx-release-publish": {
+      "executor": "@nx/js:release-publish",
+      "dependsOn": ["build"],
+      "options": {
+        "packageRoot": "libs/shield-broker/dist"
+      }
+    }
+  }
+}

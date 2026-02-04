@@ -1,0 +1,63 @@
+{
+  "name": "agenshield",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AgenShield - CLI for managing AI agent security sandbox",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "bin": {
+    "agenshield": "./dist/src/cli.js"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "prepare": "npm run build"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "author": "Agen.co",
+  "license": "MIT",
+  "homepage": "https://github.com/agen-co/agenshield",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agen-co/agenshield.git"
+  },
+  "bugs": {
+    "url": "https://github.com/agen-co/agenshield/issues"
+  },
+  "keywords": [
+    "ai",
+    "security",
+    "agent",
+    "cli",
+    "sandbox"
+  ],
+  "dependencies": {
+    "@agenshield/ipc": "*",
+    "@agenshield/sandbox": "*",
+    "@agenshield/daemon": "*",
+    "commander": "^14.0.0",
+    "ink": "^5.2.0",
+    "ink-spinner": "^5.0.0",
+    "ink-select-input": "^6.0.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^18.3.1",
+    "yaml": "^2.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^18.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
