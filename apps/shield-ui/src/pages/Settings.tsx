@@ -4,6 +4,7 @@ import { PageHeader } from '../components/shared/PageHeader';
 import { ServerConfigCard } from '../components/settings/ServerConfigCard';
 import { LoggingCard } from '../components/settings/LoggingCard';
 import { AdvancedCard } from '../components/settings/AdvancedCard';
+import { DangerZoneCard } from '../components/settings/DangerZoneCard';
 
 export function Settings() {
   return (
@@ -16,6 +17,7 @@ export function Settings() {
         <ServerConfigCard />
         <LoggingCard />
         <AdvancedCard />
+        <DangerZoneCard />
       </Box>
     </Box>
   );

@@ -1,5 +1,5 @@
 /**
- * OAuth hook for AgentLink authentication
+ * OAuth hook for AgenCo authentication
  *
  * Calls auth/start to get the authorization URL, then navigates
  * the current page directly (no popup needed).
@@ -8,7 +8,7 @@
 import { useState, useCallback } from 'react';
 import { api } from '../../api/client';
 
-export function useAgentLinkOAuth() {
+export function useAgenCoOAuth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,7 +17,7 @@ export function useAgentLinkOAuth() {
     setError(null);
 
     try {
-      const res = await api.agentlink.startAuth();
+      const res = await api.agenco.startAuth();
       if (!res.success || !res.data?.authUrl) {
         // Already connected or no auth needed
         if (res.data?.message) {

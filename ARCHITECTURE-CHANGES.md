@@ -1,6 +1,6 @@
 # AgenShield Architecture Changes
 
-This document outlines the architectural changes required to support enhanced security features including Node.js-level command interception, native response format preservation, secret redaction, AgentLink integration, and skills approval workflow.
+This document outlines the architectural changes required to support enhanced security features including Node.js-level command interception, native response format preservation, secret redaction, AgenCo integration, and skills approval workflow.
 
 ---
 
@@ -11,7 +11,7 @@ This document outlines the architectural changes required to support enhanced se
 3. [Command Interception at Node.js Level](#2-command-interception-at-nodejs-level)
 4. [Native Response Format Preservation](#3-native-response-format-preservation)
 5. [Env Variable Redaction from Responses](#4-env-variable-redaction-from-responses)
-6. [AgentLink Integration into AgenShield](#5-agentlink-integration-into-agenshield)
+6. [AgenCo Integration into AgenShield](#5-agenco-integration-into-agenshield)
 7. [Skills Folder Watching & Approval Workflow](#6-skills-folder-watching--approval-workflow)
 8. [Migration Path](#migration-path)
 9. [API Changes](#api-changes)
@@ -29,7 +29,7 @@ AgenShield requires six major architectural changes to enhance security and func
 | Node.js Preload Interception | Catch HTTP commands before execution to inject secrets | New package `@agenshield/preload` |
 | Response Format Preservation | Return responses in native tool format (curl, wget, etc.) | New formatters module |
 | Secret Redaction | Prevent injected secrets from leaking in responses | New redaction layer |
-| AgentLink Centralization | Move AgentLink from skill to core daemon functionality | Refactor existing code |
+| AgenCo Centralization | Move AgenCo from skill to core daemon functionality | Refactor existing code |
 | Skills Approval Workflow | Runtime monitoring and approval of new skills | New watcher + routes |
 
 ```mermaid
@@ -152,7 +152,7 @@ PATH=/var/lib/agenshield/bins:$ORIGINAL_PATH
 ├── wget          # → Node.js proxy
 ├── git           # → Node.js proxy
 ├── ssh           # → Node.js proxy
-├── agentlink     # → Node.js proxy
+├── agenco     # → Node.js proxy
 └── .real-paths   # JSON map of original binary locations
 ```
 
@@ -475,7 +475,7 @@ const PROXY_BIN_DIR = '/var/lib/agenshield/bins';
 const PROXIED_COMMANDS = [
   'curl', 'wget', 'git', 'ssh', 'scp', 'rsync',
   'http',   // httpie
-  'agentlink'
+  'agenco'
 ];
 
 export async function generateBinProxies(): Promise<void> {
@@ -1282,19 +1282,19 @@ export function redactSecrets(
 
 ---
 
-## 5. AgentLink Integration into AgenShield
+## 5. AgenCo Integration into AgenShield
 
 ### Current State
 
-- AgentLink is a separate skill in `tools/agentlink-skill/`
+- AgenCo is a separate skill in `tools/agenco-skill/`
 - Has its own CLI, token storage logic
-- Tokens stored in daemon vault via `/api/agentlink` routes
+- Tokens stored in daemon vault via `/api/agenco` routes
 - Skill copied to OpenClaw's skills folder during setup
 
 ### Required Change
 
-- AgentLink becomes a core part of AgenShield (not a separate skill)
-- The `agentlink` binary becomes a thin proxy to AgenShield daemon
+- AgenCo becomes a core part of AgenShield (not a separate skill)
+- The `agenco` binary becomes a thin proxy to AgenShield daemon
 - All auth logic centralized in daemon
 - Skill in OpenClaw just describes the capability, execution goes through daemon
 
@@ -1303,21 +1303,21 @@ export function redactSecrets(
 ```mermaid
 sequenceDiagram
     participant Agent as Agent (clawagent)
-    participant Bin as agentlink binary
+    participant Bin as agenco binary
     participant Daemon as AgenShield Daemon
     participant Vault as Token Vault
     participant External as External API (Slack, etc.)
 
     Note over Agent,External: Authentication Flow
-    Agent->>Bin: agentlink auth slack
-    Bin->>Daemon: POST /api/agentlink/cli {command: "auth", args: ["slack"]}
+    Agent->>Bin: agenco auth slack
+    Bin->>Daemon: POST /api/agenco/cli {command: "auth", args: ["slack"]}
     Daemon->>Daemon: Generate OAuth URL
     Daemon-->>Bin: {output: "Visit: https://...", exitCode: 0}
     Bin-->>Agent: Visit: https://...
 
     Note over Agent,External: Tool Execution Flow
-    Agent->>Bin: agentlink tool run slack send_message --channel #general --text "Hello"
-    Bin->>Daemon: POST /api/agentlink/cli {command: "tool", args: ["run", "slack", ...]}
+    Agent->>Bin: agenco tool run slack send_message --channel #general --text "Hello"
+    Bin->>Daemon: POST /api/agenco/cli {command: "tool", args: ["run", "slack", ...]}
     Daemon->>Vault: Get slack token
     Vault-->>Daemon: token
     Daemon->>External: POST /api/chat.postMessage (with token)
@@ -1328,7 +1328,7 @@ sequenceDiagram
 
 ### Files to Modify
 
-#### `tools/agentlink-skill/bin/agentlink.js` (Convert to Proxy)
+#### `tools/agenco-skill/bin/agenco.js` (Convert to Proxy)
 
 ```javascript
 #!/usr/bin/env node
@@ -1342,7 +1342,7 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
-    console.log('Usage: agentlink <command> [args...]');
+    console.log('Usage: agenco <command> [args...]');
     console.log('Commands: auth, tool, status, logout');
     process.exit(0);
   }
@@ -1350,7 +1350,7 @@ async function main() {
   const [command, ...commandArgs] = args;
 
   try {
-    const response = await fetch(`http://${DAEMON_HOST}:${DAEMON_PORT}/api/agentlink/cli`, {
+    const response = await fetch(`http://${DAEMON_HOST}:${DAEMON_PORT}/api/agenco/cli`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1359,7 +1359,7 @@ async function main() {
         cwd: process.cwd(),
         env: {
           // Pass through relevant env vars
-          AGENTLINK_SESSION: process.env.AGENTLINK_SESSION,
+          AGENCO_SESSION: process.env.AGENCO_SESSION,
         }
       })
     });
@@ -1395,13 +1395,13 @@ async function main() {
 main();
 ```
 
-#### `libs/shield-daemon/src/routes/agentlink.ts` (Add CLI Endpoint)
+#### `libs/shield-daemon/src/routes/agenco.ts` (Add CLI Endpoint)
 
 ```typescript
 import { Router } from 'express';
-import { AgentLinkService } from '../services/agentlink';
+import { AgenCoService } from '../services/agenco';
 
-export function createAgentLinkRoutes(service: AgentLinkService): Router {
+export function createAgenCoRoutes(service: AgenCoService): Router {
   const router = Router();
 
   // Existing routes...
@@ -1426,7 +1426,7 @@ export function createAgentLinkRoutes(service: AgentLinkService): Router {
 }
 ```
 
-#### `libs/shield-daemon/src/services/agentlink.ts` (New Service)
+#### `libs/shield-daemon/src/services/agenco.ts` (New Service)
 
 ```typescript
 export interface CliResult {
@@ -1440,10 +1440,10 @@ export interface CliContext {
   env?: Record<string, string>;
 }
 
-export class AgentLinkService {
+export class AgenCoService {
   constructor(
     private vault: VaultService,
-    private config: AgentLinkConfig
+    private config: AgenCoConfig
   ) {}
 
   async handleCli(
@@ -1473,7 +1473,7 @@ export class AgentLinkService {
     const [provider] = args;
     if (!provider) {
       return {
-        output: 'Usage: agentlink auth <provider>\nProviders: slack, github, notion, linear',
+        output: 'Usage: agenco auth <provider>\nProviders: slack, github, notion, linear',
         error: '',
         exitCode: 0
       };
@@ -1492,7 +1492,7 @@ export class AgentLinkService {
 
     if (subcommand !== 'run') {
       return {
-        output: 'Usage: agentlink tool run <provider> <action> [args...]',
+        output: 'Usage: agenco tool run <provider> <action> [args...]',
         error: '',
         exitCode: 0
       };
@@ -1502,7 +1502,7 @@ export class AgentLinkService {
     if (!token) {
       return {
         output: '',
-        error: `Not authenticated with ${provider}. Run: agentlink auth ${provider}`,
+        error: `Not authenticated with ${provider}. Run: agenco auth ${provider}`,
         exitCode: 1
       };
     }
@@ -2000,9 +2000,9 @@ export const DIRECTORIES = {
 3. Add redaction to command.execute handler
 4. Test with various secret formats and encodings
 
-### Phase 5: AgentLink Migration
+### Phase 5: AgenCo Migration
 
-1. Update agentlink binary to proxy mode (reuse bin proxy pattern)
+1. Update agenco binary to proxy mode (reuse bin proxy pattern)
 2. Add /cli endpoint to daemon
 3. Migrate token management to daemon
 4. Update skill to describe-only mode
@@ -2026,7 +2026,7 @@ export const DIRECTORIES = {
 | GET | `/api/secrets` | List secrets (names + refs, never values) |
 | DELETE | `/api/secrets/:ref` | Revoke a secret |
 | POST | `/api/secrets/:ref/rotate` | Rotate secret value (same ref, new value) |
-| POST | `/api/agentlink/cli` | AgentLink CLI proxy |
+| POST | `/api/agenco/cli` | AgenCo CLI proxy |
 | GET | `/api/skills` | List all skills |
 | GET | `/api/skills/quarantine` | List quarantined skills |
 | POST | `/api/skills/:name/approve` | Approve skill |
@@ -2090,7 +2090,7 @@ export const DIRECTORIES = {
 - Only root/admin can approve skills
 - Skills are validated before installation
 
-### 6. AgentLink Tokens
+### 6. AgenCo Tokens
 
 - Tokens stored in daemon vault (encrypted)
 - Agent only receives short-lived session tokens

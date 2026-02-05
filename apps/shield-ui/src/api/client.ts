@@ -11,9 +11,10 @@ import type {
   SkillAnalysis,
   SystemBinary,
   DiscoveryResult,
-  AgentLinkIntegrationsListResponse,
-  AgentLinkConnectedIntegrationsResponse,
-  AgentLinkConnectIntegrationResponse,
+  AgenCoIntegrationsListResponse,
+  AgenCoConnectedIntegrationsResponse,
+  AgenCoConnectIntegrationResponse,
+  FsBrowseEntry,
 } from '@agenshield/ipc';
 import type {
   MarketplaceSkill,
@@ -221,38 +222,51 @@ export const api = {
   getDiscovery: (refresh = false) =>
     request<{ success: boolean; data: DiscoveryResult }>(`/discovery/scan?refresh=${refresh}`),
 
-  // AgentLink endpoints
-  agentlink: {
+  // AgenCo endpoints
+  agenco: {
     getAuthStatus: () =>
-      request<{ success: boolean; data: { authenticated: boolean; expired: boolean; expiresAt: string | null; connectedIntegrations: string[] } }>('/agentlink/auth/status'),
+      request<{ success: boolean; data: { authenticated: boolean; expired: boolean; expiresAt: string | null; connectedIntegrations: string[] } }>('/agenco/auth/status'),
 
     startAuth: () =>
-      request<{ success: boolean; data?: { authUrl?: string; message?: string }; error?: string }>('/agentlink/auth/start', {
+      request<{ success: boolean; data?: { authUrl?: string; message?: string }; error?: string }>('/agenco/auth/start', {
         method: 'POST',
         body: JSON.stringify({}),
       }),
 
     logout: () =>
-      request<{ success: boolean }>('/agentlink/auth/logout', { method: 'POST' }),
+      request<{ success: boolean }>('/agenco/auth/logout', { method: 'POST' }),
 
     getMCPStatus: () =>
-      request<{ success: boolean; data: { state: string; active: boolean } }>('/agentlink/mcp/status'),
+      request<{ success: boolean; data: { state: string; active: boolean } }>('/agenco/mcp/status'),
 
     listIntegrations: (category?: string, search?: string) => {
       const params = new URLSearchParams();
       if (category) params.set('category', category);
       if (search) params.set('search', search);
       const qs = params.toString();
-      return request<{ success: boolean; data: AgentLinkIntegrationsListResponse }>(`/agentlink/integrations${qs ? `?${qs}` : ''}`);
+      return request<{ success: boolean; data: AgenCoIntegrationsListResponse }>(`/agenco/integrations${qs ? `?${qs}` : ''}`);
     },
 
     listConnectedIntegrations: () =>
-      request<{ success: boolean; data: AgentLinkConnectedIntegrationsResponse }>('/agentlink/integrations/connected'),
+      request<{ success: boolean; data: AgenCoConnectedIntegrationsResponse }>('/agenco/integrations/connected'),
 
     connectIntegration: (integration: string, scopes?: string[]) =>
-      request<{ success: boolean; data: AgentLinkConnectIntegrationResponse & { skillProvisioned?: boolean } }>('/agentlink/integrations/connect', {
+      request<{ success: boolean; data: AgenCoConnectIntegrationResponse & { skillProvisioned?: boolean } }>('/agenco/integrations/connect', {
         method: 'POST',
         body: JSON.stringify({ integration, scopes }),
       }),
+  },
+
+  // Factory reset
+  factoryReset: () =>
+    request<{ success: boolean }>('/config/factory-reset', { method: 'POST' }),
+
+  // Filesystem browse
+  browsePath: (dirPath?: string, showHidden = false) => {
+    const params = new URLSearchParams();
+    if (dirPath) params.set('path', dirPath);
+    if (showHidden) params.set('showHidden', 'true');
+    const qs = params.toString();
+    return request<{ success: boolean; data: { entries: FsBrowseEntry[] } }>(`/fs/browse${qs ? `?${qs}` : ''}`);
   },
 };

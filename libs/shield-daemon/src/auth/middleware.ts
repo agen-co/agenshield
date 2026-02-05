@@ -111,11 +111,12 @@ export const PROTECTED_ROUTES = [
   { method: 'POST', path: '/api/wrappers' },
   { method: 'PUT', path: '/api/wrappers' },
   { method: 'DELETE', path: '/api/wrappers' },
-  { method: 'POST', path: '/api/agentlink/tool/run' },
-  { method: 'POST', path: '/api/agentlink/integrations/connect' },
+  { method: 'POST', path: '/api/agenco/tool/run' },
+  { method: 'POST', path: '/api/agenco/integrations/connect' },
   { method: 'POST', path: '/api/secrets' },
   { method: 'PATCH', path: '/api/secrets' },
   { method: 'DELETE', path: '/api/secrets' },
+  { method: 'POST', path: '/api/config/factory-reset' },
 ];
 
 /**

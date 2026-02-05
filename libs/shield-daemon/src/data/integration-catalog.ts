@@ -31,7 +31,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "activecampaign": {
     id: "activecampaign",
     title: "ActiveCampaign",
-    description: "ActiveCampaign actions available through AgentLink",
+    description: "ActiveCampaign actions available through AgenCo",
     actions: [
       { name: "list_contacts", description: "Retrieves contact list" },
       { name: "get_contact", description: "Fetches contact details" },
@@ -46,7 +46,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "acuity-scheduling": {
     id: "acuity-scheduling",
     title: "Acuity Scheduling",
-    description: "Acuity Scheduling actions available through AgentLink",
+    description: "Acuity Scheduling actions available through AgenCo",
     actions: [
       { name: "list_appointments", description: "Retrieves scheduled appointments with read access" },
       { name: "get_appointment", description: "Fetches detailed appointment information" },
@@ -61,7 +61,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "adobe-analytics": {
     id: "adobe-analytics",
     title: "Adobe Analytics",
-    description: "Adobe Analytics actions available through AgentLink",
+    description: "Adobe Analytics actions available through AgenCo",
     actions: [
       { name: "get_reports", description: "Retrieves analytics reports" },
       { name: "list_report_suites", description: "Gets report suites" },
@@ -72,7 +72,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "adobe-creative-cloud": {
     id: "adobe-creative-cloud",
     title: "Adobe Creative Cloud",
-    description: "Adobe Creative Cloud actions available through AgentLink",
+    description: "Adobe Creative Cloud actions available through AgenCo",
     actions: [
       { name: "list_libraries", description: "Retrieves Creative Cloud libraries" },
       { name: "get_library", description: "Fetches library contents" },
@@ -84,7 +84,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "adp": {
     id: "adp",
     title: "ADP",
-    description: "ADP actions available through AgentLink",
+    description: "ADP actions available through AgenCo",
     actions: [
       { name: "list_workers", description: "Retrieves employee records" },
       { name: "get_worker", description: "Fetches employee details and compensation" },
@@ -99,7 +99,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "aha": {
     id: "aha",
     title: "Aha!",
-    description: "Aha! actions available through AgentLink",
+    description: "Aha! actions available through AgenCo",
     actions: [
       { name: "list_ideas", description: "Retrieves product ideas from the system" },
       { name: "get_idea", description: "Fetches detailed information about a specific idea" },
@@ -113,7 +113,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "airtable": {
     id: "airtable",
     title: "Airtable",
-    description: "Airtable actions available through AgentLink",
+    description: "Airtable actions available through AgenCo",
     actions: [
       { name: "list_bases", description: "Retrieves all bases the user can access" },
       { name: "get_base_schema", description: "Fetches tables and fields structure" },
@@ -129,7 +129,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "akamai": {
     id: "akamai",
     title: "Akamai",
-    description: "Akamai actions available through AgentLink",
+    description: "Akamai actions available through AgenCo",
     actions: [
       { name: "list_properties", description: "Retrieves edge configurations" },
       { name: "get_property", description: "Fetches property details" },
@@ -140,7 +140,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "appdynamics": {
     id: "appdynamics",
     title: "AppDynamics",
-    description: "AppDynamics actions available through AgentLink",
+    description: "AppDynamics actions available through AgenCo",
     actions: [
       { name: "list_applications", description: "Retrieves monitored applications" },
       { name: "get_application", description: "Fetches application details" },
@@ -151,7 +151,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "asana": {
     id: "asana",
     title: "Asana",
-    description: "Asana actions available through AgentLink",
+    description: "Asana actions available through AgenCo",
     actions: [
       { name: "get_task", description: "Retrieves task details including subtasks and attachments" },
       { name: "create_task", description: "Creates new tasks with assignee, due date, and project" },
@@ -168,7 +168,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "auth0": {
     id: "auth0",
     title: "Auth0",
-    description: "Auth0 actions available through AgentLink",
+    description: "Auth0 actions available through AgenCo",
     actions: [
       { name: "list_users", description: "Retrieves user accounts" },
       { name: "get_user", description: "Fetches user profile and metadata" },
@@ -183,7 +183,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "aweber": {
     id: "aweber",
     title: "AWeber",
-    description: "AWeber actions available through AgentLink",
+    description: "AWeber actions available through AgenCo",
     actions: [
       { name: "list_subscribers", description: "Retrieves subscriber list from your AWeber account" },
       { name: "get_subscriber", description: "Fetches detailed information about a specific subscriber" },
@@ -197,7 +197,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "azure-ad": {
     id: "azure-ad",
     title: "Azure AD",
-    description: "Azure AD actions available through AgentLink",
+    description: "Azure AD actions available through AgenCo",
     actions: [
       { name: "list_users", description: "Retrieves directory users" },
       { name: "get_user", description: "Fetches user profile and groups" },
@@ -212,7 +212,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "azure-devops": {
     id: "azure-devops",
     title: "Azure DevOps",
-    description: "Azure DevOps actions available through AgentLink",
+    description: "Azure DevOps actions available through AgenCo",
     actions: [
       { name: "list_projects", description: "Retrieves Azure DevOps projects" },
       { name: "get_project", description: "Fetches project details" },
@@ -226,7 +226,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "bamboohr": {
     id: "bamboohr",
     title: "BambooHR",
-    description: "BambooHR actions available through AgentLink",
+    description: "BambooHR actions available through AgenCo",
     actions: [
       { name: "list_employees", description: "Retrieves the employee directory" },
       { name: "get_employee", description: "Fetches individual employee profile and details" },
@@ -241,7 +241,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "better-uptime": {
     id: "better-uptime",
     title: "Better Uptime",
-    description: "Better Uptime actions available through AgentLink",
+    description: "Better Uptime actions available through AgenCo",
     actions: [
       { name: "list_monitors", description: "Retrieves uptime monitors" },
       { name: "get_monitor", description: "Fetches detailed monitor information" },
@@ -252,7 +252,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "bitbucket": {
     id: "bitbucket",
     title: "Bitbucket",
-    description: "Bitbucket actions available through AgentLink",
+    description: "Bitbucket actions available through AgenCo",
     actions: [
       { name: "list_repositories", description: "Retrieves accessible repositories from your Bitbucket workspace" },
       { name: "list_pull_requests", description: "Gets pull requests to facilitate code review workflows" },
@@ -262,7 +262,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "box": {
     id: "box",
     title: "Box",
-    description: "Box actions available through AgentLink",
+    description: "Box actions available through AgenCo",
     actions: [
       { name: "get_user", description: "Retrieves current user information" },
       { name: "list_files", description: "Gets files in folders" },
@@ -278,7 +278,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "brevo": {
     id: "brevo",
     title: "Brevo",
-    description: "Brevo actions available through AgentLink",
+    description: "Brevo actions available through AgenCo",
     actions: [
       { name: "list_contacts", description: "Retrieves contact list" },
       { name: "get_contact", description: "Fetches contact details" },
@@ -293,7 +293,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "buddy": {
     id: "buddy",
     title: "Buddy",
-    description: "Buddy actions available through AgentLink",
+    description: "Buddy actions available through AgenCo",
     actions: [
       { name: "list_workspaces", description: "Retrieves Buddy workspaces" },
       { name: "list_projects", description: "Gets projects" },
@@ -304,7 +304,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "calendly": {
     id: "calendly",
     title: "Calendly",
-    description: "Calendly actions available through AgentLink",
+    description: "Calendly actions available through AgenCo",
     actions: [
       { name: "get_current_user", description: "Retrieves authenticated user info" },
       { name: "list_event_types", description: "Gets scheduling link types" },
@@ -319,7 +319,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "calendly-enterprise": {
     id: "calendly-enterprise",
     title: "Calendly Enterprise",
-    description: "Calendly Enterprise actions available through AgentLink",
+    description: "Calendly Enterprise actions available through AgenCo",
     actions: [
       { name: "get_organization", description: "Retrieves organization details and configuration" },
       { name: "list_members", description: "Gets organization members and their roles" },
@@ -332,7 +332,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "campaign-monitor": {
     id: "campaign-monitor",
     title: "Campaign Monitor",
-    description: "Campaign Monitor actions available through AgentLink",
+    description: "Campaign Monitor actions available through AgenCo",
     actions: [
       { name: "list_clients", description: "Retrieves client accounts" },
       { name: "list_lists", description: "Gets subscriber lists" },
@@ -346,7 +346,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "canva": {
     id: "canva",
     title: "Canva",
-    description: "Canva actions available through AgentLink",
+    description: "Canva actions available through AgenCo",
     actions: [
       { name: "list_designs", description: "Retrieves user designs" },
       { name: "get_design", description: "Fetches design details" },
@@ -358,7 +358,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "chorus-ai": {
     id: "chorus-ai",
     title: "Chorus.ai",
-    description: "Chorus.ai actions available through AgentLink",
+    description: "Chorus.ai actions available through AgenCo",
     actions: [
       { name: "list_meetings", description: "Retrieves recorded meetings" },
       { name: "get_meeting", description: "Fetches meeting details" },
@@ -371,7 +371,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "circleci": {
     id: "circleci",
     title: "CircleCI",
-    description: "CircleCI actions available through AgentLink",
+    description: "CircleCI actions available through AgenCo",
     actions: [
       { name: "list_projects", description: "Retrieves CircleCI projects" },
       { name: "get_project", description: "Fetches detailed project information" },
@@ -383,7 +383,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "cisco-webex": {
     id: "cisco-webex",
     title: "Cisco Webex",
-    description: "Cisco Webex actions available through AgentLink",
+    description: "Cisco Webex actions available through AgenCo",
     actions: [
       { name: "get_current_user", description: "Retrieves authenticated user information" },
       { name: "list_rooms", description: "Obtains Webex spaces and rooms" },
@@ -398,7 +398,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "clickup": {
     id: "clickup",
     title: "ClickUp",
-    description: "ClickUp actions available through AgentLink",
+    description: "ClickUp actions available through AgenCo",
     actions: [
       { name: "get_workspaces", description: "Retrieves accessible workspaces" },
       { name: "get_spaces", description: "Gets spaces within workspaces" },
@@ -409,7 +409,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "cloudflare": {
     id: "cloudflare",
     title: "Cloudflare",
-    description: "Cloudflare actions available through AgentLink",
+    description: "Cloudflare actions available through AgenCo",
     actions: [
       { name: "list_zones", description: "Retrieves managed domains" },
       { name: "get_zone", description: "Fetches zone details" },
@@ -424,7 +424,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "confluence": {
     id: "confluence",
     title: "Confluence",
-    description: "Confluence actions available through AgentLink",
+    description: "Confluence actions available through AgenCo",
     actions: [
       { name: "get_page", description: "Retrieves page content and metadata from Confluence spaces" },
       { name: "create_page", description: "Adds new pages to Confluence spaces" },
@@ -441,7 +441,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "constant-contact": {
     id: "constant-contact",
     title: "Constant Contact",
-    description: "Constant Contact actions available through AgentLink",
+    description: "Constant Contact actions available through AgenCo",
     actions: [
       { name: "list_contacts", description: "Retrieves contact list" },
       { name: "create_contact", description: "Adds new contacts" },
@@ -455,7 +455,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "contentful": {
     id: "contentful",
     title: "Contentful",
-    description: "Contentful actions available through AgentLink",
+    description: "Contentful actions available through AgenCo",
     actions: [
       { name: "list_spaces", description: "Retrieves content spaces" },
       { name: "get_space", description: "Fetches space details" },
@@ -470,7 +470,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "convertkit": {
     id: "convertkit",
     title: "ConvertKit",
-    description: "ConvertKit actions available through AgentLink",
+    description: "ConvertKit actions available through AgenCo",
     actions: [
       { name: "list_subscribers", description: "Retrieves subscriber list" },
       { name: "get_subscriber", description: "Fetches subscriber details" },
@@ -485,7 +485,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "databricks": {
     id: "databricks",
     title: "Databricks",
-    description: "Databricks actions available through AgentLink",
+    description: "Databricks actions available through AgenCo",
     actions: [
       { name: "list_clusters", description: "Retrieves compute clusters" },
       { name: "list_jobs", description: "Gets scheduled jobs" },
@@ -494,7 +494,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "digitalocean": {
     id: "digitalocean",
     title: "DigitalOcean",
-    description: "DigitalOcean actions available through AgentLink",
+    description: "DigitalOcean actions available through AgenCo",
     actions: [
       { name: "get_account", description: "Retrieves account information" },
       { name: "list_droplets", description: "Gets virtual machines" },
@@ -509,7 +509,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "discord": {
     id: "discord",
     title: "Discord",
-    description: "Discord actions available through AgentLink",
+    description: "Discord actions available through AgenCo",
     actions: [
       { name: "get_current_user", description: "Retrieves authenticated user info" },
       { name: "list_guilds", description: "Gets servers the user is in" },
@@ -525,7 +525,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "docusign": {
     id: "docusign",
     title: "DocuSign",
-    description: "DocuSign actions available through AgentLink",
+    description: "DocuSign actions available through AgenCo",
     actions: [
       { name: "create_envelope", description: "Generates new document envelopes ready for signing" },
       { name: "get_envelope", description: "Retrieves current envelope status and details" },
@@ -542,7 +542,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "drift": {
     id: "drift",
     title: "Drift",
-    description: "Drift actions available through AgentLink",
+    description: "Drift actions available through AgenCo",
     actions: [
       { name: "list_conversations", description: "Retrieves chat conversations" },
       { name: "get_conversation", description: "Fetches conversation messages" },
@@ -557,7 +557,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "drip": {
     id: "drip",
     title: "Drip",
-    description: "Drip actions available through AgentLink",
+    description: "Drip actions available through AgenCo",
     actions: [
       { name: "list_subscribers", description: "Retrieves subscriber list" },
       { name: "get_subscriber", description: "Fetches subscriber details" },
@@ -571,7 +571,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "dropbox": {
     id: "dropbox",
     title: "Dropbox",
-    description: "Dropbox actions available through AgentLink",
+    description: "Dropbox actions available through AgenCo",
     actions: [
       { name: "list_files", description: "Retrieves files and folders from Dropbox" },
       { name: "download_file", description: "Downloads file content from Dropbox" },
@@ -588,7 +588,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "dynatrace": {
     id: "dynatrace",
     title: "Dynatrace",
-    description: "Dynatrace actions available through AgentLink",
+    description: "Dynatrace actions available through AgenCo",
     actions: [
       { name: "list_entities", description: "Retrieves monitored entities" },
       { name: "get_entity", description: "Fetches entity details" },
@@ -599,7 +599,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "eloqua": {
     id: "eloqua",
     title: "Eloqua",
-    description: "Eloqua actions available through AgentLink",
+    description: "Eloqua actions available through AgenCo",
     actions: [
       { name: "list_contacts", description: "Retrieves contact records" },
       { name: "get_contact", description: "Fetches contact details" },
@@ -613,7 +613,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "evernote": {
     id: "evernote",
     title: "Evernote",
-    description: "Evernote actions available through AgentLink",
+    description: "Evernote actions available through AgenCo",
     actions: [
       { name: "list_notebooks", description: "Retrieves available notebooks" },
       { name: "get_notebook", description: "Fetches notebook details" },
@@ -627,7 +627,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "facebook": {
     id: "facebook",
     title: "Facebook",
-    description: "Facebook actions available through AgentLink",
+    description: "Facebook actions available through AgenCo",
     actions: [
       { name: "get_profile", description: "Retrieves user profile information" },
       { name: "list_posts", description: "Gets posts from timeline" },
@@ -640,7 +640,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "fastly": {
     id: "fastly",
     title: "Fastly",
-    description: "Fastly actions available through AgentLink",
+    description: "Fastly actions available through AgenCo",
     actions: [
       { name: "list_services", description: "Retrieves CDN services" },
       { name: "get_service", description: "Fetches service details" },
@@ -651,7 +651,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "figma": {
     id: "figma",
     title: "Figma",
-    description: "Figma actions available through AgentLink",
+    description: "Figma actions available through AgenCo",
     actions: [
       { name: "get_file", description: "Retrieves Figma file content and structure" },
       { name: "list_projects", description: "Gets team projects" },
@@ -663,7 +663,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "formstack": {
     id: "formstack",
     title: "Formstack",
-    description: "Formstack actions available through AgentLink",
+    description: "Formstack actions available through AgenCo",
     actions: [
       { name: "list_forms", description: "Retrieves available forms" },
       { name: "get_form", description: "Fetches form details" },
@@ -676,7 +676,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "freshbooks": {
     id: "freshbooks",
     title: "FreshBooks",
-    description: "FreshBooks actions available through AgentLink",
+    description: "FreshBooks actions available through AgenCo",
     actions: [
       { name: "list_clients", description: "Retrieves client records" },
       { name: "get_client", description: "Fetches client details and invoices" },
@@ -692,7 +692,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "front": {
     id: "front",
     title: "Front",
-    description: "Front actions available through AgentLink",
+    description: "Front actions available through AgenCo",
     actions: [
       { name: "list_conversations", description: "Retrieves support conversations" },
       { name: "get_conversation", description: "Fetches conversation messages" },
@@ -707,7 +707,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "github": {
     id: "github",
     title: "GitHub",
-    description: "GitHub actions available through AgentLink",
+    description: "GitHub actions available through AgenCo",
     actions: [
       { name: "list_repositories", description: "Retrieves repositories the user has access to" },
       { name: "get_repository", description: "Fetches repository details including branches and settings" },
@@ -725,7 +725,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "gitlab": {
     id: "gitlab",
     title: "GitLab",
-    description: "GitLab actions available through AgentLink",
+    description: "GitLab actions available through AgenCo",
     actions: [
       { name: "list_projects", description: "Retrieves accessible projects with read permission" },
       { name: "list_issues", description: "Gets project issues for tracking and management" },
@@ -735,7 +735,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "gmail": {
     id: "gmail",
     title: "Gmail",
-    description: "Gmail actions available through AgentLink",
+    description: "Gmail actions available through AgenCo",
     actions: [
       { name: "list_messages", description: "Retrieves emails from inbox with filtering by date, sender, or labels" },
       { name: "get_message", description: "Fetches the full content of a specific email including attachments" },
@@ -752,7 +752,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "gong": {
     id: "gong",
     title: "Gong",
-    description: "Gong actions available through AgentLink",
+    description: "Gong actions available through AgenCo",
     actions: [
       { name: "list_calls", description: "Retrieves recorded sales calls" },
       { name: "get_call", description: "Fetches call details and metadata" },
@@ -766,7 +766,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "google-analytics": {
     id: "google-analytics",
     title: "Google Analytics",
-    description: "Google Analytics actions available through AgentLink",
+    description: "Google Analytics actions available through AgenCo",
     actions: [
       { name: "run_report", description: "Executes analytics reports using reports read permission" },
       { name: "batch_run_reports", description: "Runs multiple reports simultaneously with reports read permission" },
@@ -778,7 +778,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "google-calendar": {
     id: "google-calendar",
     title: "Google Calendar",
-    description: "Google Calendar actions available through AgentLink",
+    description: "Google Calendar actions available through AgenCo",
     actions: [
       { name: "list_events", description: "Retrieves upcoming calendar events to check schedules and availability" },
       { name: "get_event", description: "Fetches details of a specific calendar event including attendees and location" },
@@ -792,7 +792,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "google-docs": {
     id: "google-docs",
     title: "Google Docs",
-    description: "Google Docs actions available through AgentLink",
+    description: "Google Docs actions available through AgenCo",
     actions: [
       { name: "get_document", description: "Retrieves document content and structure" },
       { name: "create_document", description: "Creates new Google Docs documents" },
@@ -808,7 +808,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "google-drive": {
     id: "google-drive",
     title: "Google Drive",
-    description: "Google Drive actions available through AgentLink",
+    description: "Google Drive actions available through AgenCo",
     actions: [
       { name: "list_files", description: "Retrieves files and folders from Drive with search filters" },
       { name: "get_file", description: "Fetches file metadata and content details" },
@@ -824,7 +824,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "google-forms": {
     id: "google-forms",
     title: "Google Forms",
-    description: "Google Forms actions available through AgentLink",
+    description: "Google Forms actions available through AgenCo",
     actions: [
       { name: "get_form", description: "Retrieves form structure and questions" },
       { name: "create_form", description: "Creates new Google Forms" },
@@ -837,7 +837,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "google-meet": {
     id: "google-meet",
     title: "Google Meet",
-    description: "Google Meet actions available through AgentLink",
+    description: "Google Meet actions available through AgenCo",
     actions: [
       { name: "list_meetings", description: "Retrieves scheduled meetings" },
       { name: "get_meeting", description: "Fetches meeting details" },
@@ -848,7 +848,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "google-sheets": {
     id: "google-sheets",
     title: "Google Sheets",
-    description: "Google Sheets actions available through AgentLink",
+    description: "Google Sheets actions available through AgenCo",
     actions: [
       { name: "get_spreadsheet", description: "Retrieves spreadsheet metadata and sheet names" },
       { name: "create_spreadsheet", description: "Creates new spreadsheets with specified sheets and formatting" },
@@ -863,7 +863,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "google-tag-manager": {
     id: "google-tag-manager",
     title: "Google Tag Manager",
-    description: "Google Tag Manager actions available through AgentLink",
+    description: "Google Tag Manager actions available through AgenCo",
     actions: [
       { name: "list_accounts", description: "Retrieves GTM accounts" },
       { name: "list_containers", description: "Gets tag containers" },
@@ -875,7 +875,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "google-tasks": {
     id: "google-tasks",
     title: "Google Tasks",
-    description: "Google Tasks actions available through AgentLink",
+    description: "Google Tasks actions available through AgenCo",
     actions: [
       { name: "list_task_lists", description: "Retrieves task lists from your account" },
       { name: "get_task_list", description: "Fetches detailed information about a specific task list" },
@@ -889,7 +889,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "gotomeeting": {
     id: "gotomeeting",
     title: "GoToMeeting",
-    description: "GoToMeeting actions available through AgentLink",
+    description: "GoToMeeting actions available through AgenCo",
     actions: [
       { name: "list_meetings", description: "Retrieves scheduled meetings" },
       { name: "get_meeting", description: "Fetches meeting details" },
@@ -902,7 +902,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "grafana": {
     id: "grafana",
     title: "Grafana",
-    description: "Grafana actions available through AgentLink",
+    description: "Grafana actions available through AgenCo",
     actions: [
       { name: "list_dashboards", description: "Retrieves Grafana dashboards" },
       { name: "get_dashboard", description: "Fetches detailed dashboard information" },
@@ -916,7 +916,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "help-scout": {
     id: "help-scout",
     title: "Help Scout",
-    description: "Help Scout actions available through AgentLink",
+    description: "Help Scout actions available through AgenCo",
     actions: [
       { name: "list_conversations", description: "Retrieves support conversations from Help Scout" },
       { name: "get_conversation", description: "Fetches detailed information about a specific conversation" },
@@ -931,7 +931,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "heroku": {
     id: "heroku",
     title: "Heroku",
-    description: "Heroku actions available through AgentLink",
+    description: "Heroku actions available through AgenCo",
     actions: [
       { name: "list_apps", description: "Retrieves Heroku applications" },
       { name: "get_app", description: "Fetches app details" },
@@ -943,7 +943,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "hubspot": {
     id: "hubspot",
     title: "HubSpot",
-    description: "HubSpot actions available through AgentLink",
+    description: "HubSpot actions available through AgenCo",
     actions: [
       { name: "create_contact", description: "Establishes new contact records with properties and associations" },
       { name: "get_contact", description: "Retrieves contact details including engagement history" },
@@ -960,7 +960,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "hubspot-crm": {
     id: "hubspot-crm",
     title: "HubSpot CRM",
-    description: "HubSpot CRM actions available through AgentLink",
+    description: "HubSpot CRM actions available through AgenCo",
     actions: [
       { name: "list_contacts", description: "Retrieves CRM contacts" },
       { name: "get_contact", description: "Fetches contact details and timeline" },
@@ -976,7 +976,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "hubspot-marketing": {
     id: "hubspot-marketing",
     title: "HubSpot Marketing",
-    description: "HubSpot Marketing actions available through AgentLink",
+    description: "HubSpot Marketing actions available through AgenCo",
     actions: [
       { name: "list_forms", description: "Retrieves marketing forms from HubSpot" },
       { name: "get_form", description: "Fetches form details and submissions" },
@@ -993,7 +993,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "hubspot-service": {
     id: "hubspot-service",
     title: "HubSpot Service",
-    description: "HubSpot Service actions available through AgentLink",
+    description: "HubSpot Service actions available through AgenCo",
     actions: [
       { name: "list_tickets", description: "Retrieves support tickets from the system" },
       { name: "get_ticket", description: "Fetches detailed information about a specific ticket" },
@@ -1008,7 +1008,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "instagram": {
     id: "instagram",
     title: "Instagram",
-    description: "Instagram actions available through AgentLink",
+    description: "Instagram actions available through AgenCo",
     actions: [
       { name: "get_profile", description: "Retrieves account information" },
       { name: "list_media", description: "Gets posted images and videos" },
@@ -1020,7 +1020,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "intercom": {
     id: "intercom",
     title: "Intercom",
-    description: "Intercom actions available through AgentLink",
+    description: "Intercom actions available through AgenCo",
     actions: [
       { name: "list_contacts", description: "Retrieves customer contact records" },
       { name: "get_contact", description: "Fetches contact details and conversation history" },
@@ -1037,7 +1037,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "jira-cloud": {
     id: "jira-cloud",
     title: "Jira Cloud",
-    description: "Jira Cloud actions available through AgentLink",
+    description: "Jira Cloud actions available through AgenCo",
     actions: [
       { name: "search_issues", description: "Searches for issues using JQL queries to find relevant tasks and bugs" },
       { name: "get_issue", description: "Retrieves detailed information about a specific issue including comments and history" },
@@ -1054,7 +1054,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "launchdarkly": {
     id: "launchdarkly",
     title: "LaunchDarkly",
-    description: "LaunchDarkly actions available through AgentLink",
+    description: "LaunchDarkly actions available through AgenCo",
     actions: [
       { name: "list_flags", description: "Retrieves feature flags" },
       { name: "get_flag", description: "Fetches flag configuration" },
@@ -1068,7 +1068,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "linear": {
     id: "linear",
     title: "Linear",
-    description: "Linear actions available through AgentLink",
+    description: "Linear actions available through AgenCo",
     actions: [
       { name: "get_issues", description: "Retrieves project issues from Linear" },
       { name: "create_issue", description: "Creates new issues in Linear" },
@@ -1078,7 +1078,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "linkedin": {
     id: "linkedin",
     title: "LinkedIn",
-    description: "LinkedIn actions available through AgentLink",
+    description: "LinkedIn actions available through AgenCo",
     actions: [
       { name: "get_profile", description: "Retrieves the user's LinkedIn profile information" },
       { name: "create_post", description: "Publishes new posts to the LinkedIn feed" },
@@ -1093,7 +1093,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "linode": {
     id: "linode",
     title: "Linode",
-    description: "Linode actions available through AgentLink",
+    description: "Linode actions available through AgenCo",
     actions: [
       { name: "list_instances", description: "Retrieves Linode instances" },
       { name: "get_instance", description: "Fetches instance details" },
@@ -1105,7 +1105,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "livechat": {
     id: "livechat",
     title: "LiveChat",
-    description: "LiveChat actions available through AgentLink",
+    description: "LiveChat actions available through AgenCo",
     actions: [
       { name: "list_chats", description: "Retrieves chat conversations" },
       { name: "get_chat", description: "Fetches chat transcript" },
@@ -1119,7 +1119,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "looker": {
     id: "looker",
     title: "Looker",
-    description: "Looker actions available through AgentLink",
+    description: "Looker actions available through AgenCo",
     actions: [
       { name: "list_dashboards", description: "Retrieves available dashboards with read permissions" },
       { name: "get_dashboard", description: "Fetches dashboard details and tiles" },
@@ -1134,7 +1134,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "loom": {
     id: "loom",
     title: "Loom",
-    description: "Loom actions available through AgentLink",
+    description: "Loom actions available through AgenCo",
     actions: [
       { name: "list_videos", description: "Retrieves recorded videos" },
       { name: "get_video", description: "Fetches video details and transcript" },
@@ -1144,7 +1144,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "mailchimp": {
     id: "mailchimp",
     title: "Mailchimp",
-    description: "Mailchimp actions available through AgentLink",
+    description: "Mailchimp actions available through AgenCo",
     actions: [
       { name: "list_audiences", description: "Retrieves mailing lists and audiences" },
       { name: "get_audience", description: "Fetches audience details and statistics" },
@@ -1161,7 +1161,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "make": {
     id: "make",
     title: "Make",
-    description: "Make actions available through AgentLink",
+    description: "Make actions available through AgenCo",
     actions: [
       { name: "list_scenarios", description: "Retrieves Make scenarios" },
       { name: "get_scenario", description: "Fetches scenario details" },
@@ -1172,7 +1172,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "marketo": {
     id: "marketo",
     title: "Marketo",
-    description: "Marketo actions available through AgentLink",
+    description: "Marketo actions available through AgenCo",
     actions: [
       { name: "list_leads", description: "Retrieves lead records from Marketo" },
       { name: "get_lead", description: "Fetches detailed information about a specific lead" },
@@ -1186,7 +1186,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "medium": {
     id: "medium",
     title: "Medium",
-    description: "Medium actions available through AgentLink",
+    description: "Medium actions available through AgenCo",
     actions: [
       { name: "get_current_user", description: "Retrieves authenticated user info" },
       { name: "list_publications", description: "Gets user publications" },
@@ -1198,7 +1198,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "microsoft-calendar": {
     id: "microsoft-calendar",
     title: "Microsoft Calendar",
-    description: "Microsoft Calendar actions available through AgentLink",
+    description: "Microsoft Calendar actions available through AgenCo",
     actions: [
       { name: "list_calendars", description: "Retrieves all calendars associated with the user's account" },
       { name: "list_events", description: "Gets scheduled events from specified calendars" },
@@ -1213,7 +1213,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "microsoft-excel": {
     id: "microsoft-excel",
     title: "Microsoft Excel",
-    description: "Microsoft Excel actions available through AgentLink",
+    description: "Microsoft Excel actions available through AgenCo",
     actions: [
       { name: "get_worksheets", description: "Lists all worksheets in a workbook" },
       { name: "get_range", description: "Reads cell values from specified ranges" },
@@ -1228,7 +1228,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "microsoft-onedrive": {
     id: "microsoft-onedrive",
     title: "Microsoft OneDrive",
-    description: "Microsoft OneDrive actions available through AgentLink",
+    description: "Microsoft OneDrive actions available through AgenCo",
     actions: [
       { name: "list_files", description: "Retrieves files and folders from OneDrive" },
       { name: "get_file", description: "Fetches file content and metadata" },
@@ -1245,7 +1245,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "microsoft-planner": {
     id: "microsoft-planner",
     title: "Microsoft Planner",
-    description: "Microsoft Planner actions available through AgentLink",
+    description: "Microsoft Planner actions available through AgenCo",
     actions: [
       { name: "list_plans", description: "Retrieves Planner plans" },
       { name: "get_plan", description: "Fetches plan details" },
@@ -1257,7 +1257,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "microsoft-power-automate": {
     id: "microsoft-power-automate",
     title: "Microsoft Power Automate",
-    description: "Microsoft Power Automate actions available through AgentLink",
+    description: "Microsoft Power Automate actions available through AgenCo",
     actions: [
       { name: "list_flows", description: "Retrieves automated flows from your Power Automate account" },
       { name: "get_flow", description: "Fetches detailed information about a specific flow" },
@@ -1268,7 +1268,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "microsoft-sharepoint": {
     id: "microsoft-sharepoint",
     title: "Microsoft SharePoint",
-    description: "Microsoft SharePoint actions available through AgentLink",
+    description: "Microsoft SharePoint actions available through AgenCo",
     actions: [
       { name: "list_sites", description: "Retrieves SharePoint sites the user can access" },
       { name: "get_site", description: "Fetches site details and document libraries" },
@@ -1285,7 +1285,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "microsoft-teams": {
     id: "microsoft-teams",
     title: "Microsoft Teams",
-    description: "Microsoft Teams actions available through AgentLink",
+    description: "Microsoft Teams actions available through AgenCo",
     actions: [
       { name: "list_teams", description: "Retrieves all teams the user is a member of" },
       { name: "get_team", description: "Fetches details about a specific team including members and channels" },
@@ -1301,7 +1301,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "microsoft-to-do": {
     id: "microsoft-to-do",
     title: "Microsoft To Do",
-    description: "Microsoft To Do actions available through AgentLink",
+    description: "Microsoft To Do actions available through AgenCo",
     actions: [
       { name: "list_task_lists", description: "Retrieves task lists from your Microsoft To Do account" },
       { name: "create_task_list", description: "Establishes new task lists for organization" },
@@ -1313,7 +1313,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "miro": {
     id: "miro",
     title: "Miro",
-    description: "Miro actions available through AgentLink",
+    description: "Miro actions available through AgenCo",
     actions: [
       { name: "list_boards", description: "Retrieves accessible Miro boards" },
       { name: "get_board", description: "Fetches board details and content" },
@@ -1325,7 +1325,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "monday-com": {
     id: "monday-com",
     title: "monday.com",
-    description: "monday.com actions available through AgentLink",
+    description: "monday.com actions available through AgenCo",
     actions: [
       { name: "get_boards", description: "Lists all available boards to find workspaces and projects" },
       { name: "get_board_items", description: "Retrieves items from a specific board with column values" },
@@ -1342,7 +1342,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "n8n": {
     id: "n8n",
     title: "n8n",
-    description: "n8n actions available through AgentLink",
+    description: "n8n actions available through AgenCo",
     actions: [
       { name: "list_workflows", description: "Retrieves n8n workflows" },
       { name: "get_workflow", description: "Fetches workflow details" },
@@ -1356,7 +1356,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "netlify": {
     id: "netlify",
     title: "Netlify",
-    description: "Netlify actions available through AgentLink",
+    description: "Netlify actions available through AgenCo",
     actions: [
       { name: "list_sites", description: "Retrieves Netlify sites" },
       { name: "get_site", description: "Fetches site details" },
@@ -1368,7 +1368,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "netsuite": {
     id: "netsuite",
     title: "NetSuite",
-    description: "NetSuite actions available through AgentLink",
+    description: "NetSuite actions available through AgenCo",
     actions: [
       { name: "list_customers", description: "Retrieves customer records from the system" },
       { name: "list_invoices", description: "Gets invoice records from the system" },
@@ -1377,7 +1377,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "notion": {
     id: "notion",
     title: "Notion",
-    description: "Notion actions available through AgentLink",
+    description: "Notion actions available through AgenCo",
     actions: [
       { name: "get_page", description: "Retrieves page content and properties" },
       { name: "create_page", description: "Creates new pages in databases or as standalone" },
@@ -1393,7 +1393,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "okta": {
     id: "okta",
     title: "Okta",
-    description: "Okta actions available through AgentLink",
+    description: "Okta actions available through AgenCo",
     actions: [
       { name: "list_users", description: "Retrieves user accounts in the directory" },
       { name: "get_user", description: "Fetches user profile and group membership" },
@@ -1409,7 +1409,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "onenote": {
     id: "onenote",
     title: "OneNote",
-    description: "OneNote actions available through AgentLink",
+    description: "OneNote actions available through AgenCo",
     actions: [
       { name: "list_notebooks", description: "Retrieves OneNote notebooks with read access" },
       { name: "get_notebook", description: "Fetches detailed notebook information" },
@@ -1422,7 +1422,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "opsgenie": {
     id: "opsgenie",
     title: "OpsGenie",
-    description: "OpsGenie actions available through AgentLink",
+    description: "OpsGenie actions available through AgenCo",
     actions: [
       { name: "list_alerts", description: "Retrieves active alerts from your incident management system" },
       { name: "get_alert", description: "Fetches detailed information about a specific alert" },
@@ -1434,7 +1434,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "optimizely": {
     id: "optimizely",
     title: "Optimizely",
-    description: "Optimizely actions available through AgentLink",
+    description: "Optimizely actions available through AgenCo",
     actions: [
       { name: "list_projects", description: "Retrieves experimentation projects" },
       { name: "get_project", description: "Fetches project details" },
@@ -1448,7 +1448,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "oracle-cloud": {
     id: "oracle-cloud",
     title: "Oracle Cloud",
-    description: "Oracle Cloud actions available through AgentLink",
+    description: "Oracle Cloud actions available through AgenCo",
     actions: [
       { name: "list_accounts", description: "Retrieves account records" },
     ],
@@ -1456,7 +1456,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "outlook": {
     id: "outlook",
     title: "Outlook",
-    description: "Outlook actions available through AgentLink",
+    description: "Outlook actions available through AgenCo",
     actions: [
       { name: "list_messages", description: "Retrieves emails from mailbox with filters for folder, sender, or date" },
       { name: "get_message", description: "Fetches complete email content including body and attachments" },
@@ -1473,7 +1473,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "pagerduty": {
     id: "pagerduty",
     title: "PagerDuty",
-    description: "PagerDuty actions available through AgentLink",
+    description: "PagerDuty actions available through AgenCo",
     actions: [
       { name: "list_incidents", description: "Retrieves active and recent incidents" },
       { name: "get_incident", description: "Fetches incident details and timeline" },
@@ -1489,7 +1489,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "pardot": {
     id: "pardot",
     title: "Pardot",
-    description: "Pardot actions available through AgentLink",
+    description: "Pardot actions available through AgenCo",
     actions: [
       { name: "list_prospects", description: "Retrieves prospect records from the system" },
       { name: "get_prospect", description: "Fetches detailed information about a specific prospect" },
@@ -1503,7 +1503,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "paypal": {
     id: "paypal",
     title: "PayPal",
-    description: "PayPal actions available through AgentLink",
+    description: "PayPal actions available through AgenCo",
     actions: [
       { name: "create_payment", description: "Initiates PayPal payment transactions" },
       { name: "get_payment", description: "Retrieves payment details and status" },
@@ -1520,7 +1520,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "pinterest": {
     id: "pinterest",
     title: "Pinterest",
-    description: "Pinterest actions available through AgentLink",
+    description: "Pinterest actions available through AgenCo",
     actions: [
       { name: "get_user", description: "Retrieves account information" },
       { name: "list_boards", description: "Gets Pinterest boards" },
@@ -1535,7 +1535,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "pipedrive": {
     id: "pipedrive",
     title: "Pipedrive",
-    description: "Pipedrive actions available through AgentLink",
+    description: "Pipedrive actions available through AgenCo",
     actions: [
       { name: "list_deals", description: "Retrieves sales deals from the pipeline" },
       { name: "get_deal", description: "Fetches individual deal details and history" },
@@ -1551,7 +1551,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "power-bi": {
     id: "power-bi",
     title: "Power BI",
-    description: "Power BI actions available through AgentLink",
+    description: "Power BI actions available through AgenCo",
     actions: [
       { name: "list_datasets", description: "Retrieves available datasets" },
       { name: "refresh_dataset", description: "Triggers data refresh for datasets" },
@@ -1566,7 +1566,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "productboard": {
     id: "productboard",
     title: "Productboard",
-    description: "Productboard actions available through AgentLink",
+    description: "Productboard actions available through AgenCo",
     actions: [
       { name: "list_features", description: "Retrieves product features" },
       { name: "get_feature", description: "Fetches feature details" },
@@ -1580,7 +1580,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "quickbooks-online": {
     id: "quickbooks-online",
     title: "QuickBooks Online",
-    description: "QuickBooks Online actions available through AgentLink",
+    description: "QuickBooks Online actions available through AgenCo",
     actions: [
       { name: "create_customer", description: "Generates new customer records in QuickBooks" },
       { name: "list_customers", description: "Retrieves customer list with balances" },
@@ -1597,7 +1597,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "reddit": {
     id: "reddit",
     title: "Reddit",
-    description: "Reddit actions available through AgentLink",
+    description: "Reddit actions available through AgenCo",
     actions: [
       { name: "get_me", description: "Retrieves authenticated user info" },
       { name: "get_user", description: "Fetches user profile" },
@@ -1612,7 +1612,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "rollbar": {
     id: "rollbar",
     title: "Rollbar",
-    description: "Rollbar actions available through AgentLink",
+    description: "Rollbar actions available through AgenCo",
     actions: [
       { name: "list_projects", description: "Retrieves monitored projects" },
       { name: "list_items", description: "Gets error items" },
@@ -1623,7 +1623,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "salesforce": {
     id: "salesforce",
     title: "Salesforce",
-    description: "Salesforce actions available through AgentLink",
+    description: "Salesforce actions available through AgenCo",
     actions: [
       { name: "query_records", description: "Executes SOQL queries to retrieve CRM data across objects" },
       { name: "search_records", description: "Performs SOSL searches across multiple objects" },
@@ -1640,7 +1640,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "sanity": {
     id: "sanity",
     title: "Sanity",
-    description: "Sanity actions available through AgentLink",
+    description: "Sanity actions available through AgenCo",
     actions: [
       { name: "list_projects", description: "Retrieves Sanity projects" },
       { name: "get_project", description: "Fetches project details" },
@@ -1654,7 +1654,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "sap": {
     id: "sap",
     title: "SAP",
-    description: "SAP actions available through AgentLink",
+    description: "SAP actions available through AgenCo",
     actions: [
       { name: "list_business_partners", description: "Retrieves business partner records" },
     ],
@@ -1662,7 +1662,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "segment": {
     id: "segment",
     title: "Segment",
-    description: "Segment actions available through AgentLink",
+    description: "Segment actions available through AgenCo",
     actions: [
       { name: "list_sources", description: "Retrieves data sources" },
       { name: "get_source", description: "Fetches source configuration" },
@@ -1676,7 +1676,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "sentry": {
     id: "sentry",
     title: "Sentry",
-    description: "Sentry actions available through AgentLink",
+    description: "Sentry actions available through AgenCo",
     actions: [
       { name: "list_organizations", description: "Retrieves Sentry organizations" },
       { name: "list_projects", description: "Gets monitored projects" },
@@ -1691,7 +1691,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "servicenow": {
     id: "servicenow",
     title: "ServiceNow",
-    description: "ServiceNow actions available through AgentLink",
+    description: "ServiceNow actions available through AgenCo",
     actions: [
       { name: "list_incidents", description: "Retrieves IT incidents with status information" },
       { name: "get_incident", description: "Fetches incident details and notes" },
@@ -1707,7 +1707,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "shopify": {
     id: "shopify",
     title: "Shopify",
-    description: "Shopify actions available through AgentLink",
+    description: "Shopify actions available through AgenCo",
     actions: [
       { name: "list_products", description: "Retrieves products from the store catalog" },
       { name: "get_product", description: "Fetches product details including variants and images" },
@@ -1724,7 +1724,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "slack": {
     id: "slack",
     title: "Slack",
-    description: "Slack actions available through AgentLink",
+    description: "Slack actions available through AgenCo",
     actions: [
       { name: "send_messages", description: "Sends messages to Slack channels or DMs for notifications, updates, or automated replies" },
       { name: "list_channels", description: "Retrieves public Slack channels to determine where messages or actions can be sent" },
@@ -1740,7 +1740,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "snowflake": {
     id: "snowflake",
     title: "Snowflake",
-    description: "Snowflake actions available through AgentLink",
+    description: "Snowflake actions available through AgenCo",
     actions: [
       { name: "execute_query", description: "Runs SQL queries on Snowflake for data warehousing and analytics automation" },
     ],
@@ -1748,7 +1748,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "square": {
     id: "square",
     title: "Square",
-    description: "Square actions available through AgentLink",
+    description: "Square actions available through AgenCo",
     actions: [
       { name: "create_payment", description: "Processes payments for orders" },
       { name: "get_payment", description: "Retrieves payment details and status" },
@@ -1765,7 +1765,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "statuspage": {
     id: "statuspage",
     title: "StatusPage",
-    description: "StatusPage actions available through AgentLink",
+    description: "StatusPage actions available through AgenCo",
     actions: [
       { name: "list_pages", description: "Retrieves status pages" },
       { name: "get_page", description: "Fetches page details" },
@@ -1777,7 +1777,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "storyblok": {
     id: "storyblok",
     title: "Storyblok",
-    description: "Storyblok actions available through AgentLink",
+    description: "Storyblok actions available through AgenCo",
     actions: [
       { name: "list_spaces", description: "Retrieves content spaces" },
       { name: "get_space", description: "Fetches space details" },
@@ -1792,7 +1792,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "stripe": {
     id: "stripe",
     title: "Stripe",
-    description: "Stripe actions available through AgentLink",
+    description: "Stripe actions available through AgenCo",
     actions: [
       { name: "create_customer", description: "Generates new customer records for billing purposes" },
       { name: "get_customer", description: "Retrieves customer details and payment methods" },
@@ -1809,7 +1809,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "substack": {
     id: "substack",
     title: "Substack",
-    description: "Substack actions available through AgentLink",
+    description: "Substack actions available through AgenCo",
     actions: [
       { name: "get_publication", description: "Retrieves publication details" },
       { name: "list_posts", description: "Gets published posts" },
@@ -1823,7 +1823,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "surveymonkey": {
     id: "surveymonkey",
     title: "SurveyMonkey",
-    description: "SurveyMonkey actions available through AgentLink",
+    description: "SurveyMonkey actions available through AgenCo",
     actions: [
       { name: "list_surveys", description: "Retrieves available surveys from your account" },
       { name: "get_survey", description: "Fetches survey details and associated questions" },
@@ -1837,7 +1837,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "tableau": {
     id: "tableau",
     title: "Tableau",
-    description: "Tableau actions available through AgentLink",
+    description: "Tableau actions available through AgenCo",
     actions: [
       { name: "list_workbooks", description: "Retrieves published workbooks from Tableau Server" },
       { name: "get_workbook", description: "Fetches workbook details and associated views" },
@@ -1852,7 +1852,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "thousandeyes": {
     id: "thousandeyes",
     title: "ThousandEyes",
-    description: "ThousandEyes actions available through AgentLink",
+    description: "ThousandEyes actions available through AgenCo",
     actions: [
       { name: "list_tests", description: "Retrieves monitoring tests" },
       { name: "get_test", description: "Fetches test details" },
@@ -1863,7 +1863,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "tiktok": {
     id: "tiktok",
     title: "TikTok",
-    description: "TikTok actions available through AgentLink",
+    description: "TikTok actions available through AgenCo",
     actions: [
       { name: "get_user_info", description: "Retrieves account information" },
       { name: "list_videos", description: "Gets posted videos" },
@@ -1874,7 +1874,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "todoist": {
     id: "todoist",
     title: "Todoist",
-    description: "Todoist actions available through AgentLink",
+    description: "Todoist actions available through AgenCo",
     actions: [
       { name: "list_tasks", description: "Retrieves task items from your Todoist account" },
       { name: "get_task", description: "Fetches detailed information about a specific task" },
@@ -1888,7 +1888,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "trello": {
     id: "trello",
     title: "Trello",
-    description: "Trello actions available through AgentLink",
+    description: "Trello actions available through AgenCo",
     actions: [
       { name: "get_board", description: "Retrieves board details and settings" },
       { name: "list_boards", description: "Gets all boards the user can access" },
@@ -1906,7 +1906,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "twitter": {
     id: "twitter",
     title: "Twitter",
-    description: "Twitter actions available through AgentLink",
+    description: "Twitter actions available through AgenCo",
     actions: [
       { name: "create_tweet", description: "Posts new tweets to timeline" },
       { name: "get_tweet", description: "Retrieves tweet details" },
@@ -1920,7 +1920,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "typeform": {
     id: "typeform",
     title: "Typeform",
-    description: "Typeform actions available through AgentLink",
+    description: "Typeform actions available through AgenCo",
     actions: [
       { name: "list_forms", description: "Retrieves available forms" },
       { name: "get_form", description: "Fetches form structure and questions" },
@@ -1935,7 +1935,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "vercel": {
     id: "vercel",
     title: "Vercel",
-    description: "Vercel actions available through AgentLink",
+    description: "Vercel actions available through AgenCo",
     actions: [
       { name: "list_projects", description: "Retrieves Vercel projects" },
       { name: "get_project", description: "Fetches project details" },
@@ -1949,7 +1949,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "victorops": {
     id: "victorops",
     title: "VictorOps",
-    description: "VictorOps actions available through AgentLink",
+    description: "VictorOps actions available through AgenCo",
     actions: [
       { name: "list_incidents", description: "Retrieves active incidents from VictorOps" },
       { name: "get_incident", description: "Fetches detailed information about specific incidents" },
@@ -1960,7 +1960,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "vimeo": {
     id: "vimeo",
     title: "Vimeo",
-    description: "Vimeo actions available through AgentLink",
+    description: "Vimeo actions available through AgenCo",
     actions: [
       { name: "list_videos", description: "Retrieves user videos" },
       { name: "get_video", description: "Fetches video details" },
@@ -1972,7 +1972,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "vwo": {
     id: "vwo",
     title: "VWO",
-    description: "VWO actions available through AgentLink",
+    description: "VWO actions available through AgenCo",
     actions: [
       { name: "list_campaigns", description: "Retrieves A/B test campaigns" },
       { name: "get_campaign", description: "Fetches detailed campaign information" },
@@ -1985,7 +1985,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "webflow": {
     id: "webflow",
     title: "Webflow",
-    description: "Webflow actions available through AgentLink",
+    description: "Webflow actions available through AgenCo",
     actions: [
       { name: "list_sites", description: "Retrieves Webflow sites" },
       { name: "get_site", description: "Fetches site details" },
@@ -2000,7 +2000,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "whatsapp-business": {
     id: "whatsapp-business",
     title: "WhatsApp Business",
-    description: "WhatsApp Business actions available through AgentLink",
+    description: "WhatsApp Business actions available through AgenCo",
     actions: [
       { name: "send_text_message", description: "Transmits text-based messages to contacts" },
       { name: "send_template_message", description: "Dispatches pre-approved message templates" },
@@ -2015,7 +2015,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "wordpress": {
     id: "wordpress",
     title: "WordPress",
-    description: "WordPress actions available through AgentLink",
+    description: "WordPress actions available through AgenCo",
     actions: [
       { name: "get_current_user", description: "Retrieves authenticated user information" },
       { name: "list_sites", description: "Retrieves WordPress sites" },
@@ -2030,7 +2030,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "workday": {
     id: "workday",
     title: "Workday",
-    description: "Workday actions available through AgentLink",
+    description: "Workday actions available through AgenCo",
     actions: [
       { name: "list_workers", description: "Retrieves employee records" },
       { name: "get_worker", description: "Fetches employee details and position" },
@@ -2045,7 +2045,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "xero": {
     id: "xero",
     title: "Xero",
-    description: "Xero actions available through AgentLink",
+    description: "Xero actions available through AgenCo",
     actions: [
       { name: "list_invoices", description: "Retrieves sales invoices with status information" },
       { name: "get_invoice", description: "Fetches invoice details and line items" },
@@ -2061,7 +2061,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "youtube": {
     id: "youtube",
     title: "YouTube",
-    description: "YouTube actions available through AgentLink",
+    description: "YouTube actions available through AgenCo",
     actions: [
       { name: "list_videos", description: "Retrieves channel videos" },
       { name: "upload_video", description: "Uploads new videos to channel" },
@@ -2075,7 +2075,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "zapier": {
     id: "zapier",
     title: "Zapier",
-    description: "Zapier actions available through AgentLink",
+    description: "Zapier actions available through AgenCo",
     actions: [
       { name: "list_zaps", description: "Retrieves Zapier automations" },
       { name: "get_zap", description: "Fetches zap details" },
@@ -2087,7 +2087,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "zendesk": {
     id: "zendesk",
     title: "Zendesk",
-    description: "Zendesk actions available through AgentLink",
+    description: "Zendesk actions available through AgenCo",
     actions: [
       { name: "list_tickets", description: "Retrieves support tickets with status filters" },
       { name: "get_ticket", description: "Fetches ticket details including comments and history" },
@@ -2103,7 +2103,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "zoho-crm": {
     id: "zoho-crm",
     title: "Zoho CRM",
-    description: "Zoho CRM actions available through AgentLink",
+    description: "Zoho CRM actions available through AgenCo",
     actions: [
       { name: "list_leads", description: "Retrieves lead records" },
       { name: "create_lead", description: "Creates new lead records" },
@@ -2115,7 +2115,7 @@ export const INTEGRATION_CATALOG: Record<string, IntegrationDetails> = {
   "zoom": {
     id: "zoom",
     title: "Zoom",
-    description: "Zoom actions available through AgentLink",
+    description: "Zoom actions available through AgenCo",
     actions: [
       { name: "list_meetings", description: "Retrieves scheduled meetings for the user" },
       { name: "get_meeting", description: "Fetches details of a specific meeting" },

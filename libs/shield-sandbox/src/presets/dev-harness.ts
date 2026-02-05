@@ -57,6 +57,9 @@ export const devHarnessPreset: TargetPreset = {
   name: 'Dev Test Harness',
   description: 'AgenShield test harness (dummy-openclaw)',
 
+  requiredBins: ['node'],
+  optionalBins: ['npm', 'npx'],
+
   async detect(): Promise<PresetDetectionResult | null> {
     // Check for dummy-openclaw.js binary
     const dummyOpenclawPath = path.join(process.cwd(), 'tools/test-harness/bin/dummy-openclaw.js');
@@ -157,12 +160,12 @@ export const devHarnessPreset: TargetPreset = {
       // Create wrapper script that invokes the test harness via node
       const wrapperPath = path.join(context.directories.binDir, 'openclaw');
       const entryPath = path.join(packageDir, 'bin', 'dummy-openclaw.js');
-      const binDir = context.directories.binDir;
       const wrapperContent = `#!/bin/bash
 set -euo pipefail
-export PATH="${binDir}:\${PATH:-/usr/bin:/bin}"
+cd ~ 2>/dev/null || cd /
+AGENT_BIN="$(cd "$(dirname "$0")" && pwd)"
 cd "${packageDir}"
-exec node "${entryPath}" "$@"
+exec "\${AGENT_BIN}/node" "${entryPath}" "$@"
 `;
       // binDir is root-owned, use sudo to write wrapper
       const writeResult = sudoExec(`tee "${wrapperPath}" > /dev/null << 'WRAPEOF'

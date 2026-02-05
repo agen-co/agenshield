@@ -57,7 +57,7 @@ export function createSetupServer(engine: WizardEngine): SetupServer {
       app = Fastify({ logger: false });
 
       // CORS
-      await app.register(cors, { origin: true });
+      await app.register(cors, { origin: true, methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'] });
 
       // Request logging
       app.addHook('onResponse', (request, reply, done) => {

@@ -50,5 +50,13 @@ export type UpdateConfigResponse = ApiResponse<ShieldConfig>;
 export type HealthResponse = ApiResponse<{ ok: boolean; timestamp: string; mode?: 'daemon' | 'setup' }>;
 export type GetSecurityStatusResponse = ApiResponse<SecurityStatusData>;
 
+// Filesystem browse types
+export interface FsBrowseEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+}
+export type FsBrowseResponse = ApiResponse<{ entries: FsBrowseEntry[] }>;
+
 // Request types
 export type UpdateConfigRequest = Partial<ShieldConfig>;

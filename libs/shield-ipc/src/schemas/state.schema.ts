@@ -35,9 +35,9 @@ export const GroupStateSchema = z.object({
 });
 
 /**
- * AgentLink state schema
+ * AgenCo state schema
  */
-export const AgentLinkStateSchema = z.object({
+export const AgenCoStateSchema = z.object({
   authenticated: z.boolean(),
   lastAuthAt: z.string().optional(),
   connectedIntegrations: z.array(z.string()),
@@ -73,7 +73,7 @@ export const SystemStateSchema = z.object({
   daemon: DaemonStateSchema,
   users: z.array(UserStateSchema),
   groups: z.array(GroupStateSchema),
-  agentlink: AgentLinkStateSchema,
+  agenco: AgenCoStateSchema,
   installation: InstallationStateSchema,
   passcodeProtection: PasscodeProtectionStateSchema.optional(),
 });
@@ -85,8 +85,8 @@ export type UserStateInput = z.input<typeof UserStateSchema>;
 export type UserStateOutput = z.output<typeof UserStateSchema>;
 export type GroupStateInput = z.input<typeof GroupStateSchema>;
 export type GroupStateOutput = z.output<typeof GroupStateSchema>;
-export type AgentLinkStateInput = z.input<typeof AgentLinkStateSchema>;
-export type AgentLinkStateOutput = z.output<typeof AgentLinkStateSchema>;
+export type AgenCoStateInput = z.input<typeof AgenCoStateSchema>;
+export type AgenCoStateOutput = z.output<typeof AgenCoStateSchema>;
 export type InstallationStateInput = z.input<typeof InstallationStateSchema>;
 export type InstallationStateOutput = z.output<typeof InstallationStateSchema>;
 export type PasscodeProtectionStateInput = z.input<typeof PasscodeProtectionStateSchema>;

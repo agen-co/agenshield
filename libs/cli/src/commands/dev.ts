@@ -13,9 +13,9 @@ import React from 'react';
 import { render } from 'ink';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { ensureSudoAccess } from '../utils/privileges.js';
-import { startDaemon, stopDaemon } from '../utils/daemon.js';
+import { startDaemon, stopDaemon, getDaemonStatus } from '../utils/daemon.js';
 import {
   loadDevState,
   saveDevState,
@@ -30,6 +30,8 @@ import {
   deleteAllUsersAndGroups,
   removeAllDirectories,
   userExists,
+  installGuardedShell,
+  GUARDED_SHELL_PATH,
 } from '@agenshield/sandbox';
 import { findTestHarness } from '../utils/find-test-harness.js';
 
@@ -304,6 +306,107 @@ async function runDevClean(): Promise<void> {
 }
 
 /**
+ * Open an interactive login shell as the sandboxed agent user
+ */
+async function runDevShell(options: { noDaemon: boolean }): Promise<void> {
+  // 1. Verify dev environment is set up
+  if (!devStateExists()) {
+    console.error('Dev environment not set up. Run "agenshield dev" first to create the sandbox.');
+    process.exit(1);
+  }
+
+  const state = loadDevState();
+  if (!state) {
+    console.error('Dev state could not be loaded. Run "agenshield dev" to set up.');
+    process.exit(1);
+  }
+
+  // 2. Verify agent user exists
+  const exists = await userExists(state.agentUsername);
+  if (!exists) {
+    console.error(`Agent user ${state.agentUsername} does not exist. Run "agenshield dev" to re-create.`);
+    process.exit(1);
+  }
+
+  // 3. Ensure guarded-shell is installed
+  if (!fs.existsSync(GUARDED_SHELL_PATH)) {
+    console.log('Installing guarded-shell...');
+    const gsResult = await installGuardedShell();
+    if (!gsResult.success) {
+      console.error(`Failed to install guarded-shell: ${gsResult.message}`);
+      process.exit(1);
+    }
+    console.log('Guarded-shell installed.');
+  }
+
+  // 4. Start daemon if needed (unless --no-daemon)
+  let daemonStartedByUs = false;
+  if (!options.noDaemon) {
+    const status = await getDaemonStatus();
+    if (!status.running) {
+      console.log('Starting daemon...');
+      const daemonResult = await startDaemon();
+      if (daemonResult.success) {
+        console.log(`Daemon started (PID: ${daemonResult.pid})`);
+        daemonStartedByUs = true;
+      } else {
+        console.warn(`Warning: ${daemonResult.message}`);
+      }
+    }
+  }
+
+  // 5. Resolve agent home and list available commands
+  const cfg = createUserConfig({
+    prefix: state.prefix,
+    baseName: state.baseName,
+    baseUid: state.baseUid,
+    baseGid: state.baseGid,
+  });
+  const agentHome = cfg.agentUser.home;
+  const binDir = path.join(agentHome, 'bin');
+  let binContents: string[] = [];
+  try {
+    binContents = fs.readdirSync(binDir);
+  } catch {
+    // bin dir may not exist
+  }
+
+  // 6. Print info
+  console.log('');
+  console.log('Opening sandboxed shell');
+  console.log(`  User:  ${state.agentUsername}`);
+  console.log(`  Home:  ${agentHome}`);
+  console.log(`  PATH:  $HOME/bin`);
+  console.log(`  Shell: ${GUARDED_SHELL_PATH}`);
+  console.log('');
+  if (binContents.length > 0) {
+    console.log(`  Available commands (${binContents.length}):`);
+    for (const cmd of binContents) {
+      console.log(`    - ${cmd}`);
+    }
+  } else {
+    console.log('  No commands found in $HOME/bin');
+  }
+  console.log('');
+  console.log('Type exit to leave the sandboxed shell.');
+  console.log('---');
+
+  // 7. Spawn interactive login shell as agent user
+  spawnSync('sudo', ['-u', state.agentUsername, '-i'], { stdio: 'inherit' });
+
+  // 8. Shell exited
+  console.log('');
+  console.log('Shell session ended.');
+
+  // 9. Stop daemon if we started it
+  if (daemonStartedByUs) {
+    console.log('Stopping daemon...');
+    const stopResult = await stopDaemon();
+    console.log(stopResult.message);
+  }
+}
+
+/**
  * Create the dev command
  */
 export function createDevCommand(): Command {
@@ -328,6 +431,15 @@ export function createDevCommand(): Command {
     .action(async () => {
       ensureSudoAccess();
       await runDevClean();
+    });
+
+  cmd
+    .command('shell')
+    .description('Open an interactive login shell as the sandboxed agent user')
+    .option('--no-daemon', 'Skip automatic daemon start/stop')
+    .action(async (opts) => {
+      ensureSudoAccess();
+      await runDevShell({ noDaemon: opts.daemon === false });
     });
 
   return cmd;

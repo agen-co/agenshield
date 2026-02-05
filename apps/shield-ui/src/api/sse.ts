@@ -36,12 +36,12 @@ export function createSSEClient(
     'skills:approved',
     'exec:monitored',
     'exec:denied',
-    'agentlink:connected',
-    'agentlink:disconnected',
-    'agentlink:auth_required',
-    'agentlink:auth_completed',
-    'agentlink:tool_executed',
-    'agentlink:error',
+    'agenco:connected',
+    'agenco:disconnected',
+    'agenco:auth_required',
+    'agenco:auth_completed',
+    'agenco:tool_executed',
+    'agenco:error',
   ];
 
   function connect() {

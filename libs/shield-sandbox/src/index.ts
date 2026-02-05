@@ -101,6 +101,8 @@ export {
   installShieldExec,
   deployInterceptor,
   copyNodeBinary,
+  installPresetBinaries,
+  type PresetInstallResult,
   // Dynamic wrapper management
   getAvailableWrappers,
   getWrapperDefinition,
@@ -171,13 +173,13 @@ export {
   classifyDirectory,
 } from './discovery';
 
-// Skill Injector (AgentLink skill injection)
+// Skill Injector (AgenCo skill injection)
 export {
-  injectAgentLinkSkill,
-  createAgentLinkSymlink,
+  injectAgenCoSkill,
+  createAgenCoSymlink,
   removeInjectedSkills,
   updateOpenClawMcpConfig,
   getSkillsDir,
-  getAgentLinkSkillPath,
+  getAgenCoSkillPath,
   type SkillInjectionResult,
 } from './skill-injector';

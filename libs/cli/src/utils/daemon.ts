@@ -238,43 +238,12 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
     }
   }
 
-  // Privilege drop: run daemon as SUDO_USER instead of root (legacy sudo path)
-  const sudoUid = process.env['SUDO_UID'] ? parseInt(process.env['SUDO_UID'], 10) : undefined;
-  const sudoGid = process.env['SUDO_GID'] ? parseInt(process.env['SUDO_GID'], 10) : undefined;
-  const sudoUser = process.env['SUDO_USER'];
-  const shouldDropPrivileges = isUnderSudo
-    && sudoUid !== undefined && sudoGid !== undefined;
-
-  // Ensure system dirs exist and are writable
+  // Ensure system dirs exist and are writable (daemon runs as root)
   for (const dir of [DAEMON_CONFIG.LOG_DIR, DAEMON_CONFIG.SOCKET_DIR]) {
-    let usable = false;
     try {
       fs.mkdirSync(dir, { recursive: true });
-      if (shouldDropPrivileges) {
-        fs.chownSync(dir, sudoUid, sudoGid);
-      }
-      // Verify we can actually write to the directory
-      fs.accessSync(dir, fs.constants.W_OK);
-      usable = true;
     } catch {
-      // Permission denied — create via sudo
-      try {
-        execSync(`sudo mkdir -p "${dir}" && sudo chown $(id -un):$(id -gn) "${dir}"`, {
-          stdio: 'pipe', timeout: 10_000,
-        });
-        fs.accessSync(dir, fs.constants.W_OK);
-        usable = true;
-      } catch {
-        // sudo also failed
-      }
-    }
-
-    if (!usable) {
-      // Fall back to user-local dir
-      const fallback = path.join(os.homedir(), '.agenshield',
-        dir === DAEMON_CONFIG.LOG_DIR ? 'logs' : 'run');
-      fs.mkdirSync(fallback, { recursive: true });
-      if (dir === DAEMON_CONFIG.LOG_DIR) env['AGENSHIELD_LOG_DIR'] = fallback;
+      // May already exist
     }
   }
 
@@ -282,32 +251,11 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
   const configDir = path.join(os.homedir(), '.agenshield');
   fs.mkdirSync(configDir, { recursive: true });
 
-  if (shouldDropPrivileges) {
-    // Resolve + prepare user's home config dir and set HOME/USER
-    try {
-      const userHome = execSync(`eval echo ~${sudoUser}`, {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 3000,
-      }).trim();
-      const sudoConfigDir = path.join(userHome, '.agenshield');
-      fs.mkdirSync(sudoConfigDir, { recursive: true });
-      fs.chownSync(sudoConfigDir, sudoUid, sudoGid);
-
-      // Set HOME/USER so daemon's os.homedir() and os.userInfo() work
-      env['HOME'] = userHome;
-      env['USER'] = sudoUser;
-    } catch {
-      // If home resolution fails, skip config dir setup but still drop privileges
-    }
-  }
-
   if (options.foreground) {
     // Run in foreground (blocking)
     const spawnOpts: SpawnOptions = {
       stdio: 'inherit',
       env,
-      ...(shouldDropPrivileges && { uid: sudoUid, gid: sudoGid }),
     };
     const child = spawn(runner, [daemonPath], spawnOpts);
 
@@ -335,20 +283,23 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
       // Not using launchd, fall back to nohup
     }
 
-    const logDir = env['AGENSHIELD_LOG_DIR'] || DAEMON_CONFIG.LOG_DIR;
-    const logFile = path.join(logDir, 'daemon.log');
-    const logFd = fs.openSync(logFile, 'a');
-
-    // Chown the log file so the de-privileged daemon can write to it
-    if (shouldDropPrivileges) {
-      fs.chownSync(logFile, sudoUid, sudoGid);
+    let logDir = env['AGENSHIELD_LOG_DIR'] || DAEMON_CONFIG.LOG_DIR;
+    let logFile = path.join(logDir, 'daemon.log');
+    let logFd: number;
+    try {
+      logFd = fs.openSync(logFile, 'a');
+    } catch {
+      // File open failed — fall back to user-local log
+      logDir = path.join(os.homedir(), '.agenshield', 'logs');
+      fs.mkdirSync(logDir, { recursive: true });
+      logFile = path.join(logDir, 'daemon.log');
+      logFd = fs.openSync(logFile, 'a');
     }
 
     const bgSpawnOpts: SpawnOptions = {
       detached: true,
       stdio: ['ignore', logFd, logFd],
       env,
-      ...(shouldDropPrivileges && { uid: sudoUid, gid: sudoGid }),
     };
     const child = spawn(runner, [daemonPath], bgSpawnOpts);
 

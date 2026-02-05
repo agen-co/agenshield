@@ -86,6 +86,19 @@ export interface TargetPreset {
   description: string;
 
   /**
+   * Commands this preset requires in the sandbox.
+   * These will be installed as protected wrappers in $HOME/bin.
+   * Names must match keys in WRAPPER_DEFINITIONS (e.g. 'node', 'npm', 'git', 'curl').
+   */
+  requiredBins: string[];
+
+  /**
+   * Optional commands the preset can use if available.
+   * Installed only when the user opts in or when the full wrapper set is requested.
+   */
+  optionalBins?: string[];
+
+  /**
    * Detect if this target is installed on the system.
    * Returns detection info or null if not found.
    */

@@ -9,7 +9,7 @@ export const PolicyRuleSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   action: z.enum(['allow', 'deny', 'approval']),
-  target: z.enum(['skill', 'command', 'url']),
+  target: z.enum(['skill', 'command', 'url', 'filesystem']),
   operations: z.array(OperationTypeSchema),
   patterns: z.array(z.string()),
   enabled: z.boolean(),

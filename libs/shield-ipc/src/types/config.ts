@@ -146,7 +146,7 @@ export interface PolicyConfig {
   /** Policy action: allow, deny, or approval (future) */
   action: 'allow' | 'deny' | 'approval';
   /** What this policy targets */
-  target: 'skill' | 'command' | 'url';
+  target: 'skill' | 'command' | 'url' | 'filesystem';
   /** URL/command patterns to match */
   patterns: string[];
   /** Whether this policy is active */

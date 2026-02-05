@@ -1,14 +1,14 @@
 /**
- * AgentLink API types
+ * AgenCo API types
  *
- * Request/Response types for AgentLink routes that forward to MCP Gateway
+ * Request/Response types for AgenCo routes that forward to MCP Gateway
  */
 
 /** MCP connection state */
 export type MCPConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error' | 'unauthorized';
 
 /** MCP status response */
-export interface AgentLinkMCPStatusResponse {
+export interface AgenCoMCPStatusResponse {
   state: MCPConnectionState;
   active: boolean;
 }
@@ -16,7 +16,7 @@ export interface AgentLinkMCPStatusResponse {
 /**
  * Request to start OAuth authentication flow
  */
-export interface AgentLinkAuthStartRequest {
+export interface AgenCoAuthStartRequest {
   /** OAuth scopes to request */
   scopes?: string[];
   /** Source of the auth request: CLI, UI popup, or agent delegation */
@@ -26,7 +26,7 @@ export interface AgentLinkAuthStartRequest {
 /**
  * Response from starting OAuth authentication flow
  */
-export interface AgentLinkAuthStartResponse {
+export interface AgenCoAuthStartResponse {
   /** URL to redirect user to for authentication */
   authUrl: string;
   /** State parameter for CSRF protection */
@@ -38,7 +38,7 @@ export interface AgentLinkAuthStartResponse {
 /**
  * Request to complete OAuth authentication (callback)
  */
-export interface AgentLinkAuthCallbackRequest {
+export interface AgenCoAuthCallbackRequest {
   /** Authorization code from OAuth provider */
   code: string;
   /** State parameter for validation */
@@ -48,7 +48,7 @@ export interface AgentLinkAuthCallbackRequest {
 /**
  * Response from auth callback
  */
-export interface AgentLinkAuthCallbackResponse {
+export interface AgenCoAuthCallbackResponse {
   success: boolean;
   error?: string;
 }
@@ -56,7 +56,7 @@ export interface AgentLinkAuthCallbackResponse {
 /**
  * Response from auth status check
  */
-export interface AgentLinkAuthStatusResponse {
+export interface AgenCoAuthStatusResponse {
   /** Whether user is authenticated */
   authenticated: boolean;
   /** Whether token is expired */
@@ -70,7 +70,7 @@ export interface AgentLinkAuthStatusResponse {
 /**
  * Request to run a tool
  */
-export interface AgentLinkToolRunRequest {
+export interface AgenCoToolRunRequest {
   /** Integration identifier (e.g., 'github', 'slack') */
   integration: string;
   /** Tool name within the integration */
@@ -82,7 +82,7 @@ export interface AgentLinkToolRunRequest {
 /**
  * Response from running a tool
  */
-export interface AgentLinkToolRunResponse {
+export interface AgenCoToolRunResponse {
   success: boolean;
   result?: unknown;
   error?: string;
@@ -91,7 +91,7 @@ export interface AgentLinkToolRunResponse {
 /**
  * Request to list tools
  */
-export interface AgentLinkToolListRequest {
+export interface AgenCoToolListRequest {
   /** Filter by integration */
   integration?: string;
   /** Only show tools from connected integrations */
@@ -101,7 +101,7 @@ export interface AgentLinkToolListRequest {
 /**
  * Tool information
  */
-export interface AgentLinkTool {
+export interface AgenCoTool {
   /** Integration this tool belongs to */
   integration: string;
   /** Tool identifier */
@@ -117,14 +117,14 @@ export interface AgentLinkTool {
 /**
  * Response from listing tools
  */
-export interface AgentLinkToolListResponse {
-  tools: AgentLinkTool[];
+export interface AgenCoToolListResponse {
+  tools: AgenCoTool[];
 }
 
 /**
  * Request to search tools
  */
-export interface AgentLinkToolSearchRequest {
+export interface AgenCoToolSearchRequest {
   /** Search query */
   query: string;
   /** Filter by integration */
@@ -134,7 +134,7 @@ export interface AgentLinkToolSearchRequest {
 /**
  * Request to list integrations
  */
-export interface AgentLinkIntegrationsListRequest {
+export interface AgenCoIntegrationsListRequest {
   /** Filter by category */
   category?: string;
   /** Search query */
@@ -144,7 +144,7 @@ export interface AgentLinkIntegrationsListRequest {
 /**
  * Integration action metadata
  */
-export interface AgentLinkIntegrationAction {
+export interface AgenCoIntegrationAction {
   /** Action identifier */
   name: string;
   /** Human-readable description */
@@ -154,7 +154,7 @@ export interface AgentLinkIntegrationAction {
 /**
  * Integration information
  */
-export interface AgentLinkIntegration {
+export interface AgenCoIntegration {
   /** Integration identifier */
   id: string;
   /** Human-readable name */
@@ -166,21 +166,21 @@ export interface AgentLinkIntegration {
   /** Number of tools in this integration */
   toolsCount: number;
   /** Available actions for this integration */
-  actions?: AgentLinkIntegrationAction[];
+  actions?: AgenCoIntegrationAction[];
 }
 
 /**
  * Response from listing available integrations
  */
-export interface AgentLinkIntegrationsListResponse {
-  integrations: AgentLinkIntegration[];
+export interface AgenCoIntegrationsListResponse {
+  integrations: AgenCoIntegration[];
   totalCount: number;
 }
 
 /**
  * Connected integration information
  */
-export interface AgentLinkConnectedIntegration {
+export interface AgenCoConnectedIntegration {
   /** Integration identifier */
   id: string;
   /** Human-readable name */
@@ -198,14 +198,14 @@ export interface AgentLinkConnectedIntegration {
 /**
  * Response from listing connected integrations
  */
-export interface AgentLinkConnectedIntegrationsResponse {
-  integrations: AgentLinkConnectedIntegration[];
+export interface AgenCoConnectedIntegrationsResponse {
+  integrations: AgenCoConnectedIntegration[];
 }
 
 /**
  * Request to connect an integration
  */
-export interface AgentLinkConnectIntegrationRequest {
+export interface AgenCoConnectIntegrationRequest {
   /** Integration identifier */
   integration: string;
   /** Optional OAuth scopes */
@@ -215,7 +215,7 @@ export interface AgentLinkConnectIntegrationRequest {
 /**
  * Response from connecting an integration
  */
-export interface AgentLinkConnectIntegrationResponse {
+export interface AgenCoConnectIntegrationResponse {
   /** Connection status */
   status: 'auth_required' | 'already_connected' | 'connected';
   /** OAuth URL if authentication is required */

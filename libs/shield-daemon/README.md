@@ -7,7 +7,7 @@ AgenShield daemon is a Fastify-based HTTP service that exposes the management AP
 - Serve the management UI if assets are present.
 - Stream live events over Server-Sent Events (SSE).
 - Handle passcode authentication and session management.
-- Offer AgentLink integration for MCP tool access.
+- Offer AgenCo integration for MCP tool access.
 
 ## Key Components
 - `src/main.ts` - Entry point, PID file handling, and server startup.
@@ -52,17 +52,17 @@ Auth:
 - `POST /api/auth/enable`
 - `POST /api/auth/disable`
 
-AgentLink:
-- `POST /api/agentlink/auth/start`
-- `POST /api/agentlink/auth/callback`
-- `GET /api/agentlink/auth/status`
-- `POST /api/agentlink/auth/logout`
-- `POST /api/agentlink/tool/run`
-- `GET /api/agentlink/tool/list`
-- `GET /api/agentlink/tool/search`
-- `GET /api/agentlink/integrations`
-- `GET /api/agentlink/integrations/connected`
-- `POST /api/agentlink/integrations/connect`
+AgenCo:
+- `POST /api/agenco/auth/start`
+- `POST /api/agenco/auth/callback`
+- `GET /api/agenco/auth/status`
+- `POST /api/agenco/auth/logout`
+- `POST /api/agenco/tool/run`
+- `GET /api/agenco/tool/list`
+- `GET /api/agenco/tool/search`
+- `GET /api/agenco/integrations`
+- `GET /api/agenco/integrations/connected`
+- `POST /api/agenco/integrations/connect`
 
 SSE:
 - `GET /sse/events?token=...`
@@ -114,5 +114,5 @@ npx nx build shield-daemon
 ## Agent Notes
 - `startServer()` starts the security watcher; remember to stop it on shutdown.
 - The UI assets are served from `ui-assets` (prod) or `dist/apps/shield-ui` (dev).
-- AgentLink tokens are stored in the vault; expect network calls to the MCP gateway.
+- AgenCo tokens are stored in the vault; expect network calls to the MCP gateway.
 - Config updates are persisted via `src/config/loader.ts` (JSON + Zod).

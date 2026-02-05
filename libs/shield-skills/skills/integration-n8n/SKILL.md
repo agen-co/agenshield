@@ -1,13 +1,13 @@
 ---
 name: integration-n8n
-description: "n8n actions available through AgentLink"
+description: "n8n actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # n8n
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -28,7 +28,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["n8n list workflows"]}'
+agenco search-tools '{"queries":["n8n list workflows"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -38,17 +38,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["n8n list workflows"]}'
+agenco search-tools '{"queries":["n8n list workflows"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"n8n_list_workflows","input":{...}}'
+agenco call-tool '{"toolName":"n8n_list_workflows","input":{...}}'
 ```
 
-> If n8n is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If n8n is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

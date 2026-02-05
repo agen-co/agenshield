@@ -1,13 +1,13 @@
 ---
 name: integration-circleci
-description: "CircleCI actions available through AgentLink"
+description: "CircleCI actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # CircleCI
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -26,7 +26,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["circleci list projects"]}'
+agenco search-tools '{"queries":["circleci list projects"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -36,17 +36,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["circleci list projects"]}'
+agenco search-tools '{"queries":["circleci list projects"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"circleci_list_projects","input":{...}}'
+agenco call-tool '{"toolName":"circleci_list_projects","input":{...}}'
 ```
 
-> If CircleCI is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If CircleCI is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

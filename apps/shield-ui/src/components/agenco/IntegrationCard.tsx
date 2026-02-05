@@ -10,6 +10,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
 } from '@mui/material';
 import { Plug, ExternalLink } from 'lucide-react';
 
@@ -25,9 +26,10 @@ export interface IntegrationCardData {
 interface IntegrationCardProps {
   integration: IntegrationCardData;
   onConnect: (id: string) => void;
+  connecting?: boolean;
 }
 
-export function IntegrationCard({ integration, onConnect }: IntegrationCardProps) {
+export function IntegrationCard({ integration, onConnect, connecting }: IntegrationCardProps) {
   return (
     <Card sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <CardContent sx={{ flex: 1 }}>
@@ -60,8 +62,14 @@ export function IntegrationCard({ integration, onConnect }: IntegrationCardProps
             Connected
           </Button>
         ) : (
-          <Button size="small" variant="contained" onClick={() => onConnect(integration.id)}>
-            Connect
+          <Button
+            size="small"
+            variant="contained"
+            onClick={() => onConnect(integration.id)}
+            disabled={connecting}
+            startIcon={connecting ? <CircularProgress size={14} color="inherit" /> : undefined}
+          >
+            {connecting ? 'Connecting...' : 'Connect'}
           </Button>
         )}
       </CardActions>

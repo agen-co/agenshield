@@ -1,13 +1,13 @@
 ---
 name: integration-google-sheets
-description: "Google Sheets actions available through AgentLink"
+description: "Google Sheets actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # Google Sheets
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -29,7 +29,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["google sheets get spreadsheet"]}'
+agenco search-tools '{"queries":["google sheets get spreadsheet"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -39,17 +39,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["google sheets get spreadsheet"]}'
+agenco search-tools '{"queries":["google sheets get spreadsheet"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"google-sheets_get_spreadsheet","input":{...}}'
+agenco call-tool '{"toolName":"google-sheets_get_spreadsheet","input":{...}}'
 ```
 
-> If Google Sheets is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If Google Sheets is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

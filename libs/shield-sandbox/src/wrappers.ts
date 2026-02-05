@@ -85,6 +85,9 @@ export const WRAPPER_DEFINITIONS: Record<string, WrapperDefinition> = {
 # AgenShield Control CLI Wrapper
 # Routes commands through the broker
 
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
 SOCKET_PATH="\${AGENSHIELD_SOCKET:-${config.socketPath}}"
 HTTP_HOST="\${AGENSHIELD_HTTP_HOST:-localhost}"
 HTTP_PORT="\${AGENSHIELD_HTTP_PORT:-${config.httpPort}}"
@@ -98,6 +101,9 @@ exec /opt/agenshield/bin/shield-client "$@"
     generate: (config) => `#!/bin/bash
 # curl wrapper - routes HTTP requests through AgenShield broker
 # Usage: curl [options] <url>
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
 SOCKET_PATH="\${AGENSHIELD_SOCKET:-${config.socketPath}}"
 
@@ -146,6 +152,9 @@ exec /opt/agenshield/bin/shield-client http "$METHOD" "$URL" $DATA
     generate: (config) => `#!/bin/bash
 # wget wrapper - routes HTTP requests through AgenShield broker
 
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
 URL="$1"
 
 if [ -z "$URL" ]; then
@@ -162,6 +171,9 @@ exec /opt/agenshield/bin/shield-client http GET "$URL"
     generate: (config) => `#!/bin/bash
 # git wrapper - routes git network operations through broker
 # Network operations (clone, fetch, push, pull) are monitored
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
 SOCKET_PATH="\${AGENSHIELD_SOCKET:-${config.socketPath}}"
 
@@ -185,6 +197,9 @@ esac
     generate: (config) => `#!/bin/bash
 # npm wrapper - routes npm network requests through AgenShield interceptor
 # Uses NODE_OPTIONS to load the interceptor module
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
 # Set up interceptor
 export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}"
@@ -213,6 +228,9 @@ fi
     generate: (config) => `#!/bin/bash
 # pip wrapper - runs pip with AgenShield network isolation via seatbelt
 
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
 PYTHON_PATH="\${AGENSHIELD_PYTHON:-${config.pythonPath}}"
 SEATBELT_PROFILE="${config.seatbeltDir}/python.sb"
 
@@ -232,6 +250,9 @@ fi
     generate: (config) => `#!/bin/bash
 # python wrapper - runs Python with AgenShield seatbelt network isolation
 # Network access is denied by seatbelt profile
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
 PYTHON_PATH="\${AGENSHIELD_PYTHON:-${config.pythonPath}}"
 SEATBELT_PROFILE="${config.seatbeltDir}/python.sb"
@@ -256,6 +277,10 @@ fi
     usesSeatbelt: true,
     generate: (config) => `#!/bin/bash
 # python3 wrapper - alias to python wrapper
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
 exec ${config.agentHome}/bin/python "$@"
 `,
   },
@@ -266,6 +291,9 @@ exec ${config.agentHome}/bin/python "$@"
     generate: (config) => `#!/bin/bash
 # node wrapper - runs Node.js with AgenShield interceptor
 # All network and exec operations are intercepted
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
 # Set up interceptor
 export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}"
@@ -298,6 +326,9 @@ fi
     generate: (config) => `#!/bin/bash
 # npx wrapper - runs npx with AgenShield interceptor
 
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
 # Set up interceptor
 export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}"
 
@@ -324,6 +355,9 @@ fi
     generate: (config) => `#!/bin/bash
 # brew wrapper - routes Homebrew network operations through broker
 # Install/update/upgrade operations are monitored
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
 SOCKET_PATH="\${AGENSHIELD_SOCKET:-${config.socketPath}}"
 
@@ -353,6 +387,9 @@ esac
     generate: (config) => `#!/bin/bash
 # open-url - opens URLs through the broker
 
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
 URL="$1"
 
 if [ -z "$URL" ]; then
@@ -369,6 +406,9 @@ exec /opt/agenshield/bin/shield-client open "$URL"
     generate: (config) => `#!/bin/bash
 # ssh wrapper - routes SSH connections through broker for monitoring
 
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
 SOCKET_PATH="\${AGENSHIELD_SOCKET:-${config.socketPath}}"
 
 # Route through broker
@@ -380,6 +420,9 @@ exec /opt/agenshield/bin/shield-client ssh "$@"
     description: 'scp wrapper that routes through broker',
     generate: (config) => `#!/bin/bash
 # scp wrapper - routes SCP transfers through broker for monitoring
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
 SOCKET_PATH="\${AGENSHIELD_SOCKET:-${config.socketPath}}"
 
@@ -778,6 +821,10 @@ SHIELDEXECEOF`);
     // 3. Install node and python as separate bash wrappers (they need special env)
     const nodeWrapper = `#!/bin/bash
 # node wrapper - runs Node.js with AgenShield interceptor
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
 export NODE_OPTIONS="${wrapperConfig.interceptorFlag} ${wrapperConfig.interceptorPath} \${NODE_OPTIONS:-}"
 export AGENSHIELD_SOCKET="${wrapperConfig.socketPath}"
 export AGENSHIELD_HTTP_PORT="${wrapperConfig.httpPort}"
@@ -1040,4 +1087,92 @@ export async function copyNodeBinary(
       error: error as Error,
     };
   }
+}
+
+export interface PresetInstallResult {
+  success: boolean;
+  installedWrappers: string[];
+  errors: string[];
+  seatbeltInstalled: boolean;
+}
+
+/**
+ * Install binaries for a preset: node binary, interceptor, wrappers, seatbelt, ownership lockdown.
+ */
+export async function installPresetBinaries(options: {
+  requiredBins: string[];
+  userConfig: UserConfig;
+  binDir: string;
+  socketGroupName: string;
+}): Promise<PresetInstallResult> {
+  const { requiredBins, userConfig, binDir, socketGroupName } = options;
+  const errors: string[] = [];
+  const installedWrappers: string[] = [];
+  let seatbeltInstalled = false;
+
+  // 1. Copy node binary to /opt/agenshield/bin/node-bin (if 'node' in requiredBins)
+  if (requiredBins.includes('node')) {
+    const nodeResult = await copyNodeBinary(userConfig);
+    if (!nodeResult.success) {
+      errors.push(`Node binary: ${nodeResult.message}`);
+    }
+  }
+
+  // 2. Deploy interceptor (if any required bin uses it)
+  const needsInterceptor = requiredBins.some(
+    name => WRAPPER_DEFINITIONS[name]?.usesInterceptor
+  );
+  if (needsInterceptor) {
+    const intResult = await deployInterceptor(userConfig);
+    if (!intResult.success) {
+      errors.push(`Interceptor: ${intResult.message}`);
+    }
+  }
+
+  // 3. Install wrapper scripts for required bins
+  const wrapperConfig = getDefaultWrapperConfig(userConfig);
+  const validNames = requiredBins.filter(name => WRAPPER_DEFINITIONS[name]);
+  const results = await installSpecificWrappers(validNames, binDir, wrapperConfig);
+  for (const r of results) {
+    if (r.success) {
+      installedWrappers.push(r.name);
+    } else {
+      errors.push(`Wrapper ${r.name}: ${r.message}`);
+    }
+  }
+
+  // 4. Install seatbelt profiles (only if python/pip wrappers are in the list)
+  const needsSeatbelt = requiredBins.some(
+    name => WRAPPER_DEFINITIONS[name]?.usesSeatbelt
+  );
+  if (needsSeatbelt) {
+    try {
+      const { generateAgentProfileFromConfig, installSeatbeltProfiles } = await import('./seatbelt');
+      const agentProfile = generateAgentProfileFromConfig(userConfig);
+      const sbResult = await installSeatbeltProfiles(userConfig, { agentProfile });
+      seatbeltInstalled = sbResult.success;
+      if (!sbResult.success) {
+        errors.push(`Seatbelt: ${sbResult.error}`);
+      }
+    } catch (err) {
+      errors.push(`Seatbelt: ${(err as Error).message}`);
+    }
+  }
+
+  // 5. Lock down bin directory ownership: root:<socketGroup>, mode 755
+  //    Agent can execute but not modify wrappers
+  try {
+    await execAsync(`sudo chown -R root:${socketGroupName} "${binDir}"`);
+    await execAsync(`sudo chmod 755 "${binDir}"`);
+    await execAsync(`sudo chmod -R 755 "${binDir}"`);
+  } catch (err) {
+    errors.push(`Lockdown: ${(err as Error).message}`);
+  }
+
+  return {
+    success: errors.length === 0,
+    installedWrappers,
+    errors,
+    seatbeltInstalled,
+  };
 }

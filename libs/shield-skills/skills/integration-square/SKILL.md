@@ -1,13 +1,13 @@
 ---
 name: integration-square
-description: "Square actions available through AgentLink"
+description: "Square actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # Square
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -31,7 +31,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["square create payment"]}'
+agenco search-tools '{"queries":["square create payment"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -41,17 +41,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["square create payment"]}'
+agenco search-tools '{"queries":["square create payment"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"square_create_payment","input":{...}}'
+agenco call-tool '{"toolName":"square_create_payment","input":{...}}'
 ```
 
-> If Square is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If Square is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

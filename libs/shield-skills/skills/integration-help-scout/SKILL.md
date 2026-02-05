@@ -1,13 +1,13 @@
 ---
 name: integration-help-scout
-description: "Help Scout actions available through AgentLink"
+description: "Help Scout actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # Help Scout
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -29,7 +29,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["help scout list conversations"]}'
+agenco search-tools '{"queries":["help scout list conversations"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -39,17 +39,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["help scout list conversations"]}'
+agenco search-tools '{"queries":["help scout list conversations"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"help-scout_list_conversations","input":{...}}'
+agenco call-tool '{"toolName":"help-scout_list_conversations","input":{...}}'
 ```
 
-> If Help Scout is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If Help Scout is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

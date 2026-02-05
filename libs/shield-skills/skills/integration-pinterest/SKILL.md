@@ -1,13 +1,13 @@
 ---
 name: integration-pinterest
-description: "Pinterest actions available through AgentLink"
+description: "Pinterest actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # Pinterest
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -29,7 +29,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["pinterest get user"]}'
+agenco search-tools '{"queries":["pinterest get user"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -39,17 +39,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["pinterest get user"]}'
+agenco search-tools '{"queries":["pinterest get user"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"pinterest_get_user","input":{...}}'
+agenco call-tool '{"toolName":"pinterest_get_user","input":{...}}'
 ```
 
-> If Pinterest is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If Pinterest is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

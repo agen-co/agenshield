@@ -221,17 +221,19 @@ export function SkillDetails({ skillName }: SkillDetailsProps) {
   return (
     <Root>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-        <Typography variant="h5" fontWeight={600}>
-          {skill.name}
-        </Typography>
-        <StatusBadge label={config.label} variant={config.variant} size="medium" />
+      <Box sx={{ mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography variant="h5" fontWeight={600}>
+            {skill.name}
+          </Typography>
+          <StatusBadge label={config.label} variant={config.variant} size="medium" />
+        </Box>
+        {skill.description && (
+          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', mt: 0.5 }}>
+            {skill.description}
+          </Typography>
+        )}
       </Box>
-      {skill.description && (
-        <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', mb: 3 }}>
-          {skill.description}
-        </Typography>
-      )}
 
       <ContentGrid>
         {/* Left: Readme */}

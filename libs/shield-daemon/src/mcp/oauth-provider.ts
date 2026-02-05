@@ -14,8 +14,8 @@ import type {
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { getVault } from '../vault';
 import {
-  emitAgentLinkAuthRequired,
-  emitAgentLinkAuthCompleted,
+  emitAgenCoAuthRequired,
+  emitAgenCoAuthCompleted,
 } from '../events/emitter';
 
 const TAG = '\x1b[35m[OAuth]\x1b[0m';
@@ -35,7 +35,7 @@ export class VaultOAuthProvider implements OAuthClientProvider {
   }
 
   get redirectUrl(): string {
-    return `http://localhost:${this.daemonPort}/api/agentlink/auth/oauth-callback`;
+    return `http://localhost:${this.daemonPort}/api/agenco/auth/oauth-callback`;
   }
 
   get clientMetadata(): OAuthClientMetadata {
@@ -50,7 +50,7 @@ export class VaultOAuthProvider implements OAuthClientProvider {
 
   async clientInformation(): Promise<OAuthClientInformationFull | undefined> {
     const vault = getVault();
-    const v = await vault.get('agentlink');
+    const v = await vault.get('agenco');
     if (!v?.clientId) {
       console.log(`${TAG} No client credentials in vault — DCR will be triggered`);
       return undefined;
@@ -66,8 +66,8 @@ export class VaultOAuthProvider implements OAuthClientProvider {
   async saveClientInformation(info: OAuthClientInformationFull): Promise<void> {
     console.log(`${TAG} Saving client credentials (client_id: ${info.client_id.slice(0, 8)}…)`);
     const vault = getVault();
-    const existing = await vault.get('agentlink');
-    await vault.set('agentlink', {
+    const existing = await vault.get('agenco');
+    await vault.set('agenco', {
       clientId: info.client_id,
       clientSecret: info.client_secret || '',
       accessToken: existing?.accessToken || '',
@@ -78,7 +78,7 @@ export class VaultOAuthProvider implements OAuthClientProvider {
 
   async tokens(): Promise<OAuthTokens | undefined> {
     const vault = getVault();
-    const v = await vault.get('agentlink');
+    const v = await vault.get('agenco');
     if (!v?.accessToken) {
       console.log(`${TAG} No tokens in vault`);
       return undefined;
@@ -94,8 +94,8 @@ export class VaultOAuthProvider implements OAuthClientProvider {
   async saveTokens(tokens: OAuthTokens): Promise<void> {
     console.log(`${TAG} Saving tokens (expires_in: ${tokens.expires_in ?? 'none'})`);
     const vault = getVault();
-    const existing = await vault.get('agentlink');
-    await vault.set('agentlink', {
+    const existing = await vault.get('agenco');
+    await vault.set('agenco', {
       clientId: existing?.clientId || '',
       clientSecret: existing?.clientSecret || '',
       accessToken: tokens.access_token,
@@ -105,13 +105,13 @@ export class VaultOAuthProvider implements OAuthClientProvider {
         : existing?.expiresAt || 0,
     });
 
-    emitAgentLinkAuthCompleted();
+    emitAgenCoAuthCompleted();
   }
 
   async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
     this._authUrl = authorizationUrl.toString();
     console.log(`${TAG} Authorization URL captured → ${this._authUrl.slice(0, 100)}…`);
-    emitAgentLinkAuthRequired(this._authUrl);
+    emitAgenCoAuthRequired(this._authUrl);
   }
 
   async saveCodeVerifier(codeVerifier: string): Promise<void> {

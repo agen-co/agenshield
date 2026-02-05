@@ -19,7 +19,7 @@ export const OperationTypeSchema = z.enum([
 export const HttpRequestParamsSchema = z.object({
   url: z.string().url(),
   method: z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']).optional(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   body: z.string().optional(),
   timeout: z.number().positive().optional(),
   followRedirects: z.boolean().optional(),
@@ -47,7 +47,7 @@ export const ExecParamsSchema = z.object({
   command: z.string().min(1),
   args: z.array(z.string()).optional(),
   cwd: z.string().optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   timeout: z.number().positive().optional(),
   shell: z.boolean().optional(),
 });
@@ -75,7 +75,7 @@ export const BrokerRequestSchema = z.object({
   jsonrpc: z.literal('2.0'),
   id: z.union([z.string(), z.number()]),
   method: OperationTypeSchema,
-  params: z.record(z.unknown()),
+  params: z.record(z.string(), z.unknown()),
   channel: z.enum(['socket', 'http']).optional(),
 });
 

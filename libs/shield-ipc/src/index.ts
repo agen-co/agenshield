@@ -53,34 +53,34 @@ export {
 } from './schemas/policy.schema';
 
 export {
-  // AgentLink schemas
-  AgentLinkAuthStartRequestSchema,
-  AgentLinkAuthStartResponseSchema,
-  AgentLinkAuthCallbackRequestSchema,
-  AgentLinkAuthCallbackResponseSchema,
-  AgentLinkAuthStatusResponseSchema,
-  AgentLinkToolRunRequestSchema,
-  AgentLinkToolRunResponseSchema,
-  AgentLinkToolListRequestSchema,
-  AgentLinkToolSchema,
-  AgentLinkToolListResponseSchema,
-  AgentLinkToolSearchRequestSchema,
-  AgentLinkIntegrationsListRequestSchema,
-  AgentLinkIntegrationActionSchema,
-  AgentLinkIntegrationSchema,
-  AgentLinkIntegrationsListResponseSchema,
-  AgentLinkConnectedIntegrationSchema,
-  AgentLinkConnectedIntegrationsResponseSchema,
-  AgentLinkConnectIntegrationRequestSchema,
-  AgentLinkConnectIntegrationResponseSchema,
-} from './schemas/agentlink.schema';
+  // AgenCo schemas
+  AgenCoAuthStartRequestSchema,
+  AgenCoAuthStartResponseSchema,
+  AgenCoAuthCallbackRequestSchema,
+  AgenCoAuthCallbackResponseSchema,
+  AgenCoAuthStatusResponseSchema,
+  AgenCoToolRunRequestSchema,
+  AgenCoToolRunResponseSchema,
+  AgenCoToolListRequestSchema,
+  AgenCoToolSchema,
+  AgenCoToolListResponseSchema,
+  AgenCoToolSearchRequestSchema,
+  AgenCoIntegrationsListRequestSchema,
+  AgenCoIntegrationActionSchema,
+  AgenCoIntegrationSchema,
+  AgenCoIntegrationsListResponseSchema,
+  AgenCoConnectedIntegrationSchema,
+  AgenCoConnectedIntegrationsResponseSchema,
+  AgenCoConnectIntegrationRequestSchema,
+  AgenCoConnectIntegrationResponseSchema,
+} from './schemas/agenco.schema';
 
 export {
   // State schemas
   DaemonStateSchema,
   UserStateSchema,
   GroupStateSchema,
-  AgentLinkStateSchema,
+  AgenCoStateSchema,
   InstallationStateSchema,
   PasscodeProtectionStateSchema,
   SystemStateSchema,
@@ -88,7 +88,7 @@ export {
 
 export {
   // Vault schemas
-  AgentLinkSecretsSchema,
+  AgenCoSecretsSchema,
   VaultContentsSchema,
 } from './schemas/vault.schema';
 

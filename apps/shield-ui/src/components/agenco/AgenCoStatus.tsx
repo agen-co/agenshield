@@ -1,5 +1,5 @@
 /**
- * AgentLink connection status card
+ * AgenCo connection status card
  */
 
 import {
@@ -13,18 +13,18 @@ import {
   Alert,
 } from '@mui/material';
 import { Link2, Link2Off, RefreshCw } from 'lucide-react';
-import { useAgentLinkStatus, useAgentLinkMCPStatus } from '../../api/hooks';
+import { useAgenCoStatus, useAgenCoMCPStatus } from '../../api/hooks';
 
-interface AgentLinkStatusProps {
+interface AgenCoStatusProps {
   onConnect: () => void;
   onLogout: () => void;
   connecting?: boolean;
   error?: string | null;
 }
 
-export function AgentLinkStatus({ onConnect, onLogout, connecting, error }: AgentLinkStatusProps) {
-  const { data: authData, isLoading: authLoading } = useAgentLinkStatus();
-  const { data: mcpData, isLoading: mcpLoading } = useAgentLinkMCPStatus();
+export function AgenCoStatus({ onConnect, onLogout, connecting, error }: AgenCoStatusProps) {
+  const { data: authData, isLoading: authLoading } = useAgenCoStatus();
+  const { data: mcpData, isLoading: mcpLoading } = useAgenCoMCPStatus();
 
   const auth = authData?.data;
   const mcp = mcpData?.data;
@@ -40,7 +40,7 @@ export function AgentLinkStatus({ onConnect, onLogout, connecting, error }: Agen
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {isAuthenticated ? <Link2 size={20} /> : <Link2Off size={20} />}
             <Typography variant="h6" fontWeight={600}>
-              AgentLink
+              AgenCo
             </Typography>
           </Box>
           {isLoading ? (
@@ -63,7 +63,7 @@ export function AgentLinkStatus({ onConnect, onLogout, connecting, error }: Agen
         ) : isAuthenticated ? (
           <>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Secure integrations gateway is active. Your API credentials are stored in the AgentLink cloud vault.
+              Secure integrations gateway is active. Your API credentials are stored in the AgenCo cloud vault.
             </Typography>
             {auth?.expiresAt && (
               <Typography variant="caption" color="text.secondary">
@@ -89,7 +89,7 @@ export function AgentLinkStatus({ onConnect, onLogout, connecting, error }: Agen
         ) : (
           <>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Connect to AgentLink to securely access third-party integrations. Credentials never touch your local machine.
+              Connect to AgenCo to securely access third-party integrations. Credentials never touch your local machine.
             </Typography>
             <Button
               variant="contained"
@@ -98,7 +98,7 @@ export function AgentLinkStatus({ onConnect, onLogout, connecting, error }: Agen
               disabled={connecting}
               startIcon={connecting ? <RefreshCw size={14} /> : <Link2 size={14} />}
             >
-              {connecting ? 'Connecting...' : 'Connect AgentLink'}
+              {connecting ? 'Connecting...' : 'Connect AgenCo'}
             </Button>
             {error && (
               <Alert severity="error" sx={{ mt: 1 }} variant="outlined">

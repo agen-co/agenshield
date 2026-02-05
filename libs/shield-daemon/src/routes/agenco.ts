@@ -1,24 +1,25 @@
 /**
- * AgentLink API routes
+ * AgenCo API routes
  *
- * Routes for AgentLink authentication and tool execution.
+ * Routes for AgenCo authentication and tool execution.
  * Tool/integration routes use the MCP client; auth routes handle OAuth
  * via the official MCP SDK (DCR, PKCE, token exchange, refresh are automatic).
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { DEFAULT_PORT } from '@agenshield/ipc';
+import { DEFAULT_PORT, MARKETPLACE_API } from '@agenshield/ipc';
+import { loggedFetch } from '../utils/logged-fetch';
 import type {
-  AgentLinkConnectIntegrationRequest,
-  AgentLinkIntegrationsListResponse,
-  AgentLinkConnectedIntegrationsResponse,
-  AgentLinkConnectIntegrationResponse,
+  AgenCoConnectIntegrationRequest,
+  AgenCoIntegrationsListResponse,
+  AgenCoConnectedIntegrationsResponse,
+  AgenCoConnectIntegrationResponse,
 } from '@agenshield/ipc';
 import { getVault } from '../vault';
-import { loadState, updateAgentLinkState, addConnectedIntegration } from '../state';
+import { loadState, updateAgenCoState, addConnectedIntegration } from '../state';
 import { getMCPClient, activateMCP, deactivateMCP, getMCPState, finishMCPAuth, MCPUnauthorizedError } from '../mcp';
-import { emitAgentLinkAuthRequired } from '../events/emitter';
-import { provisionAgentLinkSkill, provisionIntegrationSkill } from '../services/integration-skills';
+import { emitAgenCoAuthRequired } from '../events/emitter';
+import { provisionAgenCoSkill, provisionIntegrationSkill } from '../services/integration-skills';
 import { INTEGRATION_CATALOG, type IntegrationDetails } from '../data/integration-catalog';
 
 /**
@@ -76,7 +77,7 @@ async function ensureMCPActive(app: FastifyInstance): Promise<{ ok: true } | { o
  * Map MCP available-integration IDs to static catalog details.
  * Enriches each ID with title, description, actions from the catalog.
  */
-function mapIntegrationsList(availableIds: string[], search?: string): AgentLinkIntegrationsListResponse {
+function mapIntegrationsList(availableIds: string[], search?: string): AgenCoIntegrationsListResponse {
   let integrations = availableIds
     .map((id) => {
       const details: IntegrationDetails | undefined = INTEGRATION_CATALOG[id];
@@ -115,14 +116,14 @@ function slugToDisplayName(slug: string): string {
 }
 
 /**
- * Map raw MCP result → AgentLinkConnectedIntegrationsResponse
+ * Map raw MCP result → AgenCoConnectedIntegrationsResponse
  *
  * The MCP tool `list-connected-integrations` may return:
  *   - { integrations: ["google-calendar", "slack"], count: N }  (string array)
  *   - { integrations: [{ id, name, ... }], count: N }          (object array)
  *   - ["google-calendar", "slack"]                              (plain array)
  */
-function mapConnectedIntegrations(raw: unknown): AgentLinkConnectedIntegrationsResponse {
+function mapConnectedIntegrations(raw: unknown): AgenCoConnectedIntegrationsResponse {
   const items = Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.integrations ?? [];
   const integrations = (items as unknown[]).map((i) => {
     // Handle string items — MCP returns ["google-calendar", "slack"]
@@ -152,12 +153,12 @@ function mapConnectedIntegrations(raw: unknown): AgentLinkConnectedIntegrationsR
 }
 
 /**
- * Map raw MCP result → AgentLinkConnectIntegrationResponse
+ * Map raw MCP result → AgenCoConnectIntegrationResponse
  */
-function mapConnectResponse(raw: unknown): AgentLinkConnectIntegrationResponse {
+function mapConnectResponse(raw: unknown): AgenCoConnectIntegrationResponse {
   const r = raw as Record<string, unknown>;
   return {
-    status: (r.status ?? 'auth_required') as AgentLinkConnectIntegrationResponse['status'],
+    status: (r.status ?? 'auth_required') as AgenCoConnectIntegrationResponse['status'],
     oauthUrl: (r.oauthUrl ?? r.oauth_url ?? r.authUrl ?? r.auth_url) as string | undefined,
     expiresIn: r.expiresIn as number | undefined,
     instructions: r.instructions as string | undefined,
@@ -167,16 +168,16 @@ function mapConnectResponse(raw: unknown): AgentLinkConnectIntegrationResponse {
 }
 
 /**
- * Register AgentLink routes
+ * Register AgenCo routes
  */
-export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
+export async function agencoRoutes(app: FastifyInstance): Promise<void> {
   // ===== AUTH ROUTES =====
 
   /**
    * Start OAuth authentication flow.
    * The SDK handles DCR, PKCE, and authorization URL generation automatically.
    */
-  app.post('/agentlink/auth/start', async () => {
+  app.post('/agenco/auth/start', async () => {
     const daemonPort = getDaemonPort(app);
 
     try {
@@ -194,7 +195,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
    * OAuth callback endpoint — handles redirect from OAuth provider (UI popup flow).
    * The SDK exchanges the code for tokens automatically via finishAuth().
    */
-  app.get('/agentlink/auth/oauth-callback', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/agenco/auth/oauth-callback', async (request: FastifyRequest, reply: FastifyReply) => {
     const { code, error: oauthError } = request.query as {
       code?: string;
       error?: string;
@@ -224,7 +225,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
       await finishMCPAuth(code);
 
       // Update system state
-      updateAgentLinkState({
+      updateAgenCoState({
         authenticated: true,
         lastAuthAt: new Date().toISOString(),
       });
@@ -252,7 +253,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
    * Complete OAuth flow with callback code (CLI / agent flow).
    * The SDK exchanges the code for tokens automatically via finishAuth().
    */
-  app.post('/agentlink/auth/callback', async (request) => {
+  app.post('/agenco/auth/callback', async (request) => {
     const { code } = request.body as { code?: string };
 
     if (!code) {
@@ -263,7 +264,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
       await finishMCPAuth(code);
 
       // Update system state
-      updateAgentLinkState({
+      updateAgenCoState({
         authenticated: true,
         lastAuthAt: new Date().toISOString(),
       });
@@ -277,21 +278,21 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Get authentication status
    */
-  app.get('/agentlink/auth/status', async () => {
+  app.get('/agenco/auth/status', async () => {
     const vault = getVault();
-    const agentlink = await vault.get('agentlink');
+    const agenco = await vault.get('agenco');
     const state = loadState();
 
-    const hasToken = !!agentlink?.accessToken;
-    const isExpired = agentlink?.expiresAt ? agentlink.expiresAt < Date.now() : true;
+    const hasToken = !!agenco?.accessToken;
+    const isExpired = agenco?.expiresAt ? agenco.expiresAt < Date.now() : true;
 
     return {
       success: true,
       data: {
         authenticated: hasToken && !isExpired,
         expired: hasToken && isExpired,
-        expiresAt: agentlink?.expiresAt ? new Date(agentlink.expiresAt).toISOString() : null,
-        connectedIntegrations: state.agentlink.connectedIntegrations,
+        expiresAt: agenco?.expiresAt ? new Date(agenco.expiresAt).toISOString() : null,
+        connectedIntegrations: state.agenco.connectedIntegrations,
       },
     };
   });
@@ -299,14 +300,14 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Logout and clear credentials
    */
-  app.post('/agentlink/auth/logout', async () => {
+  app.post('/agenco/auth/logout', async () => {
     // Deactivate MCP client first
     await deactivateMCP();
 
     const vault = getVault();
-    await vault.delete('agentlink');
+    await vault.delete('agenco');
 
-    updateAgentLinkState({
+    updateAgenCoState({
       authenticated: false,
       lastAuthAt: undefined,
       connectedIntegrations: [],
@@ -320,7 +321,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Activate MCP client connection
    */
-  app.post('/agentlink/mcp/activate', async () => {
+  app.post('/agenco/mcp/activate', async () => {
     try {
       const daemonPort = getDaemonPort(app);
       const result = await activateMCP(daemonPort);
@@ -333,7 +334,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Deactivate MCP client connection
    */
-  app.post('/agentlink/mcp/deactivate', async () => {
+  app.post('/agenco/mcp/deactivate', async () => {
     await deactivateMCP();
     return { success: true, data: { state: getMCPState(), active: false } };
   });
@@ -341,7 +342,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Get MCP connection status
    */
-  app.get('/agentlink/mcp/status', async () => {
+  app.get('/agenco/mcp/status', async () => {
     const client = getMCPClient();
     return {
       success: true,
@@ -355,10 +356,10 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   // ===== TOOL ROUTES =====
 
   /**
-   * Generic MCP tool passthrough (used by agentlink CLI).
+   * Generic MCP tool passthrough (used by agenco CLI).
    * Forwards directly to any MCP tool by name.
    */
-  app.post('/agentlink/mcp/call', async (request) => {
+  app.post('/agenco/mcp/call', async (request) => {
     const { tool, input = {} } = request.body as { tool: string; input?: Record<string, unknown> };
 
     if (!tool) {
@@ -370,7 +371,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
       if (mcpStatus.error === 'unauthorized') {
         return { success: false, error: 'unauthorized', data: { message: mcpStatus.message } };
       }
-      if (mcpStatus.authUrl) emitAgentLinkAuthRequired(mcpStatus.authUrl);
+      if (mcpStatus.authUrl) emitAgenCoAuthRequired(mcpStatus.authUrl);
       return { success: false, error: 'auth_required', data: { authUrl: mcpStatus.authUrl, message: mcpStatus.message } };
     }
 
@@ -393,7 +394,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
    * Run a tool via MCP gateway's `call-tool` meta-tool.
    * The gateway wraps integration-specific tools behind `call-tool`.
    */
-  app.post('/agentlink/tool/run', async (request) => {
+  app.post('/agenco/tool/run', async (request) => {
     const { toolName, input = {} } = request.body as { toolName: string; input?: Record<string, unknown> };
 
     const mcpStatus = await ensureMCPActive(app);
@@ -402,7 +403,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
         return { success: false, error: 'unauthorized', data: { message: mcpStatus.message } };
       }
       if (mcpStatus.authUrl) {
-        emitAgentLinkAuthRequired(mcpStatus.authUrl);
+        emitAgenCoAuthRequired(mcpStatus.authUrl);
       }
       return {
         success: false,
@@ -432,7 +433,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   /**
    * List MCP gateway tools (meta-tools like search-tools, call-tool, etc.)
    */
-  app.get('/agentlink/tool/list', async () => {
+  app.get('/agenco/tool/list', async () => {
     const mcpStatus = await ensureMCPActive(app);
     if (!mcpStatus.ok) {
       if (mcpStatus.error === 'unauthorized') {
@@ -457,7 +458,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
    * Search integration tools via MCP gateway's `search-tools`.
    * Discovers integration-specific tools by query (e.g. "send email", "list repos").
    */
-  app.get('/agentlink/tool/search', async (request) => {
+  app.get('/agenco/tool/search', async (request) => {
     const { query } = request.query as { query?: string };
 
     if (!query) {
@@ -491,7 +492,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
    * Fetches available IDs from MCP gateway, then enriches them with
    * static catalog details (title, description, actions) and filters by ?search=.
    */
-  app.get('/agentlink/integrations', async (request) => {
+  app.get('/agenco/integrations', async (request) => {
     const { search } = request.query as { search?: string };
 
     const mcpStatus = await ensureMCPActive(app);
@@ -521,7 +522,7 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   /**
    * List connected integrations via MCP gateway
    */
-  app.get('/agentlink/integrations/connected', async () => {
+  app.get('/agenco/integrations/connected', async () => {
     const mcpStatus = await ensureMCPActive(app);
     if (!mcpStatus.ok) {
       if (mcpStatus.error === 'unauthorized') {
@@ -544,29 +545,55 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * Get OAuth auth URL for an integration via MCP gateway.
+   * Get OAuth auth URL for an integration via marketplace REST API.
+   * Uses stored JWT directly — no MCP connection needed.
    * If already connected, auto-provision matching built-in skills.
    */
-  app.post('/agentlink/integrations/connect', async (request) => {
-    const { integration } = request.body as AgentLinkConnectIntegrationRequest;
+  app.post('/agenco/integrations/connect', async (request) => {
+    const { integration } = request.body as AgenCoConnectIntegrationRequest;
 
-    const mcpStatus = await ensureMCPActive(app);
-    if (!mcpStatus.ok) {
-      if (mcpStatus.error === 'unauthorized') {
-        return { success: false, error: 'unauthorized', data: { message: mcpStatus.message } };
-      }
-      return { success: false, error: mcpStatus.message };
+    // Get JWT from vault — no MCP client needed
+    const vault = getVault();
+    const agenco = await vault.get('agenco');
+
+    if (!agenco?.accessToken) {
+      return { success: false, error: 'unauthorized', data: { message: 'Not authenticated. Please log in via the Shield UI.' } };
+    }
+
+    if (agenco.expiresAt && agenco.expiresAt < Date.now()) {
+      return { success: false, error: 'unauthorized', data: { message: 'Session expired. Please re-authenticate via the Shield UI.' } };
     }
 
     try {
-      const client = getMCPClient()!;
-      const result = await client.callTool('get-integration-auth-url', { integrationId: integration });
-      const parsed = mapConnectResponse(extractToolResult(result));
+      const response = await loggedFetch(
+        `${MARKETPLACE_API}/api/integrations/connect`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${agenco.accessToken}`,
+          },
+          body: JSON.stringify({ integrationId: integration }),
+        },
+        'agenco:integration-connect',
+      );
+
+      if (response.status === 401) {
+        return { success: false, error: 'unauthorized', data: { message: 'Session expired or unauthorized. Please re-authenticate via the Shield UI.' } };
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        return { success: false, error: `Marketplace API error (${response.status}): ${text}` };
+      }
+
+      const raw = await response.json();
+      const parsed = mapConnectResponse(raw);
 
       if (parsed.status === 'already_connected' || parsed.status === 'connected') {
         addConnectedIntegration(integration);
-        // Provision the agentlink-secure-integrations skill (handles all integrations)
-        const { installed } = await provisionAgentLinkSkill();
+        // Provision the agenco-secure-integrations skill (handles all integrations)
+        const { installed } = await provisionAgenCoSkill();
         // Provision integration-specific documentation skill
         const { installed: integrationInstalled } = await provisionIntegrationSkill(integration);
         return {
@@ -577,9 +604,6 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
 
       return { success: true, data: parsed };
     } catch (error) {
-      if (error instanceof MCPUnauthorizedError) {
-        return { success: false, error: 'unauthorized', data: { message: error.message } };
-      }
       return { success: false, error: (error as Error).message };
     }
   });

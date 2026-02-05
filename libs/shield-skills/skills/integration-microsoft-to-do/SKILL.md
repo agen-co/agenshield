@@ -1,13 +1,13 @@
 ---
 name: integration-microsoft-to-do
-description: "Microsoft To Do actions available through AgentLink"
+description: "Microsoft To Do actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # Microsoft To Do
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -26,7 +26,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["microsoft to do list task lists"]}'
+agenco search-tools '{"queries":["microsoft to do list task lists"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -36,17 +36,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["microsoft to do list task lists"]}'
+agenco search-tools '{"queries":["microsoft to do list task lists"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"microsoft-to-do_list_task_lists","input":{...}}'
+agenco call-tool '{"toolName":"microsoft-to-do_list_task_lists","input":{...}}'
 ```
 
-> If Microsoft To Do is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If Microsoft To Do is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

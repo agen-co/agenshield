@@ -6,7 +6,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { SystemState, AgentLinkState, DaemonState, UserState, GroupState, InstallationState, PasscodeProtectionState } from '@agenshield/ipc';
+import type { SystemState, AgenCoState, DaemonState, UserState, GroupState, InstallationState, PasscodeProtectionState } from '@agenshield/ipc';
 import { STATE_FILE, DEFAULT_PORT } from '@agenshield/ipc';
 import { getConfigDir } from '../config/paths';
 
@@ -20,7 +20,7 @@ export function getStatePath(): string {
 /**
  * Get default system state
  */
-function getDefaultState(): SystemState {
+export function getDefaultState(): SystemState {
   return {
     version: '1.0.0',
     installedAt: new Date().toISOString(),
@@ -30,7 +30,7 @@ function getDefaultState(): SystemState {
     },
     users: [],
     groups: [],
-    agentlink: {
+    agenco: {
       authenticated: false,
       connectedIntegrations: [],
     },
@@ -63,7 +63,7 @@ export function loadState(): SystemState {
       ...getDefaultState(),
       ...parsed,
       daemon: { ...getDefaultState().daemon, ...parsed.daemon },
-      agentlink: { ...getDefaultState().agentlink, ...parsed.agentlink },
+      agenco: { ...getDefaultState().agenco, ...parsed.agenco },
       installation: { ...getDefaultState().installation, ...parsed.installation },
     };
   } catch (error) {
@@ -103,8 +103,8 @@ export function updateState(updates: Partial<SystemState>): SystemState {
   if (updates.daemon) {
     updated.daemon = { ...current.daemon, ...updates.daemon };
   }
-  if (updates.agentlink) {
-    updated.agentlink = { ...current.agentlink, ...updates.agentlink };
+  if (updates.agenco) {
+    updated.agenco = { ...current.agenco, ...updates.agenco };
   }
   if (updates.installation) {
     updated.installation = { ...current.installation, ...updates.installation };
@@ -128,11 +128,11 @@ export function updateDaemonState(updates: Partial<DaemonState>): SystemState {
 }
 
 /**
- * Update AgentLink state
+ * Update AgenCo state
  */
-export function updateAgentLinkState(updates: Partial<AgentLinkState>): SystemState {
+export function updateAgenCoState(updates: Partial<AgenCoState>): SystemState {
   const current = loadState();
-  current.agentlink = { ...current.agentlink, ...updates };
+  current.agenco = { ...current.agenco, ...updates };
   saveState(current);
   return current;
 }
@@ -222,13 +222,13 @@ export function removeGroupState(name: string): SystemState {
 }
 
 /**
- * Add a connected integration to AgentLink state
+ * Add a connected integration to AgenCo state
  */
 export function addConnectedIntegration(integrationId: string): SystemState {
   const current = loadState();
 
-  if (!current.agentlink.connectedIntegrations.includes(integrationId)) {
-    current.agentlink.connectedIntegrations.push(integrationId);
+  if (!current.agenco.connectedIntegrations.includes(integrationId)) {
+    current.agenco.connectedIntegrations.push(integrationId);
     saveState(current);
   }
 
@@ -236,11 +236,11 @@ export function addConnectedIntegration(integrationId: string): SystemState {
 }
 
 /**
- * Remove a connected integration from AgentLink state
+ * Remove a connected integration from AgenCo state
  */
 export function removeConnectedIntegration(integrationId: string): SystemState {
   const current = loadState();
-  current.agentlink.connectedIntegrations = current.agentlink.connectedIntegrations.filter(
+  current.agenco.connectedIntegrations = current.agenco.connectedIntegrations.filter(
     (id) => id !== integrationId
   );
   saveState(current);

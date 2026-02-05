@@ -5,9 +5,9 @@
  */
 
 /**
- * AgentLink OAuth secrets
+ * AgenCo OAuth secrets
  */
-export interface AgentLinkSecrets {
+export interface AgenCoSecrets {
   /** OAuth access token */
   accessToken: string;
   /** OAuth refresh token */
@@ -52,8 +52,8 @@ export interface VaultSecret {
  * Vault contents structure
  */
 export interface VaultContents {
-  /** AgentLink OAuth tokens and secrets */
-  agentlink?: AgentLinkSecrets;
+  /** AgenCo OAuth tokens and secrets */
+  agenco?: AgenCoSecrets;
   /** Environment variables for sandboxed processes */
   envSecrets: Record<string, string>;
   /** Sensitive patterns for policy matching */

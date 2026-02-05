@@ -1,5 +1,5 @@
 /**
- * Zod schemas for AgentLink API validation
+ * Zod schemas for AgenCo API validation
  */
 
 import { z } from 'zod';
@@ -7,14 +7,14 @@ import { z } from 'zod';
 /**
  * Auth start request schema
  */
-export const AgentLinkAuthStartRequestSchema = z.object({
+export const AgenCoAuthStartRequestSchema = z.object({
   scopes: z.array(z.string()).optional(),
 });
 
 /**
  * Auth start response schema
  */
-export const AgentLinkAuthStartResponseSchema = z.object({
+export const AgenCoAuthStartResponseSchema = z.object({
   authUrl: z.string().url(),
   state: z.string().min(1),
   callbackPort: z.number().int().min(1024).max(65535),
@@ -23,7 +23,7 @@ export const AgentLinkAuthStartResponseSchema = z.object({
 /**
  * Auth callback request schema
  */
-export const AgentLinkAuthCallbackRequestSchema = z.object({
+export const AgenCoAuthCallbackRequestSchema = z.object({
   code: z.string().min(1),
   state: z.string().min(1),
 });
@@ -31,7 +31,7 @@ export const AgentLinkAuthCallbackRequestSchema = z.object({
 /**
  * Auth callback response schema
  */
-export const AgentLinkAuthCallbackResponseSchema = z.object({
+export const AgenCoAuthCallbackResponseSchema = z.object({
   success: z.boolean(),
   error: z.string().optional(),
 });
@@ -39,7 +39,7 @@ export const AgentLinkAuthCallbackResponseSchema = z.object({
 /**
  * Auth status response schema
  */
-export const AgentLinkAuthStatusResponseSchema = z.object({
+export const AgenCoAuthStatusResponseSchema = z.object({
   authenticated: z.boolean(),
   expired: z.boolean(),
   expiresAt: z.string().nullable(),
@@ -49,16 +49,16 @@ export const AgentLinkAuthStatusResponseSchema = z.object({
 /**
  * Tool run request schema
  */
-export const AgentLinkToolRunRequestSchema = z.object({
+export const AgenCoToolRunRequestSchema = z.object({
   integration: z.string().min(1),
   tool: z.string().min(1),
-  params: z.record(z.unknown()).optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**
  * Tool run response schema
  */
-export const AgentLinkToolRunResponseSchema = z.object({
+export const AgenCoToolRunResponseSchema = z.object({
   success: z.boolean(),
   result: z.unknown().optional(),
   error: z.string().optional(),
@@ -67,7 +67,7 @@ export const AgentLinkToolRunResponseSchema = z.object({
 /**
  * Tool list request schema
  */
-export const AgentLinkToolListRequestSchema = z.object({
+export const AgenCoToolListRequestSchema = z.object({
   integration: z.string().optional(),
   connectedOnly: z.boolean().optional(),
 });
@@ -75,7 +75,7 @@ export const AgentLinkToolListRequestSchema = z.object({
 /**
  * Tool schema
  */
-export const AgentLinkToolSchema = z.object({
+export const AgenCoToolSchema = z.object({
   integration: z.string(),
   tool: z.string(),
   description: z.string(),
@@ -86,14 +86,14 @@ export const AgentLinkToolSchema = z.object({
 /**
  * Tool list response schema
  */
-export const AgentLinkToolListResponseSchema = z.object({
-  tools: z.array(AgentLinkToolSchema),
+export const AgenCoToolListResponseSchema = z.object({
+  tools: z.array(AgenCoToolSchema),
 });
 
 /**
  * Tool search request schema
  */
-export const AgentLinkToolSearchRequestSchema = z.object({
+export const AgenCoToolSearchRequestSchema = z.object({
   query: z.string().min(1),
   integration: z.string().optional(),
 });
@@ -101,7 +101,7 @@ export const AgentLinkToolSearchRequestSchema = z.object({
 /**
  * Integrations list request schema
  */
-export const AgentLinkIntegrationsListRequestSchema = z.object({
+export const AgenCoIntegrationsListRequestSchema = z.object({
   category: z.string().optional(),
   search: z.string().optional(),
 });
@@ -109,7 +109,7 @@ export const AgentLinkIntegrationsListRequestSchema = z.object({
 /**
  * Integration action schema
  */
-export const AgentLinkIntegrationActionSchema = z.object({
+export const AgenCoIntegrationActionSchema = z.object({
   name: z.string(),
   description: z.string(),
 });
@@ -117,27 +117,27 @@ export const AgentLinkIntegrationActionSchema = z.object({
 /**
  * Integration schema
  */
-export const AgentLinkIntegrationSchema = z.object({
+export const AgenCoIntegrationSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
   category: z.string(),
   toolsCount: z.number().int().nonnegative(),
-  actions: z.array(AgentLinkIntegrationActionSchema).optional(),
+  actions: z.array(AgenCoIntegrationActionSchema).optional(),
 });
 
 /**
  * Integrations list response schema
  */
-export const AgentLinkIntegrationsListResponseSchema = z.object({
-  integrations: z.array(AgentLinkIntegrationSchema),
+export const AgenCoIntegrationsListResponseSchema = z.object({
+  integrations: z.array(AgenCoIntegrationSchema),
   totalCount: z.number().int().nonnegative(),
 });
 
 /**
  * Connected integration schema
  */
-export const AgentLinkConnectedIntegrationSchema = z.object({
+export const AgenCoConnectedIntegrationSchema = z.object({
   id: z.string(),
   name: z.string(),
   connectedAt: z.string(),
@@ -149,14 +149,14 @@ export const AgentLinkConnectedIntegrationSchema = z.object({
 /**
  * Connected integrations response schema
  */
-export const AgentLinkConnectedIntegrationsResponseSchema = z.object({
-  integrations: z.array(AgentLinkConnectedIntegrationSchema),
+export const AgenCoConnectedIntegrationsResponseSchema = z.object({
+  integrations: z.array(AgenCoConnectedIntegrationSchema),
 });
 
 /**
  * Connect integration request schema
  */
-export const AgentLinkConnectIntegrationRequestSchema = z.object({
+export const AgenCoConnectIntegrationRequestSchema = z.object({
   integration: z.string().min(1),
   scopes: z.array(z.string()).optional(),
 });
@@ -164,7 +164,7 @@ export const AgentLinkConnectIntegrationRequestSchema = z.object({
 /**
  * Connect integration response schema
  */
-export const AgentLinkConnectIntegrationResponseSchema = z.object({
+export const AgenCoConnectIntegrationResponseSchema = z.object({
   status: z.enum(['auth_required', 'already_connected', 'connected']),
   oauthUrl: z.string().url().optional(),
   expiresIn: z.number().optional(),
@@ -174,7 +174,7 @@ export const AgentLinkConnectIntegrationResponseSchema = z.object({
 });
 
 // Inferred types from schemas
-export type AgentLinkAuthStartRequestInput = z.input<typeof AgentLinkAuthStartRequestSchema>;
-export type AgentLinkAuthStartResponseOutput = z.output<typeof AgentLinkAuthStartResponseSchema>;
-export type AgentLinkAuthCallbackRequestInput = z.input<typeof AgentLinkAuthCallbackRequestSchema>;
-export type AgentLinkToolRunRequestInput = z.input<typeof AgentLinkToolRunRequestSchema>;
+export type AgenCoAuthStartRequestInput = z.input<typeof AgenCoAuthStartRequestSchema>;
+export type AgenCoAuthStartResponseOutput = z.output<typeof AgenCoAuthStartResponseSchema>;
+export type AgenCoAuthCallbackRequestInput = z.input<typeof AgenCoAuthCallbackRequestSchema>;
+export type AgenCoToolRunRequestInput = z.input<typeof AgenCoToolRunRequestSchema>;

@@ -65,14 +65,9 @@ function loadApprovedSkills(): ApprovedSkillEntry[] {
 function saveApprovedSkills(skills: ApprovedSkillEntry[]): void {
   try {
     const dir = path.dirname(APPROVED_SKILLS_PATH);
-    if (!fs.existsSync(dir)) {
-      execSync(`sudo mkdir -p "${dir}"`, { stdio: 'pipe' });
-    }
-    // Write atomically via sudo (config dir is root-owned)
+    fs.mkdirSync(dir, { recursive: true });
     const content = JSON.stringify(skills, null, 2);
-    execSync(`sudo tee "${APPROVED_SKILLS_PATH}" > /dev/null << 'APPROVEDEOF'
-${content}
-APPROVEDEOF`, { stdio: 'pipe' });
+    fs.writeFileSync(APPROVED_SKILLS_PATH, content, 'utf-8');
   } catch (err) {
     console.error('Failed to save approved skills:', (err as Error).message);
   }
@@ -95,19 +90,18 @@ function quarantineSkill(skillName: string, skillPath: string): QuarantinedSkill
 
     // Ensure quarantine dir exists
     if (!fs.existsSync(QUARANTINE_DIR)) {
-      execSync(`sudo mkdir -p "${QUARANTINE_DIR}"`, { stdio: 'pipe' });
-      execSync(`sudo chmod 700 "${QUARANTINE_DIR}"`, { stdio: 'pipe' });
+      fs.mkdirSync(QUARANTINE_DIR, { recursive: true, mode: 0o700 });
     }
 
     // Remove existing quarantined version if present
     if (fs.existsSync(quarantinePath)) {
-      execSync(`sudo rm -rf "${quarantinePath}"`, { stdio: 'pipe' });
+      fs.rmSync(quarantinePath, { recursive: true, force: true });
     }
 
-    // Move skill to quarantine (requires root since source may be root-owned)
-    execSync(`sudo mv "${skillPath}" "${quarantinePath}"`, { stdio: 'pipe' });
-    execSync(`sudo chown -R root:wheel "${quarantinePath}"`, { stdio: 'pipe' });
-    execSync(`sudo chmod -R 700 "${quarantinePath}"`, { stdio: 'pipe' });
+    // Move skill to quarantine
+    execSync(`mv "${skillPath}" "${quarantinePath}"`, { stdio: 'pipe' });
+    execSync(`chown -R root:wheel "${quarantinePath}"`, { stdio: 'pipe' });
+    execSync(`chmod -R 700 "${quarantinePath}"`, { stdio: 'pipe' });
 
     const info: QuarantinedSkillInfo = {
       name: skillName,
@@ -263,11 +257,11 @@ export function approveSkill(skillName: string): { success: boolean; error?: str
     }
 
     // Move from quarantine back to skills directory
-    execSync(`sudo mv "${quarantinedPath}" "${destPath}"`, { stdio: 'pipe' });
+    execSync(`mv "${quarantinedPath}" "${destPath}"`, { stdio: 'pipe' });
 
     // Set proper ownership (root-owned, group-readable)
-    execSync(`sudo chown -R root:wheel "${destPath}"`, { stdio: 'pipe' });
-    execSync(`sudo chmod -R a+rX,go-w "${destPath}"`, { stdio: 'pipe' });
+    execSync(`chown -R root:wheel "${destPath}"`, { stdio: 'pipe' });
+    execSync(`chmod -R a+rX,go-w "${destPath}"`, { stdio: 'pipe' });
 
     if (callbacks.onApproved) {
       callbacks.onApproved(skillName);
@@ -291,7 +285,7 @@ export function rejectSkill(skillName: string): { success: boolean; error?: stri
       return { success: false, error: `Skill "${skillName}" not found in quarantine` };
     }
 
-    execSync(`sudo rm -rf "${quarantinedPath}"`, { stdio: 'pipe' });
+    fs.rmSync(quarantinedPath, { recursive: true, force: true });
 
     console.log(`[SkillsWatcher] Rejected and deleted skill: ${skillName}`);
     return { success: true };

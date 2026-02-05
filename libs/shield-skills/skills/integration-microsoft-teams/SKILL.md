@@ -1,13 +1,13 @@
 ---
 name: integration-microsoft-teams
-description: "Microsoft Teams actions available through AgentLink"
+description: "Microsoft Teams actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # Microsoft Teams
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -30,7 +30,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["microsoft teams list teams"]}'
+agenco search-tools '{"queries":["microsoft teams list teams"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -40,17 +40,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["microsoft teams list teams"]}'
+agenco search-tools '{"queries":["microsoft teams list teams"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"microsoft-teams_list_teams","input":{...}}'
+agenco call-tool '{"toolName":"microsoft-teams_list_teams","input":{...}}'
 ```
 
-> If Microsoft Teams is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If Microsoft Teams is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

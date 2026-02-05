@@ -39,18 +39,18 @@ export function getSkillsDir(homeDir: string): string {
 }
 
 /**
- * Get the path to the bundled AgentLink skill
+ * Get the path to the bundled AgenCo skill
  */
-export function getAgentLinkSkillPath(): string {
+export function getAgenCoSkillPath(): string {
   // The skill is bundled with the agenshield package
   // Look for it relative to this module's location
   const possiblePaths = [
     // Development: built-in skill in shield-skills
-    path.resolve(__dirname, '../../..', 'libs/shield-skills/skills/agentlink-secure-integrations'),
+    path.resolve(__dirname, '../../..', 'libs/shield-skills/skills/agenco-secure-integrations'),
     // Installed: in node_modules
-    path.resolve(__dirname, '..', 'agentlink-secure-integrations'),
+    path.resolve(__dirname, '..', 'agenco-secure-integrations'),
     // Global install
-    '/opt/agenshield/skills/agentlink-secure-integrations',
+    '/opt/agenshield/skills/agenco-secure-integrations',
   ];
 
   for (const p of possiblePaths) {
@@ -59,7 +59,7 @@ export function getAgentLinkSkillPath(): string {
     }
   }
 
-  throw new Error('AgentLink skill not found. Please reinstall AgenShield.');
+  throw new Error('AgenCo skill not found. Please reinstall AgenShield.');
 }
 
 /**
@@ -89,9 +89,9 @@ function copyDirRecursive(src: string, dest: string): void {
 }
 
 /**
- * Inject the AgentLink skill into OpenClaw's skills directory
+ * Inject the AgenCo skill into OpenClaw's skills directory
  */
-export async function injectAgentLinkSkill(
+export async function injectAgenCoSkill(
   config: UserConfig
 ): Promise<SkillInjectionResult> {
   const homeDir = config.agentUser.home;
@@ -100,7 +100,7 @@ export async function injectAgentLinkSkill(
 
   try {
     // Get the source skill path
-    const sourcePath = getAgentLinkSkillPath();
+    const sourcePath = getAgenCoSkillPath();
 
     // Create skills directory if it doesn't exist
     if (!fs.existsSync(skillsDir)) {
@@ -108,14 +108,14 @@ export async function injectAgentLinkSkill(
     }
 
     // Copy the skill
-    const destPath = path.join(skillsDir, 'agentlink-secure-integrations');
+    const destPath = path.join(skillsDir, 'agenco-secure-integrations');
     copyDirRecursive(sourcePath, destPath);
 
     // Build the skill if needed (has package.json but no dist)
     const packageJson = path.join(destPath, 'package.json');
     const distDir = path.join(destPath, 'dist');
     if (fs.existsSync(packageJson) && !fs.existsSync(distDir)) {
-      console.log('Building AgentLink skill...');
+      console.log('Building AgenCo skill...');
       execSync('npm install && npm run build', {
         cwd: destPath,
         stdio: 'inherit',
@@ -123,7 +123,7 @@ export async function injectAgentLinkSkill(
     }
 
     // Make the bin script executable
-    const binPath = path.join(destPath, 'bin', 'agentlink.js');
+    const binPath = path.join(destPath, 'bin', 'agenco.js');
     if (fs.existsSync(binPath)) {
       fs.chmodSync(binPath, 0o755);
     }
@@ -137,7 +137,7 @@ export async function injectAgentLinkSkill(
       // May fail if not root, but that's okay for development
     }
 
-    injectedSkills.push('agentlink-secure-integrations');
+    injectedSkills.push('agenco-secure-integrations');
 
     return {
       success: true,
@@ -155,22 +155,22 @@ export async function injectAgentLinkSkill(
 }
 
 /**
- * Create a symlink for the agentlink command in the agent's bin directory
+ * Create a symlink for the agenco command in the agent's bin directory
  */
-export async function createAgentLinkSymlink(
+export async function createAgenCoSymlink(
   config: UserConfig,
   binDir: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const skillsDir = getSkillsDir(config.agentUser.home);
-    const agentlinkBin = path.join(
+    const agencoBin = path.join(
       skillsDir,
-      'agentlink-secure-integrations',
+      'agenco-secure-integrations',
       'bin',
-      'agentlink.js'
+      'agenco.js'
     );
 
-    const symlinkPath = path.join(binDir, 'agentlink');
+    const symlinkPath = path.join(binDir, 'agenco');
 
     // Remove existing symlink if present
     if (fs.existsSync(symlinkPath)) {
@@ -178,7 +178,7 @@ export async function createAgentLinkSymlink(
     }
 
     // Create symlink
-    fs.symlinkSync(agentlinkBin, symlinkPath);
+    fs.symlinkSync(agencoBin, symlinkPath);
 
     // Make executable
     fs.chmodSync(symlinkPath, 0o755);
@@ -200,10 +200,10 @@ export async function removeInjectedSkills(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const skillsDir = getSkillsDir(homeDir);
-    const agentlinkPath = path.join(skillsDir, 'agentlink-secure-integrations');
+    const agencoPath = path.join(skillsDir, 'agenco-secure-integrations');
 
-    if (fs.existsSync(agentlinkPath)) {
-      fs.rmSync(agentlinkPath, { recursive: true, force: true });
+    if (fs.existsSync(agencoPath)) {
+      fs.rmSync(agencoPath, { recursive: true, force: true });
     }
 
     return { success: true };
@@ -216,7 +216,7 @@ export async function removeInjectedSkills(
 }
 
 /**
- * Update OpenClaw's MCP configuration to include AgentLink
+ * Update OpenClaw's MCP configuration to include AgenCo
  */
 export async function updateOpenClawMcpConfig(
   homeDir: string
@@ -253,17 +253,17 @@ export async function updateOpenClawMcpConfig(
       config.mcpServers = {};
     }
 
-    // Add AgentLink server
-    config.mcpServers['agentlink-marketplace'] = {
+    // Add AgenCo server
+    config.mcpServers['agenco-marketplace'] = {
       url: 'https://mcp.marketplace.frontegg.com/mcp',
       transport: 'sse',
       auth: {
         type: 'oauth',
-        tokenProvider: 'agentlink-secure-integrations',
+        tokenProvider: 'agenco-secure-integrations',
       },
       metadata: {
-        name: 'AgentLink Marketplace',
-        description: 'Secure third-party integrations via AgentLink cloud vault',
+        name: 'AgenCo Marketplace',
+        description: 'Secure third-party integrations via AgenCo cloud vault',
         categories: ['integrations', 'productivity', 'security'],
       },
     };

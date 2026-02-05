@@ -1,13 +1,13 @@
 ---
 name: integration-microsoft-calendar
-description: "Microsoft Calendar actions available through AgentLink"
+description: "Microsoft Calendar actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # Microsoft Calendar
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -29,7 +29,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["microsoft calendar list calendars"]}'
+agenco search-tools '{"queries":["microsoft calendar list calendars"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -39,17 +39,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["microsoft calendar list calendars"]}'
+agenco search-tools '{"queries":["microsoft calendar list calendars"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"microsoft-calendar_list_calendars","input":{...}}'
+agenco call-tool '{"toolName":"microsoft-calendar_list_calendars","input":{...}}'
 ```
 
-> If Microsoft Calendar is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If Microsoft Calendar is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

@@ -14,6 +14,7 @@ const TARGET_LABEL: Record<string, string> = {
   command: 'Command',
   skill: 'Skill',
   url: 'URL',
+  filesystem: 'Filesystem',
 };
 
 export function PolicyCard({

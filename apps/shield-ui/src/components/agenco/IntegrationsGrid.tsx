@@ -11,9 +11,10 @@ interface IntegrationsGridProps {
   integrations: IntegrationCardData[];
   loading: boolean;
   onConnect: (id: string) => void;
+  connectingId?: string | null;
 }
 
-export function IntegrationsGrid({ integrations, loading, onConnect }: IntegrationsGridProps) {
+export function IntegrationsGrid({ integrations, loading, onConnect, connectingId }: IntegrationsGridProps) {
   if (loading) {
     return (
       <Grid container spacing={2}>
@@ -44,7 +45,7 @@ export function IntegrationsGrid({ integrations, loading, onConnect }: Integrati
       <Grid container spacing={2}>
         {integrations.map((integration) => (
           <Grid item xs={12} sm={6} md={4} key={integration.id}>
-            <IntegrationCard integration={integration} onConnect={onConnect} />
+            <IntegrationCard integration={integration} onConnect={onConnect} connecting={connectingId === integration.id} />
           </Grid>
         ))}
       </Grid>

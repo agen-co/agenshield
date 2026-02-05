@@ -76,9 +76,10 @@ export const PolicyConfigSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(100),
   action: z.enum(['allow', 'deny', 'approval']),
-  target: z.enum(['skill', 'command', 'url']),
+  target: z.enum(['skill', 'command', 'url', 'filesystem']),
   patterns: z.array(z.string()),
   enabled: z.boolean().default(true),
+  operations: z.array(z.string()).optional(),
 });
 
 export const VaultConfigSchema = z.object({

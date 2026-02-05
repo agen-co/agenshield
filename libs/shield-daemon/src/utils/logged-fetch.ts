@@ -65,7 +65,7 @@ function extractRequestBody(init: RequestInit): string | undefined {
  *
  * @param url - The URL to fetch
  * @param init - Standard RequestInit options
- * @param context - A label for the call context (e.g. 'agentlink:token-refresh')
+ * @param context - A label for the call context (e.g. 'agenco:token-refresh')
  */
 export async function loggedFetch(url: string, init: RequestInit, context: string): Promise<Response> {
   const method = (init.method || 'GET').toUpperCase();

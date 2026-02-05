@@ -23,6 +23,9 @@ export const openclawPreset: TargetPreset = {
   name: 'OpenClaw',
   description: 'AI coding agent (auto-detected via npm or git)',
 
+  requiredBins: ['node', 'npm', 'npx', 'git', 'curl', 'shieldctl'],
+  optionalBins: ['wget', 'ssh', 'scp', 'python3', 'pip', 'brew'],
+
   async detect(): Promise<PresetDetectionResult | null> {
     const result = detectOpenClaw();
 

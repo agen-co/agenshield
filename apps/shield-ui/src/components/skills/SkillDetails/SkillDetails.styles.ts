@@ -28,6 +28,7 @@ export const ReadmeCard = styled('div', {
   border: `1px solid ${theme.palette.divider}`,
   borderRadius: (theme.shape.borderRadius as number) * 2,
   padding: theme.spacing(3),
+  backgroundColor: theme.palette.background.paper,
   minWidth: 0,
   overflow: 'hidden',
 }));

@@ -28,12 +28,12 @@ export type EventType =
   | 'skills:approved'
   | 'exec:monitored'
   | 'exec:denied'
-  | 'agentlink:connected'
-  | 'agentlink:disconnected'
-  | 'agentlink:auth_required'
-  | 'agentlink:auth_completed'
-  | 'agentlink:tool_executed'
-  | 'agentlink:error';
+  | 'agenco:connected'
+  | 'agenco:disconnected'
+  | 'agenco:auth_required'
+  | 'agenco:auth_completed'
+  | 'agenco:tool_executed'
+  | 'agenco:error';
 
 export interface DaemonEvent {
   type: EventType;
@@ -186,41 +186,41 @@ export function emitExecDenied(command: string, reason: string): void {
   daemonEvents.broadcast('exec:denied', { command, reason });
 }
 
-// ===== AgentLink event helpers =====
+// ===== AgenCo event helpers =====
 
 /**
- * Helper to emit agentlink auth required event
+ * Helper to emit agenco auth required event
  */
-export function emitAgentLinkAuthRequired(authUrl: string, integration?: string): void {
-  daemonEvents.broadcast('agentlink:auth_required', { authUrl, integration });
+export function emitAgenCoAuthRequired(authUrl: string, integration?: string): void {
+  daemonEvents.broadcast('agenco:auth_required', { authUrl, integration });
 }
 
 /**
- * Helper to emit agentlink auth completed event
+ * Helper to emit agenco auth completed event
  */
-export function emitAgentLinkAuthCompleted(): void {
-  daemonEvents.broadcast('agentlink:auth_completed', {});
+export function emitAgenCoAuthCompleted(): void {
+  daemonEvents.broadcast('agenco:auth_completed', {});
 }
 
 /**
- * Helper to emit agentlink connected event
+ * Helper to emit agenco connected event
  */
-export function emitAgentLinkConnected(): void {
-  daemonEvents.broadcast('agentlink:connected', {});
+export function emitAgenCoConnected(): void {
+  daemonEvents.broadcast('agenco:connected', {});
 }
 
 /**
- * Helper to emit agentlink disconnected event
+ * Helper to emit agenco disconnected event
  */
-export function emitAgentLinkDisconnected(): void {
-  daemonEvents.broadcast('agentlink:disconnected', {});
+export function emitAgenCoDisconnected(): void {
+  daemonEvents.broadcast('agenco:disconnected', {});
 }
 
 /**
- * Helper to emit agentlink error event
+ * Helper to emit agenco error event
  */
-export function emitAgentLinkError(code: string, message: string): void {
-  daemonEvents.broadcast('agentlink:error', { code, message });
+export function emitAgenCoError(code: string, message: string): void {
+  daemonEvents.broadcast('agenco:error', { code, message });
 }
 
 /**

@@ -1,15 +1,15 @@
 {
   "mcpServers": {
-    "agentlink-marketplace": {
+    "agenco-marketplace": {
       "url": "https://mcp.marketplace.frontegg.com",
       "transport": "http",
       "auth": {
         "type": "oauth",
-        "tokenProvider": "agentlink-secure-integrations"
+        "tokenProvider": "agenco-secure-integrations"
       },
       "metadata": {
-        "name": "AgentLink Marketplace",
-        "description": "Secure third-party integrations via AgentLink cloud vault",
+        "name": "AgenCo Marketplace",
+        "description": "Secure third-party integrations via AgenCo cloud vault",
         "categories": ["integrations", "productivity", "security"],
         "features": [
           "Credentials never stored locally",

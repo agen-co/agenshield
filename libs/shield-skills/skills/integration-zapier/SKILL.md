@@ -1,13 +1,13 @@
 ---
 name: integration-zapier
-description: "Zapier actions available through AgentLink"
+description: "Zapier actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # Zapier
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -26,7 +26,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["zapier list zaps"]}'
+agenco search-tools '{"queries":["zapier list zaps"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -36,17 +36,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["zapier list zaps"]}'
+agenco search-tools '{"queries":["zapier list zaps"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"zapier_list_zaps","input":{...}}'
+agenco call-tool '{"toolName":"zapier_list_zaps","input":{...}}'
 ```
 
-> If Zapier is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If Zapier is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

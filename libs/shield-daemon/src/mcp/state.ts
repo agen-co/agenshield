@@ -7,9 +7,9 @@
 import { MCPClient, type MCPConnectionState } from './client';
 import { MCP_GATEWAY } from '@agenshield/ipc';
 import {
-  emitAgentLinkConnected,
-  emitAgentLinkDisconnected,
-  emitAgentLinkError,
+  emitAgenCoConnected,
+  emitAgenCoDisconnected,
+  emitAgenCoError,
 } from '../events/emitter';
 
 let mcpClient: MCPClient | null = null;
@@ -41,12 +41,12 @@ export async function activateMCP(daemonPort: number): Promise<{ authUrl?: strin
   mcpClient.onStateChange = (state: MCPConnectionState) => {
     console.log(`\x1b[36m[MCP]\x1b[0m State changed → \x1b[1m${state}\x1b[0m`);
     if (state === 'connected') {
-      emitAgentLinkConnected();
+      emitAgenCoConnected();
     } else if (state === 'unauthorized') {
-      emitAgentLinkError('unauthorized', 'Session expired or unauthorized. Please re-authenticate via the Shield UI.');
-      emitAgentLinkDisconnected();
+      emitAgenCoError('unauthorized', 'Session expired or unauthorized. Please re-authenticate via the Shield UI.');
+      emitAgenCoDisconnected();
     } else if (state === 'disconnected' || state === 'error') {
-      emitAgentLinkDisconnected();
+      emitAgenCoDisconnected();
     }
   };
 

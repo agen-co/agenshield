@@ -1,13 +1,13 @@
 ---
 name: integration-clickup
-description: "ClickUp actions available through AgentLink"
+description: "ClickUp actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # ClickUp
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -25,7 +25,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["clickup get workspaces"]}'
+agenco search-tools '{"queries":["clickup get workspaces"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -35,17 +35,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["clickup get workspaces"]}'
+agenco search-tools '{"queries":["clickup get workspaces"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"clickup_get_workspaces","input":{...}}'
+agenco call-tool '{"toolName":"clickup_get_workspaces","input":{...}}'
 ```
 
-> If ClickUp is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If ClickUp is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

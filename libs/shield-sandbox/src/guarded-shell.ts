@@ -94,6 +94,9 @@ TRAPDEBUG() {
   return 0
 }
 
+# Ensure accessible working directory before starting shell
+cd "$HOME" 2>/dev/null || cd /
+
 # Start a clean zsh with no user config
 exec /bin/zsh -f
 `;

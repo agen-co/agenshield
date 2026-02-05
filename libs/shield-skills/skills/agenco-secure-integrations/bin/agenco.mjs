@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * AgentLink CLI — thin wrapper around MCP tools (zero npm dependencies)
+ * AgenCo CLI — thin wrapper around MCP tools (zero npm dependencies)
  *
  * Auth, integrations, and connection management are handled by the Shield UI.
  * This CLI forwards tool calls to the daemon's MCP passthrough endpoint.
  *
  * Usage:
- *   agentlink <tool-name> [json-input]
+ *   agenco <tool-name> [json-input]
  *
  * Tools:
  *   search-tools                Search for tools by atomic action queries
@@ -21,7 +21,7 @@ const API_BASE = `${DAEMON_URL}/api`;
 // ─── HTTP helper ─────────────────────────────────────────────────────────────
 
 async function daemonRequest(tool, input) {
-  const url = `${API_BASE}/agentlink/mcp/call`;
+  const url = `${API_BASE}/agenco/mcp/call`;
   let res;
   try {
     res = await fetch(url, {
@@ -45,9 +45,9 @@ async function main() {
   const toolName = args[0];
 
   if (!toolName || toolName === '--help' || toolName === '-h') {
-    console.log(`AgentLink — Secure MCP tool execution
+    console.log(`AgenCo — Secure MCP tool execution
 
-Usage: agentlink <tool-name> [json-input]
+Usage: agenco <tool-name> [json-input]
 
 Tools:
   search-tools                Search for tools by atomic action queries
@@ -55,9 +55,9 @@ Tools:
   list-connected-integrations List connected integrations
 
 Examples:
-  agentlink list-connected-integrations
-  agentlink search-tools '{"queries":["send slack message"]}'
-  agentlink call-tool '{"toolName":"slack_send_message","input":{"channel":"#general","text":"hello"}}'
+  agenco list-connected-integrations
+  agenco search-tools '{"queries":["send slack message"]}'
+  agenco call-tool '{"toolName":"slack_send_message","input":{"channel":"#general","text":"hello"}}'
 
 Auth and integration management are handled by the Shield UI.`);
     process.exit(0);

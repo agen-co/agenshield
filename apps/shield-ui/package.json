@@ -5,7 +5,7 @@
   "description": "AgenShield Web UI Dashboard",
   "license": "MIT",
   "dependencies": {
-    "@agenshield/ipc": "*",
+    "@agenshield/ipc": "0.1.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@fontsource/ibm-plex-mono": "^5.2.7",

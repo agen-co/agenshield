@@ -23,7 +23,7 @@ const DEFAULT_SOCKET_PATH = '/var/run/agenshield/agenshield.sock';
 export const PROXIED_COMMANDS = [
   'curl', 'wget', 'git', 'ssh', 'scp', 'rsync',
   'brew', 'npm', 'npx', 'pip', 'pip3',
-  'open-url', 'shieldctl', 'agentlink',
+  'open-url', 'shieldctl', 'agenco',
 ] as const;
 
 /**

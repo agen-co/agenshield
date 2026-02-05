@@ -15,7 +15,7 @@ export interface PolicyRule {
   /** Policy action: allow, deny, or approval (future) */
   action: 'allow' | 'deny' | 'approval';
   /** What this rule targets */
-  target: 'skill' | 'command' | 'url';
+  target: 'skill' | 'command' | 'url' | 'filesystem';
   /** Operations this rule applies to */
   operations: OperationType[];
   /** Patterns to match (glob or regex) */

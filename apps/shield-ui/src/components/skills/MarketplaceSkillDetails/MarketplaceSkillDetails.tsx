@@ -232,14 +232,16 @@ export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) 
 
   return (
     <Root>
-      <Typography variant="h5" fontWeight={600}>
-        {skill.name}
-      </Typography>
-      {skill.description && (
-        <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', mt: 0.5, mb: 3 }}>
-          {skill.description}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" fontWeight={600}>
+          {skill.name}
         </Typography>
-      )}
+        {skill.description && (
+          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', mt: 0.5 }}>
+            {skill.description}
+          </Typography>
+        )}
+      </Box>
 
       <ContentGrid>
         {/* Left: Readme */}

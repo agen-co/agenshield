@@ -119,7 +119,7 @@ export function Policies() {
     <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       <PageHeader
         title="Policies"
-        description="Manage security policies for command, skill, and URL filtering."
+        description="Manage security policies for command, skill, URL, and filesystem filtering."
         action={
           !formOpen ? (
             <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd} disabled={isReadOnly}>
@@ -148,7 +148,7 @@ export function Policies() {
             <EmptyState
               icon={<ShieldCheck size={28} />}
               title="No policies configured"
-              description="Add your first policy to get started with command, skill, and URL filtering."
+              description="Add your first policy to get started with command, skill, URL, and filesystem filtering."
               action={
                 !formOpen ? (
                   <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd} disabled={isReadOnly}>

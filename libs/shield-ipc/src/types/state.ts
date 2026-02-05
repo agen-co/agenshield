@@ -47,9 +47,9 @@ export interface GroupState {
 }
 
 /**
- * AgentLink state information
+ * AgenCo state information
  */
-export interface AgentLinkState {
+export interface AgenCoState {
   /** Whether user is authenticated */
   authenticated: boolean;
   /** Last authentication time */
@@ -102,8 +102,8 @@ export interface SystemState {
   users: UserState[];
   /** Created groups */
   groups: GroupState[];
-  /** AgentLink state */
-  agentlink: AgentLinkState;
+  /** AgenCo state */
+  agenco: AgenCoState;
   /** Installation state */
   installation: InstallationState;
   /** Passcode protection state */

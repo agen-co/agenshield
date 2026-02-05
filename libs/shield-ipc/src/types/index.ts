@@ -9,7 +9,7 @@ export * from './events';
 export * from './backup';
 export * from './ops';
 export * from './policy';
-export * from './agentlink';
+export * from './agenco';
 export * from './state';
 export * from './vault';
 export * from './auth';

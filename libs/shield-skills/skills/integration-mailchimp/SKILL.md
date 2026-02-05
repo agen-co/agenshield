@@ -1,13 +1,13 @@
 ---
 name: integration-mailchimp
-description: "Mailchimp actions available through AgentLink"
+description: "Mailchimp actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # Mailchimp
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -31,7 +31,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["mailchimp list audiences"]}'
+agenco search-tools '{"queries":["mailchimp list audiences"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -41,17 +41,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["mailchimp list audiences"]}'
+agenco search-tools '{"queries":["mailchimp list audiences"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"mailchimp_list_audiences","input":{...}}'
+agenco call-tool '{"toolName":"mailchimp_list_audiences","input":{...}}'
 ```
 
-> If Mailchimp is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If Mailchimp is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

@@ -6,9 +6,9 @@ import { z } from 'zod';
 import { PasscodeDataSchema } from './auth.schema';
 
 /**
- * AgentLink secrets schema
+ * AgenCo secrets schema
  */
-export const AgentLinkSecretsSchema = z.object({
+export const AgenCoSecretsSchema = z.object({
   accessToken: z.string().min(1),
   refreshToken: z.string().min(1),
   expiresAt: z.number().int().positive(),
@@ -20,14 +20,14 @@ export const AgentLinkSecretsSchema = z.object({
  * Vault contents schema
  */
 export const VaultContentsSchema = z.object({
-  agentlink: AgentLinkSecretsSchema.optional(),
-  envSecrets: z.record(z.string()),
+  agenco: AgenCoSecretsSchema.optional(),
+  envSecrets: z.record(z.string(), z.string()),
   sensitivePatterns: z.array(z.string()),
   passcode: PasscodeDataSchema.optional(),
 });
 
 // Inferred types from schemas
-export type AgentLinkSecretsInput = z.input<typeof AgentLinkSecretsSchema>;
-export type AgentLinkSecretsOutput = z.output<typeof AgentLinkSecretsSchema>;
+export type AgenCoSecretsInput = z.input<typeof AgenCoSecretsSchema>;
+export type AgenCoSecretsOutput = z.output<typeof AgenCoSecretsSchema>;
 export type VaultContentsInput = z.input<typeof VaultContentsSchema>;
 export type VaultContentsOutput = z.output<typeof VaultContentsSchema>;

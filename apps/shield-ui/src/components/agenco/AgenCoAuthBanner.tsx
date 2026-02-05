@@ -5,18 +5,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Alert, Button, Collapse } from '@mui/material';
 import { Link2 } from 'lucide-react';
-import { useAgentLinkOAuth } from './useAgentLinkOAuth';
+import { useAgenCoOAuth } from './useAgenCoOAuth';
 
-interface AgentLinkAuthBannerProps {
+interface AgenCoAuthBannerProps {
   /** SSE event data when auth_required is received */
   authRequired: { authUrl?: string; integration?: string } | null;
   /** Called when auth is completed */
   onAuthCompleted: () => void;
 }
 
-export function AgentLinkAuthBanner({ authRequired, onAuthCompleted }: AgentLinkAuthBannerProps) {
+export function AgenCoAuthBanner({ authRequired, onAuthCompleted }: AgenCoAuthBannerProps) {
   const [visible, setVisible] = useState(false);
-  const { startAuth, loading } = useAgentLinkOAuth();
+  const { startAuth, loading } = useAgenCoOAuth();
 
   useEffect(() => {
     if (authRequired) {
@@ -60,7 +60,7 @@ export function AgentLinkAuthBanner({ authRequired, onAuthCompleted }: AgentLink
           </Button>
         }
       >
-        Your agent needs AgentLink authentication
+        Your agent needs AgenCo authentication
         {authRequired?.integration ? ` for ${authRequired.integration}` : ''}.
       </Alert>
     </Collapse>

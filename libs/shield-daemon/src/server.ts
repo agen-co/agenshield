@@ -27,7 +27,7 @@ export async function createServer(config: DaemonConfig): Promise<FastifyInstanc
   });
 
   // Enable CORS for development
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: true, methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'] });
 
   // Register API routes
   await registerRoutes(app);
@@ -76,8 +76,8 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // Auto-activate MCP if valid tokens exist
   try {
     const vault = getVault();
-    const agentlink = await vault.get('agentlink');
-    if (agentlink?.accessToken && agentlink.expiresAt > Date.now()) {
+    const agenco = await vault.get('agenco');
+    if (agenco?.accessToken && agenco.expiresAt > Date.now()) {
       await activateMCP(config.port);
     }
   } catch {

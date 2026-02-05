@@ -43,6 +43,9 @@ export const customPreset: TargetPreset = {
   name: 'Custom Node.js Application',
   description: 'Any Node.js application with specified entry point',
 
+  requiredBins: ['node'],
+  optionalBins: ['npm', 'npx', 'git', 'curl'],
+
   async detect(): Promise<PresetDetectionResult | null> {
     // Custom preset doesn't auto-detect - user must provide entry point
     return null;
@@ -85,8 +88,10 @@ export const customPreset: TargetPreset = {
 
     const wrapperContent = `#!/bin/bash
 set -euo pipefail
+cd ~ 2>/dev/null || cd /
+AGENT_BIN="$(cd "$(dirname "$0")" && pwd)"
 cd "${context.directories.packageDir}"
-exec node "${newEntryPath}" "$@"
+exec "\${AGENT_BIN}/node" "${newEntryPath}" "$@"
 `;
 
     // Write wrapper to temp file

@@ -17,14 +17,15 @@ export const queryKeys = {
   secrets: ['secrets'] as const,
   availableEnvSecrets: ['secrets', 'env'] as const,
   security: ['security'] as const,
-  agentlinkStatus: ['agentlink', 'status'] as const,
-  agentlinkMCPStatus: ['agentlink', 'mcp-status'] as const,
-  agentlinkIntegrations: ['agentlink', 'integrations'] as const,
-  agentlinkConnected: ['agentlink', 'connected'] as const,
+  agencoStatus: ['agenco', 'status'] as const,
+  agencoMCPStatus: ['agenco', 'mcp-status'] as const,
+  agencoIntegrations: ['agenco', 'integrations'] as const,
+  agencoConnected: ['agenco', 'connected'] as const,
   marketplaceSearch: (query: string) => ['marketplace', 'search', query] as const,
   marketplaceSkill: (slug: string) => ['marketplace', 'skill', slug] as const,
   marketplaceCachedAnalysis: (skillName: string, publisher: string) =>
     ['marketplace', 'cachedAnalysis', skillName, publisher] as const,
+  fsBrowse: (dirPath: string) => ['fs', 'browse', dirPath] as const,
 };
 
 /**
@@ -263,68 +264,68 @@ export function useSecurity() {
   });
 }
 
-// --- AgentLink hooks ---
+// --- AgenCo hooks ---
 
-export function useAgentLinkStatus() {
+export function useAgenCoStatus() {
   const healthy = useHealthGate();
   return useQuery({
-    queryKey: queryKeys.agentlinkStatus,
-    queryFn: api.agentlink.getAuthStatus,
+    queryKey: queryKeys.agencoStatus,
+    queryFn: api.agenco.getAuthStatus,
     enabled: healthy,
     refetchInterval: healthy ? 15000 : false,
   });
 }
 
-export function useAgentLinkMCPStatus() {
+export function useAgenCoMCPStatus() {
   const healthy = useHealthGate();
   return useQuery({
-    queryKey: queryKeys.agentlinkMCPStatus,
-    queryFn: api.agentlink.getMCPStatus,
+    queryKey: queryKeys.agencoMCPStatus,
+    queryFn: api.agenco.getMCPStatus,
     enabled: healthy,
     refetchInterval: healthy ? 10000 : false,
   });
 }
 
-export function useAgentLinkIntegrations(category?: string, search?: string) {
+export function useAgenCoIntegrations(category?: string, search?: string) {
   const healthy = useHealthGate();
   return useQuery({
-    queryKey: [...queryKeys.agentlinkIntegrations, category, search],
-    queryFn: () => api.agentlink.listIntegrations(category, search),
+    queryKey: [...queryKeys.agencoIntegrations, category, search],
+    queryFn: () => api.agenco.listIntegrations(category, search),
     enabled: healthy,
   });
 }
 
-export function useAgentLinkConnectedIntegrations() {
+export function useAgenCoConnectedIntegrations() {
   const healthy = useHealthGate();
   return useQuery({
-    queryKey: queryKeys.agentlinkConnected,
-    queryFn: api.agentlink.listConnectedIntegrations,
+    queryKey: queryKeys.agencoConnected,
+    queryFn: api.agenco.listConnectedIntegrations,
     enabled: healthy,
   });
 }
 
-export function useAgentLinkLogout() {
+export function useAgenCoLogout() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: () => api.agentlink.logout(),
+    mutationFn: () => api.agenco.logout(),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkStatus });
-      queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkMCPStatus });
-      queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkConnected });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agencoStatus });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agencoMCPStatus });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agencoConnected });
     },
   });
 }
 
-export function useAgentLinkConnectIntegration() {
+export function useAgenCoConnectIntegration() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (data: { integration: string; scopes?: string[] }) =>
-      api.agentlink.connectIntegration(data.integration, data.scopes),
+      api.agenco.connectIntegration(data.integration, data.scopes),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkConnected });
-      queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkIntegrations });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agencoConnected });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agencoIntegrations });
     },
   });
 }
@@ -373,5 +374,29 @@ export function useInstallMarketplaceSkill() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.skills });
     },
+  });
+}
+
+// --- Factory reset hook ---
+
+export function useFactoryReset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.factoryReset(),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+    },
+  });
+}
+
+// --- Filesystem browse hooks ---
+
+export function useBrowsePath(dirPath: string | null) {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.fsBrowse(dirPath ?? ''),
+    queryFn: () => api.browsePath(dirPath ?? undefined),
+    enabled: healthy && dirPath !== null,
+    staleTime: 10_000,
   });
 }

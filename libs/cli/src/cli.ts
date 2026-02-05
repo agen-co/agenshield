@@ -59,6 +59,7 @@ Examples:
   $ agenshield daemon start         Start daemon
   $ agenshield dev                  Dev mode with interactive TUI
   $ agenshield dev clean            Clean dev environment
+  $ agenshield dev shell            Open sandboxed agent shell
   $ agenshield uninstall            Reverse isolation
 `
     );

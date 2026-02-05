@@ -9,7 +9,7 @@ This document describes the architecture of AgenShield, a security sandbox for A
 - [Daemon Architecture](#daemon-architecture)
 - [Policy Update Mechanism](#policy-update-mechanism)
 - [Broker Request Flow](#broker-request-flow)
-- [AgentLink Skill Flow](#agentlink-skill-flow)
+- [AgenCo Skill Flow](#agenco-skill-flow)
 - [Sandbox Architecture](#sandbox-architecture)
 
 ---
@@ -458,21 +458,21 @@ const HTTP_DENIED = ['exec', 'file_write', 'secret_inject'];
 
 ---
 
-## AgentLink Skill Flow
+## AgenCo Skill Flow
 
-AgentLink provides secure third-party integrations without exposing credentials to the AI agent.
+AgenCo provides secure third-party integrations without exposing credentials to the AI agent.
 
 ### Authentication Flow
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant CLI as agentlink auth
+    participant CLI as agenco auth
     participant Server as OAuth Callback
-    participant Gateway as AgentLink Gateway
+    participant Gateway as AgenCo Gateway
     participant Browser
 
-    User->>CLI: agentlink auth
+    User->>CLI: agenco auth
 
     CLI->>CLI: Check existing tokens
 
@@ -511,11 +511,11 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Agent as AI Agent
-    participant Skill as AgentLink Skill
+    participant Skill as AgenCo Skill
     participant TokenMgr as TokenManager
     participant Gateway as MCP Gateway
 
-    Agent->>Skill: agentlink tool run slack send_message
+    Agent->>Skill: agenco tool run slack send_message
 
     Skill->>TokenMgr: getValidToken()
 
@@ -542,29 +542,29 @@ sequenceDiagram
     participant Injector as SkillInjector
     participant FS as File System
 
-    Setup->>Injector: injectAgentLinkSkill(config)
+    Setup->>Injector: injectAgenCoSkill(config)
 
-    Injector->>Injector: getAgentLinkSkillPath()
+    Injector->>Injector: getAgenCoSkillPath()
     Injector->>FS: Copy skill to ~/.openclaw/skills/
 
     Injector->>FS: npm install && npm run build
 
-    Injector->>FS: chmod +x bin/agentlink.js
+    Injector->>FS: chmod +x bin/agenco.js
 
     Injector->>FS: chown -R clawagent:clawagent
 
-    Setup->>Injector: createAgentLinkSymlink()
-    Injector->>FS: ln -s skill/bin/agentlink.js ~/bin/agentlink
+    Setup->>Injector: createAgenCoSymlink()
+    Injector->>FS: ln -s skill/bin/agenco.js ~/bin/agenco
 
     Setup->>Injector: updateOpenClawMcpConfig()
-    Injector->>FS: Update ~/.openclaw/mcp.json<br/>Add agentlink-marketplace server
+    Injector->>FS: Update ~/.openclaw/mcp.json<br/>Add agenco-marketplace server
 ```
 
 **Key Files:**
-- `/tools/agentlink-skill/src/commands/auth.ts`
-- `/tools/agentlink-skill/src/commands/tool.ts`
-- `/tools/agentlink-skill/src/lib/oauth-server.ts`
-- `/tools/agentlink-skill/src/lib/token-manager.ts`
+- `/tools/agenco-skill/src/commands/auth.ts`
+- `/tools/agenco-skill/src/commands/tool.ts`
+- `/tools/agenco-skill/src/lib/oauth-server.ts`
+- `/tools/agenco-skill/src/lib/token-manager.ts`
 - `/libs/shield-sandbox/src/skill-injector.ts`
 
 ---
@@ -756,7 +756,7 @@ urllib.request.urlopen = _patched_urlopen
 | File system access | Seatbelt restricts to workspace; broker enforces policies |
 | Privilege escalation | Unprivileged user (uid 399); no sudo |
 | Command execution | Guarded shell; restricted PATH; broker policy for exec |
-| Credential theft | AgentLink vault; secrets never reach agent |
+| Credential theft | AgenCo vault; secrets never reach agent |
 | Policy bypass | Multiple layers; broker validates all requests |
 | Configuration tampering | Config owned by root; agent has no write access |
 
@@ -794,4 +794,4 @@ echo '{"jsonrpc":"2.0","id":1,"method":"ping"}' | nc -U /var/run/agenshield/brok
 | `/etc/agenshield/daemon.json` | Daemon configuration |
 | `/etc/agenshield/policies/default.json` | Default policies |
 | `/var/lib/agenshield/agent/.openclaw/mcp.json` | Agent MCP config |
-| `~/.agentlink/tokens.json` | AgentLink tokens (user) |
+| `~/.agenco/tokens.json` | AgenCo tokens (user) |

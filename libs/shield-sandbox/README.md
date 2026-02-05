@@ -20,7 +20,7 @@ OS-level sandboxing utilities for AgenShield. This package orchestrates user/gro
 - `src/detect.ts` - OpenClaw installation detection + prerequisites.
 - `src/backup.ts` / `src/restore.ts` - Backup and uninstall support.
 - `src/presets/*` - Preset configuration (openclaw/custom).
-- `src/skill-injector.ts` - AgentLink skill injection utilities.
+- `src/skill-injector.ts` - AgenCo skill injection utilities.
 
 ## Usage Examples
 ### Create users and directories

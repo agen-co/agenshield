@@ -1,13 +1,13 @@
 ---
 name: integration-evernote
-description: "Evernote actions available through AgentLink"
+description: "Evernote actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # Evernote
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -28,7 +28,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["evernote list notebooks"]}'
+agenco search-tools '{"queries":["evernote list notebooks"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -38,17 +38,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["evernote list notebooks"]}'
+agenco search-tools '{"queries":["evernote list notebooks"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"evernote_list_notebooks","input":{...}}'
+agenco call-tool '{"toolName":"evernote_list_notebooks","input":{...}}'
 ```
 
-> If Evernote is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If Evernote is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

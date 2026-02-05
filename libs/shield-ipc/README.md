@@ -8,7 +8,7 @@ Shared types, schemas, and constants for AgenShield components. This package is 
 - Export shared constants for ports, paths, and API endpoints.
 
 ## What It Contains
-- Types: `src/types/*` (config, ops, auth, events, policy, vault, agentlink, state, api).
+- Types: `src/types/*` (config, ops, auth, events, policy, vault, agenco, state, api).
 - Schemas: `src/schemas/*` (Zod validators mirroring the types).
 - Constants: `src/constants.ts` (ports, paths, endpoints, MCP gateway).
 

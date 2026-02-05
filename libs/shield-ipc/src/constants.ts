@@ -30,8 +30,8 @@ export const STATE_FILE = 'state.json';
 /** Encrypted vault file name */
 export const VAULT_FILE = 'vault.enc';
 
-/** AgentLink subdirectory */
-export const AGENTLINK_DIR = 'agentlink';
+/** AgenCo subdirectory */
+export const AGENCO_DIR = 'agenco';
 
 /** Policies subdirectory */
 export const POLICIES_DIR = 'policies';
@@ -44,6 +44,9 @@ export const CALLBACK_PORT = 9876;
 
 /** MCP Gateway URL */
 export const MCP_GATEWAY = 'https://mcp.marketplace.frontegg.com';
+
+/** Marketplace API URL (direct REST calls — different subdomain from MCP gateway) */
+export const MARKETPLACE_API = 'https://my.mcp.marketplace.frontegg.com';
 
 // API Endpoints
 /** API route prefix */

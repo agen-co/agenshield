@@ -1,6 +1,6 @@
 ---
-name: agentlink-secure-integrations
-description: Execute third-party integration tools through AgentLink secure cloud gateway
+name: agenco-secure-integrations
+description: Execute third-party integration tools through AgenCo secure cloud gateway
 user-invocable: true
 disable-model-invocation: false
 command-dispatch: bash
@@ -9,31 +9,31 @@ command-arg-mode: single
 
 requires:
   bins:
-    - agentlink
+    - agenco
 
 agenshield:
-  policy: builtin-agentlink
+  policy: builtin-agenco
   allowed-commands:
-    - agentlink search-tools
-    - agentlink call-tool
-    - agentlink list-connected-integrations
+    - agenco search-tools
+    - agenco call-tool
+    - agenco list-connected-integrations
   required-approval: false
   audit-level: info
   security-level: high
 ---
 
-# AgentLink Secure Integrations
+# AgenCo Secure Integrations
 
 ## Purpose
 
-This skill provides access to 200+ third-party integrations (Slack, GitHub, Jira, Google Drive, etc.) through AgentLink's secure cloud gateway. All API credentials are stored in an encrypted cloud vault — they never touch your local machine and cannot be stolen by malicious tools or prompt injection attacks.
+This skill provides access to 200+ third-party integrations (Slack, GitHub, Jira, Google Drive, etc.) through AgenCo's secure cloud gateway. All API credentials are stored in an encrypted cloud vault — they never touch your local machine and cannot be stolen by malicious tools or prompt injection attacks.
 
-**Security model**: The daemon proxies requests to the AgentLink MCP server, which injects credentials server-side. The agent only sees tool names and results — never API keys or tokens.
+**Security model**: The daemon proxies requests to the AgenCo MCP server, which injects credentials server-side. The agent only sees tool names and results — never API keys or tokens.
 
 ## CLI Syntax
 
 ```
-agentlink <tool-name> [json-input]
+agenco <tool-name> [json-input]
 ```
 
 All commands go through the same interface. The `tool-name` is one of the three MCP tools below, and `json-input` is an optional JSON object passed as input.
@@ -68,7 +68,7 @@ Returns an array of tool results per query. Each tool entry contains:
 
 **Example:**
 ```bash
-agentlink search-tools '{"queries":["send slack message","list slack channels"]}'
+agenco search-tools '{"queries":["send slack message","list slack channels"]}'
 ```
 
 ### `call-tool` — Execute a single tool
@@ -93,7 +93,7 @@ Returns the tool's response data (varies by tool).
 
 **Example:**
 ```bash
-agentlink call-tool '{"toolName":"slack_send_message","input":{"channel":"#general","text":"Hello from AgentLink!"}}'
+agenco call-tool '{"toolName":"slack_send_message","input":{"channel":"#general","text":"Hello from AgenCo!"}}'
 ```
 
 ### `list-connected-integrations` — Check connected integrations
@@ -111,7 +111,7 @@ Returns a list of connected integrations with:
 
 **Example:**
 ```bash
-agentlink list-connected-integrations
+agenco list-connected-integrations
 ```
 
 ## Mandatory Workflow
@@ -121,7 +121,7 @@ Follow these steps for EVERY integration request. Do not skip steps.
 ### Step 1: Check connected integrations
 
 ```bash
-agentlink list-connected-integrations
+agenco list-connected-integrations
 ```
 
 If the target integration is not connected, tell the user:
@@ -132,7 +132,7 @@ If the target integration is not connected, tell the user:
 Decompose the user's request into atomic actions and search for each:
 
 ```bash
-agentlink search-tools '{"queries":["<atomic action 1>","<atomic action 2>"]}'
+agenco search-tools '{"queries":["<atomic action 1>","<atomic action 2>"]}'
 ```
 
 ### Step 3: Read the `inputSchema` from search results
@@ -161,7 +161,7 @@ Use the `toolName` and `inputSchema` exactly as returned — these are the sourc
 ### Step 4: Call the tool with the correct input
 
 ```bash
-agentlink call-tool '{"toolName":"<exact toolName from search>","input":{<matching inputSchema>}}'
+agenco call-tool '{"toolName":"<exact toolName from search>","input":{<matching inputSchema>}}'
 ```
 
 ### Step 5: Handle errors
@@ -194,13 +194,13 @@ User: "Send a message to #general on Slack saying hello"
 
 ```bash
 # Step 1: Check if Slack is connected
-agentlink list-connected-integrations
+agenco list-connected-integrations
 
 # Step 2: Search for the right tool
-agentlink search-tools '{"queries":["send slack message"]}'
+agenco search-tools '{"queries":["send slack message"]}'
 
 # Step 3: Call the tool (using exact name and schema from search results)
-agentlink call-tool '{"toolName":"slack_send_message","input":{"channel":"#general","text":"hello"}}'
+agenco call-tool '{"toolName":"slack_send_message","input":{"channel":"#general","text":"hello"}}'
 ```
 
 ### Example 2: Create a GitHub issue
@@ -209,13 +209,13 @@ User: "Create a bug report issue in the frontend repo"
 
 ```bash
 # Step 1: Check connected integrations
-agentlink list-connected-integrations
+agenco list-connected-integrations
 
 # Step 2: Search for tools
-agentlink search-tools '{"queries":["create github issue"]}'
+agenco search-tools '{"queries":["create github issue"]}'
 
 # Step 3: Call the tool
-agentlink call-tool '{"toolName":"github_create_issue","input":{"repo":"frontend","title":"Bug report","body":"...","labels":["bug"]}}'
+agenco call-tool '{"toolName":"github_create_issue","input":{"repo":"frontend","title":"Bug report","body":"...","labels":["bug"]}}'
 ```
 
 ### Example 3: Multi-step — Jira tickets to Slack
@@ -224,23 +224,23 @@ User: "Get my open Jira tickets and send a summary to #standup on Slack"
 
 ```bash
 # Step 1: Check that both Jira and Slack are connected
-agentlink list-connected-integrations
+agenco list-connected-integrations
 
 # Step 2: Search for both tools at once
-agentlink search-tools '{"queries":["list jira issues","send slack message"]}'
+agenco search-tools '{"queries":["list jira issues","send slack message"]}'
 
 # Step 3: Get Jira tickets
-agentlink call-tool '{"toolName":"jira_list_issues","input":{"assignee":"me","status":"open"}}'
+agenco call-tool '{"toolName":"jira_list_issues","input":{"assignee":"me","status":"open"}}'
 
 # Step 4: Format the results and send to Slack
-agentlink call-tool '{"toolName":"slack_send_message","input":{"channel":"#standup","text":"Open tickets:\n- PROJ-123: Fix login bug\n- PROJ-456: Update docs"}}'
+agenco call-tool '{"toolName":"slack_send_message","input":{"channel":"#standup","text":"Open tickets:\n- PROJ-123: Fix login bug\n- PROJ-456: Update docs"}}'
 ```
 
 ## Error Handling
 
 | Error | Meaning | Action |
 |-------|---------|--------|
-| `auth_required` | AgentLink not authenticated or token expired | Tell user: "Connect via Shield UI: `agenshield setup`" |
+| `auth_required` | AgenCo not authenticated or token expired | Tell user: "Connect via Shield UI: `agenshield setup`" |
 | `tool_not_found` | Tool name doesn't exist | Re-search with different queries. Tool names are dynamic. |
 | `integration_not_connected` | Integration exists but user hasn't connected it | Tell user to connect via Shield UI dashboard |
 | `invalid_input` | Input doesn't match the tool's schema | Re-read `inputSchema` from search results, fix parameters |
@@ -249,7 +249,7 @@ agentlink call-tool '{"toolName":"slack_send_message","input":{"channel":"#stand
 
 ## Integration Categories
 
-AgentLink supports integrations across these categories:
+AgenCo supports integrations across these categories:
 
 - **Communication**: Slack, Discord, Microsoft Teams, WhatsApp Business
 - **Email**: Gmail, Outlook, Brevo, Campaign Monitor
@@ -263,4 +263,4 @@ AgentLink supports integrations across these categories:
 - **Monitoring**: PagerDuty, OpsGenie, Sentry, Datadog
 - **Finance**: Stripe, QuickBooks, Xero, PayPal
 
-**NEVER use local API keys for these services.** AgentLink routes all requests through the secure cloud gateway.
+**NEVER use local API keys for these services.** AgenCo routes all requests through the secure cloud gateway.

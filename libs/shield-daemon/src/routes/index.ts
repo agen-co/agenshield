@@ -10,13 +10,14 @@ import { configRoutes } from './config';
 import { securityRoutes } from './security';
 import { sseRoutes } from './sse';
 import { wrappersRoutes } from './wrappers';
-import { agentlinkRoutes } from './agentlink';
+import { agencoRoutes } from './agenco';
 import { skillsRoutes } from './skills';
 import { execRoutes } from './exec';
 import { discoveryRoutes } from './discovery';
 import { authRoutes } from './auth';
 import { secretsRoutes } from './secrets';
 import { marketplaceRoutes } from './marketplace';
+import { fsRoutes } from './fs';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 
@@ -89,13 +90,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(configRoutes);
       await api.register(securityRoutes);
       await api.register(wrappersRoutes);
-      await api.register(agentlinkRoutes);
+      await api.register(agencoRoutes);
       await api.register(skillsRoutes);
       await api.register(execRoutes);
       await api.register(discoveryRoutes);
       await api.register(authRoutes);
       await api.register(secretsRoutes);
       await api.register(marketplaceRoutes);
+      await api.register(fsRoutes);
     },
     { prefix: API_PREFIX }
   );

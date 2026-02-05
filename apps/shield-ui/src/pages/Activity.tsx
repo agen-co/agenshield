@@ -36,7 +36,7 @@ import { EmptyState } from '../components/shared/EmptyState';
 import { useAuth } from '../context/AuthContext';
 
 type TimeFilter = 'all' | '1h' | '6h' | '24h' | '7d';
-type TypeFilter = 'all' | 'api' | 'security' | 'broker' | 'config' | 'skills' | 'exec' | 'agentlink';
+type TypeFilter = 'all' | 'api' | 'security' | 'broker' | 'config' | 'skills' | 'exec' | 'agenco';
 
 const TIME_OPTIONS: { label: string; value: TimeFilter }[] = [
   { label: 'All Time', value: 'all' },
@@ -54,7 +54,7 @@ const TYPE_OPTIONS: { label: string; value: TypeFilter }[] = [
   { label: 'Config', value: 'config' },
   { label: 'Skills', value: 'skills' },
   { label: 'Execution', value: 'exec' },
-  { label: 'AgentLink', value: 'agentlink' },
+  { label: 'AgenCo', value: 'agenco' },
 ];
 
 const EVENT_DISPLAY: Record<string, { icon: React.ComponentType<{ size?: number }>; label: string; color: string }> = {
@@ -69,12 +69,12 @@ const EVENT_DISPLAY: Record<string, { icon: React.ComponentType<{ size?: number 
   'skills:approved': { icon: ShieldAlert, label: 'Skill Approved', color: 'success' },
   'exec:monitored': { icon: Globe, label: 'Exec Monitored', color: 'info' },
   'exec:denied': { icon: ShieldAlert, label: 'Exec Denied', color: 'error' },
-  'agentlink:connected': { icon: Link2, label: 'AgentLink Connected', color: 'success' },
-  'agentlink:disconnected': { icon: Link2, label: 'AgentLink Disconnected', color: 'error' },
-  'agentlink:auth_required': { icon: Link2, label: 'Auth Required', color: 'warning' },
-  'agentlink:auth_completed': { icon: Link2, label: 'Auth Completed', color: 'success' },
-  'agentlink:tool_executed': { icon: Link2, label: 'Tool Executed', color: 'info' },
-  'agentlink:error': { icon: Link2, label: 'AgentLink Error', color: 'error' },
+  'agenco:connected': { icon: Link2, label: 'AgenCo Connected', color: 'success' },
+  'agenco:disconnected': { icon: Link2, label: 'AgenCo Disconnected', color: 'error' },
+  'agenco:auth_required': { icon: Link2, label: 'Auth Required', color: 'warning' },
+  'agenco:auth_completed': { icon: Link2, label: 'Auth Completed', color: 'success' },
+  'agenco:tool_executed': { icon: Link2, label: 'Tool Executed', color: 'info' },
+  'agenco:error': { icon: Link2, label: 'AgenCo Error', color: 'error' },
 };
 
 function getEventDisplay(event: SSEEvent) {

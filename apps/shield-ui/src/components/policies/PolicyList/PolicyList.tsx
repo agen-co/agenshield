@@ -26,6 +26,12 @@ const TARGET_LABEL: Record<string, string> = {
   command: 'Command',
   skill: 'Skill',
   url: 'URL',
+  filesystem: 'Filesystem',
+};
+
+const OP_LABEL: Record<string, string> = {
+  file_read: 'Read',
+  file_write: 'Edit',
 };
 
 export function PolicyList({
@@ -91,6 +97,16 @@ export function PolicyList({
                 variant="outlined"
                 sx={{ fontSize: 11, height: 20 }}
               />
+              {policy.target === 'filesystem' && policy.operations?.map((op) => (
+                <Chip
+                  key={op}
+                  size="small"
+                  label={OP_LABEL[op] ?? op}
+                  variant="outlined"
+                  color="info"
+                  sx={{ fontSize: 10, height: 18 }}
+                />
+              ))}
             </PolicyMeta>
 
             <PolicySecrets>

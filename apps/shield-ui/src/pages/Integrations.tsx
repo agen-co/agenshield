@@ -1,5 +1,5 @@
 /**
- * Integrations page - AgentLink dashboard and marketplace
+ * Integrations page - AgenCo dashboard and marketplace
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -8,46 +8,46 @@ import { useSnapshot } from 'valtio';
 import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
-import { AgentLinkStatus } from '../components/agentlink/AgentLinkStatus';
-import { AgentLinkAuthBanner } from '../components/agentlink/AgentLinkAuthBanner';
-import { ConnectedIntegrationsList, type ConnectedIntegrationData } from '../components/agentlink/ConnectedIntegrationsList';
-import { IntegrationsGrid } from '../components/agentlink/IntegrationsGrid';
-import type { IntegrationCardData } from '../components/agentlink/IntegrationCard';
-import { useAgentLinkOAuth } from '../components/agentlink/useAgentLinkOAuth';
+import { AgenCoStatus } from '../components/agenco/AgenCoStatus';
+import { AgenCoAuthBanner } from '../components/agenco/AgenCoAuthBanner';
+import { ConnectedIntegrationsList, type ConnectedIntegrationData } from '../components/agenco/ConnectedIntegrationsList';
+import { IntegrationsGrid } from '../components/agenco/IntegrationsGrid';
+import type { IntegrationCardData } from '../components/agenco/IntegrationCard';
+import { useAgenCoOAuth } from '../components/agenco/useAgenCoOAuth';
 import {
-  useAgentLinkIntegrations,
-  useAgentLinkConnectedIntegrations,
-  useAgentLinkLogout,
-  useAgentLinkConnectIntegration,
+  useAgenCoIntegrations,
+  useAgenCoConnectedIntegrations,
+  useAgenCoLogout,
+  useAgenCoConnectIntegration,
 } from '../api/hooks';
 import { eventStore } from '../state/events';
 
 export function Integrations() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
-  const { startAuth, loading: authLoading, error: authError } = useAgentLinkOAuth();
-  const logoutMutation = useAgentLinkLogout();
-  const connectMutation = useAgentLinkConnectIntegration();
+  const { startAuth, loading: authLoading, error: authError } = useAgenCoOAuth();
+  const logoutMutation = useAgenCoLogout();
+  const connectMutation = useAgenCoConnectIntegration();
 
-  // Watch SSE events for agentlink auth_required (e.g. agent tried to use integration)
-  const [agentLinkAuthRequired, setAgentLinkAuthRequired] = useState<{ authUrl?: string; integration?: string } | null>(null);
+  // Watch SSE events for agenco auth_required (e.g. agent tried to use integration)
+  const [agenCoAuthRequired, setAgenCoAuthRequired] = useState<{ authUrl?: string; integration?: string } | null>(null);
   const { events } = useSnapshot(eventStore);
   useEffect(() => {
     if (events.length === 0) return;
     const latest = events[0];
-    if (latest.type === 'agentlink:auth_required') {
-      setAgentLinkAuthRequired(latest.data as { authUrl?: string; integration?: string });
-    } else if (latest.type === 'agentlink:auth_completed') {
-      setAgentLinkAuthRequired(null);
+    if (latest.type === 'agenco:auth_required') {
+      setAgenCoAuthRequired(latest.data as { authUrl?: string; integration?: string });
+    } else if (latest.type === 'agenco:auth_completed') {
+      setAgenCoAuthRequired(null);
     }
   }, [events]);
 
-  const { data: integrationsData, isLoading: integrationsLoading } = useAgentLinkIntegrations(
+  const { data: integrationsData, isLoading: integrationsLoading } = useAgenCoIntegrations(
     category !== 'all' ? category : undefined,
     search || undefined
   );
 
-  const { data: connectedData, isLoading: connectedLoading } = useAgentLinkConnectedIntegrations();
+  const { data: connectedData, isLoading: connectedLoading } = useAgenCoConnectedIntegrations();
 
   const integrations = (integrationsData?.data?.integrations ?? []) as IntegrationCardData[];
   const connected = (connectedData?.data?.integrations ?? []) as ConnectedIntegrationData[];
@@ -59,14 +59,22 @@ export function Integrations() {
     connected: connectedIds.has(i.id),
   }));
 
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+
   const handleConnect = useCallback((integrationId: string) => {
+    setConnectingId(integrationId);
     connectMutation.mutate({ integration: integrationId }, {
       onSuccess: (response) => {
         const data = response?.data;
         if (data?.status === 'auth_required' && data.oauthUrl) {
           window.location.href = data.oauthUrl;
+          return; // keep spinner while navigating away
         }
         // 'connected' / 'already_connected' — queries auto-invalidate
+        setConnectingId(null);
+      },
+      onError: () => {
+        setConnectingId(null);
       },
     });
   }, [connectMutation]);
@@ -79,20 +87,20 @@ export function Integrations() {
     <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       <PageHeader
         title="Integrations"
-        description="Connect third-party services securely through AgentLink."
+        description="Connect third-party services securely through AgenCo."
       />
 
       {/* Status card + auth banner together */}
       <Box sx={{ mb: 3 }}>
-        <AgentLinkStatus
+        <AgenCoStatus
           onConnect={startAuth}
           onLogout={handleLogout}
           connecting={authLoading}
           error={authError}
         />
-        <AgentLinkAuthBanner
-          authRequired={agentLinkAuthRequired}
-          onAuthCompleted={() => setAgentLinkAuthRequired(null)}
+        <AgenCoAuthBanner
+          authRequired={agenCoAuthRequired}
+          onAuthCompleted={() => setAgenCoAuthRequired(null)}
         />
       </Box>
 
@@ -134,6 +142,7 @@ export function Integrations() {
         integrations={enrichedIntegrations}
         loading={integrationsLoading}
         onConnect={handleConnect}
+        connectingId={connectingId}
       />
     </Box>
   );

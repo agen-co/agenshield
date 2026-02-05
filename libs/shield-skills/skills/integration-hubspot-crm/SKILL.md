@@ -1,13 +1,13 @@
 ---
 name: integration-hubspot-crm
-description: "HubSpot CRM actions available through AgentLink"
+description: "HubSpot CRM actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # HubSpot CRM
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -30,7 +30,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["hubspot crm list contacts"]}'
+agenco search-tools '{"queries":["hubspot crm list contacts"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -40,17 +40,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["hubspot crm list contacts"]}'
+agenco search-tools '{"queries":["hubspot crm list contacts"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"hubspot-crm_list_contacts","input":{...}}'
+agenco call-tool '{"toolName":"hubspot-crm_list_contacts","input":{...}}'
 ```
 
-> If HubSpot CRM is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If HubSpot CRM is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

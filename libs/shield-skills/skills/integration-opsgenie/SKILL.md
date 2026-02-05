@@ -1,13 +1,13 @@
 ---
 name: integration-opsgenie
-description: "OpsGenie actions available through AgentLink"
+description: "OpsGenie actions available through AgenCo"
 user-invocable: false
 disable-model-invocation: false
 ---
 
 # OpsGenie
 
-Actions available through AgentLink secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
 
 ## Actions
 
@@ -26,7 +26,7 @@ Actions available through AgentLink secure gateway. All credentials are stored i
 ### Step 1: Search for the tool
 
 ```bash
-agentlink search-tools '{"queries":["opsgenie list alerts"]}'
+agenco search-tools '{"queries":["opsgenie list alerts"]}'
 ```
 
 The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
@@ -36,17 +36,17 @@ The response includes `toolName` (exact name) and `inputSchema` (required/option
 Use the exact `toolName` and match the `inputSchema` from the search results:
 
 ```bash
-agentlink call-tool '{"toolName":"<toolName from search>","input":{...}}'
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
 ```
 
 ### Example
 
 ```bash
 # Find the right tool
-agentlink search-tools '{"queries":["opsgenie list alerts"]}'
+agenco search-tools '{"queries":["opsgenie list alerts"]}'
 
 # Call it (use the exact toolName and schema from the search result)
-agentlink call-tool '{"toolName":"opsgenie_list_alerts","input":{...}}'
+agenco call-tool '{"toolName":"opsgenie_list_alerts","input":{...}}'
 ```
 
-> If OpsGenie is not connected, run `agentlink list-connected-integrations` to check, then connect it via the Shield UI.
+> If OpsGenie is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

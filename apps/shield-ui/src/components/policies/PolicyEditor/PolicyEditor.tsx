@@ -9,13 +9,17 @@ import {
   Tooltip,
   IconButton,
   Chip,
+  Checkbox,
+  FormControlLabel,
+  FormGroup,
 } from '@mui/material';
-import { X, Terminal, Zap, Globe, CircleCheck, Ban, Clock } from 'lucide-react';
+import { X, Terminal, Zap, Globe, FolderOpen, CircleCheck, Ban, Clock } from 'lucide-react';
 import type { PolicyConfig, SecurityRisk, CatalogEntry } from '@agenshield/ipc';
 import { COMMAND_CATALOG } from '@agenshield/ipc';
 import { useDiscovery, useSkills, useSecrets } from '../../../api/hooks';
 import type { Secret } from '../../../api/client';
 import { FormCard } from '../../shared/FormCard';
+import { FilesystemAutocomplete } from './FilesystemAutocomplete';
 
 interface PolicyEditorProps {
   policy: PolicyConfig | null;
@@ -107,9 +111,10 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
   const initial = {
     name: policy?.name ?? '',
     action: (policy?.action ?? null) as 'allow' | 'deny' | 'approval' | null,
-    target: (policy?.target ?? 'command') as 'skill' | 'command' | 'url',
+    target: (policy?.target ?? 'command') as 'skill' | 'command' | 'url' | 'filesystem',
     patterns: policy?.patterns.join('\n') ?? '',
     enabled: policy?.enabled ?? true,
+    operations: policy?.operations ?? [] as string[],
   };
 
   const [formData, setFormData] = useState(initial);
@@ -139,9 +144,10 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
     setFormData({
       name: policy?.name ?? '',
       action: (policy?.action ?? null) as 'allow' | 'deny' | 'approval' | null,
-      target: (policy?.target ?? 'command') as 'skill' | 'command' | 'url',
+      target: (policy?.target ?? 'command') as 'skill' | 'command' | 'url' | 'filesystem',
       patterns: policy?.patterns.join('\n') ?? '',
       enabled: policy?.enabled ?? true,
+      operations: policy?.operations ?? [],
     });
   }, [policy]);
 
@@ -150,7 +156,8 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
     formData.name !== initial.name ||
     formData.action !== initial.action ||
     formData.target !== initial.target ||
-    formData.patterns !== initial.patterns;
+    formData.patterns !== initial.patterns ||
+    JSON.stringify(formData.operations) !== JSON.stringify(initial.operations);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -233,6 +240,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
       target: formData.target,
       patterns: formData.patterns.split('\n').filter((p) => p.trim()),
       enabled: formData.enabled,
+      ...(formData.target === 'filesystem' ? { operations: formData.operations } : {}),
     };
     onSave(newPolicy, secretIds);
   }, [policy, formData, secretIds, onSave]);
@@ -256,7 +264,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
       title={title ?? (policy ? 'Edit Policy' : 'Add Policy')}
       onSave={handleSave}
       onCancel={onCancel}
-      saveDisabled={!formData.name || !formData.patterns || !formData.action || formData.action === 'approval'}
+      saveDisabled={!formData.name || !formData.patterns || !formData.action || formData.action === 'approval' || (formData.target === 'filesystem' && formData.operations.length === 0)}
       error={error ? 'Failed to update policies. Please try again.' : undefined}
       onFocusChange={onFocusChange}
       saveLabel={saveLabel}
@@ -293,7 +301,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
               <Ban size={16} />
               <Typography variant="caption" fontSize={11}>Deny</Typography>
             </ToggleButton>
-            <Tooltip title="Coming soon — requires AgentLink" arrow>
+            <Tooltip title="Coming soon — requires AgenCo" arrow>
               <span style={{ flex: 1, display: 'flex' }}>
                 <ToggleButton value="approval" disabled sx={{ flex: 1, flexDirection: 'column', gap: 0.25, py: 1 }}>
                   <Clock size={16} />
@@ -323,7 +331,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
             value={formData.target}
             exclusive
             onChange={(_e, val) => {
-              if (val) setFormData({ ...formData, target: val, patterns: '' });
+              if (val) setFormData({ ...formData, target: val, patterns: '', operations: [] });
             }}
             size="small"
             fullWidth
@@ -339,6 +347,10 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
             <ToggleButton value="url" sx={{ flexDirection: 'column', gap: 0.25, py: 1 }}>
               <Globe size={16} />
               <Typography variant="caption" fontSize={11}>URL</Typography>
+            </ToggleButton>
+            <ToggleButton value="filesystem" sx={{ flexDirection: 'column', gap: 0.25, py: 1 }}>
+              <FolderOpen size={16} />
+              <Typography variant="caption" fontSize={11}>Filesystem</Typography>
             </ToggleButton>
           </ToggleButtonGroup>
         </Box>
@@ -356,7 +368,9 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
               ? 'git push\ngit commit\nnpm *'
               : formData.target === 'skill'
                 ? 'my-skill\nworkspace-tool'
-                : 'https://api.example.com/*\nhttps://*.internal.io/**'
+                : formData.target === 'filesystem'
+                  ? '/Users/me/projects/**\n/tmp/*'
+                  : 'https://api.example.com/*\nhttps://*.internal.io/**'
           }
         />
 
@@ -438,6 +452,61 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
               />
             )}
           />
+        )}
+
+        {formData.target === 'filesystem' && (
+          <FilesystemAutocomplete
+            onSelect={(path) => {
+              const current = formData.patterns.trim();
+              const newPattern = current ? `${current}\n${path}` : path;
+              setFormData({ ...formData, patterns: newPattern });
+            }}
+          />
+        )}
+
+        {formData.target === 'filesystem' && (
+          <Box>
+            <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+              Permissions
+            </Typography>
+            <FormGroup row>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.operations.includes('file_read')}
+                    onChange={(e) => {
+                      const ops = e.target.checked
+                        ? [...formData.operations, 'file_read']
+                        : formData.operations.filter((o) => o !== 'file_read');
+                      setFormData({ ...formData, operations: ops });
+                    }}
+                    size="small"
+                  />
+                }
+                label="Read"
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.operations.includes('file_write')}
+                    onChange={(e) => {
+                      const ops = e.target.checked
+                        ? [...formData.operations, 'file_write']
+                        : formData.operations.filter((o) => o !== 'file_write');
+                      setFormData({ ...formData, operations: ops });
+                    }}
+                    size="small"
+                  />
+                }
+                label="Edit"
+              />
+            </FormGroup>
+            {formData.operations.length === 0 && (
+              <Typography variant="caption" color="text.secondary">
+                Select at least one permission
+              </Typography>
+            )}
+          </Box>
         )}
 
         {/* Linked Secrets */}

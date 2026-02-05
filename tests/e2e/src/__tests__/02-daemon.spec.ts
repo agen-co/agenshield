@@ -4,8 +4,8 @@
  * Starts the daemon and verifies all API endpoints respond correctly:
  * - Health endpoint
  * - Status endpoint
- * - AgentLink auth status
- * - AgentLink MCP status
+ * - AgenCo auth status
+ * - AgenCo MCP status
  * - SSE event stream
  */
 
@@ -41,16 +41,16 @@ describe('daemon lifecycle', () => {
     expect(body.data.running).toBe(true);
   });
 
-  it('GET /api/agentlink/auth/status should return not authenticated', async () => {
-    const res = await daemonAPI('GET', '/agentlink/auth/status');
+  it('GET /api/agenco/auth/status should return not authenticated', async () => {
+    const res = await daemonAPI('GET', '/agenco/auth/status');
     expect(res.status).toBe(200);
     const body = res.data as { success: boolean; data: { authenticated: boolean } };
     expect(body.success).toBe(true);
     expect(body.data.authenticated).toBe(false);
   });
 
-  it('GET /api/agentlink/mcp/status should return disconnected', async () => {
-    const res = await daemonAPI('GET', '/agentlink/mcp/status');
+  it('GET /api/agenco/mcp/status should return disconnected', async () => {
+    const res = await daemonAPI('GET', '/agenco/mcp/status');
     expect(res.status).toBe(200);
     const body = res.data as { success: boolean; data: { state: string } };
     expect(body.success).toBe(true);

@@ -15,6 +15,7 @@ import { AdvancedConfig, computeNames, type ComputedNames } from '../wizard/comp
 import {
   checkPrerequisites,
   autoDetectPreset,
+  getPreset,
   createUserConfig,
   createGroups,
   createAgentUser,
@@ -24,6 +25,8 @@ import {
   userExists,
   groupExists,
   DEFAULT_BASE_NAME,
+  installGuardedShell,
+  installPresetBinaries,
 } from '@agenshield/sandbox';
 import { BUILTIN_SKILLS_DIR, getSoulContent } from '@agenshield/skills';
 import type { DevState } from './state.js';
@@ -64,7 +67,7 @@ const DEV_BASE_UID = 5400;
 const DEV_BASE_GID = 5300;
 
 const SKILL_NAMES = [
-  'agentlink-secure-integrations',
+  'agenco-secure-integrations',
   'soul-shield',
   'policy-enforce',
   'secret-broker',
@@ -186,12 +189,13 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
 
     const setupSteps: SetupStep[] = [
       { name: 'Create groups', status: 'pending' },
+      { name: 'Install guarded-shell', status: 'pending' },
       { name: 'Create agent user', status: 'pending' },
       { name: 'Create broker user', status: 'pending' },
       { name: 'Create directories', status: 'pending' },
       { name: 'Setup socket directory', status: 'pending' },
-      { name: 'Copy node binary', status: 'pending' },
-      { name: 'Copy test harness', status: 'pending' },
+      { name: 'Install preset binaries', status: 'pending' },
+      { name: 'Migrate target', status: 'pending' },
       { name: 'Inject dev skills', status: 'pending' },
       { name: 'Configure soul', status: 'pending' },
     ];
@@ -220,80 +224,129 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
         }
         updateStep(0, 'done');
 
-        // 2. Create agent user
+        // 2. Install guarded-shell (must exist before creating agent user)
         updateStep(1, 'running');
-        const agentResult = await createAgentUser(cfg);
-        if (!agentResult.success) {
-          updateStep(1, 'error', agentResult.message);
-          setError(`Failed to create agent user: ${agentResult.message}`);
+        const gsResult = await installGuardedShell();
+        if (!gsResult.success) {
+          updateStep(1, 'error', gsResult.message);
+          setError(`Failed to install guarded-shell: ${gsResult.message}`);
           return;
         }
         updateStep(1, 'done');
 
-        // 3. Create broker user
+        // 3. Create agent user
         updateStep(2, 'running');
-        const brokerResult = await createBrokerUser(cfg);
-        if (!brokerResult.success) {
-          updateStep(2, 'error', brokerResult.message);
-          setError(`Failed to create broker user: ${brokerResult.message}`);
+        const agentResult = await createAgentUser(cfg);
+        if (!agentResult.success) {
+          updateStep(2, 'error', agentResult.message);
+          setError(`Failed to create agent user: ${agentResult.message}`);
           return;
         }
         updateStep(2, 'done');
 
-        // 4. Create directories
+        // 4. Create broker user
         updateStep(3, 'running');
+        const brokerResult = await createBrokerUser(cfg);
+        if (!brokerResult.success) {
+          updateStep(3, 'error', brokerResult.message);
+          setError(`Failed to create broker user: ${brokerResult.message}`);
+          return;
+        }
+        updateStep(3, 'done');
+
+        // 5. Create directories
+        updateStep(4, 'running');
         const dirResults = await createAllDirectories(cfg);
         const dirFailed = dirResults.filter(r => !r.success);
         if (dirFailed.length > 0) {
-          updateStep(3, 'error', dirFailed.map(r => r.message).join(', '));
+          updateStep(4, 'error', dirFailed.map(r => r.message).join(', '));
           // Non-fatal: continue but log
-        } else {
-          updateStep(3, 'done');
-        }
-
-        // 5. Setup socket directory
-        updateStep(4, 'running');
-        const socketResult = await setupSocketDirectory(cfg);
-        if (!socketResult.success) {
-          updateStep(4, 'error', socketResult.message);
-          // Non-fatal
         } else {
           updateStep(4, 'done');
         }
 
-        // 6. Copy node binary to agent bin dir
+        // 6. Setup socket directory
         updateStep(5, 'running');
-        const agentBinDir = path.join(cfg.agentUser.home, 'bin');
-        const nodeDest = path.join(agentBinDir, 'node');
-        try {
-          execSync(`sudo mkdir -p "${agentBinDir}"`, { stdio: 'pipe' });
-          execSync(`sudo cp "${process.execPath}" "${nodeDest}"`, { stdio: 'pipe' });
-          execSync(`sudo chmod 755 "${nodeDest}"`, { stdio: 'pipe' });
+        const socketResult = await setupSocketDirectory(cfg);
+        if (!socketResult.success) {
+          updateStep(5, 'error', socketResult.message);
+          // Non-fatal
+        } else {
           updateStep(5, 'done');
-        } catch (err) {
-          updateStep(5, 'error', (err as Error).message);
-          setError(`Failed to copy node binary: ${(err as Error).message}`);
+        }
+
+        // 7. Install preset binaries (wrappers with protection)
+        updateStep(6, 'running');
+        const detected = await autoDetectPreset();
+        const preset = detected?.preset || getPreset('dev-harness')!;
+
+        const agentBinDir = path.join(cfg.agentUser.home, 'bin');
+        execSync(`sudo mkdir -p "${agentBinDir}"`, { stdio: 'pipe' });
+
+        const installResult = await installPresetBinaries({
+          requiredBins: preset.requiredBins,
+          userConfig: cfg,
+          binDir: agentBinDir,
+          socketGroupName: cfg.groups.socket.name,
+        });
+
+        if (!installResult.success) {
+          updateStep(6, 'error', installResult.errors.join('; '));
+          setError(`Failed to install preset binaries: ${installResult.errors.join('; ')}`);
           return;
         }
+        updateStep(6, 'done');
 
-        // 7. Copy test harness to agent's bin dir
-        updateStep(6, 'running');
-        const testHarnessSource = findTestHarness();
-        const harnessDestPath = path.join(cfg.agentUser.home, 'bin', 'dummy-openclaw.js');
-        if (testHarnessSource) {
-          try {
-            execSync(`sudo cp "${testHarnessSource}" "${harnessDestPath}"`, { stdio: 'pipe' });
-            execSync(`sudo chmod 755 "${harnessDestPath}"`, { stdio: 'pipe' });
-            updateStep(6, 'done');
-          } catch (err) {
-            updateStep(6, 'error', (err as Error).message);
+        // 8. Migrate target application
+        updateStep(7, 'running');
+        let harnessDestPath = path.join(agentBinDir, 'dummy-openclaw.js');
+        let migrationResult: { success: boolean; newPaths?: { packagePath: string; binaryPath: string; configPath?: string }; error?: string } | null = null;
+
+        try {
+          const detection = detected ? detected.detection : await preset.detect();
+          const migrationDirs = {
+            binDir: agentBinDir,
+            wrappersDir: agentBinDir,
+            configDir: path.join(cfg.agentUser.home, '.openclaw'),
+            packageDir: path.join(cfg.agentUser.home, 'package'),
+            npmDir: path.join(cfg.agentUser.home, 'npm'),
+          };
+          execSync(`sudo mkdir -p "${migrationDirs.packageDir}"`, { stdio: 'pipe' });
+          execSync(`sudo mkdir -p "${migrationDirs.configDir}"`, { stdio: 'pipe' });
+
+          migrationResult = await preset.migrate({
+            agentUser: cfg.agentUser,
+            directories: migrationDirs,
+            detection: detection || undefined,
+          });
+
+          if (!migrationResult.success) {
+            // Non-fatal for dev mode — fall back to direct copy
+            updateStep(7, 'error', migrationResult.error || 'Migration failed');
+          } else {
+            if (migrationResult.newPaths?.binaryPath) {
+              harnessDestPath = migrationResult.newPaths.binaryPath;
+            }
+            updateStep(7, 'done');
           }
-        } else {
-          updateStep(6, 'error', 'Test harness source not found');
+        } catch (err) {
+          // Fallback: direct copy of test harness binary
+          const testHarnessSource = findTestHarness();
+          if (testHarnessSource) {
+            try {
+              execSync(`sudo cp "${testHarnessSource}" "${harnessDestPath}"`, { stdio: 'pipe' });
+              execSync(`sudo chmod 755 "${harnessDestPath}"`, { stdio: 'pipe' });
+              updateStep(7, 'done');
+            } catch (copyErr) {
+              updateStep(7, 'error', (copyErr as Error).message);
+            }
+          } else {
+            updateStep(7, 'error', (err as Error).message);
+          }
         }
 
-        // 8. Inject dev skills
-        updateStep(7, 'running');
+        // 9. Inject dev skills
+        updateStep(8, 'running');
         const devSkillsDir = path.join(cfg.agentUser.home, '.openclaw-dev', 'skills');
         try {
           execSync(`sudo mkdir -p "${devSkillsDir}"`, { stdio: 'pipe' });
@@ -308,13 +361,13 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
           // Set ownership: root-owned, agent reads via socket group
           execSync(`sudo chown -R root:${cfg.groups.socket.name} "${path.join(cfg.agentUser.home, '.openclaw-dev')}"`, { stdio: 'pipe' });
           execSync(`sudo chmod -R a+rX,go-w "${devSkillsDir}"`, { stdio: 'pipe' });
-          updateStep(7, 'done');
+          updateStep(8, 'done');
         } catch (err) {
-          updateStep(7, 'error', (err as Error).message);
+          updateStep(8, 'error', (err as Error).message);
         }
 
-        // 9. Configure soul (write shield.json in dev config location)
-        updateStep(8, 'running');
+        // 10. Configure soul (write shield.json in dev config location)
+        updateStep(9, 'running');
         try {
           const devConfigDir = path.join(cfg.agentUser.home, '.openclaw-dev');
           const shieldConfigPath = path.join(devConfigDir, 'shield.json');
@@ -337,9 +390,9 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
           execSync(`sudo cp "${tmpFile}" "${shieldConfigPath}"`, { stdio: 'pipe' });
           fs.unlinkSync(tmpFile);
           execSync(`sudo chown root:${cfg.groups.socket.name} "${shieldConfigPath}" && sudo chmod 640 "${shieldConfigPath}"`, { stdio: 'pipe' });
-          updateStep(8, 'done');
+          updateStep(9, 'done');
         } catch (err) {
-          updateStep(8, 'error', (err as Error).message);
+          updateStep(9, 'error', (err as Error).message);
         }
 
         // Build DevState
@@ -355,8 +408,8 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
           workspaceGroupName: cfg.groups.workspace.name,
           baseUid,
           baseGid,
-          testHarnessPath: harnessDestPath,
-          nodePath: nodeDest,
+          testHarnessPath: migrationResult?.newPaths?.binaryPath || harnessDestPath,
+          nodePath: path.join(agentBinDir, 'node'),
           skillsDir: devSkillsDir,
           installedSkills: SKILL_NAMES,
         };

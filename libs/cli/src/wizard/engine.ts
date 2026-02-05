@@ -19,6 +19,7 @@ import {
   generateAgentProfile,
   installSeatbeltProfiles,
   installAllWrappers,
+  installPresetBinaries,
   generateBrokerPlist,
   installLaunchDaemon,
   createPathsConfig,
@@ -486,41 +487,44 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       return { success: false, error: 'Required context not set' };
     }
 
+    // Determine which bins to install from preset
+    const requiredBins = context.preset?.requiredBins;
+
     // Skip in dry-run mode
     if (context.options?.dryRun) {
-      context.wrappersInstalled = [
-        'shieldctl',
-        'curl',
-        'wget',
-        'git',
-        'npm',
-        'pip',
-        'python',
-        'node',
-      ];
+      context.wrappersInstalled = requiredBins || ['node', 'npm', 'git', 'curl', 'shieldctl'];
       return { success: true };
     }
 
     try {
-      // Deploy interceptor CJS bundle
+      if (requiredBins && requiredBins.length > 0) {
+        // Preset-driven installation
+        const result = await installPresetBinaries({
+          requiredBins,
+          userConfig: context.userConfig,
+          binDir: context.directories.binDir,
+          socketGroupName: context.userConfig.groups.socket.name,
+        });
+        context.wrappersInstalled = result.installedWrappers;
+        if (!result.success) {
+          return { success: false, error: result.errors.join('; ') };
+        }
+        return { success: true };
+      }
+
+      // Fallback: install all wrappers (no preset or preset has no requiredBins)
       const interceptorResult = await deployInterceptor(context.userConfig);
       if (!interceptorResult.success) {
         return { success: false, error: interceptorResult.message };
       }
-
-      // Copy node binary
       const nodeBinResult = await copyNodeBinary(context.userConfig);
       if (!nodeBinResult.success) {
         return { success: false, error: nodeBinResult.message };
       }
-
-      // Install all wrappers
       const result = await installAllWrappers(context.userConfig, context.directories);
-
       if (!result.success) {
         return { success: false, error: result.error };
       }
-
       context.wrappersInstalled = result.installed || [];
       return { success: true };
     } catch (err) {

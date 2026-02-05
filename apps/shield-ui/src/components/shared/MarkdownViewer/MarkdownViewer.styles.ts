@@ -9,6 +9,10 @@ export const Root = styled('div', {
   lineHeight: 1.7,
   color: theme.palette.text.primary,
 
+  '& > :first-child': {
+    marginTop: 0,
+  },
+
   '& h1, & h2, & h3, & h4, & h5, & h6': {
     marginTop: theme.spacing(3),
     marginBottom: theme.spacing(1),
