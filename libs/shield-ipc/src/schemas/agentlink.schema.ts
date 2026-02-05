@@ -107,6 +107,14 @@ export const AgentLinkIntegrationsListRequestSchema = z.object({
 });
 
 /**
+ * Integration action schema
+ */
+export const AgentLinkIntegrationActionSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+});
+
+/**
  * Integration schema
  */
 export const AgentLinkIntegrationSchema = z.object({
@@ -115,6 +123,7 @@ export const AgentLinkIntegrationSchema = z.object({
   description: z.string(),
   category: z.string(),
   toolsCount: z.number().int().nonnegative(),
+  actions: z.array(AgentLinkIntegrationActionSchema).optional(),
 });
 
 /**

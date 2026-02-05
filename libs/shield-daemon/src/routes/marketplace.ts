@@ -17,6 +17,7 @@ import {
   searchMarketplace,
   getMarketplaceSkill,
   analyzeSkillBundle,
+  getCachedAnalysis,
 } from '../services/marketplace';
 import { analyzeSkill } from '../services/skill-analyzer';
 import {
@@ -93,6 +94,36 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
         return reply.send({ data: result });
       } catch (err) {
         console.error('[Marketplace] Analyze failed:', (err as Error).message);
+        return reply.code(502).send({ error: 'Upstream service unavailable' });
+      }
+    }
+  );
+
+  /**
+   * GET /marketplace/analysis?skillName=X&publisher=Y
+   * Returns cached analysis or 404 if not found.
+   */
+  app.get(
+    '/marketplace/analysis',
+    async (
+      request: FastifyRequest<{ Querystring: { skillName?: string; publisher?: string } }>,
+      reply: FastifyReply
+    ) => {
+      const { skillName, publisher } = request.query;
+      if (!skillName || !publisher) {
+        return reply.code(400).send({
+          error: 'Both "skillName" and "publisher" query parameters are required',
+        });
+      }
+
+      try {
+        const result = await getCachedAnalysis(skillName, publisher);
+        if (!result) {
+          return reply.code(404).send({ error: 'No cached analysis found' });
+        }
+        return reply.send({ data: result });
+      } catch (err) {
+        console.error('[Marketplace] Cached analysis lookup failed:', (err as Error).message);
         return reply.code(502).send({ error: 'Upstream service unavailable' });
       }
     }

@@ -41,8 +41,8 @@ function getTimeThreshold(range: TimeRange): Date {
 /** Returns the bucket interval in seconds and a display format for each range */
 function getBucketConfig(range: TimeRange): { intervalSec: number; displayFmt: string } {
   switch (range) {
-    case '1h': return { intervalSec: 5, displayFmt: 'HH:mm:ss' };
-    case '6h': return { intervalSec: 5, displayFmt: 'HH:mm:ss' };
+    case '1h': return { intervalSec: 60, displayFmt: 'HH:mm' };
+    case '6h': return { intervalSec: 5 * 60, displayFmt: 'HH:mm' };
     case '24h': return { intervalSec: 60 * 60, displayFmt: 'HH:00' };
     case '7d': return { intervalSec: 60 * 60 * 24, displayFmt: 'EEE' };
   }
@@ -209,9 +209,7 @@ export function TrafficChart() {
                   fill={isEmpty ? `${greyColor}18` : `${theme.palette.primary.main}20`}
                   strokeWidth={isEmpty ? 1.5 : 2}
                   name="Requests"
-                  isAnimationActive
-                  animationDuration={50}
-                  animationEasing="linear"
+                  isAnimationActive={false}
                 />
                 <Area
                   type="natural"
@@ -220,9 +218,7 @@ export function TrafficChart() {
                   fill={isEmpty ? `${greyColor}10` : `${theme.palette.error.main}20`}
                   strokeWidth={isEmpty ? 1.5 : 2}
                   name="Blocked"
-                  isAnimationActive
-                  animationDuration={50}
-                  animationEasing="linear"
+                  isAnimationActive={false}
                 />
               </AreaChart>
             </ResponsiveContainer>

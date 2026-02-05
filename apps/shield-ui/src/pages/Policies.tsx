@@ -1,5 +1,5 @@
 /**
- * Policies page - grid view with inline editor
+ * Policies page - row list with inline editor
  */
 
 import { useState, useCallback } from 'react';
@@ -19,7 +19,7 @@ import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
 import { EmptyState } from '../components/shared/EmptyState';
 import { ConfirmDialog } from '../components/shared/ConfirmDialog';
-import { PolicyGrid } from '../components/policies/PolicyGrid';
+import { PolicyList } from '../components/policies/PolicyList';
 import { PolicyEditor } from '../components/policies/PolicyEditor';
 
 export function Policies() {
@@ -53,11 +53,13 @@ export function Policies() {
   };
 
   const handleEdit = (policy: PolicyConfig) => {
+    if (isReadOnly) return;
     setEditingPolicy(policy);
     setFormOpen(true);
   };
 
   const handleDelete = (id: string) => {
+    if (isReadOnly) return;
     setDeleteTarget(id);
   };
 
@@ -70,6 +72,7 @@ export function Policies() {
   };
 
   const handleAdd = () => {
+    if (isReadOnly) return;
     setEditingPolicy(null);
     setFormOpen(true);
   };
@@ -140,7 +143,7 @@ export function Policies() {
       </Collapse>
 
       <Card sx={{ opacity: formFocused ? 0.45 : 1, transition: 'opacity 0.2s ease', pointerEvents: formFocused ? 'none' : 'auto' }}>
-        <CardContent>
+        <CardContent sx={{ p: 0 }}>
           {policies.length === 0 ? (
             <EmptyState
               icon={<ShieldCheck size={28} />}
@@ -148,19 +151,21 @@ export function Policies() {
               description="Add your first policy to get started with command, skill, and URL filtering."
               action={
                 !formOpen ? (
-                  <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd}>
+                  <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd} disabled={isReadOnly}>
                     Add Policy
                   </Button>
                 ) : undefined
               }
             />
           ) : (
-            <PolicyGrid
+            <PolicyList
               policies={policies}
+              secrets={secrets}
               onToggle={requestToggle}
               onEdit={handleEdit}
               onDelete={handleDelete}
-              disabled={updateConfig.isPending || isReadOnly}
+              readOnly={isReadOnly}
+              busy={updateConfig.isPending}
             />
           )}
         </CardContent>

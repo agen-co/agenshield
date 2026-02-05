@@ -2,7 +2,7 @@
  * Activity page - full activity history with filters
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -11,7 +11,6 @@ import {
   MenuItem,
   Typography,
   Chip,
-  Skeleton,
   Button,
 } from '@mui/material';
 import {
@@ -23,10 +22,12 @@ import {
   Settings as SettingsIcon,
   Trash2,
   Link2,
+  ChevronRight,
 } from 'lucide-react';
 import { useTheme } from '@mui/material/styles';
 import { formatDistanceToNow, format, isAfter, subHours, subDays } from 'date-fns';
 import { useSnapshot } from 'valtio';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { eventStore, clearEvents, type SSEEvent } from '../state/events';
 import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
@@ -107,6 +108,9 @@ function getEventSummary(event: SSEEvent): string {
     JSON.stringify(event.data).slice(0, 120);
 }
 
+const ROW_HEIGHT = 52;
+const EXPANDED_HEIGHT = 352;
+
 export function Activity() {
   const theme = useTheme();
   const { isReadOnly } = useAuth();
@@ -114,6 +118,17 @@ export function Activity() {
   const [search, setSearch] = useState('');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const filteredEvents = useMemo(() => {
     let result = [...events] as SSEEvent[];
@@ -141,6 +156,20 @@ export function Activity() {
 
     return result;
   }, [events, timeFilter, typeFilter, search]);
+
+  const virtualizer = useVirtualizer({
+    count: filteredEvents.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (index) => {
+      const event = filteredEvents[index];
+      return expandedIds.has(event.id) ? EXPANDED_HEIGHT : ROW_HEIGHT;
+    },
+    overscan: 10,
+  });
+
+  useEffect(() => {
+    virtualizer.measure();
+  }, [expandedIds, virtualizer]);
 
   const colorForType = (color: string): string => {
     switch (color) {
@@ -206,90 +235,147 @@ export function Activity() {
       </Box>
 
       <Card>
-        <CardContent>
+        <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
           {events.length === 0 ? (
-            <EmptyState
-              icon={<ActivityIcon size={28} />}
-              title="No activity yet"
-              description="Events will appear here as they are received from the daemon via SSE."
-            />
+            <Box sx={{ p: 2 }}>
+              <EmptyState
+                icon={<ActivityIcon size={28} />}
+                title="No activity yet"
+                description="Events will appear here as they are received from the daemon via SSE."
+              />
+            </Box>
           ) : filteredEvents.length === 0 ? (
-            <EmptyState
-              title="No matching events"
-              description="Try adjusting your filters or search query."
-            />
+            <Box sx={{ p: 2 }}>
+              <EmptyState
+                title="No matching events"
+                description="Try adjusting your filters or search query."
+              />
+            </Box>
           ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-              {filteredEvents.map((event) => {
-                const display = getEventDisplay(event);
-                const IconComp = display.icon;
-                const color = colorForType(display.color);
+            <Box
+              ref={parentRef}
+              sx={{
+                maxHeight: 'calc(100vh - 280px)',
+                overflow: 'auto',
+              }}
+            >
+              <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+                {virtualizer.getVirtualItems().map(virtualRow => {
+                  const event = filteredEvents[virtualRow.index];
+                  const display = getEventDisplay(event);
+                  const IconComp = display.icon;
+                  const color = colorForType(display.color);
+                  const isExpanded = expandedIds.has(event.id);
 
-                return (
-                  <Box
-                    key={event.id}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 1.5,
-                      py: 1.5,
-                      borderBottom: `1px solid`,
-                      borderColor: 'divider',
-                      '&:last-child': { borderBottom: 'none' },
-                    }}
-                  >
+                  return (
                     <Box
+                      key={virtualRow.key}
                       sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 28,
-                        height: 28,
-                        borderRadius: '6px',
-                        backgroundColor: `${color}14`,
-                        color,
-                        flexShrink: 0,
-                        mt: '2px',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualRow.start}px)`,
+                        borderBottom: '1px solid',
+                        borderColor: 'divider',
+                        cursor: 'pointer',
+                        '&:hover': { bgcolor: 'action.hover' },
+                        px: 2,
                       }}
+                      onClick={() => toggleExpand(event.id)}
                     >
-                      <IconComp size={14} />
-                    </Box>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
-                        <Typography variant="body2" fontWeight={500}>
-                          {display.label}
-                        </Typography>
-                        <Chip
-                          label={event.type}
-                          size="small"
-                          variant="outlined"
-                          sx={{ height: 18, '& .MuiChip-label': { fontSize: '0.625rem', px: 0.75 } }}
-                        />
-                      </Box>
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
+                      <Box
                         sx={{
-                          display: 'block',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 1.5,
+                          height: ROW_HEIGHT,
                         }}
                       >
-                        {getEventSummary(event)}
-                      </Typography>
+                        <ChevronRight
+                          size={14}
+                          style={{
+                            flexShrink: 0,
+                            transition: 'transform 0.15s ease',
+                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                            color: theme.palette.text.disabled,
+                          }}
+                        />
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 28,
+                            height: 28,
+                            borderRadius: '6px',
+                            backgroundColor: `${color}14`,
+                            color,
+                            flexShrink: 0,
+                          }}
+                        >
+                          <IconComp size={14} />
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" fontWeight={500} sx={{ flexShrink: 0 }}>
+                            {display.label}
+                          </Typography>
+                          <Chip
+                            label={event.type}
+                            size="small"
+                            variant="outlined"
+                            sx={{ height: 18, '& .MuiChip-label': { fontSize: '0.625rem', px: 0.75 } }}
+                          />
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{
+                              flex: 1,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              minWidth: 0,
+                            }}
+                          >
+                            {getEventSummary(event)}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ flexShrink: 0, textAlign: 'right' }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'nowrap' }}>
+                            {formatDistanceToNow(event.timestamp, { addSuffix: true })}
+                          </Typography>
+                          <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.625rem' }}>
+                            {format(event.timestamp, 'HH:mm:ss')}
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      {isExpanded && (
+                        <Box
+                          sx={{
+                            maxHeight: 300,
+                            overflow: 'auto',
+                            mb: 1,
+                            p: 1.5,
+                            bgcolor: 'action.hover',
+                            borderRadius: 1,
+                            fontFamily: '"IBM Plex Mono", monospace',
+                            fontSize: '0.75rem',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-all',
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5, fontFamily: 'inherit' }}>
+                            ID: {event.id} | {format(event.timestamp, 'yyyy-MM-dd HH:mm:ss.SSS')}
+                          </Typography>
+                          {JSON.stringify(event.data, null, 2)}
+                        </Box>
+                      )}
                     </Box>
-                    <Box sx={{ flexShrink: 0, textAlign: 'right' }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        {formatDistanceToNow(event.timestamp, { addSuffix: true })}
-                      </Typography>
-                      <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.625rem' }}>
-                        {format(event.timestamp, 'HH:mm:ss')}
-                      </Typography>
-                    </Box>
-                  </Box>
-                );
-              })}
+                  );
+                })}
+              </div>
             </Box>
           )}
         </CardContent>

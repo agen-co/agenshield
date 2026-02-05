@@ -66,6 +66,7 @@ export {
   AgentLinkToolListResponseSchema,
   AgentLinkToolSearchRequestSchema,
   AgentLinkIntegrationsListRequestSchema,
+  AgentLinkIntegrationActionSchema,
   AgentLinkIntegrationSchema,
   AgentLinkIntegrationsListResponseSchema,
   AgentLinkConnectedIntegrationSchema,

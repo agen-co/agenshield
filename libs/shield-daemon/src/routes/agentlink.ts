@@ -16,9 +16,10 @@ import type {
 } from '@agenshield/ipc';
 import { getVault } from '../vault';
 import { loadState, updateAgentLinkState, addConnectedIntegration } from '../state';
-import { getMCPClient, activateMCP, deactivateMCP, getMCPState, finishMCPAuth } from '../mcp';
+import { getMCPClient, activateMCP, deactivateMCP, getMCPState, finishMCPAuth, MCPUnauthorizedError } from '../mcp';
 import { emitAgentLinkAuthRequired } from '../events/emitter';
-import { provisionAgentLinkSkill } from '../services/integration-skills';
+import { provisionAgentLinkSkill, provisionIntegrationSkill } from '../services/integration-skills';
+import { INTEGRATION_CATALOG, type IntegrationDetails } from '../data/integration-catalog';
 
 /**
  * Extract parsed JSON from an MCP tool result.
@@ -44,10 +45,19 @@ function getDaemonPort(app: FastifyInstance): number {
 /**
  * Attempt to ensure MCP client is active. Returns error info if auth is needed.
  */
-async function ensureMCPActive(app: FastifyInstance): Promise<{ ok: true } | { ok: false; authUrl?: string; message: string }> {
+async function ensureMCPActive(app: FastifyInstance): Promise<{ ok: true } | { ok: false; error?: string; authUrl?: string; message: string }> {
   const client = getMCPClient();
-  if (client && client.isActive() && client.getState() === 'connected') {
-    return { ok: true };
+
+  if (client && client.isActive()) {
+    const state = client.getState();
+
+    if (state === 'connected') {
+      return { ok: true };
+    }
+
+    if (state === 'unauthorized') {
+      return { ok: false, error: 'unauthorized', message: 'Session expired or unauthorized. Please re-authenticate via the Shield UI.' };
+    }
   }
 
   try {
@@ -63,33 +73,81 @@ async function ensureMCPActive(app: FastifyInstance): Promise<{ ok: true } | { o
 }
 
 /**
- * Map raw MCP result → AgentLinkIntegrationsListResponse
+ * Map MCP available-integration IDs to static catalog details.
+ * Enriches each ID with title, description, actions from the catalog.
  */
-function mapIntegrationsList(raw: unknown): AgentLinkIntegrationsListResponse {
-  const items = Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.integrations ?? [];
-  const integrations = (items as Record<string, unknown>[]).map((i) => ({
-    id: (i.id ?? i.integrationId ?? (i.name as string)?.toLowerCase() ?? '') as string,
-    name: (i.name ?? i.displayName ?? i.id ?? '') as string,
-    description: (i.description ?? '') as string,
-    category: (i.category ?? 'other') as string,
-    toolsCount: (i.toolsCount ?? i.tools_count ?? i.toolCount ?? 0) as number,
-  }));
+function mapIntegrationsList(availableIds: string[], search?: string): AgentLinkIntegrationsListResponse {
+  let integrations = availableIds
+    .map((id) => {
+      const details: IntegrationDetails | undefined = INTEGRATION_CATALOG[id];
+      return {
+        id,
+        name: details?.title ?? slugToDisplayName(id),
+        description: details?.description ?? '',
+        category: 'other',
+        toolsCount: details?.actions.length ?? 0,
+        actions: details?.actions ?? [],
+      };
+    });
+
+  if (search) {
+    const q = search.toLowerCase();
+    integrations = integrations.filter(
+      (i) =>
+        i.id.includes(q) ||
+        i.name.toLowerCase().includes(q) ||
+        i.description.toLowerCase().includes(q) ||
+        i.actions.some((a) => a.name.includes(q) || a.description.toLowerCase().includes(q)),
+    );
+  }
+
   return { integrations, totalCount: integrations.length };
 }
 
 /**
+ * Convert a slug like "google-calendar" to display name "Google Calendar"
+ */
+function slugToDisplayName(slug: string): string {
+  return slug
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/**
  * Map raw MCP result → AgentLinkConnectedIntegrationsResponse
+ *
+ * The MCP tool `list-connected-integrations` may return:
+ *   - { integrations: ["google-calendar", "slack"], count: N }  (string array)
+ *   - { integrations: [{ id, name, ... }], count: N }          (object array)
+ *   - ["google-calendar", "slack"]                              (plain array)
  */
 function mapConnectedIntegrations(raw: unknown): AgentLinkConnectedIntegrationsResponse {
   const items = Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.integrations ?? [];
-  const integrations = (items as Record<string, unknown>[]).map((i) => ({
-    id: (i.id ?? i.integrationId ?? (i.name as string)?.toLowerCase() ?? '') as string,
-    name: (i.name ?? i.displayName ?? i.id ?? '') as string,
-    connectedAt: (i.connectedAt ?? i.connected_at ?? new Date().toISOString()) as string,
-    status: (i.status ?? 'active') as string,
-    account: (i.account ?? i.accountName) as string | undefined,
-    requiresReauth: (i.requiresReauth ?? i.requires_reauth ?? false) as boolean,
-  }));
+  const integrations = (items as unknown[]).map((i) => {
+    // Handle string items — MCP returns ["google-calendar", "slack"]
+    if (typeof i === 'string') {
+      return {
+        id: i,
+        name: slugToDisplayName(i),
+        connectedAt: new Date().toISOString(),
+        status: 'active',
+        account: undefined,
+        requiresReauth: false,
+      };
+    }
+    // Handle object items (full metadata)
+    const obj = i as Record<string, unknown>;
+    const id = (obj.id ?? obj.integrationId ?? (obj.name as string)?.toLowerCase() ?? '') as string;
+    return {
+      id,
+      name: (obj.name ?? obj.displayName ?? slugToDisplayName(id)) as string,
+      connectedAt: (obj.connectedAt ?? obj.connected_at ?? new Date().toISOString()) as string,
+      status: (obj.status ?? 'active') as string,
+      account: (obj.account ?? obj.accountName) as string | undefined,
+      requiresReauth: (obj.requiresReauth ?? obj.requires_reauth ?? false) as boolean,
+    };
+  });
   return { integrations };
 }
 
@@ -297,6 +355,41 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   // ===== TOOL ROUTES =====
 
   /**
+   * Generic MCP tool passthrough (used by agentlink CLI).
+   * Forwards directly to any MCP tool by name.
+   */
+  app.post('/agentlink/mcp/call', async (request) => {
+    const { tool, input = {} } = request.body as { tool: string; input?: Record<string, unknown> };
+
+    if (!tool) {
+      return { success: false, error: 'Missing "tool" parameter' };
+    }
+
+    const mcpStatus = await ensureMCPActive(app);
+    if (!mcpStatus.ok) {
+      if (mcpStatus.error === 'unauthorized') {
+        return { success: false, error: 'unauthorized', data: { message: mcpStatus.message } };
+      }
+      if (mcpStatus.authUrl) emitAgentLinkAuthRequired(mcpStatus.authUrl);
+      return { success: false, error: 'auth_required', data: { authUrl: mcpStatus.authUrl, message: mcpStatus.message } };
+    }
+
+    try {
+      const client = getMCPClient()!;
+      const result = await client.callTool(tool, input);
+      if (result.isError) {
+        return { success: false, error: result.content.map((c) => c.text || '').join('\n') };
+      }
+      return { success: true, data: extractToolResult(result) };
+    } catch (error) {
+      if (error instanceof MCPUnauthorizedError) {
+        return { success: false, error: 'unauthorized', data: { message: error.message } };
+      }
+      return { success: false, error: (error as Error).message };
+    }
+  });
+
+  /**
    * Run a tool via MCP gateway's `call-tool` meta-tool.
    * The gateway wraps integration-specific tools behind `call-tool`.
    */
@@ -305,6 +398,9 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
 
     const mcpStatus = await ensureMCPActive(app);
     if (!mcpStatus.ok) {
+      if (mcpStatus.error === 'unauthorized') {
+        return { success: false, error: 'unauthorized', data: { message: mcpStatus.message } };
+      }
       if (mcpStatus.authUrl) {
         emitAgentLinkAuthRequired(mcpStatus.authUrl);
       }
@@ -326,6 +422,9 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
 
       return { success: true, data: extractToolResult(result) };
     } catch (error) {
+      if (error instanceof MCPUnauthorizedError) {
+        return { success: false, error: 'unauthorized', data: { message: error.message } };
+      }
       return { success: false, error: (error as Error).message };
     }
   });
@@ -336,6 +435,9 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   app.get('/agentlink/tool/list', async () => {
     const mcpStatus = await ensureMCPActive(app);
     if (!mcpStatus.ok) {
+      if (mcpStatus.error === 'unauthorized') {
+        return { success: false, error: 'unauthorized', data: { message: mcpStatus.message } };
+      }
       return { success: false, error: mcpStatus.message };
     }
 
@@ -344,6 +446,9 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
       const tools = await client.listTools();
       return { success: true, data: { tools } };
     } catch (error) {
+      if (error instanceof MCPUnauthorizedError) {
+        return { success: false, error: 'unauthorized', data: { message: error.message } };
+      }
       return { success: false, error: (error as Error).message };
     }
   });
@@ -361,6 +466,9 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
 
     const mcpStatus = await ensureMCPActive(app);
     if (!mcpStatus.ok) {
+      if (mcpStatus.error === 'unauthorized') {
+        return { success: false, error: 'unauthorized', data: { message: mcpStatus.message } };
+      }
       return { success: false, error: mcpStatus.message };
     }
 
@@ -369,6 +477,9 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
       const result = await client.callTool('search-tools', { queries: [query] });
       return { success: true, data: extractToolResult(result) };
     } catch (error) {
+      if (error instanceof MCPUnauthorizedError) {
+        return { success: false, error: 'unauthorized', data: { message: error.message } };
+      }
       return { success: false, error: (error as Error).message };
     }
   });
@@ -376,20 +487,33 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   // ===== INTEGRATION ROUTES =====
 
   /**
-   * List available integrations via MCP gateway
+   * List available integrations.
+   * Fetches available IDs from MCP gateway, then enriches them with
+   * static catalog details (title, description, actions) and filters by ?search=.
    */
-  app.get('/agentlink/integrations', async () => {
+  app.get('/agentlink/integrations', async (request) => {
+    const { search } = request.query as { search?: string };
+
     const mcpStatus = await ensureMCPActive(app);
     if (!mcpStatus.ok) {
+      if (mcpStatus.error === 'unauthorized') {
+        return { success: false, error: 'unauthorized', data: { message: mcpStatus.message } };
+      }
       return { success: false, error: mcpStatus.message };
     }
 
     try {
       const client = getMCPClient()!;
       const result = await client.callTool('list-available-integrations', {});
-      const raw = extractToolResult(result);
-      return { success: true, data: mapIntegrationsList(raw) };
+      const raw = extractToolResult(result) as { availableIntegrations?: string[] } | string[];
+      const availableIds: string[] = Array.isArray(raw)
+        ? raw
+        : (raw as Record<string, unknown>).availableIntegrations as string[] ?? [];
+      return { success: true, data: mapIntegrationsList(availableIds, search) };
     } catch (error) {
+      if (error instanceof MCPUnauthorizedError) {
+        return { success: false, error: 'unauthorized', data: { message: error.message } };
+      }
       return { success: false, error: (error as Error).message };
     }
   });
@@ -400,6 +524,9 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
   app.get('/agentlink/integrations/connected', async () => {
     const mcpStatus = await ensureMCPActive(app);
     if (!mcpStatus.ok) {
+      if (mcpStatus.error === 'unauthorized') {
+        return { success: false, error: 'unauthorized', data: { message: mcpStatus.message } };
+      }
       return { success: false, error: mcpStatus.message };
     }
 
@@ -409,6 +536,9 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
       const raw = extractToolResult(result);
       return { success: true, data: mapConnectedIntegrations(raw) };
     } catch (error) {
+      if (error instanceof MCPUnauthorizedError) {
+        return { success: false, error: 'unauthorized', data: { message: error.message } };
+      }
       return { success: false, error: (error as Error).message };
     }
   });
@@ -422,6 +552,9 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
 
     const mcpStatus = await ensureMCPActive(app);
     if (!mcpStatus.ok) {
+      if (mcpStatus.error === 'unauthorized') {
+        return { success: false, error: 'unauthorized', data: { message: mcpStatus.message } };
+      }
       return { success: false, error: mcpStatus.message };
     }
 
@@ -434,14 +567,19 @@ export async function agentlinkRoutes(app: FastifyInstance): Promise<void> {
         addConnectedIntegration(integration);
         // Provision the agentlink-secure-integrations skill (handles all integrations)
         const { installed } = await provisionAgentLinkSkill();
+        // Provision integration-specific documentation skill
+        const { installed: integrationInstalled } = await provisionIntegrationSkill(integration);
         return {
           success: true,
-          data: { ...parsed, skillProvisioned: installed },
+          data: { ...parsed, skillProvisioned: installed, integrationSkillProvisioned: integrationInstalled },
         };
       }
 
       return { success: true, data: parsed };
     } catch (error) {
+      if (error instanceof MCPUnauthorizedError) {
+        return { success: false, error: 'unauthorized', data: { message: error.message } };
+      }
       return { success: false, error: (error as Error).message };
     }
   });

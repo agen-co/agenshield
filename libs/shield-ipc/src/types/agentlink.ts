@@ -5,7 +5,7 @@
  */
 
 /** MCP connection state */
-export type MCPConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type MCPConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error' | 'unauthorized';
 
 /** MCP status response */
 export interface AgentLinkMCPStatusResponse {
@@ -142,6 +142,16 @@ export interface AgentLinkIntegrationsListRequest {
 }
 
 /**
+ * Integration action metadata
+ */
+export interface AgentLinkIntegrationAction {
+  /** Action identifier */
+  name: string;
+  /** Human-readable description */
+  description: string;
+}
+
+/**
  * Integration information
  */
 export interface AgentLinkIntegration {
@@ -155,6 +165,8 @@ export interface AgentLinkIntegration {
   category: string;
   /** Number of tools in this integration */
   toolsCount: number;
+  /** Available actions for this integration */
+  actions?: AgentLinkIntegrationAction[];
 }
 
 /**

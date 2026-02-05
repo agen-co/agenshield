@@ -4,7 +4,7 @@
 
 import { proxy } from 'valtio';
 
-const MAX_EVENTS = 1000;
+const MAX_EVENTS = 10_000;
 
 export interface SSEEvent {
   id: string;

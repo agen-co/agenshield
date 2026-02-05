@@ -217,6 +217,13 @@ export function emitAgentLinkDisconnected(): void {
 }
 
 /**
+ * Helper to emit agentlink error event
+ */
+export function emitAgentLinkError(code: string, message: string): void {
+  daemonEvents.broadcast('agentlink:error', { code, message });
+}
+
+/**
  * Generic event emitter for custom events
  */
 export function emitEvent(type: EventType, data: unknown): void {

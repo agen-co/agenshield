@@ -42,6 +42,7 @@ function setCache(key: string, data: unknown, ttlMs: number): void {
 
 const CONVEX_BASE = 'https://wry-manatee-359.convex.cloud';
 const SKILL_ANALYZER_URL = process.env.SKILL_ANALYZER_URL || 'https://skills.agentfront.dev/api/analyze';
+const SKILL_ANALYSIS_URL = SKILL_ANALYZER_URL.replace('/analyze', '/analysis');
 
 const SEARCH_CACHE_TTL = 60_000;       // 60 seconds
 const DETAIL_CACHE_TTL = 5 * 60_000;   // 5 minutes
@@ -378,6 +379,67 @@ export async function analyzeSkillBundle(
   if (!summary) {
     throw new Error('No summary received from upstream analysis');
   }
+
+  return {
+    analysis: {
+      status: summary.status,
+      vulnerability: {
+        level: summary.vulnerability.level as AnalyzeSkillResponse['analysis']['vulnerability']['level'],
+        details: summary.vulnerability.details,
+        suggestions: summary.vulnerability.suggestions,
+      },
+      commands: summary.commands.map(c => ({
+        name: c.name,
+        source: c.source,
+        available: c.available,
+        required: c.required,
+      })),
+      envVariables: summary.envVariables,
+      runtimeRequirements: summary.runtimeRequirements,
+      installationSteps: summary.installationSteps,
+      runCommands: summary.runCommands,
+      securityFindings: summary.securityFindings,
+      mcpSpecificRisks: summary.mcpSpecificRisks,
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Cached Analysis Lookup                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Retrieve a previously cached analysis for a skill by name and publisher.
+ * Returns null if no cached result exists (upstream returns 404).
+ */
+export async function getCachedAnalysis(
+  skillName: string,
+  publisher: string,
+): Promise<AnalyzeSkillResponse | null> {
+  const url = `${SKILL_ANALYSIS_URL}?skillName=${encodeURIComponent(skillName)}&publisher=${encodeURIComponent(publisher)}`;
+
+  const res = await fetch(url, {
+    method: 'GET',
+    signal: AbortSignal.timeout(SHORT_TIMEOUT),
+  });
+
+  if (res.status === 404) return null;
+
+  if (!res.ok) {
+    throw new Error(`Upstream returned ${res.status}`);
+  }
+
+  const summary = (await res.json()) as {
+    status: 'complete' | 'error';
+    vulnerability: { level: string; details: string[]; suggestions?: string[] };
+    commands: Array<{ name: string; source: string; available: boolean; required: boolean }>;
+    envVariables?: EnvVariableDetail[];
+    runtimeRequirements?: RuntimeRequirement[];
+    installationSteps?: InstallationStep[];
+    runCommands?: RunCommand[];
+    securityFindings?: SecurityFinding[];
+    mcpSpecificRisks?: MCPSpecificRisk[];
+  };
 
   return {
     analysis: {

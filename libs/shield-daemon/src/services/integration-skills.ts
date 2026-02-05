@@ -74,3 +74,49 @@ export async function provisionAgentLinkSkill(): Promise<{ installed: boolean }>
     throw err;
   }
 }
+
+/**
+ * Provision an integration-specific documentation skill into the user's
+ * skills directory.  Call this when a specific integration is connected.
+ *
+ * Graceful no-op if the skill folder doesn't exist (integration not in marketplace).
+ */
+export async function provisionIntegrationSkill(integrationSlug: string): Promise<{ installed: boolean }> {
+  const skillsDir = getSkillsDir();
+  if (!skillsDir) {
+    console.warn('[IntegrationSkills] Skills directory not configured — skipping provision');
+    return { installed: false };
+  }
+
+  const skillName = `integration-${integrationSlug}`;
+  const destDir = path.join(skillsDir, skillName);
+  const srcDir = path.join(BUILTIN_SKILLS_DIR, skillName);
+
+  // Already provisioned — nothing to do
+  if (fs.existsSync(destDir)) {
+    return { installed: false };
+  }
+
+  // Graceful no-op if skill folder doesn't exist (not in marketplace)
+  if (!fs.existsSync(srcDir)) {
+    return { installed: false };
+  }
+
+  try {
+    addToApprovedList(skillName);
+    copyDirSync(srcDir, destDir);
+    console.log(`[IntegrationSkills] Installed "${skillName}"`);
+    return { installed: true };
+  } catch (err) {
+    console.error(`[IntegrationSkills] Failed to install "${skillName}":`, (err as Error).message);
+    try {
+      if (fs.existsSync(destDir)) {
+        fs.rmSync(destDir, { recursive: true, force: true });
+      }
+      removeFromApprovedList(skillName);
+    } catch {
+      // Best-effort cleanup
+    }
+    throw err;
+  }
+}

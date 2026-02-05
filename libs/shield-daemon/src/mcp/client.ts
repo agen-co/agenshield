@@ -3,6 +3,10 @@
  *
  * Uses Client + StreamableHTTPClientTransport with VaultOAuthProvider
  * for automatic OAuth (DCR, PKCE, token exchange, refresh, 401 retry).
+ *
+ * On-demand connection model: each operation opens a fresh connection,
+ * executes, and closes immediately. No persistent connection is maintained.
+ * State `connected` means "authenticated and ready for on-demand calls".
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -12,7 +16,18 @@ import { VaultOAuthProvider } from './oauth-provider';
 
 const TAG = '\x1b[36m[MCP]\x1b[0m';
 
-export type MCPConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type MCPConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error' | 'unauthorized';
+
+/**
+ * Typed error thrown when the MCP connection is unauthorized.
+ * Routes catch this to return structured `{ error: 'unauthorized' }` responses.
+ */
+export class MCPUnauthorizedError extends Error {
+  constructor(message = 'Session expired or unauthorized. Please re-authenticate via the Shield UI.') {
+    super(message);
+    this.name = 'MCPUnauthorizedError';
+  }
+}
 
 export interface MCPTool {
   name: string;
@@ -27,12 +42,13 @@ export interface MCPToolResult {
 }
 
 export class MCPClient {
-  private client: Client | null = null;
-  private transport: StreamableHTTPClientTransport | null = null;
   private provider: VaultOAuthProvider;
   private gatewayUrl: string;
   private state: MCPConnectionState = 'disconnected';
   private active = false;
+
+  /** Transport kept only during the OAuth flow (activate → finishAuth) */
+  private authTransport: StreamableHTTPClientTransport | null = null;
 
   /** Called when the connection state changes */
   onStateChange?: (state: MCPConnectionState) => void;
@@ -44,6 +60,7 @@ export class MCPClient {
 
   /**
    * Activate the MCP client.
+   * Tries a probe connection to verify stored tokens are valid.
    * Returns { authUrl } if the user needs to complete OAuth in a browser.
    */
   async activate(): Promise<{ authUrl?: string }> {
@@ -51,30 +68,32 @@ export class MCPClient {
       return { authUrl: undefined };
     }
     this.active = true;
+    this.setState('connecting');
 
-    this.transport = new StreamableHTTPClientTransport(
+    const transport = new StreamableHTTPClientTransport(
       new URL(this.gatewayUrl),
       { authProvider: this.provider },
     );
 
-    this.client = new Client(
+    const client = new Client(
       { name: 'agenshield', version: '0.1.0' },
       { capabilities: {} },
     );
 
-    this.setState('connecting');
-
     try {
-      console.log(`${TAG} Connecting to ${this.gatewayUrl}…`);
-      await this.client.connect(this.transport);
-      console.log(`${TAG} Connected successfully`);
+      console.log(`${TAG} Verifying tokens against ${this.gatewayUrl}…`);
+      await client.connect(transport);
+      // Tokens are valid — close the probe connection immediately
+      try { await client.close(); } catch { /* ignore */ }
+      console.log(`${TAG} Tokens valid — ready for on-demand connections`);
       this.setState('connected');
       return { authUrl: undefined };
     } catch (err) {
       if (err instanceof UnauthorizedError) {
-        // SDK called redirectToAuthorization — user must complete auth
+        // SDK triggered OAuth redirect — keep the transport for finishAuth()
+        this.authTransport = transport;
         console.log(`${TAG} UnauthorizedError — auth URL: ${this.provider.capturedAuthUrl ? 'captured' : 'missing'}`);
-        this.setState('disconnected');
+        this.setState('unauthorized');
         return { authUrl: this.provider.capturedAuthUrl ?? undefined };
       }
       const cause = (err as Error & { cause?: Error }).cause;
@@ -86,11 +105,10 @@ export class MCPClient {
 
   /**
    * Complete OAuth after receiving the authorization code.
-   * The SDK exchanges the code for tokens, then we reconnect
-   * with a fresh transport (the old one is already started).
+   * The SDK exchanges the code for tokens, then we verify with a probe connection.
    */
   async finishAuth(code: string): Promise<void> {
-    if (!this.transport) {
+    if (!this.authTransport) {
       throw new Error('Client not initialized. Call activate() first.');
     }
 
@@ -98,24 +116,24 @@ export class MCPClient {
 
     try {
       console.log(`${TAG} Exchanging auth code for tokens…`);
-      await this.transport.finishAuth(code);
+      await this.authTransport.finishAuth(code);
       console.log(`${TAG} Token exchange complete — tokens saved to vault`);
+      this.authTransport = null;
 
-      // Close old client/transport, create fresh ones to connect with tokens
-      try { await this.client?.close(); } catch { /* ignore */ }
-
-      this.transport = new StreamableHTTPClientTransport(
+      // Verify with a fresh probe connection
+      const transport = new StreamableHTTPClientTransport(
         new URL(this.gatewayUrl),
         { authProvider: this.provider },
       );
-      this.client = new Client(
+      const client = new Client(
         { name: 'agenshield', version: '0.1.0' },
         { capabilities: {} },
       );
 
-      console.log(`${TAG} Reconnecting with new tokens…`);
-      await this.client.connect(this.transport);
-      console.log(`${TAG} Connected after auth`);
+      console.log(`${TAG} Verifying new tokens…`);
+      await client.connect(transport);
+      try { await client.close(); } catch { /* ignore */ }
+      console.log(`${TAG} Authenticated — ready for on-demand connections`);
       this.setState('connected');
     } catch (err) {
       console.error(`${TAG} finishAuth failed: ${(err as Error).message}`);
@@ -124,16 +142,10 @@ export class MCPClient {
     }
   }
 
-  /** Disconnect from the MCP gateway */
+  /** Mark the client as deactivated */
   async deactivate(): Promise<void> {
     this.active = false;
-    try {
-      await this.client?.close();
-    } catch {
-      // ignore close errors
-    }
-    this.client = null;
-    this.transport = null;
+    this.authTransport = null;
     this.setState('disconnected');
   }
 
@@ -147,22 +159,57 @@ export class MCPClient {
     return this.state;
   }
 
-  /** List all available tools from the MCP gateway */
+  /** List all available tools from the MCP gateway (on-demand connection) */
   async listTools(): Promise<MCPTool[]> {
-    if (!this.client) throw new Error('Not connected');
-    const result = await this.client.listTools();
-    return (result.tools || []).map((t) => ({
-      name: t.name,
-      description: t.description || '',
-      inputSchema: t.inputSchema as Record<string, unknown>,
-    }));
+    return this.withConnection(async (client) => {
+      const result = await client.listTools();
+      return (result.tools || []).map((t) => ({
+        name: t.name,
+        description: t.description || '',
+        inputSchema: t.inputSchema as Record<string, unknown>,
+      }));
+    });
   }
 
-  /** Call a tool on the MCP gateway */
+  /** Call a tool on the MCP gateway (on-demand connection) */
   async callTool(name: string, args: Record<string, unknown>): Promise<MCPToolResult> {
-    if (!this.client) throw new Error('Not connected');
-    const result = await this.client.callTool({ name, arguments: args });
-    return result as unknown as MCPToolResult;
+    return this.withConnection(async (client) => {
+      const result = await client.callTool({ name, arguments: args });
+      return result as unknown as MCPToolResult;
+    });
+  }
+
+  // ─── Private helpers ────────────────────────────────────────────────────────
+
+  /**
+   * Open a temporary connection, run `fn`, then close.
+   * Handles UnauthorizedError → sets state and throws MCPUnauthorizedError.
+   */
+  private async withConnection<T>(fn: (client: Client) => Promise<T>): Promise<T> {
+    if (this.state === 'unauthorized') throw new MCPUnauthorizedError();
+
+    const transport = new StreamableHTTPClientTransport(
+      new URL(this.gatewayUrl),
+      { authProvider: this.provider },
+    );
+    const client = new Client(
+      { name: 'agenshield', version: '0.1.0' },
+      { capabilities: {} },
+    );
+
+    try {
+      await client.connect(transport);
+      const result = await fn(client);
+      return result;
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        this.setState('unauthorized');
+        throw new MCPUnauthorizedError();
+      }
+      throw err;
+    } finally {
+      try { await client.close(); } catch { /* ignore */ }
+    }
   }
 
   private setState(newState: MCPConnectionState): void {
