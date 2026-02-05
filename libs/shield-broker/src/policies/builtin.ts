@@ -108,8 +108,6 @@ export const BuiltinPolicies: PolicyRule[] = [
       'socat *',
       'telnet *',
       'nmap *',
-      'curl *',  // Should use broker proxy
-      'wget *',  // Should use broker proxy
     ],
     enabled: true,
     priority: 150,

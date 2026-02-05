@@ -124,6 +124,22 @@ export function setProtectionEnabled(enabled: boolean): void {
 }
 
 /**
+ * Check if anonymous read-only access is allowed
+ * Returns true by default if not explicitly set
+ */
+export function isAnonymousReadOnlyAllowed(): boolean {
+  const state = loadState();
+  return state.passcodeProtection?.allowAnonymousReadOnly ?? true;
+}
+
+/**
+ * Set anonymous read-only access
+ */
+export function setAnonymousReadOnly(allowed: boolean): void {
+  updatePasscodeProtectionState({ allowAnonymousReadOnly: allowed });
+}
+
+/**
  * Check if authentication is locked out
  */
 export function isLockedOut(): { locked: boolean; lockedUntil?: string } {

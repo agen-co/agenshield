@@ -12,6 +12,11 @@ import {
   rejectSkill,
   revokeSkill,
 } from '../watchers/skills';
+import {
+  analyzeSkill,
+  getCachedAnalysis,
+  clearCachedAnalysis,
+} from '../services/skill-analyzer';
 
 /**
  * Register skills management routes
@@ -38,6 +43,76 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
     const quarantined = listQuarantined();
     return reply.send({ quarantined });
   });
+
+  /**
+   * GET /skills/:name - Get skill detail with analysis
+   */
+  app.get(
+    '/skills/:name',
+    async (
+      request: FastifyRequest<{ Params: { name: string } }>,
+      reply: FastifyReply
+    ) => {
+      const { name } = request.params;
+
+      if (!name || typeof name !== 'string') {
+        return reply.code(400).send({ error: 'Skill name is required' });
+      }
+
+      // Return basic skill info with cached analysis
+      const analysis = getCachedAnalysis(name);
+
+      return reply.send({
+        success: true,
+        data: {
+          name,
+          analysis: analysis ?? null,
+        },
+      });
+    }
+  );
+
+  /**
+   * POST /skills/:name/analyze - Force re-analysis of a skill
+   */
+  app.post(
+    '/skills/:name/analyze',
+    async (
+      request: FastifyRequest<{
+        Params: { name: string };
+        Body: { content?: string; metadata?: Record<string, unknown> };
+      }>,
+      reply: FastifyReply
+    ) => {
+      const { name } = request.params;
+      const { content, metadata } = request.body ?? {};
+
+      if (!name || typeof name !== 'string') {
+        return reply.code(400).send({ error: 'Skill name is required' });
+      }
+
+      // Clear existing cache
+      clearCachedAnalysis(name);
+
+      // Run analysis (content may come from the request body or we return pending)
+      if (content) {
+        const analysis = analyzeSkill(name, content, metadata);
+        return reply.send({ success: true, data: { analysis } });
+      }
+
+      // No content provided - return pending status
+      return reply.send({
+        success: true,
+        data: {
+          analysis: {
+            status: 'pending' as const,
+            analyzerId: 'agenshield',
+            commands: [],
+          },
+        },
+      });
+    }
+  );
 
   /**
    * POST /skills/:name/approve - Approve a quarantined skill

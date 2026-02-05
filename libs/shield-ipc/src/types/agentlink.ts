@@ -4,12 +4,23 @@
  * Request/Response types for AgentLink routes that forward to MCP Gateway
  */
 
+/** MCP connection state */
+export type MCPConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+/** MCP status response */
+export interface AgentLinkMCPStatusResponse {
+  state: MCPConnectionState;
+  active: boolean;
+}
+
 /**
  * Request to start OAuth authentication flow
  */
 export interface AgentLinkAuthStartRequest {
   /** OAuth scopes to request */
   scopes?: string[];
+  /** Source of the auth request: CLI, UI popup, or agent delegation */
+  source?: 'cli' | 'ui' | 'agent';
 }
 
 /**

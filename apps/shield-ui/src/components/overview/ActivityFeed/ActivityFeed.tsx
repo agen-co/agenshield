@@ -8,7 +8,8 @@ import {
   Settings as SettingsIcon,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { useEventStore, type SSEEvent } from '../../../state/events';
+import { useSnapshot } from 'valtio';
+import { eventStore, type SSEEvent } from '../../../state/events';
 import { EmptyState } from '../../shared/EmptyState';
 import { Root, EventItem, EventIcon, EventContent } from './ActivityFeed.styles';
 
@@ -27,7 +28,7 @@ function getEventDisplay(event: SSEEvent) {
 
 export function ActivityFeed() {
   const theme = useTheme();
-  const allEvents = useEventStore((s) => s.events);
+  const { events: allEvents } = useSnapshot(eventStore);
   const recentEvents = useMemo(() => allEvents.slice(0, 20), [allEvents]);
 
   const colorForType = (type: string): string => {

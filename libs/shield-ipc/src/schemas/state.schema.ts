@@ -59,6 +59,7 @@ export const InstallationStateSchema = z.object({
  */
 export const PasscodeProtectionStateSchema = z.object({
   enabled: z.boolean(),
+  allowAnonymousReadOnly: z.boolean().optional(),
   failedAttempts: z.number().int().nonnegative().optional(),
   lockedUntil: z.string().optional(),
 });

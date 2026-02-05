@@ -183,3 +183,41 @@ export interface SoulConfig {
   /** Security level */
   securityLevel?: 'low' | 'medium' | 'high';
 }
+
+// --- Skill Analysis types ---
+
+export interface SkillAnalysis {
+  status: 'pending' | 'analyzing' | 'complete' | 'error';
+  analyzedAt?: string;
+  analyzerId: string;
+  vulnerability?: {
+    level: 'safe' | 'low' | 'medium' | 'high' | 'critical';
+    details: string[];
+    suggestions?: string[];
+  };
+  commands: ExtractedCommand[];
+  error?: string;
+}
+
+export interface ExtractedCommand {
+  name: string;
+  source: 'metadata' | 'analysis';
+  field?: string;
+  resolvedPath?: string;
+  available: boolean;
+  required: boolean;
+}
+
+export interface AnalyzerConfig {
+  id: string;
+  name: string;
+  type: 'agenshield' | 'custom';
+  endpoint?: string;
+  enabled: boolean;
+  apiKey?: string;
+}
+
+export interface SystemBinary {
+  name: string;
+  path: string;
+}

@@ -6,8 +6,8 @@ export const Root = styled('div', {
   slot: 'Root',
 })(({ theme }) => ({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-  gap: theme.spacing(2),
+  gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+  gap: theme.spacing(2.5),
   '& > *': {
     animation: `${slideIn} 0.4s ease-out both`,
   },

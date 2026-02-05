@@ -1,208 +1,109 @@
 # @agenshield/patcher
 
-Python network isolation via sitecustomize.py patching for AgenShield.
+Python network isolation via `sitecustomize.py` patching and optional macOS seatbelt wrappers. This package installs a Python runtime patch that blocks direct network access and routes selected HTTP traffic through the AgenShield broker.
 
-## Overview
+## Purpose
+- Prevent direct outbound network calls from Python code.
+- Route `requests` traffic through the broker HTTP fallback.
+- Optionally wrap Python with `sandbox-exec` on macOS.
 
-This library provides Python runtime network isolation by injecting a `sitecustomize.py` file that patches Python's socket and HTTP libraries to route all network traffic through the AgenShield broker daemon.
-
-## Installation
-
-```bash
-npm install @agenshield/patcher
-```
+## Key Components
+- `src/install.ts` - `PythonPatcher` (install/uninstall/isInstalled).
+- `src/verify.ts` - `PythonVerifier` to validate the patch.
+- `src/python/sitecustomize.ts` - Generates patched `sitecustomize.py`.
+- `src/python/wrapper.ts` - Generates a wrapper shell script.
+- `src/python/sandbox-profile.ts` - Generates a macOS seatbelt profile.
 
 ## Usage
-
-### Programmatic API
-
-```typescript
+### Install
+```ts
 import { PythonPatcher } from '@agenshield/patcher';
 
 const patcher = new PythonPatcher({
   pythonPath: '/usr/bin/python3',
   brokerHost: 'localhost',
   brokerPort: 6969,
+  useSandbox: true,
+  workspacePath: '/Users/clawagent/workspace',
+  socketPath: '/var/run/agenshield.sock',
+  installDir: '/Users/clawagent/bin'
 });
 
-// Install the patcher
-await patcher.install();
-
-// Verify installation
-const isPatched = await patcher.verify();
-
-// Uninstall
-await patcher.uninstall();
+const result = await patcher.install();
 ```
 
-### Generate Wrapper Script
+### Verify
+```ts
+import { PythonVerifier } from '@agenshield/patcher';
 
-```typescript
-import { generatePythonWrapper } from '@agenshield/patcher';
+const verifier = new PythonVerifier({ pythonPath: '/usr/bin/python3' });
+const report = await verifier.verify();
+```
 
-const wrapperScript = generatePythonWrapper({
+### Generate Assets
+```ts
+import { generateSitecustomize, generatePythonWrapper, generateSandboxProfile } from '@agenshield/patcher';
+
+const sitecustomize = generateSitecustomize({
+  brokerHost: 'localhost',
+  brokerPort: 6969,
+  logLevel: 'warn',
+  enabled: true,
+});
+
+const wrapper = generatePythonWrapper({
   pythonPath: '/usr/bin/python3',
-  useSandbox: true,  // Use macOS sandbox-exec
+  sitecustomizePath: '/path/to/sitecustomize.py',
+  useSandbox: true,
+  sandboxProfilePath: '/etc/agenshield/seatbelt/python.sb',
 });
-
-// Write to /Users/clawagent/bin/python
-```
-
-### Generate Seatbelt Profile
-
-```typescript
-import { generateSandboxProfile } from '@agenshield/patcher';
 
 const profile = generateSandboxProfile({
-  allowedPaths: ['/Users/clawagent/workspace'],
-  brokerSocket: '/var/run/agenshield.sock',
+  workspacePath: '/Users/clawagent/workspace',
+  pythonPath: '/usr/bin/python3',
+  brokerHost: 'localhost',
+  brokerPort: 6969,
 });
-
-// Write to /etc/agenshield/seatbelt/python.sb
 ```
 
-## How It Works
+## How the Patch Works
+- `socket.connect` and `socket.create_connection` are overridden to allow only broker connections.
+- `requests.Session.request` is patched to proxy HTTP requests through the broker (`/rpc`).
+- `urllib3` is patched to *block* non-broker connections (it does not proxy).
+- `aiohttp` is patched to *block* non-broker connections.
 
-### Sitecustomize.py Injection
+## Environment Variables (sitecustomize)
+- `AGENSHIELD_ENABLED` - `true`/`false` to toggle patching.
+- `AGENSHIELD_BROKER_HOST` - Broker HTTP host.
+- `AGENSHIELD_BROKER_PORT` - Broker HTTP port.
+- `AGENSHIELD_LOG_LEVEL` - `debug|info|warn|error`.
 
-Python automatically loads `sitecustomize.py` from the site-packages directory on startup. Our patched version:
+## Limitations and Caveats
+- Installs `sitecustomize.py` into the *system* site-packages; requires permissions.
+- Virtual environments are not explicitly supported; `getsitepackages()[0]` may not be the active venv.
+- Only `requests` is proxied through the broker; `urllib3` and `aiohttp` are blocked rather than proxied.
+- macOS-only sandboxing (`sandbox-exec`) is used when `useSandbox` is true.
+- Wrapper scripts do not remove seatbelt profiles on uninstall.
+- The wrapper sets `PYTHONPATH` to a file path; site-packages installation is the primary mechanism.
 
-1. Patches `socket.create_connection()` to block direct connections
-2. Patches `urllib3.connection.HTTPConnection` to route through broker
-3. Patches `requests.Session.request()` for requests library support
-4. Allows only connections to `localhost:6969` (broker HTTP fallback)
+## Roadmap (Ideas)
+- Venv-aware installation and uninstall.
+- Proxy support for `urllib3` and `aiohttp`.
+- Cross-platform sandboxing alternatives.
+- Cleaner wrapper env handling and profile lifecycle management.
 
-### Network Flow
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Python Application                    │
-│                                                          │
-│  requests.get('https://api.example.com')                │
-│  urllib.request.urlopen('https://...')                  │
-│  socket.create_connection(('evil.com', 80))             │
-└─────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              sitecustomize.py Patches                    │
-│                                                          │
-│  • socket.create_connection → blocked (except localhost) │
-│  • urllib3 → routed through broker HTTP                  │
-│  • requests → routed through broker HTTP                 │
-└─────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              Broker HTTP Fallback (:6969)                │
-│                                                          │
-│  POST /api/proxy                                         │
-│  { "url": "https://api.example.com", "method": "GET" }  │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Wrapper Script
-
-For additional security, a wrapper script can:
-
-1. Set `PYTHONPATH` to include our sitecustomize.py
-2. Optionally run Python under `sandbox-exec` with a deny-network profile
-3. Set environment variables for broker configuration
-
-## Templates
-
-### sitecustomize.py
-
-The generated `sitecustomize.py` includes:
-
-```python
-# Network blocking
-import socket
-_original_create_connection = socket.create_connection
-
-def _agenshield_create_connection(address, *args, **kwargs):
-    host, port = address
-    if host not in ('localhost', '127.0.0.1') or port != 6969:
-        raise ConnectionRefusedError(
-            f"AgenShield: Direct connections blocked. Use broker at localhost:6969"
-        )
-    return _original_create_connection(address, *args, **kwargs)
-
-socket.create_connection = _agenshield_create_connection
-
-# HTTP routing through broker
-# ... (patches urllib3, requests, etc.)
-```
-
-### Seatbelt Profile (macOS)
-
-```scheme
-(version 1)
-(deny default)
-
-; Allow read-only access to Python installation
-(allow file-read*
-  (subpath "/usr/lib/python3")
-  (subpath "/Library/Frameworks/Python.framework"))
-
-; Allow workspace access
-(allow file-read* file-write*
-  (subpath "${WORKSPACE}"))
-
-; Block all network except broker
-(deny network*)
-(allow network-outbound
-  (remote tcp "localhost:6969"))
-```
-
-## Configuration
-
-Environment variables recognized by sitecustomize.py:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AGENSHIELD_BROKER_HOST` | `localhost` | Broker HTTP host |
-| `AGENSHIELD_BROKER_PORT` | `6969` | Broker HTTP port |
-| `AGENSHIELD_ENABLED` | `true` | Enable/disable patching |
-| `AGENSHIELD_LOG_LEVEL` | `warn` | Logging level |
-
-## Verification
-
-After installation, verify patching works:
-
+## Development
 ```bash
-# This should fail (direct connection blocked)
-python -c "import socket; socket.create_connection(('example.com', 80))"
-# Expected: ConnectionRefusedError
-
-# This should work (routed through broker)
-python -c "import requests; print(requests.get('https://api.example.com').status_code)"
-# Expected: 200 (if allowed by policy) or error (if denied)
+# Build
+npx nx build shield-patcher
 ```
 
-## Rollback
+## Contribution Guide
+- Keep generated Python output minimal and deterministic.
+- Any changes to `sitecustomize.py` should include a verifier update.
+- Ensure new patches fail closed by default.
 
-To completely remove patching:
-
-```typescript
-import { PythonPatcher } from '@agenshield/patcher';
-
-const patcher = new PythonPatcher({ pythonPath: '/usr/bin/python3' });
-
-// Remove sitecustomize.py
-await patcher.uninstall();
-
-// Restore original Python (if wrapper was installed)
-await patcher.restoreOriginal();
-```
-
-## Limitations
-
-- Only works with Python 3.6+
-- Requires write access to Python's site-packages directory
-- Some native extensions that bypass Python's socket module may not be intercepted
-- asyncio networking requires additional patches (included by default)
-
-## License
-
-MIT
+## Agent Notes
+- `PythonPatcher.install()` writes to site-packages and optionally creates a wrapper and seatbelt profile.
+- `PythonVerifier.verify()` uses real network probes; keep timeouts reasonable.
+- `generateSandboxProfile()` emits a restrictive policy; any new paths should be explicit.

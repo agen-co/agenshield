@@ -12,6 +12,7 @@ function levelToVariant(level: string) {
 export function SecurityStatusCard() {
   const { data: security, isLoading } = useSecurity();
   const sec = security?.data;
+  const pending = isLoading || !sec;
 
   return (
     <Card>
@@ -21,31 +22,31 @@ export function SecurityStatusCard() {
         </Typography>
         <MetricRow>
           <Typography variant="body2" color="text.secondary">Protection Level</Typography>
-          {isLoading ? (
+          {pending ? (
             <Skeleton width={80} />
           ) : (
             <StatusBadge
-              label={sec?.level ? sec.level.charAt(0).toUpperCase() + sec.level.slice(1) : 'Unknown'}
-              variant={sec ? levelToVariant(sec.level) : 'default'}
+              label={sec.level.charAt(0).toUpperCase() + sec.level.slice(1)}
+              variant={levelToVariant(sec.level)}
             />
           )}
         </MetricRow>
         <MetricRow>
           <Typography variant="body2" color="text.secondary">Active Policies</Typography>
           <Typography variant="body2" fontWeight={500}>
-            {isLoading ? <Skeleton width={30} /> : sec?.activePolicies ?? 0}
+            {pending ? <Skeleton width={30} /> : sec.activePolicies}
           </Typography>
         </MetricRow>
         <MetricRow>
           <Typography variant="body2" color="text.secondary">Blocked Requests</Typography>
           <Typography variant="body2" fontWeight={500} color="error.main">
-            {isLoading ? <Skeleton width={30} /> : sec?.blockedRequests ?? 0}
+            {pending ? <Skeleton width={30} /> : sec.blockedRequests}
           </Typography>
         </MetricRow>
         <MetricRow>
           <Typography variant="body2" color="text.secondary">Total Requests</Typography>
           <Typography variant="body2" fontWeight={500}>
-            {isLoading ? <Skeleton width={30} /> : sec?.totalRequests ?? 0}
+            {pending ? <Skeleton width={30} /> : sec.totalRequests}
           </Typography>
         </MetricRow>
         {sec?.lastIncident && (

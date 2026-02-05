@@ -12,6 +12,8 @@ import {
 } from '@mui/material';
 import { Plus, KeyRound } from 'lucide-react';
 import { useSecrets, useCreateSecret, useDeleteSecret } from '../api/hooks';
+import { useAuth } from '../context/AuthContext';
+import { tokens } from '../styles/tokens';
 import type { CreateSecretRequest } from '../api/client';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
@@ -24,6 +26,7 @@ export function Secrets() {
   const { data, isLoading } = useSecrets();
   const createSecret = useCreateSecret();
   const deleteSecret = useDeleteSecret();
+  const { isReadOnly } = useAuth();
 
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -45,12 +48,12 @@ export function Secrets() {
   };
 
   return (
-    <Box>
+    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       <PageHeader
         title="Secrets"
         description="Manage secrets injected into operations by scope."
         action={
-          <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setFormOpen(true)}>
+          <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setFormOpen(true)} disabled={isReadOnly}>
             Add Secret
           </Button>
         }
@@ -78,7 +81,7 @@ export function Secrets() {
               title="No secrets configured"
               description="Add secrets to inject environment variables, API keys, and credentials into operations."
               action={
-                <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setFormOpen(true)}>
+                <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setFormOpen(true)} disabled={isReadOnly}>
                   Add Secret
                 </Button>
               }

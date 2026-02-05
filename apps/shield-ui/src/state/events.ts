@@ -1,8 +1,8 @@
 /**
- * Zustand store for SSE events
+ * Valtio proxy store for SSE events
  */
 
-import { create } from 'zustand';
+import { proxy } from 'valtio';
 
 const MAX_EVENTS = 1000;
 
@@ -13,24 +13,22 @@ export interface SSEEvent {
   timestamp: number;
 }
 
-interface EventStore {
-  events: SSEEvent[];
-  connected: boolean;
-  addEvent: (event: SSEEvent) => void;
-  setConnected: (connected: boolean) => void;
-  clear: () => void;
+export const eventStore = proxy({
+  events: [] as SSEEvent[],
+  connected: false,
+});
+
+export function addEvent(event: SSEEvent) {
+  eventStore.events.unshift(event);
+  if (eventStore.events.length > MAX_EVENTS) {
+    eventStore.events.splice(MAX_EVENTS);
+  }
 }
 
-export const useEventStore = create<EventStore>((set) => ({
-  events: [],
-  connected: false,
+export function setConnected(connected: boolean) {
+  eventStore.connected = connected;
+}
 
-  addEvent: (event) =>
-    set((state) => ({
-      events: [event, ...state.events].slice(0, MAX_EVENTS),
-    })),
-
-  setConnected: (connected) => set({ connected }),
-
-  clear: () => set({ events: [] }),
-}));
+export function clearEvents() {
+  eventStore.events.splice(0);
+}

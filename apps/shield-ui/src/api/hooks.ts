@@ -15,6 +15,10 @@ export const queryKeys = {
   skill: (name: string) => ['skills', name] as const,
   secrets: ['secrets'] as const,
   security: ['security'] as const,
+  agentlinkStatus: ['agentlink', 'status'] as const,
+  agentlinkMCPStatus: ['agentlink', 'mcp-status'] as const,
+  agentlinkIntegrations: ['agentlink', 'integrations'] as const,
+  agentlinkConnected: ['agentlink', 'connected'] as const,
 };
 
 /**
@@ -131,6 +135,41 @@ export function useQuarantineSkill() {
   });
 }
 
+// --- Skill analysis hooks ---
+
+export function useReanalyzeSkill() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ name, content, metadata }: { name: string; content?: string; metadata?: Record<string, unknown> }) =>
+      api.reanalyzeSkill(name, content, metadata),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.skill(variables.name) });
+    },
+  });
+}
+
+// --- System bins & allowed commands hooks ---
+
+export function useSystemBins() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: ['system-bins'] as const,
+    queryFn: api.getSystemBins,
+    enabled: healthy,
+    staleTime: 60_000, // Cache for 60 seconds
+  });
+}
+
+export function useAllowedCommands() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: ['allowed-commands'] as const,
+    queryFn: api.getAllowedCommands,
+    enabled: healthy,
+  });
+}
+
 // --- Secrets hooks ---
 
 export function useSecrets() {
@@ -173,5 +212,71 @@ export function useSecurity() {
     queryFn: api.getSecurity,
     enabled: healthy,
     refetchInterval: healthy ? 30000 : false,
+  });
+}
+
+// --- AgentLink hooks ---
+
+export function useAgentLinkStatus() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.agentlinkStatus,
+    queryFn: api.agentlink.getAuthStatus,
+    enabled: healthy,
+    refetchInterval: healthy ? 15000 : false,
+  });
+}
+
+export function useAgentLinkMCPStatus() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.agentlinkMCPStatus,
+    queryFn: api.agentlink.getMCPStatus,
+    enabled: healthy,
+    refetchInterval: healthy ? 10000 : false,
+  });
+}
+
+export function useAgentLinkIntegrations(category?: string, search?: string) {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: [...queryKeys.agentlinkIntegrations, category, search],
+    queryFn: () => api.agentlink.listIntegrations(category, search),
+    enabled: healthy,
+  });
+}
+
+export function useAgentLinkConnectedIntegrations() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.agentlinkConnected,
+    queryFn: api.agentlink.listConnectedIntegrations,
+    enabled: healthy,
+  });
+}
+
+export function useAgentLinkLogout() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.agentlink.logout(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkStatus });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkMCPStatus });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkConnected });
+    },
+  });
+}
+
+export function useAgentLinkConnectIntegration() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: { integration: string; scopes?: string[] }) =>
+      api.agentlink.connectIntegration(data.integration, data.scopes),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkConnected });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkIntegrations });
+    },
   });
 }

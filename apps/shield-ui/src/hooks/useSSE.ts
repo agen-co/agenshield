@@ -1,15 +1,14 @@
 /**
- * Hook to connect to SSE events and update the event store
+ * Hook to connect to SSE events and update the valtio event store
  */
 
 import { useEffect, useRef } from 'react';
-import { useEventStore, type SSEEvent } from '../state/events';
+import { useSnapshot } from 'valtio';
+import { eventStore, addEvent, setConnected, type SSEEvent } from '../state/events';
 import { createSSEClient, type SSEClient } from '../api/sse';
 
 export function useSSE() {
-  const addEvent = useEventStore((s) => s.addEvent);
-  const setConnected = useEventStore((s) => s.setConnected);
-  const connected = useEventStore((s) => s.connected);
+  const { connected } = useSnapshot(eventStore);
   const clientRef = useRef<SSEClient | null>(null);
 
   useEffect(() => {
@@ -35,7 +34,7 @@ export function useSSE() {
       client.disconnect();
       clientRef.current = null;
     };
-  }, [addEvent, setConnected]);
+  }, []);
 
   return { connected };
 }

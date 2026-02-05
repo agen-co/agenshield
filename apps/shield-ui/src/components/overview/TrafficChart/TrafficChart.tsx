@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent, Typography, Box, Button, useTheme } from '@mui/material';
 import {
   AreaChart,
@@ -10,7 +10,9 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { format, subHours, subDays, isAfter } from 'date-fns';
-import { useEventStore } from '../../../state/events';
+import { useSnapshot } from 'valtio';
+import { eventStore } from '../../../state/events';
+import { useHealthGate } from '../../../api/hooks';
 import { TimeRangeGroup } from './TrafficChart.styles';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d';
@@ -21,6 +23,10 @@ const TIME_RANGES: { label: string; value: TimeRange }[] = [
   { label: '24h', value: '24h' },
   { label: '7d', value: '7d' },
 ];
+
+const PLACEHOLDER_POINTS = 30;
+const PLACEHOLDER_Y_MIN = 0;
+const PLACEHOLDER_Y_MAX = 10;
 
 function getTimeThreshold(range: TimeRange): Date {
   const now = new Date();
@@ -41,10 +47,51 @@ function getBucketFormat(range: TimeRange): string {
   }
 }
 
+/** Generate a single random data point that drifts smoothly from prev */
+function nextRandom(prev: number, min: number, max: number): number {
+  const drift = (Math.random() - 0.5) * (max - min) * 0.2;
+  return Math.max(min, Math.min(max, prev + drift));
+}
+
+function generatePlaceholder(): { time: string; requests: number; blocked: number }[] {
+  const data: { time: string; requests: number; blocked: number }[] = [];
+  let req = 3 + Math.random() * 4;
+  let blk = 1 + Math.random() * 2;
+  for (let i = 0; i < PLACEHOLDER_POINTS; i++) {
+    req = nextRandom(req, 1, PLACEHOLDER_Y_MAX);
+    blk = nextRandom(blk, 0, Math.min(req, 4));
+    data.push({ time: '', requests: req, blocked: blk });
+  }
+  return data;
+}
+
+/** Hook that returns rolling random placeholder data, ticking every interval */
+function usePlaceholderData(active: boolean) {
+  const [data, setData] = useState(generatePlaceholder);
+
+  const tick = useCallback(() => {
+    setData((prev) => {
+      const last = prev[prev.length - 1];
+      const req = nextRandom(last.requests, 1, PLACEHOLDER_Y_MAX);
+      const blk = nextRandom(last.blocked, 0, Math.min(req, 4));
+      return [...prev.slice(1), { time: '', requests: req, blocked: blk }];
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [active, tick]);
+
+  return data;
+}
+
 export function TrafficChart() {
   const theme = useTheme();
   const [range, setRange] = useState<TimeRange>('1h');
-  const events = useEventStore((s) => s.events);
+  const { events } = useSnapshot(eventStore);
+  const healthy = useHealthGate();
 
   const chartData = useMemo(() => {
     const threshold = getTimeThreshold(range);
@@ -65,6 +112,10 @@ export function TrafficChart() {
       .reverse();
   }, [events, range]);
 
+  const isEmpty = !healthy || chartData.length === 0;
+  const placeholderData = usePlaceholderData(isEmpty);
+  const greyColor = theme.palette.mode =='dark' ? theme.palette.grey[600] : theme.palette.grey[400];
+
   return (
     <Card>
       <CardContent>
@@ -79,7 +130,7 @@ export function TrafficChart() {
                 size="small"
                 variant={range === tr.value ? 'contained' : 'text'}
                 onClick={() => setRange(tr.value)}
-                sx={{ minWidth: 40, px: 1 }}
+                sx={{ minWidth: 36 }}
               >
                 {tr.label}
               </Button>
@@ -87,47 +138,79 @@ export function TrafficChart() {
           </TimeRangeGroup>
         </Box>
 
-        <ResponsiveContainer width="100%" height={280} minWidth={100}>
-          <AreaChart data={chartData}>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke={theme.palette.divider}
-            />
-            <XAxis
-              dataKey="time"
-              tick={{ fontSize: 12, fill: theme.palette.text.secondary }}
-              axisLine={{ stroke: theme.palette.divider }}
-            />
-            <YAxis
-              tick={{ fontSize: 12, fill: theme.palette.text.secondary }}
-              axisLine={{ stroke: theme.palette.divider }}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: theme.palette.background.paper,
-                border: `1px solid ${theme.palette.divider}`,
-                borderRadius: 8,
-                fontSize: 13,
+        <Box sx={{ position: 'relative' }}>
+          {isEmpty && (
+            <Box
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1,
               }}
-            />
-            <Area
-              type="monotone"
-              dataKey="requests"
-              stroke={theme.palette.primary.main}
-              fill={`${theme.palette.primary.main}20`}
-              strokeWidth={2}
-              name="Requests"
-            />
-            <Area
-              type="monotone"
-              dataKey="blocked"
-              stroke={theme.palette.error.main}
-              fill={`${theme.palette.error.main}20`}
-              strokeWidth={2}
-              name="Blocked"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+            >
+              <Typography variant="body2" color="text.secondary">
+                {!healthy
+                  ? 'Waiting for daemon connection...'
+                  : 'No traffic data yet. Data will appear as requests come in.'}
+              </Typography>
+            </Box>
+          )}
+
+          <Box sx={{ opacity: isEmpty ? 0.3 : 1, transition: 'opacity 0.6s ease' }}>
+            <ResponsiveContainer width="100%" height={280} minWidth={100}>
+              <AreaChart data={isEmpty ? placeholderData : chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={theme.palette.divider}
+                />
+                <XAxis
+                  dataKey="time"
+                  tick={{ fontSize: 12, fill: isEmpty ? 'transparent' : theme.palette.text.secondary }}
+                  axisLine={{ stroke: theme.palette.divider }}
+                />
+                <YAxis
+                  tick={{ fontSize: 12, fill: isEmpty ? 'transparent' : theme.palette.text.secondary }}
+                  axisLine={{ stroke: theme.palette.divider }}
+                  domain={isEmpty ? [PLACEHOLDER_Y_MIN, PLACEHOLDER_Y_MAX] : undefined}
+                />
+                {!isEmpty && (
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: theme.palette.background.paper,
+                      border: `1px solid ${theme.palette.divider}`,
+                      borderRadius: 8,
+                      fontSize: 13,
+                    }}
+                  />
+                )}
+                <Area
+                  type="natural"
+                  dataKey="requests"
+                  stroke={isEmpty ? greyColor : theme.palette.primary.main}
+                  fill={isEmpty ? `${greyColor}18` : `${theme.palette.primary.main}20`}
+                  strokeWidth={isEmpty ? 1.5 : 2}
+                  name="Requests"
+                  isAnimationActive
+                  animationDuration={50}
+                  animationEasing="linear"
+                />
+                <Area
+                  type="natural"
+                  dataKey="blocked"
+                  stroke={isEmpty ? greyColor : theme.palette.error.main}
+                  fill={isEmpty ? `${greyColor}10` : `${theme.palette.error.main}20`}
+                  strokeWidth={isEmpty ? 1.5 : 2}
+                  name="Blocked"
+                  isAnimationActive
+                  animationDuration={50}
+                  animationEasing="linear"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </Box>
+        </Box>
       </CardContent>
     </Card>
   );

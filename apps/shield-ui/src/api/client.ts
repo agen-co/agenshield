@@ -8,6 +8,8 @@ import type {
   GetConfigResponse,
   UpdateConfigResponse,
   UpdateConfigRequest,
+  SkillAnalysis,
+  SystemBinary,
 } from '@agenshield/ipc';
 
 const BASE_URL = '/api';
@@ -75,6 +77,7 @@ export interface SkillSummary {
 export interface SkillDetail extends SkillSummary {
   content: string;
   metadata?: Record<string, unknown>;
+  analysis?: SkillAnalysis;
 }
 
 export interface Secret {
@@ -149,4 +152,53 @@ export const api = {
 
   // Security endpoint
   getSecurity: () => request<{ data: SecurityStatus }>('/security'),
+
+  // Skill analysis
+  reanalyzeSkill: (name: string, content?: string, metadata?: Record<string, unknown>) =>
+    request<{ data: { analysis: SkillAnalysis } }>(`/skills/${encodeURIComponent(name)}/analyze`, {
+      method: 'POST',
+      body: JSON.stringify({ content, metadata }),
+    }),
+
+  // System binaries & allowed commands
+  getSystemBins: () =>
+    request<{ data: { bins: SystemBinary[] } }>('/exec/system-bins'),
+
+  getAllowedCommands: () =>
+    request<{ data: { commands: Array<{ name: string; paths: string[]; addedAt: string; addedBy: string; category?: string }> } }>('/exec/allowed-commands'),
+
+  // AgentLink endpoints
+  agentlink: {
+    getAuthStatus: () =>
+      request<{ success: boolean; data: { authenticated: boolean; expired: boolean; expiresAt: string | null; connectedIntegrations: string[] } }>('/agentlink/auth/status'),
+
+    startAuth: (scopes?: string[], source?: 'cli' | 'ui' | 'agent') =>
+      request<{ success: boolean; data?: { authUrl: string; state: string; callbackPort: number }; error?: string }>('/agentlink/auth/start', {
+        method: 'POST',
+        body: JSON.stringify({ scopes, source }),
+      }),
+
+    logout: () =>
+      request<{ success: boolean }>('/agentlink/auth/logout', { method: 'POST' }),
+
+    getMCPStatus: () =>
+      request<{ success: boolean; data: { state: string; active: boolean } }>('/agentlink/mcp/status'),
+
+    listIntegrations: (category?: string, search?: string) => {
+      const params = new URLSearchParams();
+      if (category) params.set('category', category);
+      if (search) params.set('search', search);
+      const qs = params.toString();
+      return request<{ success: boolean; data: unknown }>(`/agentlink/integrations${qs ? `?${qs}` : ''}`);
+    },
+
+    listConnectedIntegrations: () =>
+      request<{ success: boolean; data: unknown }>('/agentlink/integrations/connected'),
+
+    connectIntegration: (integration: string, scopes?: string[]) =>
+      request<{ success: boolean; data: unknown }>('/agentlink/integrations/connect', {
+        method: 'POST',
+        body: JSON.stringify({ integration, scopes }),
+      }),
+  },
 };

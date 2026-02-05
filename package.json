@@ -29,14 +29,21 @@
     "cli:dev:status": "npx tsx libs/cli/src/cli.ts status",
     "cli:dev:doctor": "npx tsx libs/cli/src/cli.ts doctor",
     "cli:dev:daemon": "npx tsx libs/cli/src/cli.ts daemon",
+    "cli:dev:sandbox": "sudo npx tsx libs/cli/src/cli.ts dev",
+    "cli:dev:sandbox:clean": "sudo npx tsx libs/cli/src/cli.ts dev clean",
     "daemon:start": "node libs/shield-daemon/dist/src/main.js",
     "daemon:dev": "npx tsx libs/shield-daemon/src/main.ts",
     "test-harness:install": "cd tools/test-harness && npm link",
-    "test-harness:uninstall": "cd tools/test-harness && npm unlink -g"
+    "test-harness:uninstall": "cd tools/test-harness && npm unlink -g",
+    "test:e2e": "sudo npx nx run test-e2e:e2e --skip-nx-cache",
+    "registry:start": "node scripts/registry/start.mjs",
+    "registry:publish": "node scripts/registry/publish.mjs",
+    "registry:stop": "node scripts/registry/stop.mjs"
   },
   "private": true,
   "devDependencies": {
     "@eslint/js": "^9.8.0",
+    "@ngrok/ngrok": "^1.7.0",
     "@nx/esbuild": "^22.4.4",
     "@nx/eslint": "22.4.4",
     "@nx/eslint-plugin": "22.4.4",
@@ -63,7 +70,8 @@
     "ts-node": "10.9.2",
     "tslib": "^2.8.1",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.52.0"
+    "typescript-eslint": "^8.52.0",
+    "verdaccio": "^6.2.5"
   },
   "workspaces": [
     "apps/*",

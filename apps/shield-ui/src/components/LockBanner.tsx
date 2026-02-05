@@ -5,14 +5,14 @@
  * but the user is not authenticated.
  */
 
-import React, { useState } from 'react';
-import { Alert, AlertTitle, Button, Box } from '@mui/material';
+import { useState } from 'react';
+import { Alert, Button, Box } from '@mui/material';
 import { Lock as LockIcon, LockOpen as LockOpenIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { PasscodeDialog } from './PasscodeDialog';
 
 export function LockBanner() {
-  const { protectionEnabled, authenticated, passcodeSet, requiresAuth, lock } = useAuth();
+  const { protectionEnabled, authenticated, passcodeSet, lock } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
 
   // Don't show anything if protection isn't enabled
@@ -39,11 +39,11 @@ export function LockBanner() {
     );
   }
 
-  // Show locked state
+  // Show locked / read-only state
   return (
     <Box sx={{ mb: 2 }}>
       <Alert
-        severity="warning"
+        severity="info"
         icon={<LockIcon size={20} />}
         action={
           <Button color="inherit" size="small" onClick={() => setDialogOpen(true)}>
@@ -51,8 +51,7 @@ export function LockBanner() {
           </Button>
         }
       >
-        <AlertTitle>Protected Mode</AlertTitle>
-        Configuration changes require authentication. Click Unlock to enter your passcode.
+        Read-only mode. Unlock with your passcode to make changes.
       </Alert>
 
       <PasscodeDialog

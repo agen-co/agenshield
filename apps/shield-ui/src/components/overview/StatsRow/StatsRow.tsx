@@ -38,6 +38,11 @@ export function StatsRow({ status, config, security, statusLoading, configLoadin
   const daemonStatus = status?.data;
   const shieldConfig = config?.data;
 
+  // Show skeleton when loading OR when data hasn't arrived (e.g. disconnected)
+  const statusPending = statusLoading || !daemonStatus;
+  const configPending = configLoading || !shieldConfig;
+  const securityPending = !security?.data;
+
   return (
     <Root>
       <StatCard
@@ -45,30 +50,30 @@ export function StatsRow({ status, config, security, statusLoading, configLoadin
         value={daemonStatus?.running ? 'Running' : 'Stopped'}
         icon={<Activity size={20} />}
         color={daemonStatus?.running ? theme.palette.success.main : theme.palette.error.main}
-        loading={statusLoading}
+        loading={statusPending}
       />
       <StatCard
         title="Uptime"
-        value={daemonStatus?.uptime ? formatUptime(daemonStatus.uptime) : '-'}
+        value={daemonStatus?.uptime ? formatUptime(daemonStatus.uptime) : '—'}
         icon={<Clock size={20} />}
-        loading={statusLoading}
+        loading={statusPending}
       />
       <StatCard
         title="Process ID"
-        value={daemonStatus?.pid ?? '-'}
+        value={daemonStatus?.pid ?? '—'}
         icon={<Cpu size={20} />}
-        loading={statusLoading}
+        loading={statusPending}
       />
       <StatCard
         title="Active Policies"
         value={shieldConfig?.policies?.filter((p) => p.enabled).length ?? 0}
         icon={<ShieldCheck size={20} />}
         color={theme.palette.secondary.main}
-        loading={configLoading}
+        loading={configPending}
       />
       <StatCard
         title="Security Level"
-        value={security?.data?.level ? security.data.level.charAt(0).toUpperCase() + security.data.level.slice(1) : '-'}
+        value={security?.data?.level ? security.data.level.charAt(0).toUpperCase() + security.data.level.slice(1) : '—'}
         icon={<ShieldAlert size={20} />}
         color={
           security?.data?.level === 'high'
@@ -77,13 +82,13 @@ export function StatsRow({ status, config, security, statusLoading, configLoadin
               ? theme.palette.warning.main
               : theme.palette.error.main
         }
-        loading={!security}
+        loading={securityPending}
       />
       <StatCard
         title="Requests Today"
         value={security?.data?.totalRequests ?? 0}
         icon={<BarChart3 size={20} />}
-        loading={!security}
+        loading={securityPending}
       />
     </Root>
   );

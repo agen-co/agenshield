@@ -80,6 +80,8 @@ export interface InstallationState {
 export interface PasscodeProtectionState {
   /** Whether passcode protection is enabled */
   enabled: boolean;
+  /** Whether anonymous read-only access is allowed when protection is enabled (default: true) */
+  allowAnonymousReadOnly?: boolean;
   /** Number of failed authentication attempts */
   failedAttempts?: number;
   /** ISO timestamp until which authentication is locked out */

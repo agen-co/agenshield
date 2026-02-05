@@ -11,6 +11,8 @@ import { getUiAssetsPath } from './static';
 import { startSecurityWatcher, stopSecurityWatcher } from './watchers/security';
 import { startSkillsWatcher, stopSkillsWatcher } from './watchers/skills';
 import { emitSkillQuarantined, emitSkillApproved } from './events/emitter';
+import { getVault } from './vault';
+import { activateMCP, deactivateMCP } from './mcp';
 
 /**
  * Create and configure the Fastify server
@@ -71,10 +73,27 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     onApproved: (name) => emitSkillApproved(name),
   }, 30000); // Check every 30 seconds
 
-  // Stop watchers on server close
+  // Auto-activate MCP if valid tokens exist
+  try {
+    const vault = getVault();
+    const agentlink = await vault.get('agentlink');
+    if (agentlink?.accessToken && agentlink.expiresAt > Date.now()) {
+      const getValidToken = async () => {
+        const current = await vault.get('agentlink');
+        if (!current?.accessToken) throw new Error('No token');
+        return current.accessToken;
+      };
+      await activateMCP(getValidToken);
+    }
+  } catch {
+    // Non-fatal: MCP auto-activation failed, user can connect later
+  }
+
+  // Stop watchers and MCP on server close
   app.addHook('onClose', async () => {
     stopSecurityWatcher();
     stopSkillsWatcher();
+    await deactivateMCP();
   });
 
   await app.listen({

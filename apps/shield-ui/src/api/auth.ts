@@ -110,4 +110,17 @@ export const authApi = {
         Authorization: `Bearer ${token}`,
       },
     }),
+
+  /**
+   * Toggle anonymous read-only access
+   */
+  setAnonymousReadOnly: (token: string, allowed: boolean) =>
+    authRequest<{ success: boolean; allowAnonymousReadOnly: boolean }>('/auth/anonymous-readonly', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ allowed }),
+    }),
 };

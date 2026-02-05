@@ -36,3 +36,7 @@ yarn-error.log
 **/.cache/
 
 .claude
+
+# Verdaccio local registry
+scripts/registry/.verdaccio-storage/
+scripts/registry/.verdaccio-htpasswd

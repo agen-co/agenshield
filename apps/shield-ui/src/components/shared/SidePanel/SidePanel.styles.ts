@@ -1,39 +1,23 @@
 import { styled } from '@mui/material/styles';
 import { tokens } from '../../../styles/tokens';
 
-export const Overlay = styled('div', {
+/**
+ * Desktop inline panel - sits inside a flex container, animates width
+ */
+export const InlinePanel = styled('div', {
   name: 'SidePanel',
-  slot: 'Overlay',
-  shouldForwardProp: (prop) => prop !== '$open',
-})<{ $open: boolean }>(({ $open }) => ({
-  position: 'fixed',
-  inset: 0,
-  zIndex: 1200,
-  backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  opacity: $open ? 1 : 0,
-  pointerEvents: $open ? 'auto' : 'none',
-  transition: `opacity ${tokens.transition.duration} ${tokens.transition.easing}`,
-}));
-
-export const Panel = styled('div', {
-  name: 'SidePanel',
-  slot: 'Panel',
+  slot: 'Inline',
   shouldForwardProp: (prop) => !['$open', '$width'].includes(prop as string),
 })<{ $open: boolean; $width: number }>(({ theme, $open, $width }) => ({
-  position: 'fixed',
-  top: 0,
-  right: 0,
-  bottom: 0,
-  width: $width,
-  maxWidth: '100vw',
-  zIndex: 1201,
-  backgroundColor: theme.palette.background.paper,
-  boxShadow: theme.shadows[16],
-  transform: $open ? 'translateX(0)' : `translateX(${$width}px)`,
-  transition: `transform ${tokens.transition.duration} ${tokens.transition.easing}`,
-  display: 'flex',
-  flexDirection: 'column',
+  flexShrink: 0,
+  width: $open ? $width : 0,
+  opacity: $open ? 1 : 0,
   overflow: 'hidden',
+  display: 'flex',
+  flexDirection: 'column' as const,
+  borderLeft: $open ? `1px solid ${theme.palette.divider}` : 'none',
+  backgroundColor: theme.palette.background.paper,
+  transition: `width ${tokens.transition.duration} ${tokens.transition.easing}, opacity ${tokens.transition.duration} ${tokens.transition.easing}`,
 }));
 
 export const PanelHeader = styled('div', {

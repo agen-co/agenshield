@@ -1,17 +1,20 @@
 /**
- * Policies page - grid view with detail panel
+ * Policies page - grid view with inline detail panel
  */
 
 import { useState } from 'react';
 import {
   Box,
   Button,
-  Alert,
+  Card,
+  CardContent,
   Typography,
 } from '@mui/material';
 import { Plus, ShieldCheck } from 'lucide-react';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { useConfig, useUpdateConfig } from '../api/hooks';
+import { useAuth } from '../context/AuthContext';
+import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
 import { EmptyState } from '../components/shared/EmptyState';
 import { ConfirmDialog } from '../components/shared/ConfirmDialog';
@@ -22,6 +25,7 @@ import { PolicyEditor } from '../components/policies/PolicyEditor';
 export function Policies() {
   const { data: config } = useConfig();
   const updateConfig = useUpdateConfig();
+  const { isReadOnly } = useAuth();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<PolicyConfig | null>(null);
@@ -66,109 +70,115 @@ export function Policies() {
       ? policies.map((p) => (p.id === editingPolicy.id ? newPolicy : p))
       : [...policies, newPolicy];
 
-    updateConfig.mutate({ policies: updatedPolicies });
-    setDialogOpen(false);
+    updateConfig.mutate(
+      { policies: updatedPolicies },
+      { onSuccess: () => setDialogOpen(false) },
+    );
   };
 
   return (
-    <Box>
-      <PageHeader
-        title="Policies"
-        description="Manage security policies for command and URL filtering."
-        action={
-          <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd}>
-            Add Policy
-          </Button>
-        }
-      />
-
-      {updateConfig.isError && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          Failed to update policies. Please try again.
-        </Alert>
-      )}
-
-      {policies.length === 0 ? (
-        <EmptyState
-          icon={<ShieldCheck size={28} />}
-          title="No policies configured"
-          description="Add your first policy to get started with command and URL filtering."
-          action={
-            <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd}>
-              Add Policy
-            </Button>
-          }
-        />
-      ) : (
-        <PolicyGrid
-          policies={policies}
-          selectedId={selectedId}
-          collapsed={!!selectedId}
-          onSelect={setSelectedId}
-          onToggle={handleToggle}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          disabled={updateConfig.isPending}
-        />
-      )}
-
-      <SidePanel
-        open={!!selectedPolicy}
-        onClose={() => setSelectedId(null)}
-        title="Policy Details"
-      >
-        {selectedPolicy && (
-          <Box>
-            <Typography variant="h6" fontWeight={600} gutterBottom>
-              {selectedPolicy.name}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" gutterBottom>
-              Type: {selectedPolicy.type} | {selectedPolicy.enabled ? 'Enabled' : 'Disabled'}
-            </Typography>
-            <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-              Patterns ({selectedPolicy.patterns.length})
-            </Typography>
-            <Box
-              sx={{
-                fontFamily: 'monospace',
-                fontSize: 13,
-                p: 2,
-                bgcolor: 'action.hover',
-                borderRadius: 1,
-                maxHeight: 300,
-                overflow: 'auto',
-              }}
-            >
-              {selectedPolicy.patterns.map((p, i) => (
-                <Box key={i} sx={{ py: 0.25 }}>{p}</Box>
-              ))}
-            </Box>
-            <Box sx={{ mt: 3, display: 'flex', gap: 1 }}>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={() => handleEdit(selectedPolicy)}
-              >
-                Edit
+    <>
+      <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto', display: 'flex' }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <PageHeader
+            title="Policies"
+            description="Manage security policies for command and URL filtering."
+            action={
+              <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd} disabled={isReadOnly}>
+                Add Policy
               </Button>
-              <Button
-                variant="outlined"
-                color="error"
-                size="small"
-                onClick={() => handleDelete(selectedPolicy.id)}
+            }
+          />
+
+          <Card>
+            <CardContent>
+              {policies.length === 0 ? (
+                <EmptyState
+                  icon={<ShieldCheck size={28} />}
+                  title="No policies configured"
+                  description="Add your first policy to get started with command and URL filtering."
+                  action={
+                    <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd}>
+                      Add Policy
+                    </Button>
+                  }
+                />
+              ) : (
+                <PolicyGrid
+                  policies={policies}
+                  selectedId={selectedId}
+                  collapsed={!!selectedId}
+                  onSelect={setSelectedId}
+                  onToggle={handleToggle}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  disabled={updateConfig.isPending || isReadOnly}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </Box>
+
+        <SidePanel
+          open={!!selectedPolicy}
+          onClose={() => setSelectedId(null)}
+          title="Policy Details"
+        >
+          {selectedPolicy && (
+            <Box>
+              <Typography variant="h6" fontWeight={600} gutterBottom>
+                {selectedPolicy.name}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Type: {selectedPolicy.type} | {selectedPolicy.enabled ? 'Enabled' : 'Disabled'}
+              </Typography>
+              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                Patterns ({selectedPolicy.patterns.length})
+              </Typography>
+              <Box
+                sx={{
+                  fontFamily: '"IBM Plex Mono", monospace',
+                  fontSize: 13,
+                  p: 2,
+                  bgcolor: 'action.hover',
+                  borderRadius: 1,
+                  maxHeight: 300,
+                  overflow: 'auto',
+                }}
               >
-                Delete
-              </Button>
+                {selectedPolicy.patterns.map((p, i) => (
+                  <Box key={i} sx={{ py: 0.25 }}>{p}</Box>
+                ))}
+              </Box>
+              <Box sx={{ mt: 3, display: 'flex', gap: 1 }}>
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  size="small"
+                  onClick={() => handleEdit(selectedPolicy)}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  size="small"
+                  onClick={() => handleDelete(selectedPolicy.id)}
+                >
+                  Delete
+                </Button>
+              </Box>
             </Box>
-          </Box>
-        )}
-      </SidePanel>
+          )}
+        </SidePanel>
+      </Box>
 
       <PolicyEditor
         open={dialogOpen}
         policy={editingPolicy}
         onSave={handleSave}
         onClose={() => setDialogOpen(false)}
+        error={updateConfig.isError}
       />
 
       <ConfirmDialog
@@ -180,6 +190,6 @@ export function Policies() {
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />
-    </Box>
+    </>
   );
 }

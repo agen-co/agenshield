@@ -1,7 +1,11 @@
 /**
  * Exec Handler
  *
- * Handles command execution operations with command allowlist validation.
+ * Handles command execution operations with:
+ * - Command allowlist validation (static + dynamic via CommandAllowlist)
+ * - Workspace path enforcement for FS commands
+ * - URL policy validation for curl/wget
+ * - Exec monitoring via SSE events
  */
 
 import * as path from 'node:path';
@@ -12,70 +16,94 @@ import type { HandlerDependencies } from './types.js';
 /** Maximum output size (10MB) */
 const MAX_OUTPUT_SIZE = 10 * 1024 * 1024;
 
-/**
- * Allowed commands map: command name -> list of absolute paths to search.
- * Only commands in this map can be executed through the broker.
- */
-const ALLOWED_COMMANDS: Record<string, string[]> = {
-  git: ['/usr/bin/git', '/opt/homebrew/bin/git', '/usr/local/bin/git'],
-  ssh: ['/usr/bin/ssh'],
-  scp: ['/usr/bin/scp'],
-  rsync: ['/usr/bin/rsync', '/opt/homebrew/bin/rsync'],
-  brew: ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'],
-  npm: ['/opt/homebrew/bin/npm', '/usr/local/bin/npm'],
-  npx: ['/opt/homebrew/bin/npx', '/usr/local/bin/npx'],
-  pip: ['/usr/bin/pip', '/usr/local/bin/pip', '/opt/homebrew/bin/pip'],
-  pip3: ['/usr/bin/pip3', '/usr/local/bin/pip3', '/opt/homebrew/bin/pip3'],
-  node: ['/opt/homebrew/bin/node', '/usr/local/bin/node'],
-  python: ['/usr/bin/python', '/usr/local/bin/python', '/opt/homebrew/bin/python'],
-  python3: ['/usr/bin/python3', '/usr/local/bin/python3', '/opt/homebrew/bin/python3'],
-  ls: ['/bin/ls'],
-  cat: ['/bin/cat'],
-  grep: ['/usr/bin/grep'],
-  find: ['/usr/bin/find'],
-  mkdir: ['/bin/mkdir'],
-  cp: ['/bin/cp'],
-  mv: ['/bin/mv'],
-  rm: ['/bin/rm'],
-  touch: ['/usr/bin/touch'],
-  chmod: ['/bin/chmod'],
-  head: ['/usr/bin/head'],
-  tail: ['/usr/bin/tail'],
-  wc: ['/usr/bin/wc'],
-  sort: ['/usr/bin/sort'],
-  uniq: ['/usr/bin/uniq'],
-  sed: ['/usr/bin/sed'],
-  awk: ['/usr/bin/awk'],
-  tar: ['/usr/bin/tar'],
-  curl: ['/usr/bin/curl'],
-  wget: ['/usr/local/bin/wget', '/opt/homebrew/bin/wget'],
-};
+/** Default workspace root used when cwd is not provided */
+const DEFAULT_WORKSPACE = '/Users/clawagent/workspace';
+
+/** Commands whose path arguments must be confined to allowed workspace paths */
+const FS_COMMANDS = new Set([
+  'rm', 'cp', 'mv', 'mkdir', 'touch', 'chmod', 'cat', 'ls',
+  'find', 'head', 'tail', 'tar', 'sed', 'awk', 'sort', 'uniq', 'wc', 'grep',
+]);
+
+/** Commands that make network requests - need URL policy validation */
+const HTTP_EXEC_COMMANDS = new Set(['curl', 'wget']);
+
+/** curl/wget flags that take a value argument (next arg is the value, not a path/URL) */
+const HTTP_FLAGS_WITH_VALUE = new Set([
+  '-X', '--request',
+  '-H', '--header',
+  '-d', '--data', '--data-raw', '--data-binary', '--data-urlencode',
+  '-o', '--output',
+  '-u', '--user',
+  '-A', '--user-agent',
+  '-e', '--referer',
+  '-b', '--cookie',
+  '-c', '--cookie-jar',
+  '--connect-timeout',
+  '--max-time',
+  '-w', '--write-out',
+  '-T', '--upload-file',
+  '--resolve',
+  '--cacert',
+  '--cert',
+  '--key',
+]);
 
 /**
- * Resolve a command name to an absolute path from the allowlist.
- * Returns null if the command is not allowed.
+ * Validate that all file path arguments are within allowed workspace paths.
+ * Returns { valid: true } or { valid: false, reason, violatingPath }.
  */
-function resolveCommand(command: string): string | null {
-  // If command is already an absolute path, check it's in an allowed list
-  if (path.isAbsolute(command)) {
-    for (const paths of Object.values(ALLOWED_COMMANDS)) {
-      if (paths.includes(command)) {
-        return command;
-      }
+function validateFsPaths(
+  args: string[],
+  cwd: string,
+  allowedPaths: string[],
+): { valid: true } | { valid: false; reason: string; violatingPath: string } {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    // Skip flags
+    if (arg.startsWith('-')) {
+      continue;
     }
-    return null;
+
+    // This is a non-flag argument - treat as a potential file path
+    const resolved = path.isAbsolute(arg) ? path.resolve(arg) : path.resolve(cwd, arg);
+
+    const isAllowed = allowedPaths.some((allowed) => resolved.startsWith(allowed));
+    if (!isAllowed) {
+      return {
+        valid: false,
+        reason: 'Path not in allowed directories',
+        violatingPath: resolved,
+      };
+    }
   }
 
-  // Look up by command basename
-  const basename = path.basename(command);
-  const candidates = ALLOWED_COMMANDS[basename];
-  if (!candidates) {
-    return null;
+  return { valid: true };
+}
+
+/**
+ * Extract URL from curl/wget arguments for network policy validation.
+ * Returns the first non-flag argument that looks like a URL, or null.
+ */
+function extractUrlFromArgs(args: string[]): string | null {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    // Skip flags
+    if (arg.startsWith('-')) {
+      // Skip flags that take a value
+      if (HTTP_FLAGS_WITH_VALUE.has(arg)) {
+        i++; // skip the value
+      }
+      continue;
+    }
+
+    // First non-flag arg is the URL
+    return arg;
   }
 
-  // Return the first candidate (they're ordered by preference)
-  // In production, we'd check existence, but spawn will handle ENOENT
-  return candidates[0];
+  return null;
 }
 
 export async function handleExec(
@@ -101,30 +129,85 @@ export async function handleExec(
       };
     }
 
-    // Validate command against allowlist
-    const resolvedCommand = resolveCommand(command);
+    // Validate command against allowlist (static + dynamic)
+    const resolvedCommand = deps.commandAllowlist.resolve(command);
     if (!resolvedCommand) {
+      const reason = `Command not allowed: ${command}`;
+      deps.onExecDenied?.(command, reason);
       return {
         success: false,
-        error: { code: 1007, message: `Command not allowed: ${command}` },
+        error: { code: 1007, message: reason },
       };
     }
+
+    const commandBasename = path.basename(resolvedCommand);
+    const effectiveCwd = cwd || DEFAULT_WORKSPACE;
+
+    // FS command workspace enforcement
+    if (FS_COMMANDS.has(commandBasename)) {
+      const policies = deps.policyEnforcer.getPolicies();
+      const allowedPaths = policies.fsConstraints?.allowedPaths || [DEFAULT_WORKSPACE];
+
+      const fsResult = validateFsPaths(args as string[], effectiveCwd, allowedPaths);
+      if (!fsResult.valid) {
+        const reason = `${fsResult.reason}: ${fsResult.violatingPath}`;
+        deps.onExecDenied?.(command, reason);
+        return {
+          success: false,
+          error: { code: 1008, message: `Path not allowed: ${fsResult.violatingPath} - ${fsResult.reason}` },
+        };
+      }
+    }
+
+    // URL policy validation for curl/wget
+    if (HTTP_EXEC_COMMANDS.has(commandBasename)) {
+      const url = extractUrlFromArgs(args as string[]);
+      if (url) {
+        const networkCheck = await deps.policyEnforcer.check('http_request', { url }, context);
+        if (!networkCheck.allowed) {
+          const reason = `URL not allowed: ${url} - ${networkCheck.reason}`;
+          deps.onExecDenied?.(command, reason);
+          return {
+            success: false,
+            error: { code: 1009, message: reason },
+          };
+        }
+      }
+    }
+
+    // Use longer timeout for download commands
+    const effectiveTimeout = HTTP_EXEC_COMMANDS.has(commandBasename)
+      ? Math.max(timeout, 300000)  // 5 min minimum for downloads
+      : timeout;
 
     // Execute command with resolved absolute path and shell: false forced
     const result = await executeCommand({
       command: resolvedCommand,
       args,
-      cwd,
+      cwd: effectiveCwd,
       env,
-      timeout,
+      timeout: effectiveTimeout,
       shell: false, // Always force shell: false to prevent injection
+    });
+
+    const duration = Date.now() - startTime;
+
+    // Emit exec monitoring event
+    deps.onExecMonitor?.({
+      command: commandBasename,
+      args: args as string[],
+      cwd: effectiveCwd,
+      exitCode: result.exitCode,
+      allowed: true,
+      duration,
+      timestamp: new Date().toISOString(),
     });
 
     return {
       success: true,
       data: result,
       audit: {
-        duration: Date.now() - startTime,
+        duration,
       },
     };
   } catch (error) {

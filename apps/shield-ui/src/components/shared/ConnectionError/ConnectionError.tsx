@@ -37,7 +37,7 @@ export function ConnectionError({ onRetry, retrying }: ConnectionErrorProps) {
         </Button>
 
         <Typography variant="caption" color="text.secondary">
-          Run <Box component="code" sx={{ bgcolor: 'action.hover', px: 0.75, py: 0.25, borderRadius: 0.5, fontSize: 12 }}>nx serve shield-daemon</Box> to start the daemon
+          Run <Box component="code" sx={{ bgcolor: 'action.hover', px: 0.75, py: 0.25, borderRadius: 0.5, fontSize: 12 }}>agenshield daemon start</Box> to start the daemon
         </Typography>
       </Box>
     </Root>

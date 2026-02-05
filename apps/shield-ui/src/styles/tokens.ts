@@ -10,6 +10,9 @@ export const tokens = {
   toolbar: {
     height: 56,
   },
+  page: {
+    maxWidth: 1340,
+  },
   sidePanel: {
     width: 480,
   },

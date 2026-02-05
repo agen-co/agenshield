@@ -108,7 +108,6 @@ const typography: ThemeOptions['typography'] = {
   fontFamily,
   allVariants: {
     fontFamily,
-    color: greyPalette[900],
     textUnderlinePosition: 'from-font',
     textDecorationSkipInk: 'none',
     lineHeight: 1.36,
@@ -157,13 +156,13 @@ const components: ThemeOptions['components'] = {
     styleOverrides: {
       root: {
         textTransform: 'unset' as const,
-        justifyContent: 'flex-start',
+        justifyContent: 'center',
       },
       startIcon: {
         marginLeft: 0,
         '& > *:nth-of-type(1)': { fontSize: '1rem' },
         '&.MuiButton-iconSizeLarge': { marginRight: '1rem' },
-        '&.MuiButton-iconSizeMedium': { marginRight: '0.75rem' },
+        '&.MuiButton-iconSizeMedium': { marginRight: '0.5rem' },
         '&.MuiButton-iconSizeSmall': { marginRight: '0.5rem' },
       },
       endIcon: {
@@ -178,12 +177,13 @@ const components: ThemeOptions['components'] = {
         lineHeight: '1rem',
         letterSpacing: 0,
         fontWeight: 600,
-        height: '1.5rem',
+        height: '1.75rem',
       },
       sizeMedium: {
         minWidth: '3.75rem',
         padding: '0.25rem 0.5rem',
         fontSize: '0.875rem',
+        lineHeight: '1.25rem',
         fontWeight: 600,
         height: '2rem',
       },
@@ -191,6 +191,7 @@ const components: ThemeOptions['components'] = {
         minWidth: '3.75rem',
         padding: '0.5625rem 1rem',
         fontSize: '1rem',
+        lineHeight: '1.25rem',
         fontWeight: 700,
         height: '2.5rem',
       },
@@ -202,8 +203,48 @@ const components: ThemeOptions['components'] = {
           '&:hover, &.Mui-hover': { backgroundColor: theme.palette.primary.dark },
           '&:active, &.Mui-active': { backgroundColor: darken(theme.palette.primary.dark, 0.1) },
           '&.Mui-disabled': {
-            backgroundColor: theme.palette.primary.light,
-            color: theme.palette.primary.contrastText,
+            backgroundColor: theme.palette.grey[200],
+            color: theme.palette.grey[500],
+          },
+        }),
+      },
+      {
+        props: { color: 'primary', variant: 'outlined' },
+        style: ({ theme }) => ({
+          '&:hover, &.Mui-hover': { borderColor: theme.palette.primary.dark },
+          '&:active, &.Mui-active': { borderColor: darken(theme.palette.primary.dark, 0.1) },
+        }),
+      },
+      {
+        props: { variant: 'outlined', color: 'secondary' },
+        style: ({ theme }) => ({
+          borderColor: theme.palette.divider,
+          color: theme.palette.text.primary,
+          '&:hover, &.Mui-hover': {
+            borderColor: theme.palette.grey[300],
+            backgroundColor: theme.palette.action.hover,
+          },
+          '&:active, &.Mui-active': {
+            backgroundColor: theme.palette.action.selected,
+          },
+          '&.Mui-disabled': {
+            color: theme.palette.grey[400],
+            borderColor: theme.palette.grey[200],
+          },
+        }),
+      },
+      {
+        props: { color: 'secondary', variant: 'text' },
+        style: ({ theme }) => ({
+          color: theme.palette.text.primary,
+          '&:hover, &.Mui-hover': {
+            backgroundColor: theme.palette.action.hover,
+          },
+          '&:active, &.Mui-active': {
+            backgroundColor: theme.palette.action.selected,
+          },
+          '&.Mui-disabled': {
+            color: theme.palette.grey[400],
           },
         }),
       },
@@ -275,11 +316,126 @@ const components: ThemeOptions['components'] = {
       }),
     },
   },
+  MuiDialogTitle: {
+    styleOverrides: {
+      root: ({ theme }) => ({
+        padding: theme.spacing(3),
+        paddingBottom: theme.spacing(1),
+        fontSize: '1.125rem',
+        fontWeight: 600,
+      }),
+    },
+  },
+  MuiDialogContent: {
+    styleOverrides: {
+      root: ({ theme }) => ({
+        padding: theme.spacing(3),
+        paddingTop: theme.spacing(2),
+      }),
+    },
+  },
+  MuiDialogActions: {
+    styleOverrides: {
+      root: ({ theme }) => ({
+        padding: theme.spacing(2, 3),
+        gap: theme.spacing(1),
+      }),
+    },
+  },
   MuiSwitch: {
     styleOverrides: {
-      root: {
-        padding: 8,
+      root: ({ theme }) => ({
+        width: 42,
+        height: 26,
+        padding: 0,
+        '& .MuiSwitch-switchBase': {
+          padding: 0,
+          margin: 2,
+          transitionDuration: '200ms',
+          '&.Mui-checked': {
+            transform: 'translateX(16px)',
+            color: '#fff',
+            '& + .MuiSwitch-track': {
+              backgroundColor: theme.palette.primary.main,
+              opacity: 1,
+              border: 0,
+            },
+          },
+          '&.Mui-disabled + .MuiSwitch-track': {
+            opacity: 0.5,
+          },
+        },
+        '& .MuiSwitch-thumb': {
+          boxSizing: 'border-box',
+          width: 22,
+          height: 22,
+        },
+        '& .MuiSwitch-track': {
+          borderRadius: 13,
+          backgroundColor: theme.palette.grey[300],
+          opacity: 1,
+          transition: theme.transitions.create(['background-color'], { duration: 200 }),
+        },
+      }),
+    },
+  },
+  MuiTextField: {
+    defaultProps: {
+      variant: 'outlined',
+      size: 'small',
+    },
+  },
+  MuiOutlinedInput: {
+    styleOverrides: {
+      root: ({ theme }) => ({
+        fontSize: '0.875rem',
+        lineHeight: 1.5,
+        borderRadius: theme.shape.borderRadius,
+        '& .MuiOutlinedInput-notchedOutline': {
+          borderColor: theme.palette.divider,
+          top: 0,
+          '& legend': { display: 'none' },
+        },
+        '&:hover .MuiOutlinedInput-notchedOutline': {
+          borderColor: theme.palette.grey[400],
+        },
+        '&.MuiInputBase-multiline': {
+          padding: 0,
+        },
+      }),
+      input: {
+        padding: '8px 12px',
+        lineHeight: 1.5,
+        '&::placeholder': {
+          lineHeight: 1.5,
+        },
       },
+      inputMultiline: {
+        padding: '8px 12px',
+      },
+    },
+  },
+  MuiInputLabel: {
+    defaultProps: {
+      shrink: true,
+    },
+    styleOverrides: {
+      root: ({ theme }) => ({
+        position: 'relative',
+        transform: 'none',
+        fontSize: '0.875rem',
+        fontWeight: 600,
+        color: theme.palette.text.primary,
+        marginBottom: theme.spacing(1),
+        '&.Mui-focused': {
+          color: theme.palette.text.primary,
+        },
+      }),
+    },
+  },
+  MuiFormControl: {
+    defaultProps: {
+      size: 'small',
     },
   },
 };

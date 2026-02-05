@@ -10,6 +10,7 @@ export const Root = styled('div', {
   borderRadius: theme.shape.borderRadius,
   backgroundColor: theme.palette.action.hover,
   border: `1px solid ${theme.palette.divider}`,
+  height: 40,
   transition: 'border-color 200ms, box-shadow 200ms',
   '&:focus-within': {
     borderColor: theme.palette.primary.main,
@@ -23,7 +24,7 @@ export const IconWrapper = styled('div', {
 })(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
-  padding: '8px 0 8px 12px',
+  padding: '0 0 0 12px',
   color: theme.palette.text.secondary,
 }));
 
@@ -35,8 +36,9 @@ export const Input = styled('input', {
   border: 'none',
   outline: 'none',
   background: 'transparent',
-  padding: '8px 12px',
-  fontSize: 14,
+  padding: '0 12px',
+  height: '100%',
+  fontSize: '0.875rem',
   color: theme.palette.text.primary,
   fontFamily: 'inherit',
   '&::placeholder': {

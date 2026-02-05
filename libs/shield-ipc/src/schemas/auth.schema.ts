@@ -15,6 +15,7 @@ const passcodeSchema = z.string().min(4, 'Passcode must be at least 4 characters
 export const AuthStatusResponseSchema = z.object({
   passcodeSet: z.boolean(),
   protectionEnabled: z.boolean(),
+  allowAnonymousReadOnly: z.boolean(),
   lockedOut: z.boolean(),
   lockedUntil: z.string().optional(),
 });

@@ -15,6 +15,8 @@ interface AuthState {
   passcodeSet: boolean;
   /** Whether protection is enabled */
   protectionEnabled: boolean;
+  /** Whether anonymous read-only access is allowed (default: true) */
+  allowAnonymousReadOnly: boolean;
   /** Whether the user is currently authenticated */
   authenticated: boolean;
   /** Current session token */
@@ -42,6 +44,10 @@ interface AuthContextValue extends AuthState {
   refreshStatus: () => Promise<void>;
   /** Check if we need authentication for protected actions */
   requiresAuth: boolean;
+  /** Whether the UI should be fully blocked until authenticated */
+  requiresFullAuth: boolean;
+  /** Whether current session is read-only (not authenticated but anonymous access allowed) */
+  isReadOnly: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -54,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loaded: false,
     passcodeSet: false,
     protectionEnabled: false,
+    allowAnonymousReadOnly: true,
     authenticated: false,
     token: null,
     expiresAt: null,
@@ -95,6 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loaded: true,
         passcodeSet: status.passcodeSet,
         protectionEnabled: status.protectionEnabled,
+        allowAnonymousReadOnly: status.allowAnonymousReadOnly ?? true,
         lockedOut: status.lockedOut,
         lockedUntil: status.lockedUntil || null,
         error: null,
@@ -253,6 +261,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const requiresAuth = state.protectionEnabled && state.passcodeSet && !state.authenticated;
+  // Full auth required: protection enabled, no anonymous read-only, and not authenticated
+  const requiresFullAuth = requiresAuth && !state.allowAnonymousReadOnly;
+  // Read-only: protection enabled, authenticated is false, but anonymous read-only is allowed
+  const isReadOnly = state.protectionEnabled && state.passcodeSet && !state.authenticated && state.allowAnonymousReadOnly;
 
   const contextValue: AuthContextValue = {
     ...state,
@@ -262,6 +274,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     changePasscode,
     refreshStatus,
     requiresAuth,
+    requiresFullAuth,
+    isReadOnly,
   };
 
   return (

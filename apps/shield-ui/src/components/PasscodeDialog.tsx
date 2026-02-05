@@ -24,9 +24,11 @@ interface PasscodeDialogProps {
   open: boolean;
   onClose?: () => void;
   mode?: 'unlock' | 'setup';
+  /** Show as full-screen blocking dialog (no close, no backdrop click) */
+  fullScreen?: boolean;
 }
 
-export function PasscodeDialog({ open, onClose, mode: initialMode }: PasscodeDialogProps) {
+export function PasscodeDialog({ open, onClose, mode: initialMode, fullScreen }: PasscodeDialogProps) {
   const { passcodeSet, unlock, setup, lockedOut, lockedUntil } = useAuth();
   const mode = initialMode || (passcodeSet ? 'unlock' : 'setup');
 
@@ -89,10 +91,18 @@ export function PasscodeDialog({ open, onClose, mode: initialMode }: PasscodeDia
   return (
     <Dialog
       open={open}
-      onClose={handleClose}
-      maxWidth="xs"
+      onClose={fullScreen ? undefined : handleClose}
+      maxWidth={fullScreen ? 'sm' : 'xs'}
       fullWidth
-      disableEscapeKeyDown={!onClose}
+      disableEscapeKeyDown={fullScreen || !onClose}
+      slotProps={fullScreen ? {
+        backdrop: { sx: { bgcolor: 'background.default' } },
+      } : undefined}
+      sx={fullScreen ? {
+        '& .MuiDialog-paper': {
+          boxShadow: (theme) => `0 8px 32px ${theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.12)'}`,
+        },
+      } : undefined}
     >
       <DialogTitle>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -155,7 +165,7 @@ export function PasscodeDialog({ open, onClose, mode: initialMode }: PasscodeDia
         </DialogContent>
 
         <DialogActions>
-          {onClose && (
+          {onClose && !fullScreen && (
             <Button onClick={handleClose} disabled={loading}>
               Cancel
             </Button>

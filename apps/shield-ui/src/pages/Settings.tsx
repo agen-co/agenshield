@@ -2,7 +2,7 @@
  * Settings page
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Card,
@@ -18,31 +18,37 @@ import {
   Alert,
   Divider,
   Grid2 as Grid,
+  Typography,
 } from '@mui/material';
 import { Save } from 'lucide-react';
 import type { DaemonConfig } from '@agenshield/ipc';
 import { useConfig, useUpdateConfig } from '../api/hooks';
+import { useAuth } from '../context/AuthContext';
+import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
 
 export function Settings() {
   const { data: config, isLoading } = useConfig();
   const updateConfig = useUpdateConfig();
+  const { isReadOnly } = useAuth();
 
-  const [formData, setFormData] = useState<DaemonConfig>({
+  const defaults: DaemonConfig = {
     port: 6969,
     host: 'localhost',
     logLevel: 'info',
     enableHostsEntry: false,
-  });
+  };
 
+  const [formData, setFormData] = useState<DaemonConfig>(defaults);
   const [hasChanges, setHasChanges] = useState(false);
+  const savedRef = useRef<DaemonConfig>(defaults);
 
   useEffect(() => {
-    if (config?.data?.daemon) {
+    if (config?.data?.daemon && !hasChanges) {
       setFormData(config.data.daemon);
-      setHasChanges(false);
+      savedRef.current = config.data.daemon;
     }
-  }, [config?.data]);
+  }, [config?.data, hasChanges]);
 
   const handleChange = <K extends keyof DaemonConfig>(key: K, value: DaemonConfig[K]) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -54,6 +60,7 @@ export function Settings() {
       { daemon: formData },
       {
         onSuccess: () => {
+          savedRef.current = formData;
           setHasChanges(false);
         },
       }
@@ -61,14 +68,12 @@ export function Settings() {
   };
 
   const handleReset = () => {
-    if (config?.data?.daemon) {
-      setFormData(config.data.daemon);
-      setHasChanges(false);
-    }
+    setFormData(savedRef.current);
+    setHasChanges(false);
   };
 
   return (
-    <Box>
+    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       <PageHeader
         title="Settings"
         description="Configure your AgenShield daemon settings."
@@ -88,12 +93,12 @@ export function Settings() {
 
       <Card>
         <CardContent>
-          <Box component="h6" sx={{ typography: 'h6', mb: 0.5 }}>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
             Server Configuration
-          </Box>
-          <Box sx={{ typography: 'body2', color: 'text.secondary', mb: 3 }}>
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Configure how the daemon server listens for connections.
-          </Box>
+          </Typography>
 
           <Grid container spacing={3}>
             <Grid size={{ xs: 12, sm: 6 }}>
@@ -120,12 +125,12 @@ export function Settings() {
 
           <Divider sx={{ my: 4 }} />
 
-          <Box component="h6" sx={{ typography: 'h6', mb: 0.5 }}>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
             Logging
-          </Box>
-          <Box sx={{ typography: 'body2', color: 'text.secondary', mb: 3 }}>
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Configure logging verbosity.
-          </Box>
+          </Typography>
 
           <FormControl sx={{ minWidth: 200 }}>
             <InputLabel>Log Level</InputLabel>
@@ -145,12 +150,12 @@ export function Settings() {
 
           <Divider sx={{ my: 4 }} />
 
-          <Box component="h6" sx={{ typography: 'h6', mb: 0.5 }}>
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
             Advanced
-          </Box>
-          <Box sx={{ typography: 'body2', color: 'text.secondary', mb: 3 }}>
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Advanced configuration options.
-          </Box>
+          </Typography>
 
           <FormControlLabel
             control={
@@ -160,8 +165,9 @@ export function Settings() {
               />
             }
             label="Add agen.shield to /etc/hosts"
+            sx={{ ml: 0, gap: 1.5 }}
           />
-          <Box sx={{ typography: 'caption', color: 'text.secondary', ml: 6, display: 'block' }}>
+          <Box sx={{ typography: 'caption', color: 'text.secondary', mt: 0.5, display: 'block' }}>
             Allows accessing the dashboard at http://agen.shield:6969 (requires sudo)
           </Box>
 
@@ -170,12 +176,12 @@ export function Settings() {
               variant="contained"
               startIcon={<Save size={16} />}
               onClick={handleSave}
-              disabled={!hasChanges || updateConfig.isPending}
+              disabled={!hasChanges || updateConfig.isPending || isReadOnly}
             >
               {updateConfig.isPending ? 'Saving...' : 'Save Settings'}
             </Button>
             {hasChanges && (
-              <Button variant="outlined" onClick={handleReset}>
+              <Button variant="outlined" color="secondary" onClick={handleReset}>
                 Reset
               </Button>
             )}

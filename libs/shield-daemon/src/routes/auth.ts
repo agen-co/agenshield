@@ -25,6 +25,8 @@ import {
   isPasscodeSet,
   isProtectionEnabled,
   setProtectionEnabled,
+  isAnonymousReadOnlyAllowed,
+  setAnonymousReadOnly,
   isLockedOut,
   checkPasscode,
   setPasscode,
@@ -45,11 +47,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.get('/auth/status', async (): Promise<AuthStatusResponse> => {
     const passcodeSet = await isPasscodeSet();
     const protectionEnabled = isProtectionEnabled();
+    const allowAnonymousReadOnly = isAnonymousReadOnlyAllowed();
     const lockoutStatus = isLockedOut();
 
     return {
       passcodeSet,
       protectionEnabled,
+      allowAnonymousReadOnly,
       lockedOut: lockoutStatus.locked,
       lockedUntil: lockoutStatus.lockedUntil,
     };
@@ -330,6 +334,48 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
       setProtectionEnabled(false);
       return { success: true };
+    }
+  );
+
+  /**
+   * POST /auth/anonymous-readonly - Toggle anonymous read-only access (requires auth or root)
+   */
+  app.post<{ Body: { allowed: boolean } }>(
+    '/auth/anonymous-readonly',
+    async (request: FastifyRequest<{ Body: { allowed: boolean } }>, reply: FastifyReply) => {
+      // Must be authenticated or root
+      if (!isRunningAsRoot()) {
+        const token = extractToken(request);
+        if (!token) {
+          reply.code(401);
+          return {
+            success: false,
+            error: 'Authentication required to change anonymous access',
+          };
+        }
+
+        const sessionManager = getSessionManager();
+        const session = sessionManager.validateSession(token);
+        if (!session) {
+          reply.code(401);
+          return {
+            success: false,
+            error: 'Invalid or expired token',
+          };
+        }
+      }
+
+      const { allowed } = request.body;
+      if (typeof allowed !== 'boolean') {
+        reply.code(400);
+        return {
+          success: false,
+          error: 'Invalid request: "allowed" must be a boolean',
+        };
+      }
+
+      setAnonymousReadOnly(allowed);
+      return { success: true, allowAnonymousReadOnly: allowed };
     }
   );
 }

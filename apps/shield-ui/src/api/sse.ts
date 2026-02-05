@@ -30,6 +30,16 @@ export function createSSEClient(
     'config:changed',
     'security:alert',
     'broker:response',
+    'skills:quarantined',
+    'skills:approved',
+    'exec:monitored',
+    'exec:denied',
+    'agentlink:connected',
+    'agentlink:disconnected',
+    'agentlink:auth_required',
+    'agentlink:auth_completed',
+    'agentlink:tool_executed',
+    'agentlink:error',
   ];
 
   function connect() {

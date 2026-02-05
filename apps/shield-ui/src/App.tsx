@@ -2,10 +2,11 @@
  * Main App component with routing
  */
 
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useSnapshot } from 'valtio';
 import { lightTheme, darkTheme } from './theme';
 import { Layout } from './components/layout/Layout';
 import { Overview } from './pages/Overview';
@@ -13,13 +14,17 @@ import { Policies } from './pages/Policies';
 import { Skills } from './pages/Skills';
 import { Secrets } from './pages/Secrets';
 import { Settings } from './pages/Settings';
+import { Integrations } from './pages/Integrations';
+import { Activity } from './pages/Activity';
 import { AuthProvider } from './context/AuthContext';
 import { LockBanner } from './components/LockBanner';
+import { PageTransition } from './components/layout/PageTransition';
 import { PasscodeDialog } from './components/PasscodeDialog';
-import { ConnectionError } from './components/shared/ConnectionError';
+import { AgentLinkAuthBanner } from './components/agentlink/AgentLinkAuthBanner';
 import { useAuth } from './context/AuthContext';
 import { useHealth } from './api/hooks';
 import { useSSE } from './hooks/useSSE';
+import { eventStore } from './state/events';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,42 +39,70 @@ const queryClient = new QueryClient({
  * Inner app that has access to auth context
  */
 function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggleDarkMode: () => void }) {
-  const { requiresAuth, loaded, passcodeSet, protectionEnabled } = useAuth();
+  const { requiresFullAuth, isReadOnly, loaded, passcodeSet, protectionEnabled } = useAuth();
   const { isError: healthError, isLoading: healthLoading, refetch: retryHealth, isFetching } = useHealth();
+  const [agentLinkAuthRequired, setAgentLinkAuthRequired] = useState<{ authUrl?: string; integration?: string } | null>(null);
 
   // Connect to SSE events
   useSSE();
 
-  const showConnectionError = healthError && !healthLoading;
+  // Watch for agentlink SSE events
+  const { events } = useSnapshot(eventStore);
+  useEffect(() => {
+    if (events.length === 0) return;
+    const latest = events[0];
+    if (latest.type === 'agentlink:auth_required') {
+      setAgentLinkAuthRequired(latest.data as { authUrl?: string; integration?: string });
+    } else if (latest.type === 'agentlink:auth_completed') {
+      setAgentLinkAuthRequired(null);
+    }
+  }, [events]);
+
+  // When anonymous read-only is disabled and not authenticated, block the entire UI
+  if (loaded && requiresFullAuth) {
+    return (
+      <BrowserRouter>
+        <PasscodeDialog open={true} mode="unlock" fullScreen />
+      </BrowserRouter>
+    );
+  }
+
+  // When protection is enabled but no passcode set yet, show setup
+  if (loaded && protectionEnabled && !passcodeSet) {
+    return (
+      <BrowserRouter>
+        <PasscodeDialog open={true} mode="setup" fullScreen />
+      </BrowserRouter>
+    );
+  }
 
   return (
     <BrowserRouter>
-      <Layout darkMode={darkMode} onToggleDarkMode={onToggleDarkMode}>
-        {showConnectionError ? (
-          <ConnectionError onRetry={() => retryHealth()} retrying={isFetching} />
-        ) : (
-          <>
-            <LockBanner />
-            <Routes>
-              <Route path="/" element={<Overview />} />
-              <Route path="/policies" element={<Policies />} />
-              <Route path="/skills" element={<Skills />} />
-              <Route path="/secrets" element={<Secrets />} />
-              <Route path="/settings" element={<Settings />} />
-            </Routes>
-          </>
-        )}
+      <Layout
+        darkMode={darkMode}
+        onToggleDarkMode={onToggleDarkMode}
+        disconnected={healthError && !healthLoading}
+        onReconnect={() => retryHealth()}
+        reconnecting={isFetching}
+      >
+        {isReadOnly && <LockBanner />}
+        <AgentLinkAuthBanner
+          authRequired={agentLinkAuthRequired}
+          onAuthCompleted={() => setAgentLinkAuthRequired(null)}
+        />
+        <PageTransition>
+          <Routes>
+            <Route path="/" element={<Overview />} />
+            <Route path="/policies" element={<Policies />} />
+            <Route path="/skills" element={<Skills />} />
+            <Route path="/secrets" element={<Secrets />} />
+            <Route path="/activity" element={<Activity />} />
+            <Route path="/integrations" element={<Integrations />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </PageTransition>
       </Layout>
 
-      {/* Show passcode dialog when protection is enabled but not authenticated */}
-      {loaded && requiresAuth && (
-        <PasscodeDialog open={true} mode="unlock" />
-      )}
-
-      {/* Show setup dialog when protection is enabled but no passcode set */}
-      {loaded && protectionEnabled && !passcodeSet && (
-        <PasscodeDialog open={true} mode="setup" />
-      )}
     </BrowserRouter>
   );
 }

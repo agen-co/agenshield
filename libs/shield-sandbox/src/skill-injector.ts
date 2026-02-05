@@ -45,12 +45,12 @@ export function getAgentLinkSkillPath(): string {
   // The skill is bundled with the agenshield package
   // Look for it relative to this module's location
   const possiblePaths = [
-    // Development: relative to the sandbox lib
-    path.resolve(__dirname, '../../..', 'tools/agentlink-skill'),
+    // Development: built-in skill in shield-skills
+    path.resolve(__dirname, '../../..', 'libs/shield-skills/skills/agentlink-secure-integrations'),
     // Installed: in node_modules
-    path.resolve(__dirname, '..', 'agentlink-skill'),
+    path.resolve(__dirname, '..', 'agentlink-secure-integrations'),
     // Global install
-    '/opt/agenshield/skills/agentlink-skill',
+    '/opt/agenshield/skills/agentlink-secure-integrations',
   ];
 
   for (const p of possiblePaths) {

@@ -1,0 +1,33 @@
+storage: ./.verdaccio-storage
+
+auth:
+  htpasswd:
+    file: ./.verdaccio-htpasswd
+    max_users: -1
+
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+
+packages:
+  'agenshield':
+    access: $all
+    publish: $all
+    unpublish: $all
+
+  '@agenshield/*':
+    access: $all
+    publish: $all
+    unpublish: $all
+
+  '**':
+    access: $all
+    publish: $all
+    proxy: npmjs
+
+listen: 0.0.0.0:4873
+
+log:
+  type: stdout
+  format: pretty
+  level: warn

@@ -152,7 +152,7 @@ export function updateInstallationState(updates: Partial<InstallationState>): Sy
  */
 export function updatePasscodeProtectionState(updates: Partial<PasscodeProtectionState>): SystemState {
   const current = loadState();
-  current.passcodeProtection = { ...current.passcodeProtection, ...updates };
+  current.passcodeProtection = { ...current.passcodeProtection, ...updates } as PasscodeProtectionState;
   saveState(current);
   return current;
 }

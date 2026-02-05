@@ -6,6 +6,6 @@ export const Root = styled('div', {
   shouldForwardProp: (prop) => prop !== '$collapsed',
 })<{ $collapsed: boolean }>(({ theme, $collapsed }) => ({
   display: 'grid',
-  gridTemplateColumns: $collapsed ? '1fr' : 'repeat(auto-fill, minmax(280px, 1fr))',
-  gap: theme.spacing(2),
+  gridTemplateColumns: $collapsed ? '1fr' : 'repeat(auto-fill, minmax(300px, 1fr))',
+  gap: theme.spacing(2.5),
 }));

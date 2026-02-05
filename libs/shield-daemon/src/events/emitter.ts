@@ -8,6 +8,7 @@ export type EventType =
   | 'security:status'
   | 'security:warning'
   | 'security:critical'
+  | 'security:alert'
   | 'process:started'
   | 'process:stopped'
   | 'api:request'
@@ -23,7 +24,15 @@ export type EventType =
   | 'wrappers:synced'
   | 'wrappers:regenerated'
   | 'skills:quarantined'
-  | 'skills:approved';
+  | 'skills:approved'
+  | 'exec:monitored'
+  | 'exec:denied'
+  | 'agentlink:connected'
+  | 'agentlink:disconnected'
+  | 'agentlink:auth_required'
+  | 'agentlink:auth_completed'
+  | 'agentlink:tool_executed'
+  | 'agentlink:error';
 
 export interface DaemonEvent {
   type: EventType;
@@ -128,6 +137,57 @@ export function emitSkillQuarantined(skillName: string, reason: string): void {
  */
 export function emitSkillApproved(skillName: string): void {
   daemonEvents.broadcast('skills:approved', { name: skillName });
+}
+
+/**
+ * Helper to emit exec monitored events (every exec operation)
+ */
+export function emitExecMonitored(event: {
+  command: string;
+  args: string[];
+  cwd?: string;
+  exitCode: number;
+  allowed: boolean;
+  duration: number;
+}): void {
+  daemonEvents.broadcast('exec:monitored', event);
+}
+
+/**
+ * Helper to emit exec denied events (blocked exec operations)
+ */
+export function emitExecDenied(command: string, reason: string): void {
+  daemonEvents.broadcast('exec:denied', { command, reason });
+}
+
+// ===== AgentLink event helpers =====
+
+/**
+ * Helper to emit agentlink auth required event
+ */
+export function emitAgentLinkAuthRequired(authUrl: string, integration?: string): void {
+  daemonEvents.broadcast('agentlink:auth_required', { authUrl, integration });
+}
+
+/**
+ * Helper to emit agentlink auth completed event
+ */
+export function emitAgentLinkAuthCompleted(): void {
+  daemonEvents.broadcast('agentlink:auth_completed', {});
+}
+
+/**
+ * Helper to emit agentlink connected event
+ */
+export function emitAgentLinkConnected(): void {
+  daemonEvents.broadcast('agentlink:connected', {});
+}
+
+/**
+ * Helper to emit agentlink disconnected event
+ */
+export function emitAgentLinkDisconnected(): void {
+  daemonEvents.broadcast('agentlink:disconnected', {});
 }
 
 /**

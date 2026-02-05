@@ -12,6 +12,8 @@ export interface AuthStatusResponse {
   passcodeSet: boolean;
   /** Whether passcode protection is enabled */
   protectionEnabled: boolean;
+  /** Whether anonymous read-only access is allowed (default: true) */
+  allowAnonymousReadOnly: boolean;
   /** Whether the account is currently locked out due to failed attempts */
   lockedOut: boolean;
   /** ISO timestamp when lockout expires (if locked) */
