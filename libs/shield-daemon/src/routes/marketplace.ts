@@ -80,16 +80,16 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/marketplace/analyze',
     async (
-      request: FastifyRequest<{ Body: { files: MarketplaceSkillFile[] } }>,
+      request: FastifyRequest<{ Body: { files: MarketplaceSkillFile[]; skillName?: string; publisher?: string } }>,
       reply: FastifyReply
     ) => {
-      const { files } = request.body ?? {};
+      const { files, skillName, publisher } = request.body ?? {};
       if (!Array.isArray(files) || files.length === 0) {
         return reply.code(400).send({ error: 'Files array is required' });
       }
 
       try {
-        const result = await analyzeSkillBundle(files);
+        const result = await analyzeSkillBundle(files, skillName, publisher);
         return reply.send({ data: result });
       } catch (err) {
         console.error('[Marketplace] Analyze failed:', (err as Error).message);

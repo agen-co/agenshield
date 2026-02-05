@@ -45,7 +45,7 @@ export function AgentLinkAuthBanner({ authRequired, onAuthCompleted }: AgentLink
       <Alert
         severity="info"
         variant="outlined"
-        sx={{ mb: 2, mx: 2 }}
+        sx={{ mt: 2 }}
         onClose={handleDismiss}
         action={
           <Button

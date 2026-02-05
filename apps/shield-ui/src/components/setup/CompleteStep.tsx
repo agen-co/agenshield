@@ -2,14 +2,26 @@
  * Step 6: Complete — success summary with final secured graph
  */
 
-import { Box, Typography, Card, CardContent, Alert, Chip } from '@mui/material';
+import { useState, useEffect } from 'react';
+import { Box, Typography, Card, CardContent, Alert, Chip, Snackbar, Button } from '@mui/material';
 import { useSnapshot } from 'valtio';
-import { CheckCircle, Shield, Terminal } from 'lucide-react';
+import { CheckCircle, Shield, Terminal, ExternalLink, Loader } from 'lucide-react';
 import { setupStore } from '../../state/setup';
-import { slideIn } from '../../styles/animations';
+import { useServerMode } from '../../api/hooks';
+import { slideIn, spin } from '../../styles/animations';
+
+const DASHBOARD_URL = 'http://localhost:6969';
 
 export function CompleteStep() {
   const { wizardState, context } = useSnapshot(setupStore);
+  const serverMode = useServerMode();
+  const [daemonReady, setDaemonReady] = useState(false);
+
+  useEffect(() => {
+    if (serverMode === 'daemon') {
+      setDaemonReady(true);
+    }
+  }, [serverMode]);
 
   const completedSteps = wizardState?.steps?.filter(s => s.status === 'completed').length || 0;
   const passcodeConfigured = (context?.passcodeSetup as Record<string, unknown>)?.configured;
@@ -83,13 +95,51 @@ export function CompleteStep() {
             <Shield size={16} />
             <Typography variant="subtitle2" color="text.secondary">Security Dashboard</Typography>
           </Box>
-          <Typography variant="body2" color="text.secondary">
-            Once the daemon is running, access the full security dashboard at{' '}
-            <Chip label="http://localhost:6969" size="small" variant="outlined" />{' '}
-            to manage policies, monitor activity, and configure integrations.
-          </Typography>
+          {daemonReady ? (
+            <Typography variant="body2" color="text.secondary">
+              The daemon is running. Click{' '}
+              <Chip
+                label="Open Dashboard"
+                size="small"
+                color="success"
+                icon={<ExternalLink size={14} />}
+                onClick={() => window.location.replace(DASHBOARD_URL)}
+                clickable
+                sx={{ cursor: 'pointer' }}
+              />{' '}
+              to access the full security dashboard.
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box component="span" sx={{ display: 'flex', animation: `${spin} 1.5s linear infinite` }}>
+                <Loader size={16} />
+              </Box>
+              <Typography variant="body2" color="text.secondary">
+                Waiting for daemon to start at{' '}
+                <Chip label={DASHBOARD_URL} size="small" variant="outlined" />{' '}
+                …
+              </Typography>
+            </Box>
+          )}
         </CardContent>
       </Card>
+
+      {/* Snackbar popup when daemon becomes ready */}
+      <Snackbar
+        open={daemonReady}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        message="Daemon is up and running!"
+        action={
+          <Button
+            color="inherit"
+            size="small"
+            startIcon={<ExternalLink size={14} />}
+            onClick={() => window.location.replace(DASHBOARD_URL)}
+          >
+            Open Dashboard
+          </Button>
+        }
+      />
     </Box>
   );
 }

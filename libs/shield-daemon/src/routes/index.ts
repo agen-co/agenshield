@@ -27,6 +27,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Register SSE routes at root level (not under /api)
   await app.register(sseRoutes);
 
+  // Capture response payload on the request for logging
+  app.addHook('onSend', (request, _reply, payload, done) => {
+    // Store payload on request for the onResponse hook (skip large/streaming responses)
+    if (typeof payload === 'string' && payload.length < 4000) {
+      (request as unknown as Record<string, unknown>).__responsePayload = payload;
+    }
+    done(null, payload);
+  });
+
   // Add request logging hook for API traffic events
   app.addHook('onResponse', (request, reply, done) => {
     // Skip SSE, static file requests, and noisy health polls
@@ -36,7 +45,26 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const status = reply.statusCode;
       const color = status >= 400 ? '\x1b[31m' : status >= 300 ? '\x1b[33m' : '\x1b[32m';
       console.log(`${color}${request.method}\x1b[0m ${request.url} \x1b[2m${status} ${ms}ms\x1b[0m`);
-      emitApiRequest(request.method, request.url, status, ms);
+
+      // Include request/response bodies for non-GET, non-auth routes
+      const isAuthRoute = request.url.includes('/auth/');
+      const includeBody = request.method !== 'GET' && !isAuthRoute;
+
+      if (includeBody) {
+        const requestBody = request.body as unknown;
+        const responsePayload = (request as unknown as Record<string, unknown>).__responsePayload as string | undefined;
+        let responseBody: unknown;
+        if (responsePayload) {
+          try {
+            responseBody = JSON.parse(responsePayload);
+          } catch {
+            responseBody = undefined;
+          }
+        }
+        emitApiRequest(request.method, request.url, status, ms, requestBody, responseBody);
+      } else {
+        emitApiRequest(request.method, request.url, status, ms);
+      }
     }
     done();
   });

@@ -5,7 +5,17 @@
  * Includes in-memory TTL cache for search and detail results.
  */
 
-import type { MarketplaceSkill, MarketplaceSkillFile, AnalyzeSkillResponse } from '@agenshield/ipc';
+import type {
+  MarketplaceSkill,
+  MarketplaceSkillFile,
+  AnalyzeSkillResponse,
+  EnvVariableDetail,
+  RuntimeRequirement,
+  InstallationStep,
+  RunCommand,
+  SecurityFinding,
+  MCPSpecificRisk,
+} from '@agenshield/ipc';
 
 /* ------------------------------------------------------------------ */
 /*  TTL Cache                                                          */
@@ -31,13 +41,12 @@ function setCache(key: string, data: unknown, ttlMs: number): void {
 /* ------------------------------------------------------------------ */
 
 const CONVEX_BASE = 'https://wry-manatee-359.convex.cloud';
-const AGENCO_ANALYZE = 'https://agen.co/analyze/skill';
+const SKILL_ANALYZER_URL = process.env.SKILL_ANALYZER_URL || 'https://skills.agentfront.dev/api/analyze';
 
 const SEARCH_CACHE_TTL = 60_000;       // 60 seconds
 const DETAIL_CACHE_TTL = 5 * 60_000;   // 5 minutes
 
 const SHORT_TIMEOUT = 10_000;  // 10 seconds
-const LONG_TIMEOUT = 30_000;   // 30 seconds
 
 /* ------------------------------------------------------------------ */
 /*  Convex wire types (internal)                                       */
@@ -148,6 +157,23 @@ async function convexQuery<T>(path: string, args: Record<string, unknown>, timeo
 /*  Mapping helpers                                                    */
 /* ------------------------------------------------------------------ */
 
+const CONTENT_TYPE_MAP: Record<string, string> = {
+  '.md': 'text/markdown',
+  '.json': 'application/json',
+  '.yaml': 'text/yaml',
+  '.yml': 'text/yaml',
+  '.ts': 'text/typescript',
+  '.js': 'text/javascript',
+  '.py': 'text/x-python',
+  '.sh': 'text/x-shellscript',
+  '.txt': 'text/plain',
+};
+
+function guessContentType(filePath: string): string {
+  const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+  return CONTENT_TYPE_MAP[ext] ?? 'text/plain';
+}
+
 function tagsFromRecord(tags?: Record<string, string>): string[] {
   if (!tags) return [];
   return Object.keys(tags).filter(k => k !== 'latest');
@@ -212,24 +238,42 @@ export async function getMarketplaceSkill(slug: string): Promise<MarketplaceSkil
 
   const { skill, owner, latestVersion } = detail;
 
-  // Fetch readme content (the only file content accessible via public Convex API)
+  // Fetch all version files for analysis, fall back to readme-only
   let readme: string | undefined;
   const files: MarketplaceSkillFile[] = [];
 
   try {
-    const readmeData = await convexAction<{ path: string; text: string }>(
-      'skills:getReadme',
+    const allFiles = await convexAction<Array<{ path: string; text: string }>>(
+      'skills:getVersionFiles',
       { versionId: latestVersion._id },
       SHORT_TIMEOUT,
     );
-    readme = readmeData.text;
-    files.push({
-      name: readmeData.path,
-      type: 'text/markdown',
-      content: readmeData.text,
-    });
+    for (const file of allFiles) {
+      const isReadme = /readme/i.test(file.path);
+      if (isReadme) readme = file.text;
+      files.push({
+        name: file.path,
+        type: isReadme ? 'text/markdown' : guessContentType(file.path),
+        content: file.text,
+      });
+    }
   } catch {
-    // Readme fetch failed — degrade gracefully
+    // getVersionFiles not available — fall back to readme only
+    try {
+      const readmeData = await convexAction<{ path: string; text: string }>(
+        'skills:getReadme',
+        { versionId: latestVersion._id },
+        SHORT_TIMEOUT,
+      );
+      readme = readmeData.text;
+      files.push({
+        name: readmeData.path,
+        type: 'text/markdown',
+        content: readmeData.text,
+      });
+    } catch {
+      // Readme fetch also failed — degrade gracefully
+    }
   }
 
   const tags = tagsFromRecord(skill.tags);
@@ -255,25 +299,106 @@ export async function getMarketplaceSkill(slug: string): Promise<MarketplaceSkil
 /* ------------------------------------------------------------------ */
 
 /**
- * Send skill files to agen.co for vulnerability analysis.
- * Not cached — one-shot operation.
+ * Send skill files to the skills-analyzer edge function for AI-powered vulnerability analysis.
+ * Consumes an NDJSON stream and returns the aggregated summary as AnalyzeSkillResponse.
  */
 export async function analyzeSkillBundle(
-  files: MarketplaceSkillFile[]
+  files: MarketplaceSkillFile[],
+  skillName?: string,
+  publisher?: string,
 ): Promise<AnalyzeSkillResponse> {
-  const res = await fetch(AGENCO_ANALYZE, {
+  const res = await fetch(SKILL_ANALYZER_URL, {
     method: 'POST',
-    signal: AbortSignal.timeout(LONG_TIMEOUT),
+    signal: AbortSignal.timeout(60_000),
     headers: {
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
     },
-    body: JSON.stringify({ files }),
+    body: JSON.stringify({ files, skillName, publisher }),
   });
 
   if (!res.ok) {
-    throw new Error(`Upstream returned ${res.status}`);
+    const text = await res.text().catch(() => '');
+    throw new Error(`Upstream returned ${res.status}: ${text}`);
   }
 
-  return (await res.json()) as AnalyzeSkillResponse;
+  // Parse NDJSON stream to extract the 'done' event with aggregated summary
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error('No response body from upstream');
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+  type AnalysisSummary = {
+    status: 'complete' | 'error';
+    vulnerability: { level: string; details: string[]; suggestions?: string[] };
+    commands: Array<{ name: string; source: string; available: boolean; required: boolean }>;
+    envVariables?: EnvVariableDetail[];
+    runtimeRequirements?: RuntimeRequirement[];
+    installationSteps?: InstallationStep[];
+    runCommands?: RunCommand[];
+    securityFindings?: SecurityFinding[];
+    mcpSpecificRisks?: MCPSpecificRisk[];
+  };
+  let summary: AnalysisSummary | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line) as { type: string; data: unknown };
+        if (event.type === 'done') {
+          summary = event.data as AnalysisSummary;
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  }
+
+  // Process remaining buffer
+  if (buffer.trim()) {
+    try {
+      const event = JSON.parse(buffer) as { type: string; data: unknown };
+      if (event.type === 'done') {
+        summary = event.data as AnalysisSummary;
+      }
+    } catch {
+      // Skip malformed line
+    }
+  }
+
+  if (!summary) {
+    throw new Error('No summary received from upstream analysis');
+  }
+
+  return {
+    analysis: {
+      status: summary.status,
+      vulnerability: {
+        level: summary.vulnerability.level as AnalyzeSkillResponse['analysis']['vulnerability']['level'],
+        details: summary.vulnerability.details,
+        suggestions: summary.vulnerability.suggestions,
+      },
+      commands: summary.commands.map(c => ({
+        name: c.name,
+        source: c.source,
+        available: c.available,
+        required: c.required,
+      })),
+      envVariables: summary.envVariables,
+      runtimeRequirements: summary.runtimeRequirements,
+      installationSteps: summary.installationSteps,
+      runCommands: summary.runCommands,
+      securityFindings: summary.securityFindings,
+      mcpSpecificRisks: summary.mcpSpecificRisks,
+    },
+  };
 }

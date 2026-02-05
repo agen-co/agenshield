@@ -99,6 +99,8 @@ export {
   installGuardedShell,
   installAllWrappers,
   installShieldExec,
+  deployInterceptor,
+  copyNodeBinary,
   // Dynamic wrapper management
   getAvailableWrappers,
   getWrapperDefinition,

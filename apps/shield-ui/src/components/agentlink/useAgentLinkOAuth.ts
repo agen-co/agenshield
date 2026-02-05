@@ -1,77 +1,40 @@
 /**
- * OAuth popup hook for AgentLink authentication
+ * OAuth hook for AgentLink authentication
+ *
+ * Calls auth/start to get the authorization URL, then navigates
+ * the current page directly (no popup needed).
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useState, useCallback } from 'react';
 import { api } from '../../api/client';
-import { queryKeys } from '../../api/hooks';
 
 export function useAgentLinkOAuth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-  const popupRef = useRef<Window | null>(null);
-
-  // Clean up popup on unmount
-  useEffect(() => {
-    return () => {
-      if (popupRef.current && !popupRef.current.closed) {
-        popupRef.current.close();
-      }
-    };
-  }, []);
 
   const startAuth = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await api.agentlink.startAuth(undefined, 'ui');
+      const res = await api.agentlink.startAuth();
       if (!res.success || !res.data?.authUrl) {
+        // Already connected or no auth needed
+        if (res.data?.message) {
+          setLoading(false);
+          return;
+        }
         throw new Error(res.error || 'Failed to start auth flow');
       }
 
-      // Open popup first with blank (avoids popup blocker)
-      const popup = window.open('about:blank', 'agentlink-auth', 'width=600,height=700,popup=yes');
-      if (popup) {
-        popup.location.href = res.data.authUrl;
-        popupRef.current = popup;
-
-        // Poll for popup close (auth completion is handled via SSE)
-        const pollTimer = setInterval(() => {
-          if (popup.closed) {
-            clearInterval(pollTimer);
-            setLoading(false);
-            // Invalidate queries so UI refreshes
-            queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkStatus });
-            queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkMCPStatus });
-            queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkIntegrations });
-            queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkConnected });
-          }
-        }, 500);
-      } else {
-        throw new Error('Popup blocked. Please allow popups for this site.');
-      }
+      // Navigate the current page to the auth URL
+      window.location.href = res.data.authUrl;
+      // Don't reset loading — page is navigating away
     } catch (err) {
       setError((err as Error).message);
       setLoading(false);
     }
-  }, [queryClient]);
+  }, []);
 
-  // Called when SSE 'agentlink:auth_completed' is received
-  const onAuthCompleted = useCallback(() => {
-    setLoading(false);
-    // Close popup if still open
-    if (popupRef.current && !popupRef.current.closed) {
-      popupRef.current.close();
-    }
-    // Refresh all agentlink queries
-    queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkStatus });
-    queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkMCPStatus });
-    queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkIntegrations });
-    queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkConnected });
-  }, [queryClient]);
-
-  return { startAuth, loading, error, onAuthCompleted };
+  return { startAuth, loading, error };
 }

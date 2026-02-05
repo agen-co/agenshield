@@ -66,6 +66,12 @@ export const setupApi = {
     setupRequest<{ success: boolean; data: { executables: ExecutableInfo[] } }>(
       '/setup/executables',
     ),
+
+  installTarget: () =>
+    setupRequest<{
+      success: boolean;
+      data: { installed: boolean; preset: string; version?: string };
+    }>('/setup/install-target', { method: 'POST', body: JSON.stringify({}) }),
 };
 
 // --- React Query hooks ---
@@ -101,6 +107,12 @@ export function useSetPasscode() {
   return useMutation({
     mutationFn: ({ passcode, skip }: { passcode?: string; skip?: boolean }) =>
       setupApi.setPasscode(passcode, skip),
+  });
+}
+
+export function useInstallTarget() {
+  return useMutation({
+    mutationFn: () => setupApi.installTarget(),
   });
 }
 

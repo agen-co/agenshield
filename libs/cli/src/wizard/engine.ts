@@ -22,6 +22,8 @@ import {
   generateBrokerPlist,
   installLaunchDaemon,
   createPathsConfig,
+  deployInterceptor,
+  copyNodeBinary,
   // Preset system
   getPreset,
   autoDetectPreset,
@@ -122,10 +124,11 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
       const detection = await preset.detect();
       if (!detection?.found) {
-        return {
-          success: false,
-          error: `${preset.name} not found. Please install it first or use --target custom.`,
-        };
+        // Don't fail — let install-target step handle it
+        context.preset = preset;
+        context.presetDetection = { found: false };
+        context.targetInstallable = true;
+        return { success: true };
       }
 
       context.preset = preset;
@@ -136,6 +139,14 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     // Auto-detect preset
     const result = await autoDetectPreset();
     if (!result) {
+      // No target found — mark as installable so install-target step can offer installation
+      const openclawPreset = getPreset('openclaw');
+      if (openclawPreset) {
+        context.preset = openclawPreset;
+        context.presetDetection = { found: false };
+        context.targetInstallable = true;
+        return { success: true };
+      }
       return {
         success: false,
         error: 'No supported target found. Use --target custom --entry-point <path> for custom applications.',
@@ -144,6 +155,56 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
     context.preset = result.preset;
     context.presetDetection = result.detection;
+    return { success: true };
+  },
+
+  'install-target': async (context) => {
+    // If detection already found a target, skip
+    if (context.presetDetection?.found) {
+      return { success: true };
+    }
+
+    // If not found and user hasn't requested install yet, mark as installable and succeed
+    // (the Web UI will offer an install button)
+    if (!context.installTargetRequested) {
+      context.targetInstallable = true;
+      return { success: true };
+    }
+
+    // User requested installation — skip actual install in dry-run
+    if (context.options?.dryRun) {
+      context.targetInstallable = false;
+      context.presetDetection = { found: true, method: 'npm' };
+      return { success: true };
+    }
+
+    // Run npm install -g openclaw (no sudo — user handles npm config)
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync('npm install -g openclaw', {
+        encoding: 'utf-8',
+        timeout: 120_000,
+        stdio: 'pipe',
+      });
+    } catch (err) {
+      return {
+        success: false,
+        error: `Failed to install openclaw: ${(err as Error).message}`,
+      };
+    }
+
+    // Re-run detection
+    const result = await autoDetectPreset();
+    if (!result) {
+      return {
+        success: false,
+        error: 'openclaw was installed but could not be detected. Check your PATH.',
+      };
+    }
+
+    context.preset = result.preset;
+    context.presetDetection = result.detection;
+    context.targetInstallable = false;
     return { success: true };
   },
 
@@ -441,6 +502,19 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     }
 
     try {
+      // Deploy interceptor CJS bundle
+      const interceptorResult = await deployInterceptor(context.userConfig);
+      if (!interceptorResult.success) {
+        return { success: false, error: interceptorResult.message };
+      }
+
+      // Copy node binary
+      const nodeBinResult = await copyNodeBinary(context.userConfig);
+      if (!nodeBinResult.success) {
+        return { success: false, error: nodeBinResult.message };
+      }
+
+      // Install all wrappers
       const result = await installAllWrappers(context.userConfig, context.directories);
 
       if (!result.success) {

@@ -39,7 +39,6 @@ export async function createServer(config: DaemonConfig): Promise<FastifyInstanc
     await app.register(fastifyStatic, {
       root: uiPath,
       prefix: '/',
-      decorateReply: false,
     });
 
     // Fallback to index.html for SPA routing
@@ -79,12 +78,7 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     const vault = getVault();
     const agentlink = await vault.get('agentlink');
     if (agentlink?.accessToken && agentlink.expiresAt > Date.now()) {
-      const getValidToken = async () => {
-        const current = await vault.get('agentlink');
-        if (!current?.accessToken) throw new Error('No token');
-        return current.accessToken;
-      };
-      await activateMCP(getValidToken);
+      await activateMCP(config.port);
     }
   } catch {
     // Non-fatal: MCP auto-activation failed, user can connect later

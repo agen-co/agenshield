@@ -3,38 +3,51 @@ import { styled } from '@mui/material/styles';
 export const Root = styled('div', {
   name: 'SkillDetails',
   slot: 'Root',
+})({
+  display: 'flex',
+  flexDirection: 'column',
+});
+
+export const ContentGrid = styled('div', {
+  name: 'SkillDetails',
+  slot: 'ContentGrid',
+})(({ theme }) => ({
+  display: 'grid',
+  gridTemplateColumns: '1fr 280px',
+  gap: theme.spacing(3),
+  alignItems: 'start',
+  [theme.breakpoints.down('md')]: {
+    gridTemplateColumns: '1fr',
+  },
+}));
+
+export const ReadmeCard = styled('div', {
+  name: 'SkillDetails',
+  slot: 'ReadmeCard',
+})(({ theme }) => ({
+  border: `1px solid ${theme.palette.divider}`,
+  borderRadius: (theme.shape.borderRadius as number) * 2,
+  padding: theme.spacing(3),
+  minWidth: 0,
+  overflow: 'hidden',
+}));
+
+export const Sidebar = styled('div', {
+  name: 'SkillDetails',
+  slot: 'Sidebar',
 })(({ theme }) => ({
   display: 'flex',
   flexDirection: 'column',
-  height: '100%',
+  gap: theme.spacing(3),
+  position: 'sticky',
+  top: theme.spacing(2),
 }));
 
-export const Header = styled('div', {
+export const SidebarSection = styled('div', {
   name: 'SkillDetails',
-  slot: 'Header',
+  slot: 'SidebarSection',
 })(({ theme }) => ({
   display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: theme.spacing(2, 0),
-  borderBottom: `1px solid ${theme.palette.divider}`,
-  marginBottom: theme.spacing(2),
-}));
-
-export const Actions = styled('div', {
-  name: 'SkillDetails',
-  slot: 'Actions',
-})(({ theme }) => ({
-  display: 'flex',
-  justifyContent: 'center',
-  gap: theme.spacing(2),
-}));
-
-export const MetaRow = styled('div', {
-  name: 'SkillDetails',
-  slot: 'MetaRow',
-})(({ theme }) => ({
-  display: 'flex',
-  gap: theme.spacing(2),
-  marginBottom: theme.spacing(2),
+  flexDirection: 'column',
+  gap: theme.spacing(1),
 }));

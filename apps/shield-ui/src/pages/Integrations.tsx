@@ -2,12 +2,14 @@
  * Integrations page - AgentLink dashboard and marketplace
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Box, Select, MenuItem } from '@mui/material';
+import { useSnapshot } from 'valtio';
 import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
 import { AgentLinkStatus } from '../components/agentlink/AgentLinkStatus';
+import { AgentLinkAuthBanner } from '../components/agentlink/AgentLinkAuthBanner';
 import { ConnectedIntegrationsList, type ConnectedIntegrationData } from '../components/agentlink/ConnectedIntegrationsList';
 import { IntegrationsGrid } from '../components/agentlink/IntegrationsGrid';
 import type { IntegrationCardData } from '../components/agentlink/IntegrationCard';
@@ -18,6 +20,7 @@ import {
   useAgentLinkLogout,
   useAgentLinkConnectIntegration,
 } from '../api/hooks';
+import { eventStore } from '../state/events';
 
 export function Integrations() {
   const [search, setSearch] = useState('');
@@ -26,6 +29,19 @@ export function Integrations() {
   const logoutMutation = useAgentLinkLogout();
   const connectMutation = useAgentLinkConnectIntegration();
 
+  // Watch SSE events for agentlink auth_required (e.g. agent tried to use integration)
+  const [agentLinkAuthRequired, setAgentLinkAuthRequired] = useState<{ authUrl?: string; integration?: string } | null>(null);
+  const { events } = useSnapshot(eventStore);
+  useEffect(() => {
+    if (events.length === 0) return;
+    const latest = events[0];
+    if (latest.type === 'agentlink:auth_required') {
+      setAgentLinkAuthRequired(latest.data as { authUrl?: string; integration?: string });
+    } else if (latest.type === 'agentlink:auth_completed') {
+      setAgentLinkAuthRequired(null);
+    }
+  }, [events]);
+
   const { data: integrationsData, isLoading: integrationsLoading } = useAgentLinkIntegrations(
     category !== 'all' ? category : undefined,
     search || undefined
@@ -33,11 +49,8 @@ export function Integrations() {
 
   const { data: connectedData, isLoading: connectedLoading } = useAgentLinkConnectedIntegrations();
 
-  const intData = integrationsData?.data as Record<string, unknown> | undefined;
-  const connData = connectedData?.data as Record<string, unknown> | undefined;
-
-  const integrations = (intData?.integrations ?? []) as IntegrationCardData[];
-  const connected = (connData?.integrations ?? []) as ConnectedIntegrationData[];
+  const integrations = (integrationsData?.data?.integrations ?? []) as IntegrationCardData[];
+  const connected = (connectedData?.data?.integrations ?? []) as ConnectedIntegrationData[];
 
   // Mark integrations that are already connected
   const connectedIds = new Set(connected.map((c) => c.id));
@@ -47,7 +60,15 @@ export function Integrations() {
   }));
 
   const handleConnect = useCallback((integrationId: string) => {
-    connectMutation.mutate({ integration: integrationId });
+    connectMutation.mutate({ integration: integrationId }, {
+      onSuccess: (response) => {
+        const data = response?.data;
+        if (data?.status === 'auth_required' && data.oauthUrl) {
+          window.location.href = data.oauthUrl;
+        }
+        // 'connected' / 'already_connected' — queries auto-invalidate
+      },
+    });
   }, [connectMutation]);
 
   const handleLogout = useCallback(() => {
@@ -61,13 +82,17 @@ export function Integrations() {
         description="Connect third-party services securely through AgentLink."
       />
 
-      {/* Status card */}
+      {/* Status card + auth banner together */}
       <Box sx={{ mb: 3 }}>
         <AgentLinkStatus
           onConnect={startAuth}
           onLogout={handleLogout}
           connecting={authLoading}
           error={authError}
+        />
+        <AgentLinkAuthBanner
+          authRequired={agentLinkAuthRequired}
+          onAuthCompleted={() => setAgentLinkAuthRequired(null)}
         />
       </Box>
 

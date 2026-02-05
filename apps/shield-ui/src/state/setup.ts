@@ -15,6 +15,7 @@ export type GraphPhase = 'vulnerable' | 'building' | 'securing' | 'secured';
 export type WizardStepId =
   | 'prerequisites'
   | 'detect'
+  | 'install-target'
   | 'configure'
   | 'confirm'
   | 'backup'

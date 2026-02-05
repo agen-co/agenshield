@@ -18,6 +18,8 @@ export interface MarketplaceSkillFile {
 }
 
 export interface AnalyzeSkillRequest {
+  skillName: string;
+  publisher: string;
   files: MarketplaceSkillFile[];
 }
 

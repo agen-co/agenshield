@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Typography, Button, Skeleton, Box, Chip, CircularProgress, Alert } from '@mui/material';
-import { ShieldCheck, Download, RefreshCw } from 'lucide-react';
+import { Typography, Button, Skeleton, Box, Chip, CircularProgress, Divider } from '@mui/material';
+import { ShieldCheck, Download, RefreshCw, User, Tag, ExternalLink, CheckCircle, XCircle, ShieldAlert, AlertTriangle } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useMarketplaceSkill, useAnalyzeMarketplaceSkill, useInstallMarketplaceSkill } from '../../../api/hooks';
 import type { AnalyzeSkillResponse } from '../../../api/marketplace.types';
 import { MarkdownViewer } from '../../shared/MarkdownViewer';
-import { Root, Header, Actions, MetaRow } from '../SkillDetails/SkillDetails.styles';
+import { parseSkillReadme } from '../../../utils/parseSkillReadme';
+import { Root, ContentGrid, ReadmeCard, Sidebar, SidebarSection } from '../SkillDetails/SkillDetails.styles';
 
 type InstallPhase = 'idle' | 'analyzing' | 'analyzed' | 'analysis_failed' | 'installing' | 'installed';
 
@@ -12,13 +14,143 @@ interface MarketplaceSkillDetailsProps {
   slug: string;
 }
 
-const alertSeverity: Record<string, 'success' | 'info' | 'warning' | 'error'> = {
-  safe: 'success',
-  low: 'info',
-  medium: 'warning',
-  high: 'warning',
-  critical: 'error',
+const severityConfig: Record<string, { color: 'success' | 'info' | 'warning' | 'error'; icon: LucideIcon; label: string }> = {
+  safe: { color: 'success', icon: ShieldCheck, label: 'Safe' },
+  low: { color: 'info', icon: ShieldCheck, label: 'Low Risk' },
+  medium: { color: 'warning', icon: AlertTriangle, label: 'Medium Risk' },
+  high: { color: 'error', icon: ShieldAlert, label: 'High Risk' },
+  critical: { color: 'error', icon: ShieldAlert, label: 'Critical' },
 };
+
+function MetaItem({ icon: Icon, label, href }: { icon: LucideIcon; label: string; href?: string }) {
+  const content = (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Icon size={14} />
+      <Typography variant="body2">{label}</Typography>
+    </Box>
+  );
+  if (href) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
+        {content}
+      </a>
+    );
+  }
+  return content;
+}
+
+function AnalysisResultCard({
+  analysis,
+  phase,
+  onInstall,
+}: {
+  analysis: AnalyzeSkillResponse['analysis'];
+  phase: InstallPhase;
+  onInstall: () => void;
+}) {
+  const config = severityConfig[analysis.vulnerability.level] ?? severityConfig.safe;
+  const SeverityIcon = config.icon;
+  const isCritical = analysis.vulnerability.level === 'critical';
+  const isInstalling = phase === 'installing';
+
+  return (
+    <Box
+      sx={{
+        borderRadius: 2,
+        overflow: 'hidden',
+        border: 1,
+        borderColor: (theme) => theme.palette[config.color].main,
+      }}
+    >
+      {/* Header */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          px: 2,
+          py: 1.5,
+          bgcolor: (theme) =>
+            theme.palette.mode === 'dark'
+              ? `${theme.palette[config.color].main}1A`
+              : `${theme.palette[config.color].main}0F`,
+        }}
+      >
+        <SeverityIcon size={18} />
+        <Box sx={{ flex: 1 }}>
+          <Typography variant="subtitle2" fontWeight={700}>
+            {config.label}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Security Analysis
+          </Typography>
+        </Box>
+        <Chip
+          label={analysis.vulnerability.level.toUpperCase()}
+          color={config.color}
+          size="small"
+          sx={{ fontWeight: 700, fontSize: '0.6875rem' }}
+        />
+      </Box>
+
+      {/* Details */}
+      <Box sx={{ px: 2, py: 1.5 }}>
+        {analysis.vulnerability.details.map((detail, i) => (
+          <Typography key={i} variant="body2" color="text.secondary" sx={{ fontSize: '0.8125rem', mb: 0.25 }}>
+            {detail}
+          </Typography>
+        ))}
+
+        {analysis.vulnerability.suggestions && analysis.vulnerability.suggestions.length > 0 && (
+          <Box sx={{ mt: 1 }}>
+            {analysis.vulnerability.suggestions.map((s, i) => (
+              <Typography key={i} variant="body2" color="info.main" sx={{ fontSize: '0.8125rem' }}>
+                {s}
+              </Typography>
+            ))}
+          </Box>
+        )}
+
+        {/* Commands */}
+        {analysis.commands.length > 0 && (
+          <>
+            <Divider sx={{ my: 1.5 }} />
+            <Typography variant="caption" fontWeight={600} color="text.secondary" sx={{ display: 'block', mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Commands ({analysis.commands.length})
+            </Typography>
+            {analysis.commands.map((cmd) => (
+              <Box
+                key={cmd.name}
+                sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}
+              >
+                {cmd.available ? (
+                  <CheckCircle size={12} color="var(--mui-palette-success-main, #6CB685)" />
+                ) : (
+                  <XCircle size={12} color="var(--mui-palette-error-main, #E1583E)" />
+                )}
+                <Typography variant="caption">{cmd.name}</Typography>
+              </Box>
+            ))}
+          </>
+        )}
+
+        {/* Install button inside the card */}
+        <Divider sx={{ my: 1.5 }} />
+        <Button
+          fullWidth
+          variant="contained"
+          color={isCritical ? 'error' : 'primary'}
+          startIcon={isInstalling ? <CircularProgress size={14} /> : <Download size={16} />}
+          onClick={onInstall}
+          disabled={isCritical || isInstalling}
+          sx={{ fontWeight: 600 }}
+        >
+          {isCritical ? 'Cannot Install (Critical)' : isInstalling ? 'Installing...' : 'Install Skill'}
+        </Button>
+      </Box>
+    </Box>
+  );
+}
 
 export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) {
   const { data, isLoading } = useMarketplaceSkill(slug);
@@ -47,11 +179,18 @@ export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) 
     );
   }
 
+  const { body: cleanReadme, meta: readmeMeta } = parseSkillReadme(skill.readme ?? '');
+  const homepage = readmeMeta.homepage;
+
   const handleAnalyze = async () => {
     if (!skill.files?.length) return;
     setPhase('analyzing');
     try {
-      const result = await analyzeMutation.mutateAsync({ files: skill.files });
+      const result = await analyzeMutation.mutateAsync({
+        skillName: skill.name,
+        publisher: skill.author,
+        files: skill.files,
+      });
       setAnalysis(result.data.analysis);
       setPhase('analyzed');
     } catch {
@@ -72,123 +211,166 @@ export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) 
 
   return (
     <Root>
-      <Header>
-        <Box>
-          <Typography variant="h5" fontWeight={600}>
-            {skill.name}
-          </Typography>
-          {skill.description && (
+      <Typography variant="h5" fontWeight={600}>
+        {skill.name}
+      </Typography>
+      {skill.description && (
+        <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', mt: 0.5, mb: 3 }}>
+          {skill.description}
+        </Typography>
+      )}
+
+      <ContentGrid>
+        {/* Left: Readme */}
+        <ReadmeCard>
+          {cleanReadme ? (
+            <MarkdownViewer content={cleanReadme} />
+          ) : (
             <Typography variant="body2" color="text.secondary">
-              {skill.description}
+              No readme available.
             </Typography>
           )}
-        </Box>
-        <Chip label="Marketplace" size="small" color="primary" variant="outlined" />
-      </Header>
+        </ReadmeCard>
 
-      <MetaRow>
-        <Typography variant="caption" color="text.secondary">
-          Author: {skill.author}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Version: {skill.version}
-        </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Download size={12} />
-          <Typography variant="caption" color="text.secondary">
-            {skill.installs.toLocaleString()} installs
-          </Typography>
-        </Box>
-      </MetaRow>
-
-      {skill.tags.length > 0 && (
-        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 2 }}>
-          {skill.tags.map((tag) => (
-            <Chip key={tag} label={tag} size="small" variant="outlined" />
-          ))}
-        </Box>
-      )}
-
-      <Actions>
-        {phase === 'idle' && (
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<ShieldCheck size={16} />}
-            onClick={handleAnalyze}
-            disabled={!skill.files?.length}
-          >
-            Analyze & Install
-          </Button>
-        )}
-
-        {phase === 'analyzing' && (
-          <Button size="small" variant="contained" disabled startIcon={<CircularProgress size={14} />}>
-            Analyzing...
-          </Button>
-        )}
-
-        {phase === 'analyzed' && analysis && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, width: '100%' }}>
-            <Alert
-              severity={alertSeverity[analysis.vulnerability.level] ?? 'info'}
-            >
-              <Typography variant="body2" fontWeight={500}>
-                Vulnerability: {analysis.vulnerability.level}
-              </Typography>
-              {analysis.vulnerability.details.map((detail, i) => (
-                <Typography key={i} variant="caption" sx={{ display: 'block' }}>
-                  {detail}
-                </Typography>
-              ))}
-            </Alert>
+        {/* Right: Sidebar */}
+        <Sidebar>
+          {/* Analyze button — shown before analysis */}
+          {(phase === 'idle' || phase === 'analyzing') && (
             <Button
-              size="small"
+              fullWidth
               variant="contained"
-              startIcon={<Download size={16} />}
-              onClick={handleInstall}
-              disabled={analysis.vulnerability.level === 'critical'}
-            >
-              Install Skill
-            </Button>
-          </Box>
-        )}
-
-        {phase === 'installing' && (
-          <Button size="small" variant="contained" disabled startIcon={<CircularProgress size={14} />}>
-            Installing...
-          </Button>
-        )}
-
-        {phase === 'installed' && (
-          <Alert severity="success" sx={{ width: '100%' }}>
-            Skill installed successfully! It will appear in the Active tab once approved.
-          </Alert>
-        )}
-
-        {phase === 'analysis_failed' && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, width: '100%' }}>
-            <Alert severity="error">
-              Analysis failed. The skill could not be analyzed at this time.
-            </Alert>
-            <Button
-              size="small"
-              variant="outlined"
-              color="secondary"
-              startIcon={<RefreshCw size={14} />}
+              startIcon={
+                phase === 'idle'
+                  ? <ShieldCheck size={16} />
+                  : <CircularProgress size={14} />
+              }
               onClick={handleAnalyze}
+              disabled={phase !== 'idle' || !skill.files?.length}
+              sx={{ fontWeight: 600 }}
             >
-              Retry
+              {phase === 'idle' ? 'Analyze & Install' : 'Analyzing...'}
             </Button>
-          </Box>
-        )}
-      </Actions>
+          )}
 
-      {skill.readme && (
-        <Box sx={{ mt: 3, flex: 1, overflow: 'auto' }}>
-          <MarkdownViewer content={skill.readme} />
-        </Box>
-      )}
+          {/* Analysis result card with Install button inside */}
+          {(phase === 'analyzed' || phase === 'installing') && analysis && (
+            <AnalysisResultCard analysis={analysis} phase={phase} onInstall={handleInstall} />
+          )}
+
+          {/* Installed success */}
+          {phase === 'installed' && (
+            <Box
+              sx={{
+                borderRadius: 2,
+                overflow: 'hidden',
+                border: 1,
+                borderColor: (theme) => theme.palette.success.main,
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 2,
+                  py: 1.5,
+                  bgcolor: (theme) =>
+                    theme.palette.mode === 'dark'
+                      ? `${theme.palette.success.main}1A`
+                      : `${theme.palette.success.main}0F`,
+                }}
+              >
+                <CheckCircle size={18} />
+                <Box>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    Installed
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Skill will appear in the Active tab once approved.
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+          )}
+
+          {/* Analysis failed */}
+          {phase === 'analysis_failed' && (
+            <Box
+              sx={{
+                borderRadius: 2,
+                overflow: 'hidden',
+                border: 1,
+                borderColor: (theme) => theme.palette.error.main,
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 2,
+                  py: 1.5,
+                  bgcolor: (theme) =>
+                    theme.palette.mode === 'dark'
+                      ? `${theme.palette.error.main}1A`
+                      : `${theme.palette.error.main}0F`,
+                }}
+              >
+                <ShieldAlert size={18} />
+                <Typography variant="subtitle2" fontWeight={700}>
+                  Analysis Failed
+                </Typography>
+              </Box>
+              <Box sx={{ px: 2, py: 1.5 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontSize: '0.8125rem' }}>
+                  The skill could not be analyzed at this time.
+                </Typography>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<RefreshCw size={14} />}
+                  onClick={handleAnalyze}
+                  sx={{ fontWeight: 600 }}
+                >
+                  Retry Analysis
+                </Button>
+              </Box>
+            </Box>
+          )}
+
+          {/* About section */}
+          <SidebarSection>
+            <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: '0.08em' }}>
+              About
+            </Typography>
+            <MetaItem icon={User} label={skill.author} />
+            <MetaItem icon={Tag} label={`v${skill.version}`} />
+            <MetaItem icon={Download} label={`${skill.installs.toLocaleString()} installs`} />
+            {homepage && (
+              <MetaItem
+                icon={ExternalLink}
+                label={(() => { try { return new URL(homepage).hostname; } catch { return homepage; } })()}
+                href={homepage}
+              />
+            )}
+          </SidebarSection>
+
+          {/* Tags */}
+          {skill.tags.length > 0 && (
+            <SidebarSection>
+              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: '0.08em' }}>
+                Tags
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                {skill.tags.map((tag) => (
+                  <Chip key={tag} label={tag} size="small" variant="outlined" />
+                ))}
+              </Box>
+            </SidebarSection>
+          )}
+        </Sidebar>
+      </ContentGrid>
     </Root>
   );
 }

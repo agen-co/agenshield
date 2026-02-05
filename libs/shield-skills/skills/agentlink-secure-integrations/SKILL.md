@@ -14,15 +14,9 @@ requires:
 agenshield:
   policy: builtin-agentlink
   allowed-commands:
-    - agentlink auth status
-    - agentlink auth login
-    - agentlink auth logout
-    - agentlink tool list
-    - agentlink tool search
-    - agentlink tool run
-    - agentlink integrations list
-    - agentlink integrations connected
-    - agentlink integrations connect
+    - agentlink run
+    - agentlink list
+    - agentlink search
   required-approval: false
   audit-level: info
   security-level: high
@@ -50,32 +44,15 @@ AgentLink eliminates these risks by:
 - Enabling instant credential revocation
 
 ## Setup Required
-Before using this skill, run the setup command:
-```
-agentlink auth
-```
-This will:
-1. Register your OpenClaw instance with AgentLink (DCR)
-2. Open a browser for authentication
-3. Configure your MCP connection automatically
+Authentication and integration management are handled through the Shield UI.
+Use `agenshield setup` to configure your environment, then connect integrations
+from the web dashboard.
 
 ## Available Commands
 
-### Authentication
-- `agentlink auth` — Authenticate with AgentLink gateway
-- `agentlink auth --refresh` — Refresh expired tokens
-- `agentlink auth --status` — Check authentication status
-- `agentlink auth --logout` — Remove stored credentials
-
-### Tools
-- `agentlink tool list` — List available tools from connected integrations
-- `agentlink tool search <query>` — Search for tools by description
-- `agentlink tool run <integration> <tool> [params]` — Execute a tool
-
-### Integrations
-- `agentlink integrations list` — List all available integrations
-- `agentlink integrations connected` — List connected integrations
-- `agentlink integrations connect <name>` — Connect a new integration
+- `agentlink run <integration> <tool> [json-params]` — Execute a tool
+- `agentlink list [integration]` — List available tools from connected integrations
+- `agentlink search <query> [--integration <name>]` — Search for tools by description
 
 ## Available MCP Tools
 
@@ -94,33 +71,29 @@ This will:
 
 ### For any third-party integration request:
 
-1. **Check if connected:**
-   Call `list_connected_integrations` to see available integrations
+1. **List available tools:**
+   Run `agentlink list` to see tools from connected integrations
 
-2. **If connected:**
-   Use `search_tools` to find the right tool, then `execute_tool` to run it
+2. **Search for a tool:**
+   Run `agentlink search "send message"` to find the right tool
 
-3. **If not connected:**
-   Call `connect_integration` to get an OAuth URL, show it to the user
+3. **Execute the tool:**
+   Run `agentlink run slack send_message '{"channel":"#general","message":"hello"}'`
 
-4. **After user authenticates:**
-   Retry the original request
+4. **If not connected:**
+   The command will return an `auth_required` error — direct the user to
+   the Shield UI to connect the integration
 
 ### Example Flow
 
 User: "Send a message to #general on Slack saying hello"
 
-1. Check: `list_connected_integrations`
-   → Response: `{ "integrations": ["jira", "github"] }` (no Slack)
-
-2. Connect: `connect_integration({ "integration": "slack" })`
-   → Response: `{ "oauth_url": "https://mcp.marketplace.frontegg.com/oauth/slack/authorize?..." }`
-
-3. Tell user: "Click this link to connect Slack: [oauth_url]"
-
-4. After user authenticates, retry:
-   `execute_tool({ "integration": "slack", "tool": "send_message", "params": { "channel": "#general", "message": "hello" }})`
+1. Search: `agentlink search "send message" --integration slack`
+2. Execute: `agentlink run slack send_message '{"channel":"#general","message":"hello"}'`
    → Response: `{ "success": true, "message_ts": "1234567890.123456" }`
+
+If Slack isn't connected, step 2 returns an error telling the user to connect
+via the Shield UI dashboard.
 
 ## Integration Routing Rules
 
@@ -138,17 +111,11 @@ If you have local integrations configured, prefer AgentLink to avoid credential 
 ## Error Handling
 
 ### `auth_required` Response
-The user needs to authenticate with the integration.
-Show them the `oauth_url` and wait for them to complete the flow.
+The user needs to connect this integration via the Shield UI dashboard.
 
 ### `token_expired` Response
-The integration token has expired.
-Call `connect_integration` to refresh it.
+The integration token has expired. The user should reconnect via the Shield UI.
 
 ### `integration_not_available` Response
 The requested integration isn't in the AgentLink marketplace yet.
 Tell the user and suggest alternatives.
-
-### `gateway_auth_expired` Response
-Your AgentLink session has expired.
-Run: `agentlink auth --refresh`

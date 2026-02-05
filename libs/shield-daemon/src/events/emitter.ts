@@ -12,6 +12,7 @@ export type EventType =
   | 'process:started'
   | 'process:stopped'
   | 'api:request'
+  | 'api:outbound'
   | 'broker:request'
   | 'broker:response'
   | 'config:changed'
@@ -102,13 +103,38 @@ export function emitSecurityCritical(issue: string): void {
 /**
  * Helper to emit API request events
  */
-export function emitApiRequest(method: string, path: string, statusCode: number, duration: number): void {
+export function emitApiRequest(
+  method: string,
+  path: string,
+  statusCode: number,
+  duration: number,
+  requestBody?: unknown,
+  responseBody?: unknown,
+): void {
   daemonEvents.broadcast('api:request', {
     method,
     path,
     statusCode,
     duration,
+    ...(requestBody !== undefined && { requestBody }),
+    ...(responseBody !== undefined && { responseBody }),
   });
+}
+
+/**
+ * Helper to emit outbound API request events (external fetch calls)
+ */
+export function emitApiOutbound(data: {
+  context: string;
+  url: string;
+  method: string;
+  statusCode: number;
+  duration: number;
+  requestBody?: string;
+  responseBody?: string;
+  success: boolean;
+}): void {
+  daemonEvents.broadcast('api:outbound', data);
 }
 
 /**

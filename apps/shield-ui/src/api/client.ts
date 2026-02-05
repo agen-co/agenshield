@@ -11,6 +11,9 @@ import type {
   SkillAnalysis,
   SystemBinary,
   DiscoveryResult,
+  AgentLinkIntegrationsListResponse,
+  AgentLinkConnectedIntegrationsResponse,
+  AgentLinkConnectIntegrationResponse,
 } from '@agenshield/ipc';
 import type {
   MarketplaceSkill,
@@ -212,10 +215,10 @@ export const api = {
     getAuthStatus: () =>
       request<{ success: boolean; data: { authenticated: boolean; expired: boolean; expiresAt: string | null; connectedIntegrations: string[] } }>('/agentlink/auth/status'),
 
-    startAuth: (scopes?: string[], source?: 'cli' | 'ui' | 'agent') =>
-      request<{ success: boolean; data?: { authUrl: string; state: string; callbackPort: number }; error?: string }>('/agentlink/auth/start', {
+    startAuth: () =>
+      request<{ success: boolean; data?: { authUrl?: string; message?: string }; error?: string }>('/agentlink/auth/start', {
         method: 'POST',
-        body: JSON.stringify({ scopes, source }),
+        body: JSON.stringify({}),
       }),
 
     logout: () =>
@@ -229,14 +232,14 @@ export const api = {
       if (category) params.set('category', category);
       if (search) params.set('search', search);
       const qs = params.toString();
-      return request<{ success: boolean; data: unknown }>(`/agentlink/integrations${qs ? `?${qs}` : ''}`);
+      return request<{ success: boolean; data: AgentLinkIntegrationsListResponse }>(`/agentlink/integrations${qs ? `?${qs}` : ''}`);
     },
 
     listConnectedIntegrations: () =>
-      request<{ success: boolean; data: unknown }>('/agentlink/integrations/connected'),
+      request<{ success: boolean; data: AgentLinkConnectedIntegrationsResponse }>('/agentlink/integrations/connected'),
 
     connectIntegration: (integration: string, scopes?: string[]) =>
-      request<{ success: boolean; data: unknown }>('/agentlink/integrations/connect', {
+      request<{ success: boolean; data: AgentLinkConnectIntegrationResponse & { skillProvisioned?: boolean } }>('/agentlink/integrations/connect', {
         method: 'POST',
         body: JSON.stringify({ integration, scopes }),
       }),

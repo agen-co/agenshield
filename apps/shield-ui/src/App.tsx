@@ -2,7 +2,7 @@
  * Main App component with routing
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -21,11 +21,10 @@ import { AuthProvider } from './context/AuthContext';
 import { LockBanner } from './components/LockBanner';
 import { PageTransition } from './components/layout/PageTransition';
 import { PasscodeDialog } from './components/PasscodeDialog';
-import { AgentLinkAuthBanner } from './components/agentlink/AgentLinkAuthBanner';
 import { useAuth } from './context/AuthContext';
 import { useHealth, useServerMode } from './api/hooks';
 import { useSSE } from './hooks/useSSE';
-import { eventStore } from './state/events';
+import { setupStore } from './state/setup';
 import { SetupWizard } from './pages/Setup';
 import { NotFound } from './pages/NotFound';
 
@@ -42,29 +41,18 @@ const queryClient = new QueryClient({
  * Inner app that has access to auth context
  */
 function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggleDarkMode: () => void }) {
-  const { requiresFullAuth, isReadOnly, loaded, passcodeSet, protectionEnabled } = useAuth();
+  const { requiresFullAuth, isReadOnly, loaded, passcodeSet, protectionEnabled, token } = useAuth();
   const { isError: healthError, isLoading: healthLoading, refetch: retryHealth, isFetching } = useHealth();
   const serverMode = useServerMode();
-  const [agentLinkAuthRequired, setAgentLinkAuthRequired] = useState<{ authUrl?: string; integration?: string } | null>(null);
-
   // Connect to SSE events (skip in setup mode but always call the hook)
-  useSSE(serverMode !== 'setup');
+  // Token triggers SSE reconnect on auth state change (authenticated ↔ anonymous)
+  useSSE(serverMode !== 'setup', token);
 
-  // Watch for agentlink SSE events
-  const { events } = useSnapshot(eventStore);
-  useEffect(() => {
-    if (serverMode === 'setup') return;
-    if (events.length === 0) return;
-    const latest = events[0];
-    if (latest.type === 'agentlink:auth_required') {
-      setAgentLinkAuthRequired(latest.data as { authUrl?: string; integration?: string });
-    } else if (latest.type === 'agentlink:auth_completed') {
-      setAgentLinkAuthRequired(null);
-    }
-  }, [events, serverMode]);
+  // Keep wizard visible while daemon restarts after setup completes
+  const { phase: setupPhase } = useSnapshot(setupStore);
 
   // Setup mode: render full-screen wizard, bypass all auth gates
-  if (serverMode === 'setup') {
+  if (serverMode === 'setup' || setupPhase === 'complete') {
     return <SetupWizard />;
   }
 
@@ -96,10 +84,6 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
         reconnecting={isFetching}
       >
         {isReadOnly && <LockBanner />}
-        <AgentLinkAuthBanner
-          authRequired={agentLinkAuthRequired}
-          onAuthCompleted={() => setAgentLinkAuthRequired(null)}
-        />
         <PageTransition>
           <Routes>
             <Route path="/" element={<Overview />} />

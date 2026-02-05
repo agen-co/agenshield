@@ -9,6 +9,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import type { UserConfig } from '@agenshield/ipc';
 
 const execAsync = promisify(exec);
@@ -40,6 +41,8 @@ export interface WrapperConfig {
   httpPort: number;
   /** Path to interceptor module */
   interceptorPath: string;
+  /** NODE_OPTIONS flag: '--require' for CJS or '--import' for ESM */
+  interceptorFlag: string;
   /** Path to seatbelt profiles */
   seatbeltDir: string;
   /** Path to Python executable */
@@ -62,7 +65,8 @@ export function getDefaultWrapperConfig(userConfig?: UserConfig): WrapperConfig 
     agentUsername: userConfig?.agentUser.username || 'agenshield_agent',
     socketPath: '/var/run/agenshield/agenshield.sock',
     httpPort: 6969,
-    interceptorPath: '@agenshield/interceptor/register',
+    interceptorPath: '/opt/agenshield/lib/interceptor/register.cjs',
+    interceptorFlag: '--require',
     seatbeltDir: '/etc/agenshield/seatbelt',
     pythonPath: '/usr/bin/python3',
     nodePath: '/usr/local/bin/node',
@@ -183,7 +187,7 @@ esac
 # Uses NODE_OPTIONS to load the interceptor module
 
 # Set up interceptor
-export NODE_OPTIONS="--import ${config.interceptorPath} \${NODE_OPTIONS:-}"
+export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}"
 
 # Set AgenShield environment
 export AGENSHIELD_SOCKET="${config.socketPath}"
@@ -264,7 +268,7 @@ exec ${config.agentHome}/bin/python "$@"
 # All network and exec operations are intercepted
 
 # Set up interceptor
-export NODE_OPTIONS="--import ${config.interceptorPath} \${NODE_OPTIONS:-}"
+export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}"
 
 # Set AgenShield environment
 export AGENSHIELD_SOCKET="${config.socketPath}"
@@ -274,8 +278,10 @@ export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_EXEC=true
 export AGENSHIELD_INTERCEPT_FS=true
 
-# Find node - prefer homebrew, then system
-if [ -x "/opt/homebrew/bin/node" ]; then
+# Find node - prefer copied binary, then homebrew, then system
+if [ -x "/opt/agenshield/bin/node-bin" ]; then
+  exec /opt/agenshield/bin/node-bin "$@"
+elif [ -x "/opt/homebrew/bin/node" ]; then
   exec /opt/homebrew/bin/node "$@"
 elif [ -x "${config.nodePath}" ]; then
   exec ${config.nodePath} "$@"
@@ -293,7 +299,7 @@ fi
 # npx wrapper - runs npx with AgenShield interceptor
 
 # Set up interceptor
-export NODE_OPTIONS="--import ${config.interceptorPath} \${NODE_OPTIONS:-}"
+export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}"
 
 # Set AgenShield environment
 export AGENSHIELD_SOCKET="${config.socketPath}"
@@ -772,14 +778,23 @@ SHIELDEXECEOF`);
     // 3. Install node and python as separate bash wrappers (they need special env)
     const nodeWrapper = `#!/bin/bash
 # node wrapper - runs Node.js with AgenShield interceptor
-export NODE_OPTIONS="--import ${wrapperConfig.interceptorPath} \${NODE_OPTIONS:-}"
+export NODE_OPTIONS="${wrapperConfig.interceptorFlag} ${wrapperConfig.interceptorPath} \${NODE_OPTIONS:-}"
 export AGENSHIELD_SOCKET="${wrapperConfig.socketPath}"
 export AGENSHIELD_HTTP_PORT="${wrapperConfig.httpPort}"
 export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_EXEC=true
 export AGENSHIELD_INTERCEPT_FS=true
-exec /opt/homebrew/bin/node "$@" 2>/dev/null || exec /usr/local/bin/node "$@"
+if [ -x "/opt/agenshield/bin/node-bin" ]; then
+  exec /opt/agenshield/bin/node-bin "$@"
+elif [ -x "/opt/homebrew/bin/node" ]; then
+  exec /opt/homebrew/bin/node "$@"
+elif [ -x "/usr/local/bin/node" ]; then
+  exec /usr/local/bin/node "$@"
+else
+  echo "node not found" >&2
+  exit 1
+fi
 `;
 
     const pythonWrapper = WRAPPER_DEFINITIONS['python']?.generate(wrapperConfig) || '';
@@ -939,4 +954,90 @@ export async function updateWrapper(
     return installWrapperWithSudo(name, content, targetDir);
   }
   return installWrapper(name, content, targetDir);
+}
+
+/**
+ * Deploy the interceptor CJS bundle to the sandbox.
+ *
+ * Copies `libs/shield-interceptor/dist/register.js` (which is CJS despite the
+ * package.json "type":"module") to `/opt/agenshield/lib/interceptor/register.cjs`
+ * so that node wrappers can use `--require` to load it.
+ */
+export async function deployInterceptor(
+  userConfig?: UserConfig
+): Promise<WrapperResult> {
+  const targetPath = '/opt/agenshield/lib/interceptor/register.cjs';
+  const socketGroupName = userConfig?.groups?.socket?.name || 'ash_socket';
+
+  try {
+    // Locate register.js relative to this package (shield-sandbox)
+    // Works in both dev (src/) and production (dist/) because both are one level
+    // below the package root: ../../shield-interceptor/dist/register.js
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const srcPath = path.resolve(currentDir, '..', '..', 'shield-interceptor', 'dist', 'register.js');
+
+    // Verify source exists
+    await fs.access(srcPath);
+
+    // Ensure target directory exists
+    await execAsync('sudo mkdir -p /opt/agenshield/lib/interceptor');
+
+    // Copy the file, renaming to .cjs
+    await execAsync(`sudo cp "${srcPath}" "${targetPath}"`);
+    await execAsync(`sudo chown root:${socketGroupName} "${targetPath}"`);
+    await execAsync(`sudo chmod 644 "${targetPath}"`);
+
+    return {
+      success: true,
+      name: 'interceptor',
+      path: targetPath,
+      message: 'Deployed interceptor to ' + targetPath,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      name: 'interceptor',
+      path: targetPath,
+      message: `Failed to deploy interceptor: ${(error as Error).message}`,
+      error: error as Error,
+    };
+  }
+}
+
+/**
+ * Copy the current Node.js binary to the sandbox so the node wrapper
+ * can exec a known-good binary without relying on system PATH.
+ */
+export async function copyNodeBinary(
+  userConfig?: UserConfig
+): Promise<WrapperResult> {
+  const targetPath = '/opt/agenshield/bin/node-bin';
+  const socketGroupName = userConfig?.groups?.socket?.name || 'ash_socket';
+
+  try {
+    const srcPath = process.execPath;
+
+    // Verify source exists
+    await fs.access(srcPath);
+
+    // Copy via sudo
+    await execAsync(`sudo cp "${srcPath}" "${targetPath}"`);
+    await execAsync(`sudo chown root:${socketGroupName} "${targetPath}"`);
+    await execAsync(`sudo chmod 755 "${targetPath}"`);
+
+    return {
+      success: true,
+      name: 'node-bin',
+      path: targetPath,
+      message: `Copied node binary from ${srcPath} to ${targetPath}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      name: 'node-bin',
+      path: targetPath,
+      message: `Failed to copy node binary: ${(error as Error).message}`,
+      error: error as Error,
+    };
+  }
 }

@@ -3,11 +3,11 @@
  */
 
 import { useEffect } from 'react';
-import { Box, Typography, Button, Card, CardContent, Chip } from '@mui/material';
-import { CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
+import { Box, Typography, Button, Card, CardContent, Chip, CircularProgress, Alert } from '@mui/material';
+import { CheckCircle, AlertCircle, ArrowRight, Download } from 'lucide-react';
 import { useSnapshot } from 'valtio';
 import { setupStore } from '../../state/setup';
-import { useSetupState } from '../../api/setup';
+import { useSetupState, useInstallTarget } from '../../api/setup';
 import { slideIn } from '../../styles/animations';
 
 interface DetectionStepProps {
@@ -15,8 +15,9 @@ interface DetectionStepProps {
 }
 
 export function DetectionStep({ onNext }: DetectionStepProps) {
-  const { data } = useSetupState();
+  const { data, refetch } = useSetupState();
   const { context } = useSnapshot(setupStore);
+  const installTarget = useInstallTarget();
 
   // Hydrate store from initial API call
   useEffect(() => {
@@ -26,10 +27,18 @@ export function DetectionStep({ onNext }: DetectionStepProps) {
     }
   }, [data]);
 
+  // After successful install, refetch state and continue
+  useEffect(() => {
+    if (installTarget.isSuccess) {
+      refetch().then(() => onNext());
+    }
+  }, [installTarget.isSuccess, refetch, onNext]);
+
   const ctx = context || data?.data?.context;
   const presetName = (ctx?.presetName as string) || 'Unknown';
   const detection = ctx?.presetDetection as Record<string, unknown> | undefined;
   const found = detection?.found;
+  const targetInstallable = (data?.data as Record<string, unknown> | undefined)?.targetInstallable as boolean | undefined;
 
   return (
     <Box sx={{ animation: `${slideIn} 0.3s ease-out` }}>
@@ -74,6 +83,33 @@ export function DetectionStep({ onNext }: DetectionStepProps) {
                   <Typography variant="body2" fontFamily="monospace">{detection.packagePath as string}</Typography>
                 </Box>
               )}
+            </>
+          ) : targetInstallable ? (
+            <>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                <AlertCircle size={22} color="#f59e0b" />
+                <Typography variant="h6" fontWeight={600}>OpenClaw not found</Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                OpenClaw was not detected on your system. You can install it via npm to continue.
+              </Typography>
+
+              {installTarget.isError && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {installTarget.error?.message || 'Failed to install OpenClaw'}
+                </Alert>
+              )}
+
+              <Button
+                variant="contained"
+                size="large"
+                onClick={() => installTarget.mutate()}
+                disabled={installTarget.isPending}
+                startIcon={installTarget.isPending ? <CircularProgress size={18} /> : <Download size={18} />}
+                sx={{ textTransform: 'none', fontWeight: 600 }}
+              >
+                {installTarget.isPending ? 'Installing OpenClaw...' : 'Install OpenClaw'}
+              </Button>
             </>
           ) : (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>

@@ -12,6 +12,7 @@ import {
   userExists,
   groupExists,
   scanDiscovery,
+  autoDetectPreset,
 } from '@agenshield/sandbox';
 import type { WizardEngine } from '../wizard/engine.js';
 import type { WizardState, WizardContext, WizardStepId } from '../wizard/types.js';
@@ -93,6 +94,7 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
         state: engine.state,
         context: sanitizeContext(engine.context),
         phase,
+        targetInstallable: engine.context.targetInstallable ?? false,
       },
     };
   });
@@ -157,6 +159,69 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
       };
     },
   );
+
+  // --- Install target (npm install -g openclaw) ---
+  app.post('/api/setup/install-target', async () => {
+    if (isRunning) {
+      return { success: false, error: { code: 'ALREADY_RUNNING', message: 'An operation is already in progress' } };
+    }
+
+    isRunning = true;
+
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync('npm install -g openclaw', {
+        encoding: 'utf-8',
+        timeout: 120_000,
+        stdio: 'pipe',
+      });
+
+      // Re-run detection
+      const result = await autoDetectPreset();
+      if (!result) {
+        isRunning = false;
+        return {
+          success: false,
+          error: { code: 'DETECT_FAILED', message: 'openclaw was installed but could not be detected. Check your PATH.' },
+        };
+      }
+
+      // Update engine context
+      engine.context.preset = result.preset;
+      engine.context.presetDetection = result.detection;
+      engine.context.targetInstallable = false;
+      engine.context.installTargetRequested = true;
+
+      // Update step statuses
+      const installTargetStep = engine.state.steps.find(s => s.id === 'install-target');
+      if (installTargetStep) {
+        installTargetStep.status = 'completed';
+      }
+
+      broadcastSetupEvent('setup:state_change', {
+        state: engine.state,
+        context: sanitizeContext(engine.context),
+        phase: 'detection',
+      });
+
+      isRunning = false;
+
+      return {
+        success: true,
+        data: {
+          installed: true,
+          preset: result.preset.name,
+          version: result.detection.version,
+        },
+      };
+    } catch (err) {
+      isRunning = false;
+      return {
+        success: false,
+        error: { code: 'INSTALL_FAILED', message: (err as Error).message },
+      };
+    }
+  });
 
   // --- Confirm (triggers setup phase) ---
   app.post('/api/setup/confirm', async () => {

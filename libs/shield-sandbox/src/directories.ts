@@ -77,6 +77,16 @@ export function createDirectoryStructure(config?: UserConfig): DirectoryStructur
         owner: 'root',
         group: 'wheel',
       },
+      '/opt/agenshield/lib': {
+        mode: 0o755,
+        owner: 'root',
+        group: 'wheel',
+      },
+      '/opt/agenshield/lib/interceptor': {
+        mode: 0o755,
+        owner: 'root',
+        group: socketGroupName,
+      },
       '/opt/agenshield/quarantine': {
         mode: 0o700,
         owner: 'root',

@@ -13,6 +13,7 @@ export type WizardStepStatus = 'pending' | 'running' | 'completed' | 'error' | '
 export type WizardStepId =
   | 'prerequisites'
   | 'detect'
+  | 'install-target'
   | 'configure'
   | 'confirm'
   | 'backup'
@@ -194,6 +195,12 @@ export interface WizardContext {
 
   /** Passcode value (temporary, only during wizard flow) */
   passcodeValue?: string;
+
+  /** Whether the target can be installed (e.g. via npm) */
+  targetInstallable?: boolean;
+
+  /** Whether the user requested target installation */
+  installTargetRequested?: boolean;
 }
 
 /**
@@ -230,11 +237,18 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
     dependsOn: ['prerequisites'],
   },
   {
+    id: 'install-target',
+    name: 'Install Target',
+    description: 'Install target application if not found',
+    phase: 'detection',
+    dependsOn: ['detect'],
+  },
+  {
     id: 'configure',
     name: 'Configure',
     description: 'Set up user configuration',
     phase: 'detection',
-    dependsOn: ['detect'],
+    dependsOn: ['install-target'],
   },
   {
     id: 'confirm',

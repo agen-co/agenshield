@@ -17,6 +17,7 @@ export interface SSEClient {
 export function createSSEClient(
   onEvent: SSEEventHandler,
   onConnectionChange: (connected: boolean) => void,
+  token?: string | null,
 ): SSEClient {
   let eventSource: EventSource | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -25,6 +26,7 @@ export function createSSEClient(
 
   const eventTypes = [
     'api:request',
+    'api:outbound',
     'security:status',
     'broker:request',
     'config:changed',
@@ -47,7 +49,8 @@ export function createSSEClient(
     cleanup();
 
     try {
-      eventSource = new EventSource(SSE_URL);
+      const url = token ? `${SSE_URL}?token=${encodeURIComponent(token)}` : SSE_URL;
+      eventSource = new EventSource(url);
 
       eventSource.onopen = () => {
         reconnectDelay = RECONNECT_DELAY;

@@ -22,14 +22,76 @@ export interface MarketplaceSkillFile {
 }
 
 export interface AnalyzeSkillRequest {
+  skillName: string;
+  publisher: string;
   files: MarketplaceSkillFile[];
 }
+
+/* ------------------------------------------------------------------ */
+/*  Deep analysis sub-types (optional, backward compatible)            */
+/* ------------------------------------------------------------------ */
+
+export type SkillSecuritySeverity = 'safe' | 'low' | 'medium' | 'high' | 'critical';
+
+export interface EnvVariableDetail {
+  name: string;
+  required: boolean;
+  purpose: string;
+  sensitive: boolean;
+}
+
+export interface RuntimeRequirement {
+  runtime: string;
+  minVersion?: string;
+  reason: string;
+}
+
+export interface InstallationStep {
+  command: string;
+  packageManager: string;
+  required: boolean;
+  description: string;
+}
+
+export interface RunCommand {
+  command: string;
+  description: string;
+  entrypoint: boolean;
+}
+
+export interface SecurityFinding {
+  severity: SkillSecuritySeverity;
+  category: string;
+  cwe?: string;
+  owaspCategory?: string;
+  description: string;
+  evidence?: string;
+}
+
+export type MCPRiskType =
+  | 'tool-poisoning'
+  | 'memory-poisoning'
+  | 'prompt-injection'
+  | 'soul-override'
+  | 'permission-escalation'
+  | 'data-exfiltration'
+  | 'hidden-instructions';
+
+export interface MCPSpecificRisk {
+  riskType: MCPRiskType;
+  description: string;
+  severity: SkillSecuritySeverity;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Response types                                                     */
+/* ------------------------------------------------------------------ */
 
 export interface AnalyzeSkillResponse {
   analysis: {
     status: 'complete' | 'error';
     vulnerability: {
-      level: 'safe' | 'low' | 'medium' | 'high' | 'critical';
+      level: SkillSecuritySeverity;
       details: string[];
       suggestions?: string[];
     };
@@ -40,6 +102,12 @@ export interface AnalyzeSkillResponse {
       resolvedPath?: string;
       required: boolean;
     }>;
+    envVariables?: EnvVariableDetail[];
+    runtimeRequirements?: RuntimeRequirement[];
+    installationSteps?: InstallationStep[];
+    runCommands?: RunCommand[];
+    securityFindings?: SecurityFinding[];
+    mcpSpecificRisks?: MCPSpecificRisk[];
   };
 }
 

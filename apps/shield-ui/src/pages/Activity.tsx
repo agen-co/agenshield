@@ -19,6 +19,7 @@ import {
   Globe,
   ShieldAlert,
   ArrowRightLeft,
+  ArrowUpRight,
   Settings as SettingsIcon,
   Trash2,
   Link2,
@@ -57,6 +58,7 @@ const TYPE_OPTIONS: { label: string; value: TypeFilter }[] = [
 
 const EVENT_DISPLAY: Record<string, { icon: React.ComponentType<{ size?: number }>; label: string; color: string }> = {
   'api:request': { icon: Globe, label: 'API Request', color: 'primary' },
+  'api:outbound': { icon: ArrowUpRight, label: 'Outbound Request', color: 'info' },
   'security:status': { icon: ShieldAlert, label: 'Security Status', color: 'warning' },
   'security:alert': { icon: ShieldAlert, label: 'Security Alert', color: 'error' },
   'broker:request': { icon: ArrowRightLeft, label: 'Broker Request', color: 'info' },
@@ -90,6 +92,13 @@ function getTimeThreshold(filter: TimeFilter): Date | null {
 }
 
 function getEventSummary(event: SSEEvent): string {
+  if (event.type === 'api:outbound') {
+    const d = event.data as Record<string, unknown>;
+    const ctx = d.context ?? '';
+    const status = d.statusCode ?? '';
+    const url = d.url ?? '';
+    return `${ctx} [${status}] ${url}`;
+  }
   return (event.data?.message as string) ??
     (event.data?.url as string) ??
     (event.data?.method as string) ??

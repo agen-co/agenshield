@@ -7,11 +7,20 @@ import { daemonEvents, type DaemonEvent } from '../events/emitter';
 import { isAuthenticated } from '../auth/middleware';
 
 /**
- * Format event for SSE protocol
+ * Format event for SSE protocol (full data)
  */
 function formatSSE(event: DaemonEvent): string {
   const eventType = event.type;
   const data = JSON.stringify(event);
+  return `event: ${eventType}\ndata: ${data}\n\n`;
+}
+
+/**
+ * Format stripped event for anonymous SSE (type + timestamp only, data: {})
+ */
+function formatStrippedSSE(event: DaemonEvent): string {
+  const eventType = event.type;
+  const data = JSON.stringify({ type: event.type, timestamp: event.timestamp, data: {} });
   return `event: ${eventType}\ndata: ${data}\n\n`;
 }
 
@@ -21,18 +30,12 @@ function formatSSE(event: DaemonEvent): string {
 export async function sseRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Main SSE endpoint - streams all events
-   * Requires authentication via query parameter: /sse/events?token=xxx
+   * Authenticated users get full event data; anonymous users get stripped events.
+   * Token passed as query parameter: /sse/events?token=xxx
    */
   app.get('/sse/events', async (request: FastifyRequest, reply: FastifyReply) => {
-    // Check authentication (token passed as query parameter)
-    if (!isAuthenticated(request)) {
-      reply.code(401).send({
-        success: false,
-        error: 'Authentication required. Provide token as query parameter: ?token=xxx',
-        code: 'UNAUTHORIZED',
-      });
-      return;
-    }
+    const authenticated = isAuthenticated(request);
+
     // Set SSE headers
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -42,7 +45,7 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
       'X-Accel-Buffering': 'no', // Disable nginx buffering
     });
 
-    // Send initial connection event
+    // Send initial connection event (heartbeats always sent in full)
     const connectEvent: DaemonEvent = {
       type: 'heartbeat',
       timestamp: new Date().toISOString(),
@@ -53,7 +56,12 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
     // Subscribe to events
     const unsubscribe = daemonEvents.subscribe((event) => {
       try {
-        reply.raw.write(formatSSE(event));
+        // Heartbeat events always sent in full; others stripped for anonymous users
+        if (event.type === 'heartbeat' || authenticated) {
+          reply.raw.write(formatSSE(event));
+        } else {
+          reply.raw.write(formatStrippedSSE(event));
+        }
       } catch {
         // Client disconnected
         unsubscribe();
@@ -88,19 +96,10 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Filtered SSE endpoint - streams only specific event types
    * Usage: /sse/events/security?token=xxx or /sse/events/broker?token=xxx
-   * Requires authentication via query parameter
+   * Authenticated users get full data; anonymous users get stripped events.
    */
   app.get('/sse/events/:filter', async (request: FastifyRequest<{ Params: { filter: string } }>, reply: FastifyReply) => {
-    // Check authentication (token passed as query parameter)
-    if (!isAuthenticated(request)) {
-      reply.code(401).send({
-        success: false,
-        error: 'Authentication required. Provide token as query parameter: ?token=xxx',
-        code: 'UNAUTHORIZED',
-      });
-      return;
-    }
-
+    const authenticated = isAuthenticated(request);
     const filter = request.params.filter;
 
     // Set SSE headers
@@ -125,7 +124,11 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
       // Filter events by prefix match
       if (event.type.startsWith(filter) || event.type === 'heartbeat') {
         try {
-          reply.raw.write(formatSSE(event));
+          if (event.type === 'heartbeat' || authenticated) {
+            reply.raw.write(formatSSE(event));
+          } else {
+            reply.raw.write(formatStrippedSSE(event));
+          }
         } catch {
           unsubscribe();
         }

@@ -41,12 +41,14 @@ async function runSetupWebUI(wizardOptions: WizardOptions): Promise<void> {
     process.exit(1);
   }
 
-  if (!engine.context.presetDetection?.found) {
+  if (engine.context.presetDetection?.found) {
+    console.log(`  Detected: ${engine.context.preset?.name ?? 'Unknown target'}`);
+  } else if (engine.context.targetInstallable) {
+    console.log(`  No target found — Web UI will offer installation.`);
+  } else {
     console.error('  No supported target found. Use --target custom --entry-point <path> for custom applications.');
     process.exit(1);
   }
-
-  console.log(`  Detected: ${engine.context.preset?.name ?? 'Unknown target'}`);
   console.log('');
 
   // Acquire sudo credentials now (in the terminal) before opening the browser,
@@ -75,13 +77,18 @@ async function runSetupWebUI(wizardOptions: WizardOptions): Promise<void> {
     // Non-fatal — user can open the URL manually
   }
 
-  // Wait for setup to complete or be cancelled
-  try {
-    await server.waitForCompletion();
-    console.log('  Setup complete! Shutting down server...');
-  } finally {
-    await server.stop();
-  }
+  // Wait for setup to complete or be cancelled (SIGINT/SIGTERM)
+  const completionOrSignal = Promise.race([
+    server.waitForCompletion(),
+    new Promise<void>((resolve) => {
+      process.on('SIGINT', resolve);
+      process.on('SIGTERM', resolve);
+    }),
+  ]);
+
+  await completionOrSignal;
+  console.log('  Setup complete! Shutting down server...');
+  await server.stop();
 
   // Start the daemon now that port 6969 is free
   console.log('  Starting daemon...');
@@ -92,6 +99,9 @@ async function runSetupWebUI(wizardOptions: WizardOptions): Promise<void> {
   } else {
     console.warn(`  Warning: ${daemonResult.message}`);
   }
+
+  // Force exit after grace period (like dev mode)
+  setTimeout(() => process.exit(0), 1000).unref();
 }
 
 /**
@@ -125,7 +135,7 @@ export function createSetupCommand(): Command {
     .option('--skip-confirm', 'Skip confirmation prompts')
     .option('-v, --verbose', 'Show verbose output')
     .option('--list-presets', 'List available presets and exit')
-    .option('--ui', 'Use web browser UI for setup wizard')
+    .option('--cli', 'Use terminal/Ink UI instead of web browser')
     .action(async (options) => {
       // Handle --list-presets
       if (options.listPresets) {
@@ -155,8 +165,8 @@ export function createSetupCommand(): Command {
 
 
 
-      // Check for Web UI request (either --ui flag or env var from Ink wizard)
-      if (options.ui || process.env['AGENSHIELD_WEBUI_REQUESTED'] === 'true') {
+      // Default to Web UI unless --cli is specified or env var opts out
+      if (!options.cli && process.env['AGENSHIELD_WEBUI_REQUESTED'] !== 'false') {
         delete process.env['AGENSHIELD_WEBUI_REQUESTED'];
         await runSetupWebUI(buildWizardOptions(options));
         return;
