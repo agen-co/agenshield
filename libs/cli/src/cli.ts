@@ -30,6 +30,7 @@ import {
   createDoctorCommand,
   createDaemonCommand,
   createUninstallCommand,
+  createDevCommand,
 } from './commands/index.js';
 
 // Package version - will be replaced during build
@@ -56,6 +57,8 @@ Examples:
   $ agenshield doctor               Run diagnostics
   $ sudo agenshield setup           Run setup wizard
   $ sudo agenshield daemon start    Start daemon
+  $ sudo agenshield dev             Dev mode with interactive TUI
+  $ sudo agenshield dev clean       Clean dev environment
   $ sudo agenshield uninstall       Reverse isolation
 `
     );
@@ -66,6 +69,7 @@ Examples:
   program.addCommand(createDoctorCommand());
   program.addCommand(createDaemonCommand());
   program.addCommand(createUninstallCommand());
+  program.addCommand(createDevCommand());
 
   return program;
 }

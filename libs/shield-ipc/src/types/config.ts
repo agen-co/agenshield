@@ -143,8 +143,10 @@ export interface PolicyConfig {
   id: string;
   /** Human-readable name */
   name: string;
-  /** Policy type */
-  type: 'allowlist' | 'denylist';
+  /** Policy action: allow, deny, or approval (future) */
+  action: 'allow' | 'deny' | 'approval';
+  /** What this policy targets */
+  target: 'skill' | 'command' | 'url';
   /** URL/command patterns to match */
   patterns: string[];
   /** Whether this policy is active */

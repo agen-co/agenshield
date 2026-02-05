@@ -3,6 +3,7 @@
  *
  * Runs the interactive setup wizard to sandbox a target application.
  * Supports presets (openclaw, custom) and configurable naming.
+ * With --ui flag, launches a web-based setup wizard.
  */
 
 import { Command } from 'commander';
@@ -11,13 +12,86 @@ import { render } from 'ink';
 import { WizardApp } from '../wizard/index.js';
 import { ensureRoot } from '../utils/privileges.js';
 import { formatPresetList, getPreset } from '@agenshield/sandbox';
+import { createWizardEngine } from '../wizard/engine.js';
+import type { WizardOptions } from '../wizard/types.js';
 
 /**
- * Run the setup wizard
+ * Run the setup wizard (CLI/Ink mode)
  */
 async function runSetup(): Promise<void> {
   const { waitUntilExit } = render(React.createElement(WizardApp));
   await waitUntilExit();
+}
+
+/**
+ * Run the setup wizard in web UI mode
+ */
+async function runSetupWebUI(wizardOptions: WizardOptions): Promise<void> {
+  const { createSetupServer } = await import('../setup-server/index.js');
+
+  console.log('');
+  console.log('  Starting Web UI Setup Wizard...');
+  console.log('');
+
+  // Create wizard engine and run detection phase BEFORE server starts
+  const engine = createWizardEngine(wizardOptions);
+  const detectionResult = await engine.runDetectionPhase();
+
+  if (!detectionResult.success) {
+    console.error(`  Detection failed: ${detectionResult.error}`);
+    process.exit(1);
+  }
+
+  if (!engine.context.presetDetection?.found) {
+    console.error('  No supported target found. Use --target custom --entry-point <path> for custom applications.');
+    process.exit(1);
+  }
+
+  console.log(`  Detected: ${engine.context.preset?.name ?? 'Unknown target'}`);
+  console.log('');
+
+  // Create and start the setup server
+  const server = createSetupServer(engine);
+  const port = 6969;
+  const url = await server.start(port);
+
+  console.log(`  Setup wizard is running at: ${url}`);
+  console.log('');
+  console.log('  Opening browser...');
+  console.log('  (If the browser does not open, visit the URL above manually)');
+  console.log('');
+
+  // Open browser (macOS)
+  try {
+    const { exec } = await import('node:child_process');
+    exec(`open "${url}"`);
+  } catch {
+    // Non-fatal — user can open the URL manually
+  }
+
+  // Wait for setup to complete or be cancelled
+  try {
+    await server.waitForCompletion();
+    console.log('  Setup complete! Shutting down server...');
+  } finally {
+    await server.stop();
+  }
+}
+
+/**
+ * Build WizardOptions from CLI options
+ */
+function buildWizardOptions(options: Record<string, unknown>): WizardOptions {
+  const wizardOptions: WizardOptions = {};
+  if (options['target']) wizardOptions.targetPreset = options['target'] as string;
+  if (options['entryPoint']) wizardOptions.entryPoint = options['entryPoint'] as string;
+  if (options['baseName']) wizardOptions.baseName = options['baseName'] as string;
+  if (options['prefix']) wizardOptions.prefix = options['prefix'] as string;
+  if (options['baseUid']) wizardOptions.baseUid = options['baseUid'] as number;
+  if (options['dryRun']) wizardOptions.dryRun = true;
+  if (options['skipConfirm']) wizardOptions.skipConfirm = true;
+  if (options['verbose']) wizardOptions.verbose = true;
+  return wizardOptions;
 }
 
 /**
@@ -35,6 +109,7 @@ export function createSetupCommand(): Command {
     .option('--skip-confirm', 'Skip confirmation prompts')
     .option('-v, --verbose', 'Show verbose output')
     .option('--list-presets', 'List available presets and exit')
+    .option('--ui', 'Use web browser UI for setup wizard')
     .action(async (options) => {
       // Handle --list-presets
       if (options.listPresets) {
@@ -65,6 +140,13 @@ export function createSetupCommand(): Command {
       // Require root unless dry-run
       if (!options.dryRun) {
         ensureRoot('setup');
+      }
+
+      // Check for Web UI request (either --ui flag or env var from Ink wizard)
+      if (options.ui || process.env['AGENSHIELD_WEBUI_REQUESTED'] === 'true') {
+        delete process.env['AGENSHIELD_WEBUI_REQUESTED'];
+        await runSetupWebUI(buildWizardOptions(options));
+        return;
       }
 
       // Store options in environment for wizard to pick up

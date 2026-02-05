@@ -1,8 +1,20 @@
-import { Typography, Switch, IconButton, Box } from '@mui/material';
+import { Typography, Switch, IconButton, Box, Chip } from '@mui/material';
 import { Pencil, Trash2 } from 'lucide-react';
 import { StatusBadge } from '../../shared/StatusBadge';
 import { Root, Header, Footer } from './PolicyCard.styles';
 import type { PolicyCardProps } from './PolicyCard.types';
+
+const ACTION_VARIANT: Record<string, 'success' | 'error' | 'warning'> = {
+  allow: 'success',
+  deny: 'error',
+  approval: 'warning',
+};
+
+const TARGET_LABEL: Record<string, string> = {
+  command: 'Command',
+  skill: 'Skill',
+  url: 'URL',
+};
 
 export function PolicyCard({
   policy,
@@ -19,12 +31,20 @@ export function PolicyCard({
         <Typography variant="subtitle2" fontWeight={600}>
           {policy.name}
         </Typography>
-        <StatusBadge
-          label={policy.type}
-          variant={policy.type === 'allowlist' ? 'success' : 'error'}
-          dot={false}
-          size="small"
-        />
+        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+          <StatusBadge
+            label={policy.action}
+            variant={ACTION_VARIANT[policy.action] ?? 'success'}
+            dot={false}
+            size="small"
+          />
+          <Chip
+            size="small"
+            label={TARGET_LABEL[policy.target] ?? policy.target}
+            variant="outlined"
+            sx={{ fontSize: 11, height: 20 }}
+          />
+        </Box>
       </Header>
 
       <Typography variant="body2" color="text.secondary">

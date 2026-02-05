@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ASH_PREFIX, DEFAULT_BASE_NAME } from '@agenshield/sandbox';
 
-export type SetupMode = 'quick' | 'advanced';
+export type SetupMode = 'quick' | 'advanced' | 'webui';
 
 // Default names when using quick setup
 const DEFAULT_AGENT = `${ASH_PREFIX}${DEFAULT_BASE_NAME}_agent`;
@@ -19,18 +19,27 @@ interface ModeSelectProps {
   onCancel: () => void;
 }
 
+const MODES: SetupMode[] = ['quick', 'advanced', 'webui'];
+
 export function ModeSelect({ onSelect, onCancel }: ModeSelectProps) {
   const [selected, setSelected] = useState<SetupMode>('quick');
 
   useInput((input, key) => {
-    if (key.upArrow || key.downArrow) {
-      setSelected(selected === 'quick' ? 'advanced' : 'quick');
+    if (key.upArrow) {
+      const idx = MODES.indexOf(selected);
+      setSelected(MODES[(idx - 1 + MODES.length) % MODES.length]);
+    }
+    if (key.downArrow) {
+      const idx = MODES.indexOf(selected);
+      setSelected(MODES[(idx + 1) % MODES.length]);
     }
 
     if (input === '1' || input === 'q') {
       setSelected('quick');
     } else if (input === '2' || input === 'a') {
       setSelected('advanced');
+    } else if (input === '3' || input === 'w') {
+      setSelected('webui');
     }
 
     if (key.return) {
@@ -79,11 +88,25 @@ export function ModeSelect({ onSelect, onCancel }: ModeSelectProps) {
             Customize user/group names (e.g., {ASH_PREFIX}myapp_agent)
           </Text>
         </Box>
+
+        <Box marginTop={1}>
+          <Text color={selected === 'webui' ? 'green' : 'gray'}>
+            {selected === 'webui' ? '>' : ' '}
+          </Text>
+          <Text bold={selected === 'webui'} color={selected === 'webui' ? 'green' : 'white'}>
+            [3] Web UI Setup
+          </Text>
+        </Box>
+        <Box marginLeft={4}>
+          <Text color="gray">
+            Open setup wizard in your browser with live security visualization
+          </Text>
+        </Box>
       </Box>
 
       <Box marginTop={1}>
         <Text color="gray" dimColor>
-          Press 1/2 or arrow keys to select, Enter to confirm, Esc to cancel
+          Press 1/2/3 or arrow keys to select, Enter to confirm, Esc to cancel
         </Text>
       </Box>
     </Box>

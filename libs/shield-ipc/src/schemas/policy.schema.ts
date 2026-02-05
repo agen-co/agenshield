@@ -8,7 +8,8 @@ import { OperationTypeSchema } from './ops.schema';
 export const PolicyRuleSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  type: z.enum(['allowlist', 'denylist']),
+  action: z.enum(['allow', 'deny', 'approval']),
+  target: z.enum(['skill', 'command', 'url']),
   operations: z.array(OperationTypeSchema),
   patterns: z.array(z.string()),
   enabled: z.boolean(),

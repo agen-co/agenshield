@@ -2,19 +2,22 @@
  * Secrets page - manage environment secrets by scope
  */
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   Box,
   Card,
   CardContent,
+  Collapse,
   Button,
   Skeleton,
 } from '@mui/material';
 import { Plus, KeyRound } from 'lucide-react';
 import { useSecrets, useCreateSecret, useDeleteSecret } from '../api/hooks';
 import { useAuth } from '../context/AuthContext';
+import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import { tokens } from '../styles/tokens';
 import type { CreateSecretRequest } from '../api/client';
+
 import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
 import { EmptyState } from '../components/shared/EmptyState';
@@ -30,15 +33,29 @@ export function Secrets() {
 
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
+  const [formFocused, setFormFocused] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const { guardOpen, guardConfirm, guardCancel } = useUnsavedChangesGuard(formDirty);
 
   const secrets = data?.data ?? [];
 
   const handleSave = (req: CreateSecretRequest) => {
     createSecret.mutate(req, {
-      onSuccess: () => setFormOpen(false),
+      onSuccess: () => {
+        setFormOpen(false);
+        setFormDirty(false);
+        setFormFocused(false);
+      },
     });
   };
+
+  const handleCancel = useCallback(() => {
+    setFormOpen(false);
+    setFormDirty(false);
+    setFormFocused(false);
+  }, []);
 
   const confirmDelete = () => {
     if (deleteTarget) {
@@ -51,15 +68,29 @@ export function Secrets() {
     <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       <PageHeader
         title="Secrets"
-        description="Manage secrets injected into operations by scope."
+        description="Manage secrets and link them to policies for scoped injection."
         action={
-          <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setFormOpen(true)} disabled={isReadOnly}>
-            Add Secret
-          </Button>
+          !formOpen ? (
+            <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setFormOpen(true)} disabled={isReadOnly}>
+              Add Secret
+            </Button>
+          ) : undefined
         }
       />
 
-      <Box sx={{ mb: 3 }}>
+      <Collapse in={formOpen} unmountOnExit timeout={250}>
+        <Box sx={{ mb: 3, position: 'relative', zIndex: 10 }}>
+          <SecretForm
+            onSave={handleSave}
+            onCancel={handleCancel}
+            onDirtyChange={setFormDirty}
+            onFocusChange={setFormFocused}
+            saving={createSecret.isPending}
+          />
+        </Box>
+      </Collapse>
+
+      <Box sx={{ mb: 3, opacity: formFocused ? 0.45 : 1, transition: 'opacity 0.2s ease', pointerEvents: formFocused ? 'none' : 'auto' }}>
         <SearchInput
           value={search}
           onChange={setSearch}
@@ -67,7 +98,7 @@ export function Secrets() {
         />
       </Box>
 
-      <Card>
+      <Card sx={{ opacity: formFocused ? 0.45 : 1, transition: 'opacity 0.2s ease', pointerEvents: formFocused ? 'none' : 'auto' }}>
         <CardContent sx={{ p: 0 }}>
           {isLoading ? (
             <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -81,9 +112,11 @@ export function Secrets() {
               title="No secrets configured"
               description="Add secrets to inject environment variables, API keys, and credentials into operations."
               action={
-                <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setFormOpen(true)} disabled={isReadOnly}>
-                  Add Secret
-                </Button>
+                !formOpen ? (
+                  <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setFormOpen(true)} disabled={isReadOnly}>
+                    Add Secret
+                  </Button>
+                ) : undefined
               }
             />
           ) : (
@@ -96,11 +129,15 @@ export function Secrets() {
         </CardContent>
       </Card>
 
-      <SecretForm
-        open={formOpen}
-        onClose={() => setFormOpen(false)}
-        onSave={handleSave}
-        saving={createSecret.isPending}
+      <ConfirmDialog
+        open={guardOpen}
+        title="Unsaved Changes"
+        message="You have unsaved changes. Discard them?"
+        confirmLabel="Discard"
+        variant="danger"
+        position="top"
+        onConfirm={guardConfirm}
+        onCancel={guardCancel}
       />
 
       <ConfirmDialog

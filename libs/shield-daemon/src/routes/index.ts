@@ -13,7 +13,9 @@ import { wrappersRoutes } from './wrappers';
 import { agentlinkRoutes } from './agentlink';
 import { skillsRoutes } from './skills';
 import { execRoutes } from './exec';
+import { discoveryRoutes } from './discovery';
 import { authRoutes } from './auth';
+import { secretsRoutes } from './secrets';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 
@@ -47,7 +49,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(agentlinkRoutes);
       await api.register(skillsRoutes);
       await api.register(execRoutes);
+      await api.register(discoveryRoutes);
       await api.register(authRoutes);
+      await api.register(secretsRoutes);
     },
     { prefix: API_PREFIX }
   );

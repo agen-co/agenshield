@@ -19,7 +19,9 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.0.0",
     "recharts": "^3.7.0",
-    "valtio": "^2.3.0"
+    "valtio": "^2.3.0",
+    "@xyflow/react": "^12.0.0",
+    "@tanstack/react-virtual": "^3.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

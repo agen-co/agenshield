@@ -183,7 +183,7 @@ async function main(): Promise<void> {
 }
 
 // Run if executed directly
-if (require.main === module || process.argv[1]?.endsWith('shield-exec')) {
+if (process.argv[1]?.endsWith('shield-exec')) {
   main().catch((err) => {
     process.stderr.write(`Fatal: ${err.message}\n`);
     process.exit(1);

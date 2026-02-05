@@ -110,25 +110,29 @@ export function Sidebar({
       {/* Navigation */}
       <List sx={{ px: 1.5, pt: 1, flex: 1 }}>
         {menuItems.map((item) => (
-          <ListItem key={item.path} disablePadding sx={{ mb: 0.25 }}>
+          <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
             <ListItemButton
               selected={location.pathname === item.path}
               onClick={() => handleNavigation(item.path)}
               sx={{
-                px: 1.5,
-                py: 0.75,
+                px: 1,
+                py: 0.25,
                 '&:hover': {
                   bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'grey.50',
                 },
                 '&.Mui-selected': {
                   bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'grey.100',
+                  color: (theme) => theme.palette.mode === 'dark' ? 'grey.50' : 'grey.900',
+                  '& .MuiListItemIcon-root': {
+                    color: 'inherit',
+                  },
                   '&:hover': {
                     bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'grey.200',
                   },
                 },
               }}
             >
-              <ListItemIcon sx={{ minWidth: 36 }}>{item.icon}</ListItemIcon>
+              <ListItemIcon sx={{ minWidth: 30 }}>{item.icon}</ListItemIcon>
               <ListItemText
                 primary={item.label}
                 primaryTypographyProps={{ variant: 'subtitle1' }}

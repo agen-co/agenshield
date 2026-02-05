@@ -26,25 +26,27 @@ export function runTestAction(
   action: ActionId,
   agentUsername: string,
   testHarnessPath: string,
-  params?: { path?: string; command?: string }
+  params?: { path?: string; command?: string },
+  nodePath?: string,
 ): TestResult {
+  const nodeCmd = nodePath || 'node';
   let cmd: string;
 
   switch (action) {
     case 'test-network':
-      cmd = `sudo -u ${agentUsername} node ${testHarnessPath} run --test-network`;
+      cmd = `sudo -u ${agentUsername} ${nodeCmd} ${testHarnessPath} run --test-network`;
       break;
     case 'test-file-read':
-      cmd = `sudo -u ${agentUsername} node ${testHarnessPath} run --test-file "${params?.path}"`;
+      cmd = `sudo -u ${agentUsername} ${nodeCmd} ${testHarnessPath} run --test-file "${params?.path}"`;
       break;
     case 'test-file-write':
-      cmd = `sudo -u ${agentUsername} node ${testHarnessPath} run --test-write "${params?.path}"`;
+      cmd = `sudo -u ${agentUsername} ${nodeCmd} ${testHarnessPath} run --test-write "${params?.path}"`;
       break;
     case 'test-exec':
-      cmd = `sudo -u ${agentUsername} node ${testHarnessPath} run --test-exec "${params?.command}"`;
+      cmd = `sudo -u ${agentUsername} ${nodeCmd} ${testHarnessPath} run --test-exec "${params?.command}"`;
       break;
     case 'show-status':
-      cmd = `sudo -u ${agentUsername} node ${testHarnessPath} status`;
+      cmd = `sudo -u ${agentUsername} ${nodeCmd} ${testHarnessPath} status`;
       break;
     default:
       return { success: false, output: `Unknown action: ${action}`, exitCode: 1, duration: 0 };

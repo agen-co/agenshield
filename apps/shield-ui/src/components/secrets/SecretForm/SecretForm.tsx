@@ -1,130 +1,277 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
   TextField,
   Box,
+  Autocomplete,
+  Typography,
+  Chip,
+  Collapse,
+  IconButton,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
+  Alert,
 } from '@mui/material';
-import type { SecretScope, CreateSecretRequest } from '../../../api/client';
-import { SecretTypeSelector } from '../SecretTypeSelector';
+import { Plus, X } from 'lucide-react';
+import type { PolicyConfig } from '@agenshield/ipc';
+import type { CreateSecretRequest } from '../../../api/client';
+import { useConfig, useUpdateConfig } from '../../../api/hooks';
+import { FormCard } from '../../shared/FormCard';
+import { PolicyEditor } from '../../policies/PolicyEditor/PolicyEditor';
+import SecondaryButton from '../../../elements/buttons/SecondaryButton';
 
 interface SecretFormProps {
-  open: boolean;
-  onClose: () => void;
   onSave: (data: CreateSecretRequest) => void;
+  onCancel: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onFocusChange?: (focused: boolean) => void;
   saving?: boolean;
 }
 
-export function SecretForm({ open, onClose, onSave, saving }: SecretFormProps) {
+export function SecretForm({ onSave, onCancel, onDirtyChange, onFocusChange, saving }: SecretFormProps) {
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
-  const [scopeType, setScopeType] = useState('global');
-  const [pattern, setPattern] = useState('');
-  const [skillId, setSkillId] = useState('');
+  const [availability, setAvailability] = useState<'global' | 'policed'>('global');
+  const [policyIds, setPolicyIds] = useState<string[]>([]);
+  const [creatingPolicy, setCreatingPolicy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
 
-  const resetForm = () => {
-    setName('');
-    setValue('');
-    setScopeType('global');
-    setPattern('');
-    setSkillId('');
-  };
+  const { data: configData } = useConfig();
+  const updateConfig = useUpdateConfig();
 
-  const handleClose = () => {
-    resetForm();
-    onClose();
-  };
+  const policies = configData?.data?.policies ?? [];
 
-  const handleSave = () => {
-    let scope: SecretScope;
-    switch (scopeType) {
-      case 'command':
-        scope = { type: 'command', pattern };
-        break;
-      case 'url':
-        scope = { type: 'url', pattern };
-        break;
-      case 'skill':
-        scope = { type: 'skill', skillId };
-        break;
-      default:
-        scope = { type: 'global' };
-    }
+  const dirty = !!(name || value || policyIds.length > 0);
 
-    onSave({ name, value, scope });
-    resetForm();
-  };
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
-  const isValid = name.trim() && value.trim() && (
-    scopeType === 'global' ||
-    (scopeType === 'command' && pattern.trim()) ||
-    (scopeType === 'url' && pattern.trim()) ||
-    (scopeType === 'skill' && skillId.trim())
+  // Available policies (not yet selected)
+  const availablePolicies = useMemo(
+    () => policies.filter((p) => !policyIds.includes(p.id)),
+    [policies, policyIds],
   );
 
+  // Resolve selected policy objects
+  const selectedPolicies = useMemo(
+    () => policyIds.map((id) => policies.find((p) => p.id === id)).filter(Boolean) as PolicyConfig[],
+    [policyIds, policies],
+  );
+
+  const handleRemovePolicy = (id: string) => {
+    setPolicyIds((prev) => prev.filter((pid) => pid !== id));
+  };
+
+  const handleCreateAndLink = useCallback((newPolicy: PolicyConfig) => {
+    const updatedPolicies = [...policies, newPolicy];
+    updateConfig.mutate(
+      { policies: updatedPolicies },
+      {
+        onSuccess: () => {
+          setPolicyIds((prev) => [...prev, newPolicy.id]);
+          setCreatingPolicy(false);
+        },
+        onError: () => {
+          setError('Failed to create policy. Please try again.');
+        },
+      },
+    );
+  }, [policies, updateConfig]);
+
+  const handleSave = () => {
+    onSave({
+      name: name.trim(),
+      value,
+      policyIds: availability === 'global' ? [] : policyIds,
+    });
+  };
+
+  const isValid = name.trim() && value.trim();
+
+  const ACTION_LABEL: Record<string, string> = { allow: 'Allow', deny: 'Deny', approval: 'Approval' };
+  const TARGET_LABEL: Record<string, string> = { command: 'Cmd', skill: 'Skill', url: 'URL' };
+
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Add Secret</DialogTitle>
-      <DialogContent>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <TextField
-            label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            fullWidth
-            placeholder="e.g. DATABASE_URL"
-          />
-          <TextField
-            label="Value"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            fullWidth
-            type="password"
-            placeholder="Enter secret value"
-          />
+    <FormCard
+      title="Add Secret"
+      onSave={handleSave}
+      onCancel={onCancel}
+      saving={saving}
+      saveDisabled={!isValid}
+      saveLabel="Add Secret"
+      onFocusChange={onFocusChange}
+      error={error}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+        <TextField
+          label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          fullWidth
+          placeholder="e.g. DATABASE_URL"
+        />
+        <TextField
+          label="Value"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          fullWidth
+          type="password"
+          placeholder="Enter secret value"
+        />
 
-          <SecretTypeSelector value={scopeType} onChange={setScopeType} />
-
-          {(scopeType === 'command' || scopeType === 'url') && (
-            <TextField
-              label={scopeType === 'command' ? 'Command Pattern' : 'URL Pattern'}
-              value={pattern}
-              onChange={(e) => setPattern(e.target.value)}
-              fullWidth
-              placeholder={
-                scopeType === 'command'
-                  ? 'e.g. psql, aws s3 *'
-                  : 'e.g. api.example.com/*'
+        {/* Availability toggle */}
+        <Box>
+          <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+            Availability
+          </Typography>
+          <RadioGroup
+            row
+            value={availability}
+            onChange={(e) => {
+              setAvailability(e.target.value as 'global' | 'policed');
+              if (e.target.value === 'global') {
+                setPolicyIds([]);
               }
-              helperText={
-                scopeType === 'command'
-                  ? 'Command or glob pattern to match'
-                  : 'URL or glob pattern to match'
-              }
-            />
-          )}
-
-          {scopeType === 'skill' && (
-            <TextField
-              label="Skill ID"
-              value={skillId}
-              onChange={(e) => setSkillId(e.target.value)}
-              fullWidth
-              placeholder="e.g. my-skill-name"
-              helperText="The skill this secret is tied to"
-            />
-          )}
+            }}
+          >
+            <FormControlLabel value="global" control={<Radio size="small" />} label="Global" />
+            <FormControlLabel value="policed" control={<Radio size="small" />} label="Policy-linked" />
+          </RadioGroup>
         </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose}>Cancel</Button>
-        <Button variant="contained" onClick={handleSave} disabled={!isValid || saving}>
-          {saving ? 'Saving...' : 'Add Secret'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+
+        {/* Global warning */}
+        {availability === 'global' && (
+          <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
+            This secret will be available to ALL operations without restrictions.
+            Consider linking to specific policies for better security.
+          </Alert>
+        )}
+
+        {/* Policy-linked section */}
+        {availability === 'policed' && (
+          <Box>
+            <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+              Linked Policies
+            </Typography>
+
+            {selectedPolicies.length > 0 ? (
+              <Box
+                sx={(theme) => ({
+                  border: `1px solid ${theme.palette.divider}`,
+                  borderRadius: 1,
+                  mb: 1.5,
+                })}
+              >
+                {selectedPolicies.map((p) => (
+                  <Box
+                    key={p.id}
+                    sx={(theme) => ({
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      px: 1.5,
+                      py: 1,
+                      borderBottom: `1px solid ${theme.palette.divider}`,
+                      '&:last-child': { borderBottom: 'none' },
+                    })}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Chip
+                        size="small"
+                        label={ACTION_LABEL[p.action]}
+                        color={p.action === 'allow' ? 'success' : p.action === 'deny' ? 'error' : 'warning'}
+                        variant="outlined"
+                        sx={{ fontSize: 11, height: 20 }}
+                      />
+                      <Chip
+                        size="small"
+                        label={TARGET_LABEL[p.target]}
+                        variant="outlined"
+                        sx={{ fontSize: 10, height: 18 }}
+                      />
+                      <Typography variant="body2">{p.name}</Typography>
+                    </Box>
+                    <IconButton size="small" onClick={() => handleRemovePolicy(p.id)}>
+                      <X size={14} />
+                    </IconButton>
+                  </Box>
+                ))}
+              </Box>
+            ) : (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                No policies linked yet.
+              </Typography>
+            )}
+
+            {/* Policy selector + create button */}
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Autocomplete
+                options={availablePolicies}
+                getOptionLabel={(option) => option.name}
+                renderOption={(props, option) => (
+                  <Box component="li" {...props} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                    <Typography variant="body2">{option.name}</Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      <Chip
+                        size="small"
+                        label={ACTION_LABEL[option.action]}
+                        color={option.action === 'allow' ? 'success' : option.action === 'deny' ? 'error' : 'warning'}
+                        variant="outlined"
+                        sx={{ fontSize: 10, height: 18 }}
+                      />
+                      <Chip
+                        size="small"
+                        label={TARGET_LABEL[option.target]}
+                        variant="outlined"
+                        sx={{ fontSize: 10, height: 18 }}
+                      />
+                    </Box>
+                  </Box>
+                )}
+                onChange={(_e, val) => {
+                  if (val) {
+                    setPolicyIds((prev) => [...prev, val.id]);
+                  }
+                }}
+                value={null}
+                blurOnSelect
+                clearOnBlur
+                size="small"
+                sx={{ flex: 1 }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    placeholder="Search policies..."
+                    size="small"
+                  />
+                )}
+              />
+              <SecondaryButton
+                size="small"
+                onClick={() => setCreatingPolicy(!creatingPolicy)}
+                sx={{ whiteSpace: 'nowrap', height: 40 }}
+                startIcon={<Plus size={14} />}
+              >
+                Create Policy
+              </SecondaryButton>
+            </Box>
+          </Box>
+        )}
+
+        {/* Inline Policy Creation — reuses PolicyEditor */}
+        <Collapse in={creatingPolicy && availability === 'policed'} unmountOnExit timeout={200}>
+          <PolicyEditor
+            policy={null}
+            hideSecrets
+            title="Create Policy"
+            saveLabel="Create & Link"
+            saving={updateConfig.isPending}
+            onSave={(newPolicy) => handleCreateAndLink(newPolicy)}
+            onCancel={() => setCreatingPolicy(false)}
+          />
+        </Collapse>
+      </Box>
+    </FormCard>
   );
 }

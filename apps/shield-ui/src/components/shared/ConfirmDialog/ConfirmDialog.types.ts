@@ -5,6 +5,7 @@ export interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: 'danger' | 'default';
+  position?: 'top' | 'center';
   onConfirm: () => void;
   onCancel: () => void;
 }

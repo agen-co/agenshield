@@ -12,8 +12,10 @@ export interface PolicyRule {
   id: string;
   /** Human-readable name */
   name: string;
-  /** Policy type */
-  type: 'allowlist' | 'denylist';
+  /** Policy action: allow, deny, or approval (future) */
+  action: 'allow' | 'deny' | 'approval';
+  /** What this rule targets */
+  target: 'skill' | 'command' | 'url';
   /** Operations this rule applies to */
   operations: OperationType[];
   /** Patterns to match (glob or regex) */

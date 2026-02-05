@@ -24,6 +24,7 @@ export interface DevState {
   baseUid: number;
   baseGid: number;
   testHarnessPath: string;
+  nodePath: string;
 }
 
 function sudoExec(cmd: string): { success: boolean; output?: string; error?: string } {

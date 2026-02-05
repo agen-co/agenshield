@@ -14,7 +14,8 @@ import type { HandlerContext } from '../types.js';
 export interface PolicyRule {
   id: string;
   name: string;
-  type: 'allowlist' | 'denylist';
+  action: 'allow' | 'deny' | 'approval';
+  target: 'skill' | 'command' | 'url';
   operations: string[];
   patterns: string[];
   enabled: boolean;
@@ -149,13 +150,13 @@ export class PolicyEnforcer {
         const matches = this.matchesPatterns(target, rule.patterns);
 
         if (matches) {
-          if (rule.type === 'denylist') {
+          if (rule.action === 'deny' || rule.action === 'approval') {
             return {
               allowed: false,
               policyId: rule.id,
               reason: `Denied by policy: ${rule.name}`,
             };
-          } else if (rule.type === 'allowlist') {
+          } else if (rule.action === 'allow') {
             return {
               allowed: true,
               policyId: rule.id,

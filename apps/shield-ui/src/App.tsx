@@ -22,9 +22,11 @@ import { PageTransition } from './components/layout/PageTransition';
 import { PasscodeDialog } from './components/PasscodeDialog';
 import { AgentLinkAuthBanner } from './components/agentlink/AgentLinkAuthBanner';
 import { useAuth } from './context/AuthContext';
-import { useHealth } from './api/hooks';
+import { useHealth, useServerMode } from './api/hooks';
 import { useSSE } from './hooks/useSSE';
 import { eventStore } from './state/events';
+import { SetupWizard } from './pages/Setup';
+import { NotFound } from './pages/NotFound';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -41,7 +43,13 @@ const queryClient = new QueryClient({
 function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggleDarkMode: () => void }) {
   const { requiresFullAuth, isReadOnly, loaded, passcodeSet, protectionEnabled } = useAuth();
   const { isError: healthError, isLoading: healthLoading, refetch: retryHealth, isFetching } = useHealth();
+  const serverMode = useServerMode();
   const [agentLinkAuthRequired, setAgentLinkAuthRequired] = useState<{ authUrl?: string; integration?: string } | null>(null);
+
+  // Setup mode: render full-screen wizard, bypass all auth gates
+  if (serverMode === 'setup') {
+    return <SetupWizard />;
+  }
 
   // Connect to SSE events
   useSSE();
@@ -99,6 +107,7 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
             <Route path="/activity" element={<Activity />} />
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </PageTransition>
       </Layout>

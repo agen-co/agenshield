@@ -16,12 +16,17 @@ import type {
 const BASE_URL = '/api';
 
 async function authRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${endpoint}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+  } catch {
+    throw new Error('Unable to connect to daemon');
+  }
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
     const error = new Error(data.error || `API Error: ${res.status} ${res.statusText}`);
@@ -30,7 +35,7 @@ async function authRequest<T>(endpoint: string, options?: RequestInit): Promise<
     throw error;
   }
 
-  return data;
+  return data as T;
 }
 
 export const authApi = {

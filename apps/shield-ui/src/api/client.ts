@@ -10,7 +10,14 @@ import type {
   UpdateConfigRequest,
   SkillAnalysis,
   SystemBinary,
+  DiscoveryResult,
 } from '@agenshield/ipc';
+import type {
+  MarketplaceSkill,
+  AnalyzeSkillRequest,
+  AnalyzeSkillResponse,
+  InstallSkillRequest,
+} from './marketplace.types';
 
 const BASE_URL = '/api';
 
@@ -49,19 +56,25 @@ function buildHeaders(extra?: HeadersInit): HeadersInit {
 }
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
-    ...options,
-    headers: buildHeaders(options?.headers),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${endpoint}`, {
+      ...options,
+      headers: buildHeaders(options?.headers),
+    });
+  } catch {
+    throw new Error('Unable to connect to daemon');
+  }
+
+  const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
     const error = new Error(data.error || `API Error: ${res.status} ${res.statusText}`);
     (error as Error & { status: number }).status = res.status;
     throw error;
   }
 
-  return res.json();
+  return data as T;
 }
 
 // --- Types for new endpoints ---
@@ -83,21 +96,15 @@ export interface SkillDetail extends SkillSummary {
 export interface Secret {
   id: string;
   name: string;
-  scope: SecretScope;
+  policyIds: string[];
   maskedValue: string;
   createdAt: string;
 }
 
-export type SecretScope =
-  | { type: 'global' }
-  | { type: 'command'; pattern: string }
-  | { type: 'url'; pattern: string }
-  | { type: 'skill'; skillId: string };
-
 export interface CreateSecretRequest {
   name: string;
   value: string;
-  scope: SecretScope;
+  policyIds: string[];
 }
 
 export interface SecurityStatus {
@@ -150,6 +157,12 @@ export const api = {
   deleteSecret: (id: string) =>
     request<{ deleted: boolean }>(`/secrets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  updateSecret: (id: string, data: { policyIds: string[] }) =>
+    request<{ data: Secret }>(`/secrets/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
   // Security endpoint
   getSecurity: () => request<{ data: SecurityStatus }>('/security'),
 
@@ -160,12 +173,34 @@ export const api = {
       body: JSON.stringify({ content, metadata }),
     }),
 
+  // Marketplace endpoints
+  marketplace: {
+    search: (query: string) =>
+      request<{ data: MarketplaceSkill[] }>(`/marketplace/search?q=${encodeURIComponent(query)}`),
+    getSkill: (slug: string) =>
+      request<{ data: MarketplaceSkill }>(`/marketplace/skills/${encodeURIComponent(slug)}`),
+    analyzeSkill: (data: AnalyzeSkillRequest) =>
+      request<{ data: AnalyzeSkillResponse }>('/marketplace/analyze', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    installSkill: (data: InstallSkillRequest) =>
+      request<{ data: { success: boolean; name: string } }>('/marketplace/install', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+  },
+
   // System binaries & allowed commands
   getSystemBins: () =>
     request<{ data: { bins: SystemBinary[] } }>('/exec/system-bins'),
 
   getAllowedCommands: () =>
     request<{ data: { commands: Array<{ name: string; paths: string[]; addedAt: string; addedBy: string; category?: string }> } }>('/exec/allowed-commands'),
+
+  // Discovery endpoint
+  getDiscovery: (refresh = false) =>
+    request<{ success: boolean; data: DiscoveryResult }>(`/discovery/scan?refresh=${refresh}`),
 
   // AgentLink endpoints
   agentlink: {

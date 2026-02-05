@@ -75,7 +75,8 @@ export const DaemonConfigSchema = z.object({
 export const PolicyConfigSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(100),
-  type: z.enum(['allowlist', 'denylist']),
+  action: z.enum(['allow', 'deny', 'approval']),
+  target: z.enum(['skill', 'command', 'url']),
   patterns: z.array(z.string()),
   enabled: z.boolean().default(true),
 });

@@ -87,11 +87,11 @@ export async function getDaemonStatus(): Promise<DaemonStatus> {
 export function findDaemonExecutable(): string | null {
   const searchPaths = [
     // Relative to CLI dist
-    path.join(__dirname, '../../../shield-daemon/dist/src/main.js'),
+    path.join(__dirname, '../../../shield-daemon/dist/main.js'),
     // Installed location
     '/opt/agenshield/bin/agenshield-daemon',
     // Development location from project root
-    path.join(process.cwd(), 'libs/shield-daemon/dist/src/main.js'),
+    path.join(process.cwd(), 'libs/shield-daemon/dist/main.js'),
   ];
 
   for (const p of searchPaths) {
@@ -101,6 +101,27 @@ export function findDaemonExecutable(): string | null {
   }
 
   return null;
+}
+
+/**
+ * Find the daemon TypeScript source (for tsx fallback in dev)
+ */
+export function findDaemonSource(): string | null {
+  const searchPaths = [
+    path.join(__dirname, '../../../shield-daemon/src/main.ts'),
+    path.join(process.cwd(), 'libs/shield-daemon/src/main.ts'),
+  ];
+  return searchPaths.find(p => fs.existsSync(p)) || null;
+}
+
+/**
+ * Find tsx binary for running TypeScript directly
+ */
+function findTsx(): string | null {
+  const searchPaths = [
+    path.join(process.cwd(), 'node_modules/.bin/tsx'),
+  ];
+  return searchPaths.find(p => fs.existsSync(p)) || null;
 }
 
 /**
@@ -122,12 +143,22 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
   }
 
   // Find daemon executable
-  const daemonPath = findDaemonExecutable();
+  let daemonPath = findDaemonExecutable();
+  let runner = 'node';
+
   if (!daemonPath) {
-    return {
-      success: false,
-      message: 'Daemon executable not found. Build the daemon first: npm run build',
-    };
+    // Fallback: run from TypeScript source via tsx
+    const source = findDaemonSource();
+    const tsx = findTsx();
+    if (source && tsx) {
+      daemonPath = source;
+      runner = tsx;
+    } else {
+      return {
+        success: false,
+        message: 'Daemon executable not found. Build first: npx nx build shield-daemon',
+      };
+    }
   }
 
   const env = {
@@ -138,7 +169,7 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
 
   if (options.foreground) {
     // Run in foreground (blocking)
-    const child = spawn('node', [daemonPath], {
+    const child = spawn(runner, [daemonPath], {
       stdio: 'inherit',
       env,
     });
@@ -177,7 +208,7 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
 
     const logFile = path.join(DAEMON_CONFIG.LOG_DIR, 'daemon.log');
 
-    const child = spawn('node', [daemonPath], {
+    const child = spawn(runner, [daemonPath], {
       detached: true,
       stdio: ['ignore', fs.openSync(logFile, 'a'), fs.openSync(logFile, 'a')],
       env,

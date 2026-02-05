@@ -96,6 +96,7 @@ export const PUBLIC_ROUTES = [
   '/api/status',
   '/api/config', // GET is public, PUT is protected
   '/api/security',
+  '/api/secrets', // GET is public (read-only), POST/DELETE are protected
   '/api/auth/status',
   '/api/auth/unlock',
   '/api/auth/setup',
@@ -112,6 +113,9 @@ export const PROTECTED_ROUTES = [
   { method: 'DELETE', path: '/api/wrappers' },
   { method: 'POST', path: '/api/agentlink/tool/run' },
   { method: 'POST', path: '/api/agentlink/integrations/connect' },
+  { method: 'POST', path: '/api/secrets' },
+  { method: 'PATCH', path: '/api/secrets' },
+  { method: 'DELETE', path: '/api/secrets' },
 ];
 
 /**

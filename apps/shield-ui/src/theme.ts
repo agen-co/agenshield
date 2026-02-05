@@ -10,7 +10,7 @@ import '@fontsource/manrope/latin-700.css';
 import '@fontsource/manrope/latin-800.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
 
-import { createTheme, darken, type ThemeOptions, type Color } from '@mui/material/styles';
+import { createTheme, darken, lighten, type ThemeOptions, type Color } from '@mui/material/styles';
 import type { CSSProperties } from 'react';
 
 // --- Module augmentation ---
@@ -161,9 +161,9 @@ const components: ThemeOptions['components'] = {
       startIcon: {
         marginLeft: 0,
         '& > *:nth-of-type(1)': { fontSize: '1rem' },
-        '&.MuiButton-iconSizeLarge': { marginRight: '1rem' },
-        '&.MuiButton-iconSizeMedium': { marginRight: '0.5rem' },
-        '&.MuiButton-iconSizeSmall': { marginRight: '0.5rem' },
+        '&.MuiButton-iconSizeLarge': { marginRight: '0.75rem', marginLeft: '-0.25rem' },
+        '&.MuiButton-iconSizeMedium': { marginRight: '0.25rem', marginLeft: '-0.1rem' },
+        '&.MuiButton-iconSizeSmall': { marginRight: '0.25rem', marginLeft: '-0.1rem' },
       },
       endIcon: {
         marginLeft: 'auto',
@@ -200,8 +200,18 @@ const components: ThemeOptions['components'] = {
       {
         props: { color: 'primary', variant: 'contained' },
         style: ({ theme }) => ({
-          '&:hover, &.Mui-hover': { backgroundColor: theme.palette.primary.dark },
-          '&:active, &.Mui-active': { backgroundColor: darken(theme.palette.primary.dark, 0.1) },
+          '&:hover, &.Mui-hover': {
+            backgroundColor:
+              theme.palette.mode === 'light'
+                ? lighten(theme.palette.primary.main, 0.2)
+                : darken(theme.palette.primary.main, 0.1),
+          },
+          '&:active, &.Mui-active': {
+            backgroundColor:
+              theme.palette.mode === 'light'
+                ? lighten(theme.palette.primary.main, 0.1)
+                : darken(theme.palette.primary.main, 0.2),
+          },
           '&.Mui-disabled': {
             backgroundColor: theme.palette.grey[200],
             color: theme.palette.grey[500],
@@ -375,6 +385,37 @@ const components: ThemeOptions['components'] = {
           backgroundColor: theme.palette.grey[300],
           opacity: 1,
           transition: theme.transitions.create(['background-color'], { duration: 200 }),
+        },
+      }),
+    },
+  },
+  MuiMenu: {
+    defaultProps: {
+      transitionDuration: 150,
+    },
+    styleOverrides: {
+      paper: ({ theme }) => ({
+        marginTop: theme.spacing(0.5),
+        borderRadius: (theme.shape.borderRadius as number) * 2,
+        border: `1px solid ${theme.palette.divider}`,
+        boxShadow:
+          theme.palette.mode === 'light'
+            ? '0 4px 16px rgba(0,0,0,0.08)'
+            : '0 4px 16px rgba(0,0,0,0.32)',
+      }),
+      list: {
+        padding: '4px',
+      },
+    },
+  },
+  MuiMenuItem: {
+    styleOverrides: {
+      root: ({ theme }) => ({
+        borderRadius: theme.shape.borderRadius,
+        fontSize: '0.875rem',
+        minHeight: 36,
+        '&.Mui-selected': {
+          backgroundColor: theme.palette.action.selected,
         },
       }),
     },
@@ -559,10 +600,10 @@ export const darkTheme = createTheme({
       contrastText: '#332D13',
     },
     grey: greyPalette,
-    divider: greyPalette['700'],
+    divider: '#1F1F1F',
     background: {
-      default: greyPalette['900'],
-      paper: greyPalette['800'],
+      default: '#000000',
+      paper: '#0A0A0A',
     },
     text: {
       primary: greyPalette['100'],

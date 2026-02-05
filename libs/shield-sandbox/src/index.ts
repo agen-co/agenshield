@@ -159,6 +159,15 @@ export {
   type PresetMigrationResult,
 } from './presets';
 
+// Discovery (binary + skill scanning)
+export {
+  scanDiscovery,
+  scanBinaries,
+  scanSkills,
+  parseSkillMd,
+  classifyDirectory,
+} from './discovery';
+
 // Skill Injector (AgentLink skill injection)
 export {
   injectAgentLinkSkill,

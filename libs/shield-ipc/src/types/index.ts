@@ -13,3 +13,5 @@ export * from './agentlink';
 export * from './state';
 export * from './vault';
 export * from './auth';
+export * from './discovery';
+export * from './catalog';

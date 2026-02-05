@@ -47,7 +47,7 @@ export interface SecurityStatusData {
 export type GetStatusResponse = ApiResponse<DaemonStatus>;
 export type GetConfigResponse = ApiResponse<ShieldConfig>;
 export type UpdateConfigResponse = ApiResponse<ShieldConfig>;
-export type HealthResponse = ApiResponse<{ ok: boolean; timestamp: string }>;
+export type HealthResponse = ApiResponse<{ ok: boolean; timestamp: string; mode?: 'daemon' | 'setup' }>;
 export type GetSecurityStatusResponse = ApiResponse<SecurityStatusData>;
 
 // Request types

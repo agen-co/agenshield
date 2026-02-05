@@ -36,30 +36,3 @@ export const SecretValue = styled('code', {
   padding: '2px 8px',
   borderRadius: 4,
 }));
-
-export const ScopeTag = styled('span', {
-  name: 'SecretsList',
-  slot: 'ScopeTag',
-})(({ theme }) => ({
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 4,
-  fontSize: 12,
-  fontWeight: 500,
-  padding: '2px 8px',
-  borderRadius: 4,
-  color: theme.palette.text.secondary,
-  backgroundColor: theme.palette.action.selected,
-}));
-
-export const GroupHeader = styled('div', {
-  name: 'SecretsList',
-  slot: 'GroupHeader',
-})(({ theme }) => ({
-  padding: theme.spacing(1.5, 2, 0.5),
-  fontSize: 11,
-  fontWeight: 600,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-  color: theme.palette.text.secondary,
-}));

@@ -14,7 +14,8 @@ export const BuiltinPolicies: PolicyRule[] = [
   {
     id: 'builtin-allow-localhost',
     name: 'Allow localhost connections',
-    type: 'allowlist',
+    action: 'allow',
+    target: 'url',
     operations: ['http_request'],
     patterns: [
       'http://localhost:*',
@@ -30,7 +31,8 @@ export const BuiltinPolicies: PolicyRule[] = [
   {
     id: 'builtin-deny-secrets',
     name: 'Deny access to secret files',
-    type: 'denylist',
+    action: 'deny',
+    target: 'command',
     operations: ['file_read', 'file_write'],
     patterns: [
       '**/.env',
@@ -55,7 +57,8 @@ export const BuiltinPolicies: PolicyRule[] = [
   {
     id: 'builtin-deny-system',
     name: 'Deny access to system files',
-    type: 'denylist',
+    action: 'deny',
+    target: 'command',
     operations: ['file_read', 'file_write'],
     patterns: [
       '/etc/passwd',
@@ -73,7 +76,8 @@ export const BuiltinPolicies: PolicyRule[] = [
   {
     id: 'builtin-deny-dangerous-commands',
     name: 'Deny dangerous commands',
-    type: 'denylist',
+    action: 'deny',
+    target: 'command',
     operations: ['exec'],
     patterns: [
       'rm -rf /*',
@@ -99,7 +103,8 @@ export const BuiltinPolicies: PolicyRule[] = [
   {
     id: 'builtin-deny-network-bypass',
     name: 'Deny direct network tools',
-    type: 'denylist',
+    action: 'deny',
+    target: 'command',
     operations: ['exec'],
     patterns: [
       'nc *',
@@ -117,7 +122,8 @@ export const BuiltinPolicies: PolicyRule[] = [
   {
     id: 'builtin-allow-ai-apis',
     name: 'Allow common AI API endpoints',
-    type: 'allowlist',
+    action: 'allow',
+    target: 'url',
     operations: ['http_request'],
     patterns: [
       'https://api.anthropic.com/**',
@@ -134,7 +140,8 @@ export const BuiltinPolicies: PolicyRule[] = [
   {
     id: 'builtin-allow-registries',
     name: 'Allow package registries',
-    type: 'allowlist',
+    action: 'allow',
+    target: 'url',
     operations: ['http_request'],
     patterns: [
       'https://registry.npmjs.org/**',
@@ -151,7 +158,8 @@ export const BuiltinPolicies: PolicyRule[] = [
   {
     id: 'builtin-allow-github',
     name: 'Allow GitHub',
-    type: 'allowlist',
+    action: 'allow',
+    target: 'url',
     operations: ['http_request'],
     patterns: [
       'https://github.com/**',

@@ -5,6 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { UpdateConfigRequest } from '@agenshield/ipc';
 import { api, type CreateSecretRequest } from './client';
+import type { AnalyzeSkillRequest, InstallSkillRequest } from './marketplace.types';
 
 // Query keys
 export const queryKeys = {
@@ -19,6 +20,8 @@ export const queryKeys = {
   agentlinkMCPStatus: ['agentlink', 'mcp-status'] as const,
   agentlinkIntegrations: ['agentlink', 'integrations'] as const,
   agentlinkConnected: ['agentlink', 'connected'] as const,
+  marketplaceSearch: (query: string) => ['marketplace', 'search', query] as const,
+  marketplaceSkill: (slug: string) => ['marketplace', 'skill', slug] as const,
 };
 
 /**
@@ -33,6 +36,15 @@ export function useHealth() {
     refetchInterval: (query) => (query.state.status === 'error' ? 10000 : 30000),
     retry: 1,
   });
+}
+
+/**
+ * Returns the server mode from the health endpoint.
+ * 'setup' when served by setup server, 'daemon' when served by daemon.
+ */
+export function useServerMode() {
+  const { data } = useHealth();
+  return data?.data?.mode;
 }
 
 /**
@@ -170,6 +182,16 @@ export function useAllowedCommands() {
   });
 }
 
+export function useDiscovery() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: ['discovery'] as const,
+    queryFn: () => api.getDiscovery(),
+    enabled: healthy,
+    staleTime: 60_000,
+  });
+}
+
 // --- Secrets hooks ---
 
 export function useSecrets() {
@@ -199,6 +221,19 @@ export function useDeleteSecret() {
     mutationFn: (id: string) => api.deleteSecret(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.secrets });
+    },
+  });
+}
+
+export function useUpdateSecret() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, policyIds }: { id: string; policyIds: string[] }) =>
+      api.updateSecret(id, { policyIds }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.secrets });
+      queryClient.invalidateQueries({ queryKey: queryKeys.config });
     },
   });
 }
@@ -277,6 +312,43 @@ export function useAgentLinkConnectIntegration() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkConnected });
       queryClient.invalidateQueries({ queryKey: queryKeys.agentlinkIntegrations });
+    },
+  });
+}
+
+// --- Marketplace hooks ---
+
+export function useMarketplaceSearch(query: string) {
+  return useQuery({
+    queryKey: queryKeys.marketplaceSearch(query),
+    queryFn: () => api.marketplace.search(query),
+    enabled: query.length >= 2,
+    staleTime: 60_000,
+  });
+}
+
+export function useMarketplaceSkill(slug: string | null) {
+  return useQuery({
+    queryKey: queryKeys.marketplaceSkill(slug ?? ''),
+    queryFn: () => api.marketplace.getSkill(slug!),
+    enabled: !!slug,
+    staleTime: 300_000,
+  });
+}
+
+export function useAnalyzeMarketplaceSkill() {
+  return useMutation({
+    mutationFn: (data: AnalyzeSkillRequest) => api.marketplace.analyzeSkill(data),
+  });
+}
+
+export function useInstallMarketplaceSkill() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: InstallSkillRequest) => api.marketplace.installSkill(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.skills });
     },
   });
 }

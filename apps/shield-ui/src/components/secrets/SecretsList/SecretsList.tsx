@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
-import { Typography, IconButton, Box } from '@mui/material';
-import { Trash2, Globe, Terminal, Link, Zap } from 'lucide-react';
+import { Typography, IconButton, Box, Chip } from '@mui/material';
+import { Trash2, Globe } from 'lucide-react';
+import type { PolicyConfig } from '@agenshield/ipc';
 import type { Secret } from '../../../api/client';
-import { SecretRow, SecretName, SecretValue, ScopeTag, GroupHeader } from './SecretsList.styles';
+import { useConfig } from '../../../api/hooks';
+import { SecretRow, SecretName, SecretValue } from './SecretsList.styles';
 
 interface SecretsListProps {
   secrets: Secret[];
@@ -10,86 +12,77 @@ interface SecretsListProps {
   onDelete: (id: string) => void;
 }
 
-function scopeLabel(secret: Secret): string {
-  switch (secret.scope.type) {
-    case 'global': return 'Global';
-    case 'command': return `Command: ${secret.scope.pattern}`;
-    case 'url': return `URL: ${secret.scope.pattern}`;
-    case 'skill': return `Skill: ${secret.scope.skillId}`;
-  }
-}
-
-function ScopeIcon({ type }: { type: string }) {
-  switch (type) {
-    case 'command': return <Terminal size={12} />;
-    case 'url': return <Link size={12} />;
-    case 'skill': return <Zap size={12} />;
-    default: return <Globe size={12} />;
-  }
-}
-
-const scopeOrder = ['global', 'command', 'url', 'skill'];
-const scopeLabels: Record<string, string> = {
-  global: 'Global Secrets',
-  command: 'Command Secrets',
-  url: 'URL Secrets',
-  skill: 'Skill Secrets',
-};
+const ACTION_LABEL: Record<string, string> = { allow: 'Allow', deny: 'Deny', approval: 'Approval' };
+const TARGET_LABEL: Record<string, string> = { command: 'Cmd', skill: 'Skill', url: 'URL' };
 
 export function SecretsList({ secrets, search, onDelete }: SecretsListProps) {
+  const { data: configData } = useConfig();
+  const policies = configData?.data?.policies ?? [];
+
+  const policyMap = useMemo(() => {
+    const map = new Map<string, PolicyConfig>();
+    for (const p of policies) {
+      map.set(p.id, p);
+    }
+    return map;
+  }, [policies]);
+
   const filtered = useMemo(() => {
     if (!search) return secrets;
     const q = search.toLowerCase();
     return secrets.filter((s) => s.name.toLowerCase().includes(q));
   }, [secrets, search]);
 
-  const grouped = useMemo(() => {
-    const groups = new Map<string, Secret[]>();
-    for (const secret of filtered) {
-      const type = secret.scope.type;
-      const list = groups.get(type) ?? [];
-      list.push(secret);
-      groups.set(type, list);
-    }
-    return groups;
-  }, [filtered]);
-
   return (
     <Box>
-      {scopeOrder.map((type) => {
-        const items = grouped.get(type);
-        if (!items?.length) return null;
-
-        return (
-          <Box key={type}>
-            <GroupHeader>{scopeLabels[type]}</GroupHeader>
-            {items.map((secret) => (
-              <SecretRow key={secret.id}>
-                <SecretName>
-                  <Typography variant="body2" fontWeight={500}>
-                    {secret.name}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Created {new Date(secret.createdAt).toLocaleDateString()}
-                  </Typography>
-                </SecretName>
-                <SecretValue>{secret.maskedValue}</SecretValue>
-                <ScopeTag>
-                  <ScopeIcon type={secret.scope.type} />
-                  {scopeLabel(secret)}
-                </ScopeTag>
-                <IconButton
-                  size="small"
-                  color="error"
-                  onClick={() => onDelete(secret.id)}
-                >
-                  <Trash2 size={14} />
-                </IconButton>
-              </SecretRow>
-            ))}
+      {filtered.map((secret) => (
+        <SecretRow key={secret.id}>
+          <SecretName>
+            <Typography variant="body2" fontWeight={500}>
+              {secret.name}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Created {new Date(secret.createdAt).toLocaleDateString()}
+            </Typography>
+          </SecretName>
+          <SecretValue>{secret.maskedValue}</SecretValue>
+          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
+            {secret.policyIds.length === 0 ? (
+              <Chip
+                size="small"
+                icon={<Globe size={12} />}
+                label="Global"
+                variant="outlined"
+                sx={{ fontSize: 11, height: 22 }}
+              />
+            ) : (
+              secret.policyIds.map((pid) => {
+                const p = policyMap.get(pid);
+                const label = p
+                  ? `${p.name} · ${ACTION_LABEL[p.action] ?? p.action}`
+                  : pid;
+                return (
+                  <Chip
+                    key={pid}
+                    size="small"
+                    label={label}
+                    variant="outlined"
+                    color={p?.action === 'allow' ? 'success' : p?.action === 'deny' ? 'error' : undefined}
+                    sx={{ fontSize: 11, height: 22 }}
+                  />
+                );
+              })
+            )}
           </Box>
-        );
-      })}
+          <IconButton
+            size="small"
+            color="error"
+            onClick={() => onDelete(secret.id)}
+          >
+            <Trash2 size={14} />
+          </IconButton>
+        </SecretRow>
+      ))}
     </Box>
   );
 }

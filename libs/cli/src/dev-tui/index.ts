@@ -3,3 +3,4 @@ export { loadDevState, saveDevState, deleteDevState, devStateExists } from './st
 export type { ActionId, TestResult } from './runner.js';
 export { runTestAction } from './runner.js';
 export { DevApp } from './DevApp.js';
+export { DevSetupApp } from './DevSetupApp.js';

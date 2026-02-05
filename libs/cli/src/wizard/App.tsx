@@ -130,6 +130,12 @@ export function WizardApp() {
   // Handle mode selection
   const handleModeSelect = useCallback((mode: SetupMode) => {
     setSetupMode(mode);
+    if (mode === 'webui') {
+      // Signal to the parent command that web UI was requested
+      process.env['AGENSHIELD_WEBUI_REQUESTED'] = 'true';
+      exit();
+      return;
+    }
     if (mode === 'quick') {
       // Use default naming (ash_ prefix with default suffix)
       setOptions(prev => ({ ...prev, baseName: 'default' }));
@@ -140,7 +146,7 @@ export function WizardApp() {
     } else {
       setPhase('advanced_config');
     }
-  }, [engine]);
+  }, [engine, exit]);
 
   // Handle advanced config confirmation
   const handleAdvancedConfig = useCallback((values: { agentSuffix: string }) => {

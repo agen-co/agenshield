@@ -12,6 +12,7 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       data: {
         ok: true,
         timestamp: new Date().toISOString(),
+        mode: 'daemon' as const,
       },
     };
   });
