@@ -25,6 +25,8 @@ export interface DevState {
   baseGid: number;
   testHarnessPath: string;
   nodePath: string;
+  skillsDir?: string;
+  installedSkills?: string[];
 }
 
 function sudoExec(cmd: string): { success: boolean; output?: string; error?: string } {

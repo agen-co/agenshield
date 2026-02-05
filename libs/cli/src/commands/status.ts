@@ -5,6 +5,7 @@
  */
 
 import { Command } from 'commander';
+import { getEffectiveEnvForScanning } from '../utils/sudo-env.js';
 
 /**
  * Show the current status
@@ -16,7 +17,7 @@ async function showStatus(): Promise<void> {
   const { detectOpenClaw, checkSecurityStatus } = await import('@agenshield/sandbox');
 
   const detection = detectOpenClaw();
-  const security = checkSecurityStatus();
+  const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
 
   // Quick status indicators
   const indicators = {
@@ -63,7 +64,7 @@ export function createStatusCommand(): Command {
       if (options.json) {
         const { detectOpenClaw, checkSecurityStatus } = await import('@agenshield/sandbox');
         const detection = detectOpenClaw();
-        const security = checkSecurityStatus();
+        const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
         console.log(JSON.stringify({ detection, security }, null, 2));
       } else {
         await showStatus();

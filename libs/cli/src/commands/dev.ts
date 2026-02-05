@@ -13,6 +13,7 @@ import React from 'react';
 import { render } from 'ink';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { execSync } from 'node:child_process';
 import { ensureRoot } from '../utils/privileges.js';
 import { startDaemon, stopDaemon } from '../utils/daemon.js';
 import {
@@ -30,11 +31,59 @@ import {
   removeAllDirectories,
   userExists,
 } from '@agenshield/sandbox';
+import { findTestHarness } from '../utils/find-test-harness.js';
 
 const DEV_PREFIX = 'dev';
 const DEV_BASE_NAME = 'default';
 const DEV_BASE_UID = 5400;
 const DEV_BASE_GID = 5300;
+
+/**
+ * Launch the Web UI setup server in the browser
+ */
+async function runDevWebUI(options: { baseName?: string; prefix?: string; baseUid?: number; tui: boolean }): Promise<void> {
+  // Dynamic import to avoid pulling in server deps unless needed
+  const { createSetupServer } = await import('../setup-server/server.js');
+  const { createWizardEngine } = await import('../wizard/engine.js');
+
+  // The wizard engine will auto-detect the dev-harness preset
+  const engine = createWizardEngine({
+    prefix: options.prefix || DEV_PREFIX,
+    baseName: options.baseName || DEV_BASE_NAME,
+    baseUid: options.baseUid || DEV_BASE_UID,
+    baseGid: DEV_BASE_GID,
+  });
+  const detectionResult = await engine.runDetectionPhase();
+  if (!detectionResult.success) {
+    console.log(`Warning: Detection phase issue: ${detectionResult.error}`);
+  }
+
+  const server = createSetupServer(engine);
+  const url = await server.start(6970);
+  console.log(`Web UI available at: ${url}`);
+
+  // Open browser as the original (non-root) user so the correct default browser is used
+  try {
+    const sudoUser = process.env['SUDO_USER'];
+    if (sudoUser) {
+      execSync(`sudo -u ${sudoUser} open ${url}`, { stdio: 'pipe' });
+    } else {
+      execSync(`open ${url}`, { stdio: 'pipe' });
+    }
+  } catch { /* Non-macOS or open failed */ }
+
+  // Wait for setup completion or SIGINT
+  await new Promise<void>((resolve) => {
+    process.on('SIGINT', resolve);
+    process.on('SIGTERM', resolve);
+  });
+
+  console.log('\nShutting down Web UI server...');
+  await server.stop();
+
+  // Force exit after a short grace period in case something still holds the event loop
+  setTimeout(() => process.exit(0), 1000).unref();
+}
 
 /**
  * Run dev mode: detect state → wizard setup or skip → start daemon → render TUI → stop daemon
@@ -61,14 +110,15 @@ async function runDevMode(options: {
       } else {
         console.log(`Resuming dev session (user: ${state.agentUsername})`);
 
+        const cfg = createUserConfig({
+          prefix: state.prefix,
+          baseName: state.baseName,
+          baseUid: state.baseUid,
+          baseGid: state.baseGid,
+        });
+
         // Ensure nodePath is set (backcompat with older state files)
         if (!state.nodePath) {
-          const cfg = createUserConfig({
-            prefix: state.prefix,
-            baseName: state.baseName,
-            baseUid: state.baseUid,
-            baseGid: state.baseGid,
-          });
           const agentBinDir = path.join(cfg.agentUser.home, 'bin');
           const nodeDest = path.join(agentBinDir, 'node');
           if (!fs.existsSync(nodeDest)) {
@@ -83,6 +133,27 @@ async function runDevMode(options: {
           state.nodePath = nodeDest;
         }
 
+        // Backcompat: ensure skillsDir is set
+        if (!state.skillsDir) {
+          state.skillsDir = path.join(cfg.agentUser.home, '.openclaw-dev', 'skills');
+        }
+        if (!state.installedSkills) {
+          state.installedSkills = [];
+        }
+
+        // Re-copy test harness if path points outside agent home
+        if (state.testHarnessPath && !state.testHarnessPath.startsWith(cfg.agentUser.home)) {
+          const harnessSource = findTestHarness();
+          if (harnessSource) {
+            const harnessDestPath = path.join(cfg.agentUser.home, 'bin', 'dummy-openclaw.js');
+            try {
+              fs.copyFileSync(harnessSource, harnessDestPath);
+              fs.chmodSync(harnessDestPath, 0o755);
+              state.testHarnessPath = harnessDestPath;
+            } catch { /* best effort */ }
+          }
+        }
+
         // Update lastUsedAt
         state.lastUsedAt = new Date().toISOString();
         saveDevState(state);
@@ -93,6 +164,7 @@ async function runDevMode(options: {
   // First run: interactive wizard-like setup
   if (!state) {
     let resolvedState: DevState | null = null;
+    let webuiRequested = false;
 
     const { waitUntilExit } = render(
       React.createElement(DevSetupApp, {
@@ -105,9 +177,17 @@ async function runDevMode(options: {
         onComplete: (devState: DevState) => {
           resolvedState = devState;
         },
+        onWebUI: () => {
+          webuiRequested = true;
+        },
       })
     );
     await waitUntilExit();
+
+    if (webuiRequested) {
+      await runDevWebUI(options);
+      return;
+    }
 
     if (!resolvedState) {
       console.log('Setup cancelled.');
@@ -173,6 +253,18 @@ async function runDevClean(): Promise<void> {
     baseUid: state?.baseUid || DEV_BASE_UID,
     baseGid: state?.baseGid || DEV_BASE_GID,
   });
+
+  // Remove dev skills/config directory
+  if (state?.skillsDir) {
+    const devConfigDir = path.dirname(state.skillsDir); // .openclaw-dev
+    console.log('Removing dev skills directory...');
+    try {
+      execSync(`rm -rf "${devConfigDir}"`, { stdio: 'pipe' });
+      console.log('  ✓ Dev skills directory removed');
+    } catch {
+      console.log('  ✗ Could not remove dev skills directory');
+    }
+  }
 
   // Remove directories
   console.log('Removing directories...');

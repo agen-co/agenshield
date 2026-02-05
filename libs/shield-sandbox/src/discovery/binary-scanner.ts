@@ -17,6 +17,7 @@ import type {
   BinaryDirectory,
   DiscoveryOptions,
 } from '@agenshield/ipc';
+import { COMMAND_CATALOG } from '@agenshield/ipc';
 import { PROXIED_COMMANDS } from '../shield-exec';
 import { WRAPPER_DEFINITIONS } from '../wrappers';
 
@@ -36,33 +37,10 @@ const AGENSHIELD_SYSTEM_BIN = '/opt/agenshield/bin';
 /** Allowed-commands config path */
 const ALLOWED_COMMANDS_PATH = '/opt/agenshield/config/allowed-commands.json';
 
-/** Category map for binary classification */
-const CATEGORY_MAP: Record<string, DiscoveredBinary['category']> = {
-  // Network
-  curl: 'network', wget: 'network', ssh: 'network', scp: 'network',
-  rsync: 'network', nc: 'network', telnet: 'network', ftp: 'network',
-  sftp: 'network', nslookup: 'network', dig: 'network', host: 'network',
-  ping: 'network', traceroute: 'network', netstat: 'network',
-  // Package managers
-  npm: 'package-manager', npx: 'package-manager', pip: 'package-manager',
-  pip3: 'package-manager', brew: 'package-manager', yarn: 'package-manager',
-  pnpm: 'package-manager', gem: 'package-manager', cargo: 'package-manager',
-  // Shell
-  bash: 'shell', zsh: 'shell', sh: 'shell', fish: 'shell',
-  dash: 'shell', ksh: 'shell', csh: 'shell', tcsh: 'shell',
-  // System
-  ls: 'system', cp: 'system', mv: 'system', rm: 'system',
-  mkdir: 'system', chmod: 'system', chown: 'system', chgrp: 'system',
-  cat: 'system', echo: 'system', touch: 'system', ln: 'system',
-  find: 'system', grep: 'system', sed: 'system', awk: 'system',
-  ps: 'system', kill: 'system', top: 'system', df: 'system',
-  du: 'system', mount: 'system', umount: 'system',
-  // Language runtimes
-  node: 'language-runtime', python: 'language-runtime', python3: 'language-runtime',
-  ruby: 'language-runtime', perl: 'language-runtime', java: 'language-runtime',
-  go: 'language-runtime', rustc: 'language-runtime', deno: 'language-runtime',
-  bun: 'language-runtime',
-};
+/** Category map for binary classification — derived from shared catalog */
+const CATEGORY_MAP: Record<string, DiscoveredBinary['category']> = Object.fromEntries(
+  Object.entries(COMMAND_CATALOG).map(([name, entry]) => [name, entry.category]),
+);
 
 /** Wrapper names set (derived from WRAPPER_DEFINITIONS keys) */
 const WRAPPER_NAMES = new Set(Object.keys(WRAPPER_DEFINITIONS));

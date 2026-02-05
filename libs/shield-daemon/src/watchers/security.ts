@@ -34,6 +34,16 @@ function checkAndEmit(): void {
   try {
     const status = checkSecurityStatus();
 
+    // Merge secret names detected in the calling user's environment
+    const userSecrets = process.env['AGENSHIELD_USER_SECRETS'];
+    if (userSecrets) {
+      for (const name of userSecrets.split(',').filter(Boolean)) {
+        if (!status.exposedSecrets.includes(name)) {
+          status.exposedSecrets.push(name);
+        }
+      }
+    }
+
     if (hasStatusChanged(lastStatus, status)) {
       // Emit full status update
       emitSecurityStatus(status);

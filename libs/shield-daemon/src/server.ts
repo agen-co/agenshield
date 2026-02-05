@@ -34,6 +34,7 @@ export async function createServer(config: DaemonConfig): Promise<FastifyInstanc
 
   // Serve static UI assets if available
   const uiPath = getUiAssetsPath();
+  console.log(uiPath ? `UI assets: ${uiPath}` : 'UI assets: not found (API-only mode)');
   if (uiPath) {
     await app.register(fastifyStatic, {
       root: uiPath,

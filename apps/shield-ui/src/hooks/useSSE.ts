@@ -7,11 +7,13 @@ import { useSnapshot } from 'valtio';
 import { eventStore, addEvent, setConnected, type SSEEvent } from '../state/events';
 import { createSSEClient, type SSEClient } from '../api/sse';
 
-export function useSSE() {
+export function useSSE(enabled = true) {
   const { connected } = useSnapshot(eventStore);
   const clientRef = useRef<SSEClient | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
+
     const client = createSSEClient(
       (type, data) => {
         const event: SSEEvent = {
@@ -34,7 +36,7 @@ export function useSSE() {
       client.disconnect();
       clientRef.current = null;
     };
-  }, []);
+  }, [enabled]);
 
   return { connected };
 }

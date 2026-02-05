@@ -29,9 +29,24 @@ setupEmitter.setMaxListeners(20);
 
 /** Track active SSE connections for idle-timeout */
 let activeConnections = 0;
+const activeReplies: Set<import('node:http').ServerResponse> = new Set();
 
 export function getActiveConnections(): number {
   return activeConnections;
+}
+
+/**
+ * Close all active SSE connections so the server can shut down cleanly
+ */
+export function closeAllSSEConnections(): void {
+  for (const raw of activeReplies) {
+    try {
+      raw.end();
+    } catch {
+      // Already closed
+    }
+  }
+  activeReplies.clear();
 }
 
 /**
@@ -55,6 +70,7 @@ export async function registerSSE(app: FastifyInstance): Promise<void> {
     });
 
     activeConnections++;
+    activeReplies.add(reply.raw);
 
     // Heartbeat timer
     const heartbeat = setInterval(() => {
@@ -74,6 +90,7 @@ export async function registerSSE(app: FastifyInstance): Promise<void> {
     // Cleanup on close
     request.raw.on('close', () => {
       activeConnections--;
+      activeReplies.delete(reply.raw);
       clearInterval(heartbeat);
       setupEmitter.off('event', onEvent);
     });

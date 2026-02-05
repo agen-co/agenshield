@@ -20,8 +20,8 @@ export function getUiAssetsPath(): string | null {
     return bundledPath;
   }
 
-  // Check for development build
-  const devPath = path.join(__dirname, '..', '..', '..', '..', 'dist', 'apps', 'shield-ui');
+  // Check for development build (3 levels up from libs/shield-daemon/dist/ → repo root)
+  const devPath = path.join(__dirname, '..', '..', '..', 'dist', 'apps', 'shield-ui');
   if (fs.existsSync(devPath)) {
     return devPath;
   }

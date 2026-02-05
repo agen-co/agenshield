@@ -107,5 +107,8 @@ export {
   PasscodeDataSchema,
 } from './schemas/auth.schema';
 
+// Catalog
+export { COMMAND_CATALOG, searchCatalog } from './catalog';
+
 // Constants
 export * from './constants';

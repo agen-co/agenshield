@@ -5,9 +5,13 @@
  */
 
 import { spawn, execSync } from 'node:child_process';
+import type { SpawnOptions } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isSecretEnvVar } from '@agenshield/sandbox';
+import { captureCallingUserEnv } from './sudo-env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,8 +54,10 @@ export async function getDaemonStatus(): Promise<DaemonStatus> {
 
     if (response.ok) {
       const data = (await response.json()) as { uptime?: string };
+      const pid = findDaemonPid() || findDaemonPidByPort(DAEMON_CONFIG.PORT);
       return {
         running: true,
+        pid: pid ?? undefined,
         port: DAEMON_CONFIG.PORT,
         uptime: data.uptime,
         url: `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}`,
@@ -61,21 +67,10 @@ export async function getDaemonStatus(): Promise<DaemonStatus> {
     // Daemon not responding via HTTP
   }
 
-  // Check PID file
-  try {
-    if (fs.existsSync(DAEMON_CONFIG.PID_FILE)) {
-      const pid = parseInt(fs.readFileSync(DAEMON_CONFIG.PID_FILE, 'utf8').trim(), 10);
-      // Check if process is running
-      try {
-        process.kill(pid, 0);
-        return { running: true, pid };
-      } catch {
-        // Process not running, stale PID file
-        return { running: false };
-      }
-    }
-  } catch {
-    // PID file not accessible
+  // Check PID files (home dir + legacy location)
+  const pid = findDaemonPid();
+  if (pid) {
+    return { running: true, pid };
   }
 
   return { running: false };
@@ -125,6 +120,58 @@ function findTsx(): string | null {
 }
 
 /**
+ * Find daemon PID from known PID file locations
+ */
+function findDaemonPid(): number | null {
+  const homePidPath = path.join(os.homedir(), '.agenshield', 'daemon.pid');
+  const legacyPidPath = DAEMON_CONFIG.PID_FILE;
+  const pidPaths = [homePidPath, legacyPidPath];
+
+  // When running as root via sudo, the daemon runs as SUDO_USER and writes
+  // its PID to ~sudouser/.agenshield/daemon.pid (not /var/root/).
+  const sudoUser = process.env['SUDO_USER'];
+  if (sudoUser) {
+    try {
+      const userHome = execSync(`eval echo ~${sudoUser}`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 3000,
+      }).trim();
+      pidPaths.splice(1, 0, path.join(userHome, '.agenshield', 'daemon.pid'));
+    } catch { /* ignore */ }
+  }
+
+  for (const pidPath of pidPaths) {
+    try {
+      if (fs.existsSync(pidPath)) {
+        const pid = parseInt(fs.readFileSync(pidPath, 'utf8').trim(), 10);
+        if (!isNaN(pid)) {
+          process.kill(pid, 0); // throws if not running
+          return pid;
+        }
+      }
+    } catch { /* stale or inaccessible */ }
+  }
+  return null;
+}
+
+/**
+ * Find daemon PID by checking which process is listening on the daemon port
+ */
+function findDaemonPidByPort(port: number): number | null {
+  try {
+    const output = execSync(`lsof -ti :${port}`, {
+      encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 3000,
+    }).trim();
+    if (output) {
+      const pid = parseInt(output.split('\n')[0], 10);
+      if (!isNaN(pid)) return pid;
+    }
+  } catch { /* lsof failed */ }
+  return null;
+}
+
+/**
  * Start the daemon
  */
 export async function startDaemon(options: { foreground?: boolean } = {}): Promise<{
@@ -161,18 +208,61 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
     }
   }
 
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     AGENSHIELD_PORT: String(DAEMON_CONFIG.PORT),
     AGENSHIELD_HOST: DAEMON_CONFIG.HOST,
   };
 
+  // Capture calling user's secret NAMES (not values) and pass to daemon
+  const userEnv = captureCallingUserEnv();
+  if (userEnv) {
+    const secretNames = Object.keys(userEnv).filter(k => userEnv[k] && isSecretEnvVar(k));
+    if (secretNames.length > 0) {
+      env['AGENSHIELD_USER_SECRETS'] = secretNames.join(',');
+    }
+  }
+
+  // Privilege drop: run daemon as SUDO_USER instead of root
+  const sudoUid = process.env['SUDO_UID'] ? parseInt(process.env['SUDO_UID'], 10) : undefined;
+  const sudoGid = process.env['SUDO_GID'] ? parseInt(process.env['SUDO_GID'], 10) : undefined;
+  const sudoUser = process.env['SUDO_USER'];
+  const shouldDropPrivileges = sudoUid !== undefined && sudoGid !== undefined && !!sudoUser;
+
+  if (shouldDropPrivileges) {
+    // Pre-create system dirs as root, then chown to calling user
+    for (const dir of [DAEMON_CONFIG.LOG_DIR, DAEMON_CONFIG.SOCKET_DIR]) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.chownSync(dir, sudoUid, sudoGid);
+    }
+
+    // Resolve + prepare user's home config dir
+    try {
+      const userHome = execSync(`eval echo ~${sudoUser}`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 3000,
+      }).trim();
+      const configDir = path.join(userHome, '.agenshield');
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.chownSync(configDir, sudoUid, sudoGid);
+
+      // Set HOME/USER so daemon's os.homedir() and os.userInfo() work
+      env['HOME'] = userHome;
+      env['USER'] = sudoUser;
+    } catch {
+      // If home resolution fails, skip config dir setup but still drop privileges
+    }
+  }
+
   if (options.foreground) {
     // Run in foreground (blocking)
-    const child = spawn(runner, [daemonPath], {
+    const spawnOpts: SpawnOptions = {
       stdio: 'inherit',
       env,
-    });
+      ...(shouldDropPrivileges && { uid: sudoUid, gid: sudoGid }),
+    };
+    const child = spawn(runner, [daemonPath], spawnOpts);
 
     return new Promise((resolve) => {
       child.on('exit', (code) => {
@@ -198,21 +288,31 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
       // Not using launchd, fall back to nohup
     }
 
-    // Ensure directories exist
-    try {
-      fs.mkdirSync(DAEMON_CONFIG.LOG_DIR, { recursive: true });
-      fs.mkdirSync(DAEMON_CONFIG.SOCKET_DIR, { recursive: true });
-    } catch {
-      // May already exist or require sudo
+    // Ensure directories exist (may already be created by privilege drop above)
+    if (!shouldDropPrivileges) {
+      try {
+        fs.mkdirSync(DAEMON_CONFIG.LOG_DIR, { recursive: true });
+        fs.mkdirSync(DAEMON_CONFIG.SOCKET_DIR, { recursive: true });
+      } catch {
+        // May already exist or require sudo
+      }
     }
 
     const logFile = path.join(DAEMON_CONFIG.LOG_DIR, 'daemon.log');
+    const logFd = fs.openSync(logFile, 'a');
 
-    const child = spawn(runner, [daemonPath], {
+    // Chown the log file so the de-privileged daemon can write to it
+    if (shouldDropPrivileges) {
+      fs.chownSync(logFile, sudoUid, sudoGid);
+    }
+
+    const bgSpawnOpts: SpawnOptions = {
       detached: true,
-      stdio: ['ignore', fs.openSync(logFile, 'a'), fs.openSync(logFile, 'a')],
+      stdio: ['ignore', logFd, logFd],
       env,
-    });
+      ...(shouldDropPrivileges && { uid: sudoUid, gid: sudoGid }),
+    };
+    const child = spawn(runner, [daemonPath], bgSpawnOpts);
 
     child.unref();
 
@@ -299,6 +399,18 @@ export async function stopDaemon(): Promise<{
         success: false,
         message: `Failed to stop daemon: ${(err as Error).message}`,
       };
+    }
+  }
+
+  // Fallback: find PID by port
+  const portPid = findDaemonPidByPort(DAEMON_CONFIG.PORT);
+  if (portPid) {
+    try {
+      process.kill(portPid, 'SIGTERM');
+      await new Promise(r => setTimeout(r, 1000));
+      return { success: true, message: `Daemon stopped (PID ${portPid}, via port lookup)` };
+    } catch (err) {
+      return { success: false, message: `Failed to stop daemon: ${(err as Error).message}` };
     }
   }
 

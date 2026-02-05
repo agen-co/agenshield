@@ -15,6 +15,7 @@ export const queryKeys = {
   skills: ['skills'] as const,
   skill: (name: string) => ['skills', name] as const,
   secrets: ['secrets'] as const,
+  availableEnvSecrets: ['secrets', 'env'] as const,
   security: ['security'] as const,
   agentlinkStatus: ['agentlink', 'status'] as const,
   agentlinkMCPStatus: ['agentlink', 'mcp-status'] as const,
@@ -200,6 +201,16 @@ export function useSecrets() {
     queryKey: queryKeys.secrets,
     queryFn: api.getSecrets,
     enabled: healthy,
+  });
+}
+
+export function useAvailableEnvSecrets() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.availableEnvSecrets,
+    queryFn: api.getAvailableEnvSecrets,
+    enabled: healthy,
+    staleTime: 60_000, // env vars rarely change during a session
   });
 }
 

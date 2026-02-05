@@ -3,21 +3,31 @@
  */
 
 import { memo } from 'react';
-import { BaseEdge, getBezierPath, type EdgeProps } from '@xyflow/react';
+import { BaseEdge, getSmoothStepPath, getStraightPath, type EdgeProps } from '@xyflow/react';
 import { dashFlow, blockedFlash } from '../../../styles/setup-animations';
+
+/** Pick only the props BaseEdge actually needs (avoids DOM attribute warnings) */
+function baseEdgeProps(props: EdgeProps) {
+  return {
+    id: props.id,
+    markerStart: props.markerStart,
+    markerEnd: props.markerEnd,
+    interactionWidth: props.interactionWidth,
+  };
+}
 
 // --- Vulnerable edge: red dashed with animated particles ---
 
 export const VulnerableEdge = memo((props: EdgeProps) => {
-  const { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
-  const [edgePath] = getBezierPath({
-    sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
-  });
+  const { sourceX, sourceY, targetX, targetY, data } = props;
+  const [edgePath] = getStraightPath({ sourceX, sourceY, targetX, targetY });
+  const delay = (data?.delay as number) ?? 0;
+  const dur = (data?.dur as number) ?? 1.4;
 
   return (
     <>
       <BaseEdge
-        {...props}
+        {...baseEdgeProps(props)}
         path={edgePath}
         style={{
           stroke: '#ef4444',
@@ -26,9 +36,9 @@ export const VulnerableEdge = memo((props: EdgeProps) => {
           animation: `${dashFlow} 1s linear infinite`,
         }}
       />
-      {/* Attack particle dot */}
+      {/* Attack particle dot — staggered to create cascade flow */}
       <circle r="3" fill="#ef4444" filter="url(#glow-red)">
-        <animateMotion dur="2s" repeatCount="indefinite" path={edgePath} />
+        <animateMotion dur={`${dur}s`} begin={`${delay}s`} repeatCount="indefinite" path={edgePath} />
       </circle>
     </>
   );
@@ -38,14 +48,12 @@ VulnerableEdge.displayName = 'VulnerableEdge';
 // --- Building edge: blue dashed with pulse ---
 
 export const BuildingEdge = memo((props: EdgeProps) => {
-  const { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
-  const [edgePath] = getBezierPath({
-    sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
-  });
+  const { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition } = props;
+  const [edgePath] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
 
   return (
     <BaseEdge
-      {...props}
+      {...baseEdgeProps(props)}
       path={edgePath}
       style={{
         stroke: '#3b82f6',
@@ -62,14 +70,12 @@ BuildingEdge.displayName = 'BuildingEdge';
 // --- Secured edge: solid green with gentle glow ---
 
 export const SecuredEdge = memo((props: EdgeProps) => {
-  const { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
-  const [edgePath] = getBezierPath({
-    sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
-  });
+  const { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition } = props;
+  const [edgePath] = getSmoothStepPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
 
   return (
     <BaseEdge
-      {...props}
+      {...baseEdgeProps(props)}
       path={edgePath}
       style={{
         stroke: '#22c55e',
@@ -81,42 +87,24 @@ export const SecuredEdge = memo((props: EdgeProps) => {
 });
 SecuredEdge.displayName = 'SecuredEdge';
 
-// --- Blocked edge: red → grey with ✗ icon ---
-
-const blockedLabelStyles: React.CSSProperties = {
-  fontSize: 10,
-  fontWeight: 700,
-  fill: '#6b7280',
-  fontFamily: "'IBM Plex Mono', monospace",
-};
+// --- Blocked edge: subtle grey dashed line (no label — attack nodes already show BLOCKED) ---
 
 export const BlockedEdge = memo((props: EdgeProps) => {
-  const { sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
-  const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
-  });
+  const { sourceX, sourceY, targetX, targetY } = props;
+  const [edgePath] = getStraightPath({ sourceX, sourceY, targetX, targetY });
 
   return (
-    <>
-      <BaseEdge
-        {...props}
-        path={edgePath}
-        style={{
-          stroke: '#6b7280',
-          strokeWidth: 1.5,
-          strokeDasharray: '4 4',
-          opacity: 0.5,
-          animation: `${blockedFlash} 0.6s ease-out forwards`,
-        }}
-      />
-      {/* Blocked indicator */}
-      <g transform={`translate(${labelX}, ${labelY})`}>
-        <rect x="-20" y="-10" width="40" height="20" rx="4" fill="rgba(17,24,39,0.8)" stroke="#6b7280" strokeWidth="1" />
-        <text style={blockedLabelStyles} textAnchor="middle" dominantBaseline="central">
-          BLOCKED
-        </text>
-      </g>
-    </>
+    <BaseEdge
+      {...baseEdgeProps(props)}
+      path={edgePath}
+      style={{
+        stroke: '#6b7280',
+        strokeWidth: 1,
+        strokeDasharray: '4 4',
+        opacity: 0.3,
+        animation: `${blockedFlash} 0.6s ease-out forwards`,
+      }}
+    />
   );
 });
 BlockedEdge.displayName = 'BlockedEdge';

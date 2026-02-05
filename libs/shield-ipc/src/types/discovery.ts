@@ -2,6 +2,8 @@
  * Discovery types — shared across packages for binary/skill scanning
  */
 
+import type { CommandCategory } from './catalog';
+
 export type ExecutionContext = 'root' | 'user' | 'workspace';
 
 export type BinarySourceKind =
@@ -22,7 +24,7 @@ export interface DiscoveredBinary {
   sourceKind: BinarySourceKind;
   contexts: ExecutionContext[];
   protection: ProtectionKind;
-  category: 'system' | 'package-manager' | 'network' | 'shell' | 'language-runtime' | 'other';
+  category: CommandCategory;
   isShieldExecSymlink: boolean;
 }
 

@@ -5,9 +5,12 @@
  */
 
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __skills_dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Path to the built-in skills directory bundled with this package */
-export const BUILTIN_SKILLS_DIR = path.resolve(__dirname, '..', 'skills');
+export const BUILTIN_SKILLS_DIR = path.resolve(__skills_dirname, '..', 'skills');
 
 export { SkillLoader } from './loader.js';
 export { SkillValidator, validateSkill } from './validator.js';

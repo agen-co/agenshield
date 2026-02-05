@@ -26,7 +26,7 @@ const GraphContainer = styled('div', {
   width: '100%',
   height: '100%',
   background: '#0a0a0f',
-  borderRadius: 12,
+  borderRadius: 0,
   overflow: 'hidden',
   position: 'relative',
   '& .react-flow__attribution': {
@@ -49,72 +49,55 @@ function buildNodes(
   const presetDetection = context?.presetDetection as Record<string, unknown> | undefined;
   const version = presetDetection?.version as string | undefined;
 
-  // Phase 1: Always visible — target + root + bash + attacks
-  nodes.push(
-    {
-      id: 'target',
-      type: 'target',
-      position: { x: 60, y: 40 },
-      data: {
-        label: presetName,
-        version: version || '',
-        status: graphPhase === 'secured' ? 'secured' : 'vulnerable',
-      },
-    },
-    {
-      id: 'root-access',
-      type: 'access',
-      position: { x: 60, y: 140 },
-      data: {
-        label: 'Root Access',
-        status: graphPhase === 'secured' ? 'secured' : 'vulnerable',
-      },
-    },
-    {
-      id: 'bash',
-      type: 'shell',
-      position: { x: 60, y: 240 },
-      data: {
-        label: 'Bash Shell',
-        status: graphPhase === 'secured' ? 'secured' : undefined,
-      },
-    },
-  );
+  const isGuarded = graphPhase !== 'vulnerable';
+  const cx = 20; // main chain x
+  const rowH = 100; // vertical spacing between rows
 
-  // Attack vectors (right side)
-  const attacksBlocked = completedSteps.includes('install-wrappers') || completedSteps.includes('install-policies');
-  nodes.push(
-    {
-      id: 'attack-curl',
-      type: 'attack',
-      position: { x: 400, y: 40 },
-      data: { label: 'curl POST', command: 'env vars → hacker.io', blocked: attacksBlocked },
-    },
-    {
-      id: 'attack-rm',
-      type: 'attack',
-      position: { x: 400, y: 140 },
-      data: { label: 'rm -rf /', command: 'filesystem destroy', blocked: attacksBlocked },
-    },
-    {
-      id: 'attack-wget',
-      type: 'attack',
-      position: { x: 400, y: 240 },
-      data: { label: 'wget malware', command: 'malware.sh download', blocked: attacksBlocked },
-    },
-  );
+  if (isGuarded) {
+    // ── GUARDED LAYOUT ──
+    // AgenShield container wraps: Target + Agent User + Broker User + Workspace
+    // Then connects down to Bash → blocked attacks
 
-  // Phase 2: After configuration — user + workspace nodes
-  if (graphPhase !== 'vulnerable') {
+    const containerPad = 40; // top padding for label
+    const innerPad = 16;
+    const innerRowH = 80;
+    const containerW = 200;
+    const containerH = containerPad + innerPad + innerRowH * 3 + 56; // 4 items
+
+    const containerStatus = graphPhase === 'secured' ? 'secured' as const : 'building' as const;
     const userStatus = completedSteps.includes('create-agent-user') ? 'secured' : 'building';
     const brokerStatus = completedSteps.includes('create-broker-user') ? 'secured' : 'building';
     const wsStatus = completedSteps.includes('create-directories') ? 'secured' : 'building';
 
+    // Container (must come first for React Flow group)
+    nodes.push({
+      id: 'agenshield',
+      type: 'container',
+      position: { x: cx, y: 20 },
+      data: { label: 'AgenShield', status: containerStatus },
+      style: { width: containerW, height: containerH },
+    });
+
+    // Children inside container (positions relative to parent)
     nodes.push(
+      {
+        id: 'target',
+        type: 'target',
+        position: { x: innerPad, y: containerPad },
+        parentId: 'agenshield',
+        extent: 'parent' as const,
+        data: {
+          label: presetName,
+          version: version || '',
+          status: graphPhase === 'secured' ? 'secured' : 'building',
+        },
+      },
       {
         id: 'agent-user',
         type: 'user',
-        position: { x: 60, y: 350 },
+        position: { x: innerPad, y: containerPad + innerRowH },
+        parentId: 'agenshield',
+        extent: 'parent' as const,
         data: {
           label: 'Agent User',
           username: (context?.userConfig as Record<string, unknown>)?.agentUser
@@ -126,7 +109,9 @@ function buildNodes(
       {
         id: 'broker-user',
         type: 'user',
-        position: { x: 240, y: 350 },
+        position: { x: innerPad, y: containerPad + innerRowH * 2 },
+        parentId: 'agenshield',
+        extent: 'parent' as const,
         data: {
           label: 'Broker User',
           username: 'ash_*_broker',
@@ -136,7 +121,9 @@ function buildNodes(
       {
         id: 'workspace',
         type: 'workspace',
-        position: { x: 60, y: 460 },
+        position: { x: innerPad, y: containerPad + innerRowH * 3 },
+        parentId: 'agenshield',
+        extent: 'parent' as const,
         data: {
           label: 'Workspace',
           path: '~/workspace',
@@ -144,72 +131,158 @@ function buildNodes(
         },
       },
     );
-  }
 
-  // Phase 3: Security layers
-  if (completedSteps.includes('generate-seatbelt') || completedSteps.includes('install-wrappers')) {
+    // Bash Shell — below the container
+    const bashY = 20 + containerH + 40;
     nodes.push({
-      id: 'seatbelt',
-      type: 'security',
-      position: { x: 240, y: 460 },
+      id: 'bash',
+      type: 'shell',
+      position: { x: cx + 20, y: bashY },
       data: {
-        label: 'Seatbelt',
-        badge: 'macOS Sandbox',
-        status: completedSteps.includes('generate-seatbelt') ? 'secured' : 'building',
+        label: 'Bash Shell',
+        status: graphPhase === 'secured' ? 'secured' : 'building',
       },
     });
-  }
 
-  if (completedSteps.includes('install-wrappers')) {
-    nodes.push({
-      id: 'wrappers',
-      type: 'security',
-      position: { x: 400, y: 350 },
-      data: {
-        label: 'Wrappers',
-        badge: 'Command Proxies',
-        status: 'secured',
-      },
-    });
-  }
+    // Security nodes — green items to the right of the container
+    const secX = cx + 280;
+    const secBaseY = 20;
 
-  if (completedSteps.includes('install-broker')) {
-    nodes.push({
-      id: 'broker',
-      type: 'broker',
-      position: { x: 240, y: 240 },
-      data: {
-        label: 'Policy Broker',
-        sublabel: 'Central Guard',
-        status: completedSteps.includes('install-policies') ? 'secured' : 'building',
-      },
-    });
-  }
+    // Attacks — always blocked in guarded mode, separate column to the right
+    const isSecured = graphPhase === 'secured';
+    const attackX = secX + 220;
+    const attackBaseY = bashY - 80;
 
-  if (completedSteps.includes('setup-launchdaemon')) {
+    // Firewall — always shown in guarded mode
     nodes.push({
-      id: 'daemon',
-      type: 'daemon',
-      position: { x: 240, y: 140 },
-      data: {
-        label: 'Daemon (root)',
-        running: completedSteps.includes('verify'),
-        status: completedSteps.includes('verify') ? 'secured' : 'building',
-      },
+      id: 'firewall',
+      type: 'firewall',
+      position: { x: secX, y: secBaseY },
+      data: { label: 'Firewall', sublabel: 'Network Guard', status: 'secured' },
     });
-  }
 
-  if (completedSteps.includes('setup-socket')) {
+    // Audit Log
     nodes.push({
-      id: 'socket',
-      type: 'socket',
-      position: { x: 400, y: 460 },
-      data: {
-        label: 'Unix Socket',
-        path: '/var/run/agenshield',
-        status: 'secured',
-      },
+      id: 'auditlog',
+      type: 'auditlog',
+      position: { x: secX, y: secBaseY + rowH },
+      data: { label: 'Audit Log', sublabel: 'Event Trail', status: 'secured' },
     });
+
+    // Phase 3: Security layers that appear during execution
+    if (completedSteps.includes('generate-seatbelt') || completedSteps.includes('install-wrappers')) {
+      nodes.push({
+        id: 'seatbelt',
+        type: 'security',
+        position: { x: secX, y: secBaseY + rowH * 2 },
+        data: {
+          label: 'Seatbelt',
+          badge: 'macOS Sandbox',
+          status: completedSteps.includes('generate-seatbelt') ? 'secured' : 'building',
+        },
+      });
+    }
+
+    if (completedSteps.includes('install-wrappers')) {
+      nodes.push({
+        id: 'wrappers',
+        type: 'security',
+        position: { x: secX, y: secBaseY + rowH * 3 },
+        data: { label: 'Wrappers', badge: 'Command Proxies', status: 'secured' },
+      });
+    }
+
+    if (completedSteps.includes('install-broker')) {
+      nodes.push({
+        id: 'broker',
+        type: 'broker',
+        position: { x: secX, y: secBaseY + rowH * 4 },
+        data: {
+          label: 'Policy Broker',
+          sublabel: 'Central Guard',
+          status: completedSteps.includes('install-policies') ? 'secured' : 'building',
+        },
+      });
+    }
+
+    // Attack nodes — blocked, stacked to the right of bash
+    nodes.push(
+      {
+        id: 'attack-curl',
+        type: 'attack',
+        position: { x: attackX, y: attackBaseY },
+        data: { label: 'curl POST', command: 'env vars → hacker.io', blocked: true, dimmed: isSecured },
+      },
+      {
+        id: 'attack-rm',
+        type: 'attack',
+        position: { x: attackX, y: attackBaseY + 80 },
+        data: { label: 'rm -rf /', command: 'filesystem destroy', blocked: true, dimmed: isSecured },
+      },
+      {
+        id: 'attack-wget',
+        type: 'attack',
+        position: { x: attackX, y: attackBaseY + 160 },
+        data: { label: 'wget malware', command: 'malware.sh download', blocked: true, dimmed: isSecured },
+      },
+    );
+
+  } else {
+    // ── VULNERABLE LAYOUT ──
+    // Vertical centered: Target → Root Access → Bash Shell → attacks fanned below
+    const vcx = 250; // center x for vulnerable layout
+    const vRowH = 90; // tighter vertical spacing
+
+    nodes.push(
+      {
+        id: 'target',
+        type: 'target',
+        position: { x: vcx, y: 30 },
+        data: {
+          label: presetName,
+          version: version || '',
+          status: 'vulnerable' as const,
+        },
+      },
+      {
+        id: 'root-access',
+        type: 'access',
+        position: { x: vcx, y: 30 + vRowH },
+        data: { label: 'Root Access', status: 'vulnerable' as const },
+      },
+      {
+        id: 'bash',
+        type: 'shell',
+        position: { x: vcx, y: 30 + vRowH * 2 },
+        data: { label: 'Bash Shell', status: 'vulnerable' },
+      },
+    );
+
+    // Attacks — fanned out below bash, centered on vcx
+    // Attack nodes are ~230px wide, chain nodes ~170px. Offset attacks to center-align.
+    const attackY = 30 + vRowH * 3 + 30; // extra gap for edge routing
+    const attackSpread = 250;
+    const attackOffset = -30; // shift left to center wider attack nodes under chain
+    nodes.push(
+      {
+        id: 'attack-curl',
+        type: 'attack',
+        position: { x: vcx - attackSpread + attackOffset, y: attackY },
+        data: { label: 'curl POST', command: 'env vars → hacker.io', blocked: false },
+      },
+      {
+        id: 'attack-rm',
+        type: 'attack',
+        position: { x: vcx + attackOffset, y: attackY },
+        data: { label: 'rm -rf /', command: 'filesystem destroy', blocked: false },
+      },
+      {
+        id: 'attack-wget',
+        type: 'attack',
+        position: { x: vcx + attackSpread + attackOffset, y: attackY },
+        data: { label: 'wget malware', command: 'malware.sh download', blocked: false },
+      },
+    );
   }
 
   return nodes;
@@ -220,103 +293,187 @@ function buildEdges(
   graphPhase: GraphPhase,
 ): Edge[] {
   const edges: Edge[] = [];
-  const attacksBlocked = completedSteps.includes('install-wrappers') || completedSteps.includes('install-policies');
+  const isGuarded = graphPhase !== 'vulnerable';
 
-  // Vulnerable connections (always present initially)
-  edges.push(
-    {
-      id: 'e-target-root',
-      source: 'target',
-      target: 'root-access',
-      type: graphPhase === 'secured' ? 'secured' : graphPhase === 'vulnerable' ? 'vulnerable' : 'building',
-    },
-    {
-      id: 'e-root-bash',
-      source: 'root-access',
-      target: 'bash',
-      type: graphPhase === 'secured' ? 'secured' : graphPhase === 'vulnerable' ? 'vulnerable' : 'building',
-    },
-  );
+  if (isGuarded) {
+    // ── GUARDED EDGES ──
 
-  // Attack edges
-  edges.push(
-    {
-      id: 'e-bash-curl',
-      source: 'bash',
-      target: 'attack-curl',
-      type: attacksBlocked ? 'blocked' : 'vulnerable',
-    },
-    {
-      id: 'e-bash-rm',
-      source: 'bash',
-      target: 'attack-rm',
-      type: attacksBlocked ? 'blocked' : 'vulnerable',
-    },
-    {
-      id: 'e-bash-wget',
-      source: 'bash',
-      target: 'attack-wget',
-      type: attacksBlocked ? 'blocked' : 'vulnerable',
-    },
-  );
-
-  // Building phase edges
-  if (graphPhase !== 'vulnerable') {
-    const agentEdgeType = completedSteps.includes('create-agent-user') ? 'secured' : 'building';
+    // Inside the container: Target → Agent → Broker → Workspace
     edges.push(
       {
-        id: 'e-bash-agent',
-        source: 'bash',
+        id: 'e-target-agent',
+        source: 'target',
+        sourceHandle: 'bottom',
         target: 'agent-user',
-        type: agentEdgeType,
+        targetHandle: 'top',
+        type: completedSteps.includes('create-agent-user') ? 'secured' : 'building',
       },
       {
-        id: 'e-agent-workspace',
+        id: 'e-agent-broker-user',
         source: 'agent-user',
+        sourceHandle: 'bottom',
+        target: 'broker-user',
+        targetHandle: 'top',
+        type: completedSteps.includes('create-broker-user') ? 'secured' : 'building',
+      },
+      {
+        id: 'e-broker-user-workspace',
+        source: 'broker-user',
+        sourceHandle: 'bottom',
         target: 'workspace',
+        targetHandle: 'top',
         type: completedSteps.includes('create-directories') ? 'secured' : 'building',
       },
     );
 
-    if (completedSteps.includes('create-broker-user')) {
+    // Container → Bash (the sandbox lets traffic through to bash, but guarded)
+    edges.push({
+      id: 'e-shield-bash',
+      source: 'agenshield',
+      sourceHandle: 'bottom',
+      target: 'bash',
+      targetHandle: 'top',
+      type: graphPhase === 'secured' ? 'secured' : 'building',
+    });
+
+    // Bash → Attacks (blocked, hidden when fully secured to reduce clutter)
+    if (graphPhase !== 'secured') {
+      edges.push(
+        {
+          id: 'e-bash-curl',
+          source: 'bash',
+          sourceHandle: 'right',
+          target: 'attack-curl',
+          targetHandle: 'left',
+          type: 'blocked',
+        },
+        {
+          id: 'e-bash-rm',
+          source: 'bash',
+          sourceHandle: 'right',
+          target: 'attack-rm',
+          targetHandle: 'left',
+          type: 'blocked',
+        },
+        {
+          id: 'e-bash-wget',
+          source: 'bash',
+          sourceHandle: 'right',
+          target: 'attack-wget',
+          targetHandle: 'left',
+          type: 'blocked',
+        },
+      );
+    }
+
+    // Container → security nodes (right side)
+    edges.push(
+      {
+        id: 'e-shield-firewall',
+        source: 'agenshield',
+        sourceHandle: 'right',
+        target: 'firewall',
+        targetHandle: 'left',
+        type: 'secured',
+      },
+      {
+        id: 'e-shield-auditlog',
+        source: 'agenshield',
+        sourceHandle: 'right',
+        target: 'auditlog',
+        targetHandle: 'left',
+        type: 'secured',
+      },
+    );
+
+    // Security layer edges
+    if (completedSteps.includes('generate-seatbelt') || completedSteps.includes('install-wrappers')) {
       edges.push({
-        id: 'e-root-broker-user',
-        source: 'root-access',
-        target: 'broker-user',
+        id: 'e-shield-seatbelt',
+        source: 'agenshield',
+        sourceHandle: 'right',
+        target: 'seatbelt',
+        targetHandle: 'left',
+        type: completedSteps.includes('generate-seatbelt') ? 'secured' : 'building',
+      });
+    }
+
+    if (completedSteps.includes('install-wrappers')) {
+      edges.push({
+        id: 'e-shield-wrappers',
+        source: 'agenshield',
+        sourceHandle: 'right',
+        target: 'wrappers',
+        targetHandle: 'left',
         type: 'secured',
       });
     }
-  }
 
-  // Security layer edges
-  if (completedSteps.includes('install-broker')) {
+    if (completedSteps.includes('install-broker')) {
+      edges.push({
+        id: 'e-shield-broker',
+        source: 'agenshield',
+        sourceHandle: 'right',
+        target: 'broker',
+        targetHandle: 'left',
+        type: 'secured',
+      });
+    }
+
+  } else {
+    // ── VULNERABLE EDGES ──
+
+    // Vertical chain
     edges.push(
-      { id: 'e-root-broker', source: 'root-access', target: 'broker', type: 'secured' },
-      { id: 'e-broker-agent', source: 'broker', target: 'agent-user', type: 'secured' },
+      {
+        id: 'e-target-root',
+        source: 'target',
+        sourceHandle: 'bottom',
+        target: 'root-access',
+        targetHandle: 'top',
+        type: 'vulnerable',
+        data: { delay: 0 },
+      },
+      {
+        id: 'e-root-bash',
+        source: 'root-access',
+        sourceHandle: 'bottom',
+        target: 'bash',
+        targetHandle: 'top',
+        type: 'vulnerable',
+        data: { delay: 0.7 },
+      },
     );
-  }
 
-  if (completedSteps.includes('setup-launchdaemon')) {
+    // Bash → Attacks (straight fan from bottom to attack tops)
     edges.push(
-      { id: 'e-daemon-broker', source: 'daemon', target: 'broker', type: 'secured' },
-    );
-  }
-
-  if (completedSteps.includes('setup-socket')) {
-    edges.push(
-      { id: 'e-agent-socket', source: 'agent-user', target: 'socket', type: 'secured' },
-    );
-  }
-
-  if (completedSteps.includes('generate-seatbelt')) {
-    edges.push(
-      { id: 'e-workspace-seatbelt', source: 'workspace', target: 'seatbelt', type: 'secured' },
-    );
-  }
-
-  if (completedSteps.includes('install-wrappers')) {
-    edges.push(
-      { id: 'e-agent-wrappers', source: 'agent-user', target: 'wrappers', type: 'secured' },
+      {
+        id: 'e-bash-curl',
+        source: 'bash',
+        sourceHandle: 'bottom',
+        target: 'attack-curl',
+        targetHandle: 'top',
+        type: 'vulnerable',
+        data: { delay: 1.4 },
+      },
+      {
+        id: 'e-bash-rm',
+        source: 'bash',
+        sourceHandle: 'bottom',
+        target: 'attack-rm',
+        targetHandle: 'top',
+        type: 'vulnerable',
+        data: { delay: 1.6 },
+      },
+      {
+        id: 'e-bash-wget',
+        source: 'bash',
+        sourceHandle: 'bottom',
+        target: 'attack-wget',
+        targetHandle: 'top',
+        type: 'vulnerable',
+        data: { delay: 1.8 },
+      },
     );
   }
 

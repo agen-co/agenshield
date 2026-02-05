@@ -28,10 +28,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   // Add request logging hook for API traffic events
   app.addHook('onResponse', (request, reply, done) => {
-    // Skip SSE and static file requests
-    if (!request.url.startsWith('/sse') && !request.url.includes('.')) {
+    // Skip SSE, static file requests, and noisy health polls
+    if (!request.url.startsWith('/sse') && !request.url.includes('.') && !request.url.endsWith('/health')) {
       const duration = reply.elapsedTime;
-      emitApiRequest(request.method, request.url, reply.statusCode, Math.round(duration));
+      const ms = Math.round(duration);
+      const status = reply.statusCode;
+      const color = status >= 400 ? '\x1b[31m' : status >= 300 ? '\x1b[33m' : '\x1b[32m';
+      console.log(`${color}${request.method}\x1b[0m ${request.url} \x1b[2m${status} ${ms}ms\x1b[0m`);
+      emitApiRequest(request.method, request.url, status, ms);
     }
     done();
   });

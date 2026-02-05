@@ -46,17 +46,13 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
   const serverMode = useServerMode();
   const [agentLinkAuthRequired, setAgentLinkAuthRequired] = useState<{ authUrl?: string; integration?: string } | null>(null);
 
-  // Setup mode: render full-screen wizard, bypass all auth gates
-  if (serverMode === 'setup') {
-    return <SetupWizard />;
-  }
-
-  // Connect to SSE events
-  useSSE();
+  // Connect to SSE events (skip in setup mode but always call the hook)
+  useSSE(serverMode !== 'setup');
 
   // Watch for agentlink SSE events
   const { events } = useSnapshot(eventStore);
   useEffect(() => {
+    if (serverMode === 'setup') return;
     if (events.length === 0) return;
     const latest = events[0];
     if (latest.type === 'agentlink:auth_required') {
@@ -64,7 +60,12 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
     } else if (latest.type === 'agentlink:auth_completed') {
       setAgentLinkAuthRequired(null);
     }
-  }, [events]);
+  }, [events, serverMode]);
+
+  // Setup mode: render full-screen wizard, bypass all auth gates
+  if (serverMode === 'setup') {
+    return <SetupWizard />;
+  }
 
   // When anonymous read-only is disabled and not authenticated, block the entire UI
   if (loaded && requiresFullAuth) {

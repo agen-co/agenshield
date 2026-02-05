@@ -11,7 +11,8 @@ import {
   Chip,
 } from '@mui/material';
 import { X, Terminal, Zap, Globe, CircleCheck, Ban, Clock } from 'lucide-react';
-import type { PolicyConfig } from '@agenshield/ipc';
+import type { PolicyConfig, SecurityRisk, CatalogEntry } from '@agenshield/ipc';
+import { COMMAND_CATALOG } from '@agenshield/ipc';
 import { useDiscovery, useSkills, useSecrets } from '../../../api/hooks';
 import type { Secret } from '../../../api/client';
 import { FormCard } from '../../shared/FormCard';
@@ -37,6 +38,10 @@ interface CommandOption {
   label: string;
   path?: string;
   sourceKind: string;
+  description?: string;
+  risk?: SecurityRisk;
+  riskReason?: string;
+  tags?: string[];
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -47,7 +52,56 @@ const SOURCE_LABELS: Record<string, string> = {
   'workspace-bin': 'ws',
   'agent-bin': 'agent',
   'path-other': 'path',
+  'catalog': 'known',
 };
+
+const RISK_COLORS: Record<SecurityRisk, 'error' | 'warning' | 'default'> = {
+  high: 'error',
+  medium: 'warning',
+  low: 'default',
+  info: 'default',
+};
+
+function scoreCommandOption(option: CommandOption, query: string): number {
+  const q = query.toLowerCase().trim();
+  if (!q) return 0;
+
+  const tokens = q.split(/\s+/);
+  const nameLower = option.label.toLowerCase();
+  const descLower = (option.description ?? '').toLowerCase();
+
+  let totalScore = 0;
+  for (const token of tokens) {
+    let tokenScore = 0;
+
+    if (nameLower === token) {
+      tokenScore = 100;
+    } else if (nameLower.startsWith(token)) {
+      tokenScore = 60;
+    } else if (nameLower.includes(token)) {
+      tokenScore = 40;
+    }
+
+    if (option.tags) {
+      for (const tag of option.tags) {
+        const tagLower = tag.toLowerCase();
+        if (tagLower === token) {
+          tokenScore = Math.max(tokenScore, 30);
+        } else if (tagLower.includes(token)) {
+          tokenScore = Math.max(tokenScore, 15);
+        }
+      }
+    }
+
+    if (descLower.includes(token)) {
+      tokenScore = Math.max(tokenScore, 10);
+    }
+
+    totalScore += tokenScore;
+  }
+
+  return totalScore;
+}
 
 export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusChange, error, hideSecrets, title, saveLabel, saving }: PolicyEditorProps) {
   const initial = {
@@ -102,21 +156,43 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
-  // Command autocomplete options from discovery
+  // Command autocomplete options: discovered binaries enriched with catalog, plus catalog-only entries
   const commandOptions = useMemo(() => {
     const bins = discoveryData?.data?.binaries ?? [];
     const seen = new Set<string>();
-    return bins
-      .filter((b) => {
-        if (seen.has(b.name)) return false;
-        seen.add(b.name);
-        return true;
-      })
-      .map((b) => ({
+    const options: CommandOption[] = [];
+
+    // Discovered binaries enriched with catalog data
+    for (const b of bins) {
+      if (seen.has(b.name)) continue;
+      seen.add(b.name);
+      const catalogEntry: CatalogEntry | undefined = COMMAND_CATALOG[b.name];
+      options.push({
         label: b.name,
         path: b.path,
         sourceKind: b.sourceKind,
-      }));
+        description: catalogEntry?.description,
+        risk: catalogEntry?.risk,
+        riskReason: catalogEntry?.riskReason,
+        tags: catalogEntry?.tags,
+      });
+    }
+
+    // Catalog-only entries (not discovered on this system)
+    for (const [name, entry] of Object.entries(COMMAND_CATALOG)) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      options.push({
+        label: name,
+        sourceKind: 'catalog',
+        description: entry.description,
+        risk: entry.risk,
+        riskReason: entry.riskReason,
+        tags: entry.tags,
+      });
+    }
+
+    return options;
   }, [discoveryData]);
 
   // Skill autocomplete options (merge active skills + discovery)
@@ -289,18 +365,35 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
           <Autocomplete
             options={commandOptions}
             getOptionLabel={(option) => option.label}
+            filterOptions={(options, state) => {
+              const q = state.inputValue.trim();
+              if (!q) return options.slice(0, 20);
+              return options
+                .map((opt) => ({ opt, score: scoreCommandOption(opt, q) }))
+                .filter(({ score }) => score > 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 20)
+                .map(({ opt }) => opt);
+            }}
             renderOption={(props, option) => (
-              <Box component="li" {...props} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-                <Typography variant="body2">{option.label}</Typography>
-                <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                  <Chip size="small" label={SOURCE_LABELS[option.sourceKind] ?? option.sourceKind}
-                        variant="outlined" sx={{ fontSize: 10, height: 18 }} />
-                  {option.path && (
-                    <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 160 }}>
-                      {option.path}
-                    </Typography>
-                  )}
+              <Box component="li" {...props} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start !important', gap: 0.25, py: 1 }}>
+                <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="body2" fontWeight={500}>{option.label}</Typography>
+                  <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexShrink: 0 }}>
+                    {option.risk && (
+                      <Chip size="small" label={option.risk}
+                            color={RISK_COLORS[option.risk]}
+                            sx={{ fontSize: 10, height: 18 }} />
+                    )}
+                    <Chip size="small" label={SOURCE_LABELS[option.sourceKind] ?? option.sourceKind}
+                          variant="outlined" sx={{ fontSize: 10, height: 18 }} />
+                  </Box>
                 </Box>
+                {option.description && (
+                  <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.3 }}>
+                    {option.description}
+                  </Typography>
+                )}
               </Box>
             )}
             onChange={handleAddCommand}
@@ -311,7 +404,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
               <TextField
                 {...params}
                 label="Add command"
-                placeholder="Search system commands..."
+                placeholder="Search commands by name, tag, or description..."
                 size="small"
               />
             )}

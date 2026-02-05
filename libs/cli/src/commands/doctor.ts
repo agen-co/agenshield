@@ -5,6 +5,7 @@
  */
 
 import { Command } from 'commander';
+import { getEffectiveEnvForScanning } from '../utils/sudo-env.js';
 
 /**
  * Run diagnostics
@@ -40,7 +41,7 @@ async function runDoctor(): Promise<void> {
 
   // Security Status
   console.log('\n🔒 Security Status:');
-  const security = checkSecurityStatus();
+  const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
 
   // Critical issues first
   if (security.critical.length > 0) {
@@ -129,7 +130,7 @@ export function createDoctorCommand(): Command {
         );
         const prereqs = checkPrerequisites();
         const detection = detectOpenClaw();
-        const security = checkSecurityStatus();
+        const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
         console.log(JSON.stringify({ prereqs, detection, security }, null, 2));
       } else {
         await runDoctor();

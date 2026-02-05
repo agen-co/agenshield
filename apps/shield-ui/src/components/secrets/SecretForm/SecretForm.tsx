@@ -15,7 +15,7 @@ import {
 import { Plus, X } from 'lucide-react';
 import type { PolicyConfig } from '@agenshield/ipc';
 import type { CreateSecretRequest } from '../../../api/client';
-import { useConfig, useUpdateConfig } from '../../../api/hooks';
+import { useConfig, useUpdateConfig, useSecrets, useAvailableEnvSecrets } from '../../../api/hooks';
 import { FormCard } from '../../shared/FormCard';
 import { PolicyEditor } from '../../policies/PolicyEditor/PolicyEditor';
 import SecondaryButton from '../../../elements/buttons/SecondaryButton';
@@ -38,6 +38,16 @@ export function SecretForm({ onSave, onCancel, onDirtyChange, onFocusChange, sav
 
   const { data: configData } = useConfig();
   const updateConfig = useUpdateConfig();
+
+  const { data: envSecretsData } = useAvailableEnvSecrets();
+  const { data: vaultedData } = useSecrets();
+
+  // Filter out names already in the vault
+  const nameOptions = useMemo(() => {
+    const envNames = envSecretsData?.data ?? [];
+    const vaultedNames = new Set((vaultedData?.data ?? []).map((s) => s.name));
+    return envNames.filter((n) => !vaultedNames.has(n));
+  }, [envSecretsData, vaultedData]);
 
   const policies = configData?.data?.policies ?? [];
 
@@ -104,12 +114,25 @@ export function SecretForm({ onSave, onCancel, onDirtyChange, onFocusChange, sav
       error={error}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-        <TextField
-          label="Name"
+        <Autocomplete
+          freeSolo
+          options={nameOptions}
           value={name}
-          onChange={(e) => setName(e.target.value)}
-          fullWidth
-          placeholder="e.g. DATABASE_URL"
+          onChange={(_e, newValue) => setName(typeof newValue === 'string' ? newValue : '')}
+          onInputChange={(_e, newInputValue) => setName(newInputValue)}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Name"
+              placeholder="e.g. DATABASE_URL"
+              fullWidth
+              helperText={
+                nameOptions.length > 0
+                  ? `${nameOptions.length} secret${nameOptions.length === 1 ? '' : 's'} detected in environment`
+                  : undefined
+              }
+            />
+          )}
         />
         <TextField
           label="Value"

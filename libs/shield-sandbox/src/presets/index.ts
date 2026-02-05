@@ -7,6 +7,7 @@
 
 import type { TargetPreset, PresetDetectionResult } from './types.js';
 import { openclawPreset } from './openclaw.js';
+import { devHarnessPreset } from './dev-harness.js';
 import { customPreset } from './custom.js';
 
 // Re-export types
@@ -14,13 +15,17 @@ export * from './types.js';
 
 // Re-export individual presets
 export { openclawPreset } from './openclaw.js';
+export { devHarnessPreset } from './dev-harness.js';
 export { customPreset } from './custom.js';
 
 /**
  * All available presets
+ * Order matters: openclaw is preferred over dev-harness when both exist.
+ * 'custom' is excluded from auto-detection by listAutoDetectablePresets().
  */
 export const PRESETS: Record<string, TargetPreset> = {
   openclaw: openclawPreset,
+  'dev-harness': devHarnessPreset,
   custom: customPreset,
 };
 

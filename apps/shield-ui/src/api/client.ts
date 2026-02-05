@@ -148,6 +148,8 @@ export const api = {
   // Secrets endpoints
   getSecrets: () => request<{ data: Secret[] }>('/secrets'),
 
+  getAvailableEnvSecrets: () => request<{ data: string[] }>('/secrets/env'),
+
   createSecret: (data: CreateSecretRequest) =>
     request<{ data: Secret }>('/secrets', {
       method: 'POST',

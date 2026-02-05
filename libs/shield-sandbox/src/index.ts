@@ -149,6 +149,7 @@ export {
   formatPresetList,
   // Preset instances
   openclawPreset,
+  devHarnessPreset,
   customPreset,
   PRESETS,
   // Types

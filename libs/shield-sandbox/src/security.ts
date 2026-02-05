@@ -59,16 +59,17 @@ const SECRET_PATTERNS = [
 /**
  * Check if an environment variable name looks like a secret
  */
-function isSecretEnvVar(name: string): boolean {
+export function isSecretEnvVar(name: string): boolean {
   return SECRET_PATTERNS.some((pattern) => pattern.test(name));
 }
 
 /**
  * Check for secrets exposed in environment
  */
-function checkExposedSecrets(): string[] {
+function checkExposedSecrets(env?: Record<string, string | undefined>): string[] {
+  const target = env ?? process.env;
   const exposed: string[] = [];
-  for (const [key, value] of Object.entries(process.env)) {
+  for (const [key, value] of Object.entries(target)) {
     if (value && isSecretEnvVar(key)) {
       exposed.push(key);
     }
@@ -120,9 +121,17 @@ function isGuardedShellInstalled(): boolean {
 }
 
 /**
+ * Options for security status checks
+ */
+export interface SecurityCheckOptions {
+  /** Environment to scan for secrets (defaults to process.env) */
+  env?: Record<string, string | undefined>;
+}
+
+/**
  * Check full security status
  */
-export function checkSecurityStatus(): SecurityStatus {
+export function checkSecurityStatus(options?: SecurityCheckOptions): SecurityStatus {
   const currentUser = os.userInfo().username;
   const runningAsRoot = process.getuid?.() === 0 || currentUser === 'root';
   const warnings: string[] = [];
@@ -140,7 +149,7 @@ export function checkSecurityStatus(): SecurityStatus {
   const isIsolated = sandboxUserExists && isolatedProcesses.length > 0 && unIsolatedProcesses.length === 0;
 
   // Check exposed secrets
-  const exposedSecrets = checkExposedSecrets();
+  const exposedSecrets = checkExposedSecrets(options?.env);
 
   // Build warnings and recommendations
   if (runningAsRoot) {

@@ -4,6 +4,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { VaultSecret } from '@agenshield/ipc';
+import { isSecretEnvVar } from '@agenshield/sandbox';
 import { getVault } from '../vault';
 import crypto from 'node:crypto';
 
@@ -36,6 +37,28 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
     const vault = getVault();
     const secrets = (await vault.get('secrets')) ?? [];
     return { data: secrets.map(toMasked) };
+  });
+
+  // List env var NAMES matching secret patterns (names only, never values)
+  app.get('/secrets/env', async () => {
+    const names = new Set<string>();
+
+    // Scan daemon's process.env
+    for (const key of Object.keys(process.env)) {
+      if (process.env[key] && isSecretEnvVar(key)) {
+        names.add(key);
+      }
+    }
+
+    // Merge AGENSHIELD_USER_SECRETS (calling user's secret names, set at daemon start)
+    const userSecrets = process.env['AGENSHIELD_USER_SECRETS'];
+    if (userSecrets) {
+      for (const name of userSecrets.split(',').filter(Boolean)) {
+        names.add(name);
+      }
+    }
+
+    return { data: Array.from(names).sort((a, b) => a.localeCompare(b)) };
   });
 
   // Create a new secret

@@ -1,12 +1,12 @@
 /**
- * Dev mode selection component - Quick vs Custom naming
+ * Dev mode selection component - Quick vs Custom naming vs Web UI
  */
 
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ASH_PREFIX, DEFAULT_BASE_NAME } from '@agenshield/sandbox';
 
-export type DevSetupMode = 'quick' | 'advanced';
+export type DevSetupMode = 'quick' | 'advanced' | 'webui';
 
 const DEV_PREFIX = 'dev';
 const DEFAULT_AGENT = `${DEV_PREFIX}_${ASH_PREFIX}${DEFAULT_BASE_NAME}_agent`;
@@ -17,19 +17,25 @@ interface DevModeSelectProps {
   onCancel: () => void;
 }
 
-const MODES: DevSetupMode[] = ['quick', 'advanced'];
+const MODES: DevSetupMode[] = ['webui', 'quick', 'advanced'];
 
 export function DevModeSelect({ onSelect, onCancel }: DevModeSelectProps) {
-  const [selected, setSelected] = useState<DevSetupMode>('quick');
+  const [selected, setSelected] = useState<DevSetupMode>('webui');
 
   useInput((input, key) => {
     if (key.upArrow || key.downArrow) {
-      setSelected(selected === 'quick' ? 'advanced' : 'quick');
+      const idx = MODES.indexOf(selected);
+      const next = key.downArrow
+        ? (idx + 1) % MODES.length
+        : (idx - 1 + MODES.length) % MODES.length;
+      setSelected(MODES[next]);
     }
 
-    if (input === '1' || input === 'q') {
+    if (input === '1' || input === 'w') {
+      setSelected('webui');
+    } else if (input === '2' || input === 'q') {
       setSelected('quick');
-    } else if (input === '2' || input === 'a') {
+    } else if (input === '3' || input === 'a') {
       setSelected('advanced');
     }
 
@@ -48,16 +54,30 @@ export function DevModeSelect({ onSelect, onCancel }: DevModeSelectProps) {
         <Text bold color="cyan">
           Dev Setup Mode
         </Text>
-        <Text color="gray">Choose how to name your dev sandbox users/groups</Text>
+        <Text color="gray">Choose how to set up your dev sandbox</Text>
       </Box>
 
       <Box flexDirection="column" marginTop={1}>
         <Box>
+          <Text color={selected === 'webui' ? 'green' : 'gray'}>
+            {selected === 'webui' ? '>' : ' '}
+          </Text>
+          <Text bold={selected === 'webui'} color={selected === 'webui' ? 'green' : 'white'}>
+            [1] Web UI Setup
+          </Text>
+        </Box>
+        <Box marginLeft={4}>
+          <Text color="gray">
+            Configure in browser (opens shield-ui)
+          </Text>
+        </Box>
+
+        <Box marginTop={1}>
           <Text color={selected === 'quick' ? 'green' : 'gray'}>
             {selected === 'quick' ? '>' : ' '}
           </Text>
           <Text bold={selected === 'quick'} color={selected === 'quick' ? 'green' : 'white'}>
-            [1] Quick Dev Setup
+            [2] Quick Dev Setup
           </Text>
         </Box>
         <Box marginLeft={4}>
@@ -71,7 +91,7 @@ export function DevModeSelect({ onSelect, onCancel }: DevModeSelectProps) {
             {selected === 'advanced' ? '>' : ' '}
           </Text>
           <Text bold={selected === 'advanced'} color={selected === 'advanced' ? 'green' : 'white'}>
-            [2] Custom Naming
+            [3] Custom Naming
           </Text>
         </Box>
         <Box marginLeft={4}>
@@ -83,7 +103,7 @@ export function DevModeSelect({ onSelect, onCancel }: DevModeSelectProps) {
 
       <Box marginTop={1}>
         <Text color="gray" dimColor>
-          Press 1/2 or arrow keys to select, Enter to confirm, Esc to cancel
+          Press 1/2/3 or arrow keys to select, Enter to confirm, Esc to cancel
         </Text>
       </Box>
     </Box>

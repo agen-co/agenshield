@@ -26,7 +26,8 @@ export const Actions = styled('div', {
   slot: 'Actions',
 })(({ theme }) => ({
   display: 'flex',
-  gap: theme.spacing(1),
+  justifyContent: 'center',
+  gap: theme.spacing(2),
 }));
 
 export const MetaRow = styled('div', {

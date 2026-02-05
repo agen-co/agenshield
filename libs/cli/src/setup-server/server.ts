@@ -12,7 +12,7 @@ import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import type { WizardEngine } from '../wizard/engine.js';
 import { registerRoutes } from './routes.js';
-import { registerSSE, broadcastSetupEvent, getActiveConnections } from './sse.js';
+import { registerSSE, broadcastSetupEvent, getActiveConnections, closeAllSSEConnections } from './sse.js';
 import { getUiAssetsPath } from './static.js';
 
 const IDLE_TIMEOUT = 5 * 60 * 1000;    // 5 minutes
@@ -112,6 +112,8 @@ export function createSetupServer(engine: WizardEngine): SetupServer {
         clearInterval(idleTimer);
         idleTimer = null;
       }
+      // Close SSE connections first so Fastify doesn't wait for them
+      closeAllSSEConnections();
       if (app) {
         await app.close();
         app = null;

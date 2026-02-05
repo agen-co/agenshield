@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect } from 'react';
 import { useSnapshot } from 'valtio';
-import { setupStore, deriveGraphPhase } from '../state/setup';
+import { setupStore, deriveGraphPhase, type GraphPhase } from '../state/setup';
 import { useSetupSSE, useConfigure, useConfirmSetup, useSetPasscode } from '../api/setup';
 import {
   SetupLayout,
@@ -30,9 +30,17 @@ export function SetupWizard() {
   const confirmSetup = useConfirmSetup();
   const setPasscode = useSetPasscode();
 
-  // Keep graphPhase in sync with completed steps
+  // Keep graphPhase in sync with completed steps (only advance forward, never regress)
   useEffect(() => {
-    setupStore.graphPhase = deriveGraphPhase([...completedEngineSteps]);
+    if (completedEngineSteps.length > 0) {
+      const derived = deriveGraphPhase([...completedEngineSteps]);
+      const phaseOrder: GraphPhase[] = ['vulnerable', 'building', 'securing', 'secured'];
+      const currentIdx = phaseOrder.indexOf(setupStore.graphPhase);
+      const derivedIdx = phaseOrder.indexOf(derived);
+      if (derivedIdx > currentIdx) {
+        setupStore.graphPhase = derived;
+      }
+    }
   }, [completedEngineSteps]);
 
   // Auto-advance to passcode step when execution completes

@@ -2,7 +2,7 @@
  * Step 1: Mode selection — Quick vs Advanced
  */
 
-import { Box, Typography, Card, CardContent, CardActionArea } from '@mui/material';
+import { Box, Typography, Card, CardContent } from '@mui/material';
 import { Zap, Settings } from 'lucide-react';
 import { setupStore } from '../../state/setup';
 import { slideIn } from '../../styles/animations';
@@ -14,6 +14,7 @@ interface ModeSelectStepProps {
 export function ModeSelectStep({ onSelect }: ModeSelectStepProps) {
   const handleSelect = (mode: 'quick' | 'advanced') => {
     setupStore.mode = mode;
+    setupStore.graphPhase = 'building';
     onSelect(mode);
   };
 
@@ -30,57 +31,63 @@ export function ModeSelectStep({ onSelect }: ModeSelectStepProps) {
         <Card
           sx={{
             border: '2px solid transparent',
-            transition: 'border-color 0.2s',
-            '&:hover': { borderColor: 'success.main' },
+            transition: 'all 0.2s ease',
+            cursor: 'pointer',
+            '&:hover': {
+              borderColor: 'success.main',
+              bgcolor: 'rgba(34, 197, 94, 0.04)',
+            },
           }}
+          onClick={() => handleSelect('quick')}
         >
-          <CardActionArea onClick={() => handleSelect('quick')}>
-            <CardContent sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-              <Box
-                sx={{
-                  width: 44, height: 44, borderRadius: 2, display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                  bgcolor: 'rgba(34, 197, 94, 0.12)', flexShrink: 0,
-                }}
-              >
-                <Zap size={22} color="#22c55e" />
-              </Box>
-              <Box>
-                <Typography variant="subtitle1" fontWeight={600}>Quick Setup</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Use default user and group names. Recommended for most setups — you can customize later.
-                </Typography>
-              </Box>
-            </CardContent>
-          </CardActionArea>
+          <CardContent sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+            <Box
+              sx={{
+                width: 44, height: 44, borderRadius: 2, display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                bgcolor: 'rgba(34, 197, 94, 0.12)', flexShrink: 0,
+              }}
+            >
+              <Zap size={22} color="#22c55e" />
+            </Box>
+            <Box>
+              <Typography variant="subtitle1" fontWeight={600}>Quick Setup</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Use default user and group names. Recommended for most setups — you can customize later.
+              </Typography>
+            </Box>
+          </CardContent>
         </Card>
 
         <Card
           sx={{
             border: '2px solid transparent',
-            transition: 'border-color 0.2s',
-            '&:hover': { borderColor: 'secondary.main' },
+            transition: 'all 0.2s ease',
+            cursor: 'pointer',
+            '&:hover': {
+              borderColor: 'secondary.main',
+              bgcolor: 'rgba(168, 85, 247, 0.04)',
+            },
           }}
+          onClick={() => handleSelect('advanced')}
         >
-          <CardActionArea onClick={() => handleSelect('advanced')}>
-            <CardContent sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
-              <Box
-                sx={{
-                  width: 44, height: 44, borderRadius: 2, display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                  bgcolor: 'rgba(168, 85, 247, 0.12)', flexShrink: 0,
-                }}
-              >
-                <Settings size={22} color="#a855f7" />
-              </Box>
-              <Box>
-                <Typography variant="subtitle1" fontWeight={600}>Advanced Setup</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Customize user names, group names, and workspace paths. Useful for multi-tenant or enterprise deployments.
-                </Typography>
-              </Box>
-            </CardContent>
-          </CardActionArea>
+          <CardContent sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+            <Box
+              sx={{
+                width: 44, height: 44, borderRadius: 2, display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                bgcolor: 'rgba(168, 85, 247, 0.12)', flexShrink: 0,
+              }}
+            >
+              <Settings size={22} color="#a855f7" />
+            </Box>
+            <Box>
+              <Typography variant="subtitle1" fontWeight={600}>Advanced Setup</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Customize user names, group names, and workspace paths. Useful for multi-tenant or enterprise deployments.
+              </Typography>
+            </Box>
+          </CardContent>
         </Card>
       </Box>
     </Box>

@@ -25,8 +25,10 @@ import {
   groupExists,
   DEFAULT_BASE_NAME,
 } from '@agenshield/sandbox';
+import { BUILTIN_SKILLS_DIR, getSoulContent } from '@agenshield/skills';
 import type { DevState } from './state.js';
 import { findTestHarness } from '../utils/find-test-harness.js';
+import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -52,11 +54,35 @@ interface DevSetupAppProps {
     baseGid?: number;
   };
   onComplete: (state: DevState) => void;
+  onWebUI?: () => void;
 }
 
 const DEV_PREFIX = 'dev';
 const DEV_BASE_UID = 5400;
 const DEV_BASE_GID = 5300;
+
+const SKILL_NAMES = [
+  'agentlink-secure-integrations',
+  'soul-shield',
+  'policy-enforce',
+  'secret-broker',
+  'security-check',
+];
+
+function copyDirRecursive(src: string, dest: string): void {
+  if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+      copyDirRecursive(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
 
 async function checkConflicts(names: ComputedNames): Promise<{ users: string[]; groups: string[] }> {
   const existingUsers: string[] = [];
@@ -70,7 +96,7 @@ async function checkConflicts(names: ComputedNames): Promise<{ users: string[]; 
   return { users: existingUsers, groups: existingGroups };
 }
 
-export function DevSetupApp({ options, onComplete }: DevSetupAppProps) {
+export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) {
   const { exit } = useApp();
   const [phase, setPhase] = useState<DevSetupPhase>('detecting');
   const [error, setError] = useState<string | null>(null);
@@ -137,13 +163,18 @@ export function DevSetupApp({ options, onComplete }: DevSetupAppProps) {
 
   // Handle mode selection
   const handleModeSelect = useCallback((mode: DevSetupMode) => {
+    if (mode === 'webui') {
+      onWebUI?.();
+      exit();
+      return;
+    }
     if (mode === 'quick') {
       setBaseName(DEFAULT_BASE_NAME);
       setPhase('confirming');
     } else {
       setPhase('advanced_config');
     }
-  }, []);
+  }, [onWebUI, exit]);
 
   // Handle advanced config confirmation
   const handleAdvancedConfig = useCallback((values: { agentSuffix: string }) => {
@@ -173,6 +204,9 @@ export function DevSetupApp({ options, onComplete }: DevSetupAppProps) {
       { name: 'Create directories', status: 'pending' },
       { name: 'Setup socket directory', status: 'pending' },
       { name: 'Copy node binary', status: 'pending' },
+      { name: 'Copy test harness', status: 'pending' },
+      { name: 'Inject dev skills', status: 'pending' },
+      { name: 'Configure soul', status: 'pending' },
     ];
     setSteps([...setupSteps]);
 
@@ -251,8 +285,65 @@ export function DevSetupApp({ options, onComplete }: DevSetupAppProps) {
           return;
         }
 
-        // Find test harness
-        const testHarnessPath = findTestHarness();
+        // 7. Copy test harness to agent's bin dir
+        updateStep(6, 'running');
+        const testHarnessSource = findTestHarness();
+        const harnessDestPath = path.join(cfg.agentUser.home, 'bin', 'dummy-openclaw.js');
+        if (testHarnessSource) {
+          try {
+            fs.copyFileSync(testHarnessSource, harnessDestPath);
+            fs.chmodSync(harnessDestPath, 0o755);
+            updateStep(6, 'done');
+          } catch (err) {
+            updateStep(6, 'error', (err as Error).message);
+          }
+        } else {
+          updateStep(6, 'error', 'Test harness source not found');
+        }
+
+        // 8. Inject dev skills
+        updateStep(7, 'running');
+        const devSkillsDir = path.join(cfg.agentUser.home, '.openclaw-dev', 'skills');
+        try {
+          fs.mkdirSync(devSkillsDir, { recursive: true });
+          for (const name of SKILL_NAMES) {
+            const src = path.join(BUILTIN_SKILLS_DIR, name);
+            if (fs.existsSync(src)) {
+              copyDirRecursive(src, path.join(devSkillsDir, name));
+            }
+          }
+          // Set ownership: root-owned, agent reads via socket group
+          execSync(`chown -R root:${cfg.groups.socket.name} "${path.join(cfg.agentUser.home, '.openclaw-dev')}"`, { stdio: 'pipe' });
+          execSync(`chmod -R a+rX,go-w "${devSkillsDir}"`, { stdio: 'pipe' });
+          updateStep(7, 'done');
+        } catch (err) {
+          updateStep(7, 'error', (err as Error).message);
+        }
+
+        // 9. Configure soul (write shield.json in dev config location)
+        updateStep(8, 'running');
+        try {
+          const devConfigDir = path.join(cfg.agentUser.home, '.openclaw-dev');
+          const shieldConfigPath = path.join(devConfigDir, 'shield.json');
+          const soulContent = getSoulContent('medium');
+          const shieldConfig = {
+            soul: {
+              enabled: true,
+              mode: 'prepend',
+              securityLevel: 'medium',
+              content: soulContent,
+            },
+            skills: {
+              dir: devSkillsDir,
+              enabled: SKILL_NAMES,
+            },
+          };
+          fs.writeFileSync(shieldConfigPath, JSON.stringify(shieldConfig, null, 2));
+          execSync(`chown root:${cfg.groups.socket.name} "${shieldConfigPath}" && chmod 640 "${shieldConfigPath}"`, { stdio: 'pipe' });
+          updateStep(8, 'done');
+        } catch (err) {
+          updateStep(8, 'error', (err as Error).message);
+        }
 
         // Build DevState
         const state: DevState = {
@@ -267,8 +358,10 @@ export function DevSetupApp({ options, onComplete }: DevSetupAppProps) {
           workspaceGroupName: cfg.groups.workspace.name,
           baseUid,
           baseGid,
-          testHarnessPath: testHarnessPath || 'tools/test-harness/bin/dummy-openclaw.js',
+          testHarnessPath: harnessDestPath,
           nodePath: nodeDest,
+          skillsDir: devSkillsDir,
+          installedSkills: SKILL_NAMES,
         };
 
         setPhase('complete');

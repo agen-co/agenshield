@@ -32,12 +32,12 @@ export const attackPulse = keyframes`
 /** Blue shimmer on nodes being constructed */
 export const buildingPulse = keyframes`
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.3);
-    border-color: rgba(59, 130, 246, 0.5);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.4);
   }
   50% {
-    box-shadow: 0 0 12px 4px rgba(59, 130, 246, 0.2);
-    border-color: rgba(59, 130, 246, 1);
+    box-shadow: 0 0 8px 2px rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.7);
   }
 `;
 
@@ -52,16 +52,16 @@ export const dashFlow = keyframes`
 /** Green aura on completed/secured nodes */
 export const securedGlow = keyframes`
   0%, 100% {
-    box-shadow: 0 0 4px 1px rgba(34, 197, 94, 0.2);
+    box-shadow: 0 0 2px 1px rgba(34, 197, 94, 0.15);
   }
   50% {
-    box-shadow: 0 0 12px 4px rgba(34, 197, 94, 0.3);
+    box-shadow: 0 0 8px 2px rgba(34, 197, 94, 0.2);
   }
 `;
 
 /** Final secured state — gentle green pulse on entire graph */
 export const securedGraphGlow = keyframes`
-  0%, 100% { opacity: 0.7; }
+  0%, 100% { opacity: 0.9; }
   50% { opacity: 1; }
 `;
 
@@ -74,12 +74,10 @@ export const blockedFlash = keyframes`
   100% { stroke: #6b7280; opacity: 0.5; }
 `;
 
-/** Scale bounce for new nodes appearing */
+/** Fade-in for new nodes appearing (no scale to avoid text vibration) */
 export const nodeAppear = keyframes`
-  0% { transform: scale(0); opacity: 0; }
-  60% { transform: scale(1.1); opacity: 1; }
-  80% { transform: scale(0.95); }
-  100% { transform: scale(1); opacity: 1; }
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
 `;
 
 /** Fade + slide for node labels */

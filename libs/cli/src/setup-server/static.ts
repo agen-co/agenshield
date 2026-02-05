@@ -23,9 +23,14 @@ export function getUiAssetsPath(): string | null {
   }
 
   // Check for development build — <monorepo-root>/dist/apps/shield-ui/
-  const devPath = path.join(__dirname, '..', '..', '..', '..', '..', 'dist', 'apps', 'shield-ui');
-  if (fs.existsSync(devPath)) {
-    return devPath;
+  const devPaths = [
+    path.join(__dirname, '..', '..', '..', '..', 'dist', 'apps', 'shield-ui'),
+    path.join(process.cwd(), 'dist', 'apps', 'shield-ui'),
+  ];
+  for (const devPath of devPaths) {
+    if (fs.existsSync(devPath)) {
+      return devPath;
+    }
   }
 
   return null;
