@@ -16,6 +16,7 @@ import { execRoutes } from './exec';
 import { discoveryRoutes } from './discovery';
 import { authRoutes } from './auth';
 import { secretsRoutes } from './secrets';
+import { marketplaceRoutes } from './marketplace';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 
@@ -40,6 +41,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     done();
   });
 
+  // Error handler — log details and send structured response
+  app.setErrorHandler((error: { statusCode?: number; message: string }, request, reply) => {
+    const status = error.statusCode ?? 500;
+    console.error(`\x1b[31mERROR\x1b[0m ${request.method} ${request.url} \x1b[2m${status}\x1b[0m — ${error.message}`);
+    reply.status(status).send({
+      success: false,
+      error: { message: error.message, statusCode: status },
+    });
+  });
+
   await app.register(
     async (api) => {
       // Add auth hook to protect routes
@@ -56,6 +67,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(discoveryRoutes);
       await api.register(authRoutes);
       await api.register(secretsRoutes);
+      await api.register(marketplaceRoutes);
     },
     { prefix: API_PREFIX }
   );

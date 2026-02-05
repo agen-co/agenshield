@@ -54,7 +54,7 @@ export function ExecutionStep() {
         sx={{ mb: 3, height: 6, borderRadius: 1 }}
       />
 
-      <List dense disablePadding sx={{ maxHeight: 400, overflowY: 'auto' }}>
+      <List dense disablePadding>
         {executionSteps.map((step) => (
           <ListItem
             key={step.id}

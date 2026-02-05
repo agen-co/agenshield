@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "agentlink-marketplace": {
-      "url": "https://mcp.marketplace.frontegg.com/mcp",
+      "url": "https://mcp.marketplace.frontegg.com",
       "transport": "http",
       "auth": {
         "type": "oauth",

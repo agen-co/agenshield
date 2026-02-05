@@ -2,7 +2,8 @@
  * Skills page - skill scanning and management
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -18,11 +19,8 @@ import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
 import { EmptyState } from '../components/shared/EmptyState';
-import { SidePanel } from '../components/shared/SidePanel';
 import { SkillsList } from '../components/skills/SkillsList';
-import { SkillDetails } from '../components/skills/SkillDetails';
 import { MarketplaceList } from '../components/skills/MarketplaceList';
-import { MarketplaceSkillDetails } from '../components/skills/MarketplaceSkillDetails';
 
 const tabEmptyMessages: Record<Exclude<SkillsTab, 'marketplace'>, { title: string; description: string }> = {
   active: {
@@ -45,12 +43,41 @@ const tabStatusFilters: Record<Exclude<SkillsTab, 'marketplace'>, (status: strin
   blocked: (status) => status === 'quarantined',
 };
 
+const validTabs: SkillsTab[] = ['active', 'available', 'blocked', 'marketplace'];
+
 export function Skills() {
   const { data, isLoading } = useSkills();
-  const [search, setSearch] = useState('');
-  const [tab, setTab] = useState<SkillsTab>('active');
-  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
-  const [selectedMarketplaceSkill, setSelectedMarketplaceSkill] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Read tab & search from URL
+  const tabParam = searchParams.get('tab') ?? 'active';
+  const tab: SkillsTab = validTabs.includes(tabParam as SkillsTab) ? (tabParam as SkillsTab) : 'active';
+  const qParam = searchParams.get('q') ?? '';
+
+  // Local search state for responsive input
+  const [search, setSearch] = useState(qParam);
+
+  // Debounced search value (300ms)
+  const [debouncedSearch, setDebouncedSearch] = useState(qParam);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Sync debounced value to URL
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (debouncedSearch) {
+      next.set('q', debouncedSearch);
+    } else {
+      next.delete('q');
+    }
+    // Only update if actually changed
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [debouncedSearch]);
 
   const skills = data?.data ?? [];
 
@@ -61,97 +88,75 @@ export function Skills() {
   }, [skills, tab]);
 
   const handleTabChange = (_: React.SyntheticEvent, val: string) => {
-    setTab(val as SkillsTab);
-    setSelectedSkill(null);
-    setSelectedMarketplaceSkill(null);
+    const nextTab = val as SkillsTab;
     setSearch('');
+    setDebouncedSearch('');
+    const next = new URLSearchParams();
+    if (nextTab !== 'active') {
+      next.set('tab', nextTab);
+    }
+    setSearchParams(next, { replace: true });
   };
 
   const isMarketplace = tab === 'marketplace';
 
   return (
-    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto', display: 'flex' }}>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <PageHeader
-          title="Skills"
-          description="Manage and inspect skills loaded from various sources."
+    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+      <PageHeader
+        title="Skills"
+        description="Manage and inspect skills loaded from various sources."
+      />
+
+      <Tabs
+        value={tab}
+        onChange={handleTabChange}
+        variant="scrollable"
+        scrollButtons={false}
+        sx={{ mt: -2, mb: 2, '& .MuiTab-root': { textTransform: 'none' } }}
+      >
+        <Tab label="Active" value="active" />
+        <Tab label="Available" value="available" />
+        <Tab label="Blocked" value="blocked" />
+        <Tab label="Marketplace" value="marketplace" />
+      </Tabs>
+
+      <Box sx={{ mb: 3 }}>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder={isMarketplace ? 'Search the global internet...' : 'Search skills...'}
         />
-
-        <Tabs
-          value={tab}
-          onChange={handleTabChange}
-          variant="scrollable"
-          scrollButtons={false}
-          sx={{ mt: -2, mb: 2, '& .MuiTab-root': { textTransform: 'none' } }}
-        >
-          <Tab label="Active" value="active" />
-          <Tab label="Available" value="available" />
-          <Tab label="Blocked" value="blocked" />
-          <Tab label="Marketplace" value="marketplace" />
-        </Tabs>
-
-        <Box sx={{ mb: 3 }}>
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder={isMarketplace ? 'Search the global internet...' : 'Search skills...'}
-          />
-        </Box>
-
-        <Card>
-          <CardContent sx={{ p: 1 }}>
-            {isMarketplace ? (
-              <MarketplaceList
-                search={search}
-                selectedSkill={selectedMarketplaceSkill}
-                onSelect={(slug) => {
-                  setSelectedMarketplaceSkill(slug);
-                  setSelectedSkill(null);
-                }}
-              />
-            ) : isLoading ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 2 }}>
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} variant="rectangular" height={52} sx={{ borderRadius: 1 }} />
-                ))}
-              </Box>
-            ) : filteredSkills.length === 0 ? (
-              <EmptyState
-                icon={<Zap size={28} />}
-                title={tabEmptyMessages[tab as Exclude<SkillsTab, 'marketplace'>]?.title ?? 'No skills found'}
-                description={tabEmptyMessages[tab as Exclude<SkillsTab, 'marketplace'>]?.description ?? 'Skills will appear here once they are discovered.'}
-              />
-            ) : (
-              <SkillsList
-                skills={filteredSkills}
-                search={search}
-                statusFilter="all"
-                selectedSkill={selectedSkill}
-                onSelect={(name) => {
-                  setSelectedSkill(name);
-                  setSelectedMarketplaceSkill(null);
-                }}
-              />
-            )}
-          </CardContent>
-        </Card>
       </Box>
 
-      <SidePanel
-        open={!!selectedSkill}
-        onClose={() => setSelectedSkill(null)}
-        title="Skill Details"
-      >
-        {selectedSkill && <SkillDetails skillName={selectedSkill} />}
-      </SidePanel>
-
-      <SidePanel
-        open={!!selectedMarketplaceSkill}
-        onClose={() => setSelectedMarketplaceSkill(null)}
-        title="Marketplace Skill"
-      >
-        {selectedMarketplaceSkill && <MarketplaceSkillDetails slug={selectedMarketplaceSkill} />}
-      </SidePanel>
+      <Card>
+        <CardContent sx={{ p: 1 }}>
+          {isMarketplace ? (
+            <MarketplaceList
+              search={debouncedSearch}
+              onSelect={(slug) => navigate(`/skills/${slug}`)}
+            />
+          ) : isLoading ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 2 }}>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} variant="rectangular" height={52} sx={{ borderRadius: 1 }} />
+              ))}
+            </Box>
+          ) : filteredSkills.length === 0 ? (
+            <EmptyState
+              icon={<Zap size={28} />}
+              title={tabEmptyMessages[tab as Exclude<SkillsTab, 'marketplace'>]?.title ?? 'No skills found'}
+              description={tabEmptyMessages[tab as Exclude<SkillsTab, 'marketplace'>]?.description ?? 'Skills will appear here once they are discovered.'}
+            />
+          ) : (
+            <SkillsList
+              skills={filteredSkills}
+              search={search}
+              statusFilter="all"
+              onSelect={(name) => navigate(`/skills/${name}`)}
+            />
+          )}
+        </CardContent>
+      </Card>
     </Box>
   );
 }

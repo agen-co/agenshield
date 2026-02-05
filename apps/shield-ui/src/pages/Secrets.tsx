@@ -10,13 +10,14 @@ import {
   Collapse,
   Button,
   Skeleton,
+  Alert,
 } from '@mui/material';
 import { Plus, KeyRound } from 'lucide-react';
 import { useSecrets, useCreateSecret, useDeleteSecret } from '../api/hooks';
 import { useAuth } from '../context/AuthContext';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import { tokens } from '../styles/tokens';
-import type { CreateSecretRequest } from '../api/client';
+import type { CreateSecretRequest, Secret } from '../api/client';
 
 import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
@@ -36,31 +37,53 @@ export function Secrets() {
   const [formDirty, setFormDirty] = useState(false);
   const [formFocused, setFormFocused] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [editingSecret, setEditingSecret] = useState<Secret | null>(null);
 
   const { guardOpen, guardConfirm, guardCancel } = useUnsavedChangesGuard(formDirty);
 
   const secrets = data?.data ?? [];
 
   const handleSave = (req: CreateSecretRequest) => {
-    createSecret.mutate(req, {
-      onSuccess: () => {
-        setFormOpen(false);
-        setFormDirty(false);
-        setFormFocused(false);
-      },
-    });
+    const doCreate = () => {
+      createSecret.mutate(req, {
+        onSuccess: () => {
+          setFormOpen(false);
+          setEditingSecret(null);
+          setFormDirty(false);
+          setFormFocused(false);
+        },
+      });
+    };
+
+    if (editingSecret) {
+      deleteSecret.mutate(editingSecret.id, { onSuccess: doCreate });
+    } else {
+      doCreate();
+    }
   };
 
   const handleCancel = useCallback(() => {
     setFormOpen(false);
+    setEditingSecret(null);
     setFormDirty(false);
     setFormFocused(false);
   }, []);
 
+  const handleEdit = (secret: Secret) => {
+    setEditingSecret(secret);
+    setFormOpen(true);
+  };
+
   const confirmDelete = () => {
     if (deleteTarget) {
-      deleteSecret.mutate(deleteTarget);
-      setDeleteTarget(null);
+      deleteSecret.mutate(deleteTarget, {
+        onSuccess: () => setDeleteTarget(null),
+        onError: (err) => {
+          setDeleteTarget(null);
+          setDeleteError((err as Error).message);
+        },
+      });
     }
   };
 
@@ -78,6 +101,12 @@ export function Secrets() {
         }
       />
 
+      {deleteError && (
+        <Alert severity="error" variant="outlined" sx={{ mb: 2 }} onClose={() => setDeleteError(null)}>
+          {deleteError}
+        </Alert>
+      )}
+
       <Collapse in={formOpen} unmountOnExit timeout={250}>
         <Box sx={{ mb: 3, position: 'relative', zIndex: 10 }}>
           <SecretForm
@@ -86,6 +115,7 @@ export function Secrets() {
             onDirtyChange={setFormDirty}
             onFocusChange={setFormFocused}
             saving={createSecret.isPending}
+            initialData={editingSecret ? { name: editingSecret.name, policyIds: editingSecret.policyIds } : undefined}
           />
         </Box>
       </Collapse>
@@ -124,6 +154,7 @@ export function Secrets() {
               secrets={secrets}
               search={search}
               onDelete={setDeleteTarget}
+              onEdit={handleEdit}
             />
           )}
         </CardContent>
@@ -146,6 +177,7 @@ export function Secrets() {
         message="Are you sure you want to delete this secret? This action cannot be undone."
         confirmLabel="Delete"
         variant="danger"
+        position="top"
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />

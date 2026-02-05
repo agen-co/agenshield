@@ -365,3 +365,38 @@ export function listApproved(): ApprovedSkillEntry[] {
 export function triggerSkillsScan(): void {
   scanSkills();
 }
+
+/**
+ * Get the configured skills directory path
+ */
+export function getSkillsDir(): string {
+  return skillsDir;
+}
+
+/**
+ * Add a skill to the approved list without requiring quarantine.
+ * Used by marketplace install to pre-approve before writing files,
+ * preventing a race condition with the watcher quarantining new skills.
+ */
+export function addToApprovedList(skillName: string): void {
+  const approved = loadApprovedSkills();
+  if (!approved.some((s) => s.name === skillName)) {
+    approved.push({
+      name: skillName,
+      approvedAt: new Date().toISOString(),
+    });
+    saveApprovedSkills(approved);
+  }
+}
+
+/**
+ * Remove a skill from the approved list (without quarantining).
+ * Used for cleanup when marketplace install fails after pre-approval.
+ */
+export function removeFromApprovedList(skillName: string): void {
+  const approved = loadApprovedSkills();
+  const filtered = approved.filter((s) => s.name !== skillName);
+  if (filtered.length !== approved.length) {
+    saveApprovedSkills(filtered);
+  }
+}

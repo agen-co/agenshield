@@ -190,8 +190,8 @@ export async function createDirectory(
   }
 ): Promise<DirectoryResult> {
   try {
-    // Create directory
-    await fs.mkdir(dirPath, { recursive: true, mode: options.mode });
+    // Create directory (via sudo for system paths like /opt, /etc, /var)
+    await execAsync(`sudo mkdir -p "${dirPath}"`);
 
     // Set ownership (requires sudo)
     await execAsync(`sudo chown ${options.owner}:${options.group} "${dirPath}"`);
@@ -298,8 +298,25 @@ export async function verifyDirectories(config?: UserConfig): Promise<{
         });
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      const errno = (error as NodeJS.ErrnoException).code;
+      if (errno === 'ENOENT') {
         missing.push(dirPath);
+      } else if (errno === 'EACCES') {
+        // Running as non-root — use sudo to verify the directory
+        try {
+          // macOS: stat -f '%Lp' returns octal mode (e.g. "755")
+          const { stdout: modeStr } = await execAsync(`sudo stat -f '%Lp' "${dirPath}"`);
+          const actualMode = parseInt(modeStr.trim(), 8);
+          const expectedMode = expected.mode & 0o7777;
+          if (actualMode !== expectedMode) {
+            incorrect.push({
+              path: dirPath,
+              issue: `Mode mismatch: expected ${expectedMode.toString(8)}, got ${actualMode.toString(8)}`,
+            });
+          }
+        } catch {
+          // sudo stat failed — EACCES means the path exists, don't report as missing
+        }
       } else {
         incorrect.push({
           path: dirPath,

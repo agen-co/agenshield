@@ -14,7 +14,7 @@ import { render } from 'ink';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
-import { ensureRoot } from '../utils/privileges.js';
+import { ensureSudoAccess } from '../utils/privileges.js';
 import { startDaemon, stopDaemon } from '../utils/daemon.js';
 import {
   loadDevState,
@@ -58,30 +58,42 @@ async function runDevWebUI(options: { baseName?: string; prefix?: string; baseUi
     console.log(`Warning: Detection phase issue: ${detectionResult.error}`);
   }
 
+  // Acquire sudo credentials now (in the terminal) before opening the browser,
+  // so the setup phase can use cached credentials without a TTY prompt.
+  ensureSudoAccess();
+
   const server = createSetupServer(engine);
   const url = await server.start(6970);
   console.log(`Web UI available at: ${url}`);
 
-  // Open browser as the original (non-root) user so the correct default browser is used
+  // Open browser (already running as user, so default browser is correct)
   try {
-    const sudoUser = process.env['SUDO_USER'];
-    if (sudoUser) {
-      execSync(`sudo -u ${sudoUser} open ${url}`, { stdio: 'pipe' });
-    } else {
-      execSync(`open ${url}`, { stdio: 'pipe' });
-    }
+    execSync(`open ${url}`, { stdio: 'pipe' });
   } catch { /* Non-macOS or open failed */ }
 
-  // Wait for setup completion or SIGINT
-  await new Promise<void>((resolve) => {
-    process.on('SIGINT', resolve);
-    process.on('SIGTERM', resolve);
-  });
+  // Wait for setup completion OR SIGINT
+  const completionOrSignal = Promise.race([
+    server.waitForCompletion(),
+    new Promise<void>((resolve) => {
+      process.on('SIGINT', resolve);
+      process.on('SIGTERM', resolve);
+    }),
+  ]);
 
+  await completionOrSignal;
   console.log('\nShutting down Web UI server...');
   await server.stop();
 
-  // Force exit after a short grace period in case something still holds the event loop
+  // Start daemon now that port is free
+  console.log('Starting daemon...');
+  const daemonResult = await startDaemon();
+  if (daemonResult.success) {
+    console.log(`Daemon started (PID: ${daemonResult.pid})`);
+  } else {
+    console.warn(`Warning: ${daemonResult.message}`);
+  }
+
+  // Force exit after grace period
   setTimeout(() => process.exit(0), 1000).unref();
 }
 
@@ -123,9 +135,9 @@ async function runDevMode(options: {
           const nodeDest = path.join(agentBinDir, 'node');
           if (!fs.existsSync(nodeDest)) {
             try {
-              fs.mkdirSync(agentBinDir, { recursive: true });
-              fs.copyFileSync(process.execPath, nodeDest);
-              fs.chmodSync(nodeDest, 0o755);
+              execSync(`sudo mkdir -p "${agentBinDir}"`, { stdio: 'pipe' });
+              execSync(`sudo cp "${process.execPath}" "${nodeDest}"`, { stdio: 'pipe' });
+              execSync(`sudo chmod 755 "${nodeDest}"`, { stdio: 'pipe' });
             } catch {
               // Best effort
             }
@@ -147,8 +159,8 @@ async function runDevMode(options: {
           if (harnessSource) {
             const harnessDestPath = path.join(cfg.agentUser.home, 'bin', 'dummy-openclaw.js');
             try {
-              fs.copyFileSync(harnessSource, harnessDestPath);
-              fs.chmodSync(harnessDestPath, 0o755);
+              execSync(`sudo cp "${harnessSource}" "${harnessDestPath}"`, { stdio: 'pipe' });
+              execSync(`sudo chmod 755 "${harnessDestPath}"`, { stdio: 'pipe' });
               state.testHarnessPath = harnessDestPath;
             } catch { /* best effort */ }
           }
@@ -302,7 +314,6 @@ export function createDevCommand(): Command {
     .option('--base-uid <uid>', 'Base UID for users', parseInt)
     .option('--no-tui', 'Start daemon without interactive TUI')
     .action(async (opts) => {
-      ensureRoot('dev');
       await runDevMode({
         baseName: opts.baseName,
         prefix: opts.prefix,
@@ -315,7 +326,7 @@ export function createDevCommand(): Command {
     .command('clean')
     .description('Stop daemon, remove dev users/groups, and clean up dev state')
     .action(async () => {
-      ensureRoot('dev clean');
+      ensureSudoAccess();
       await runDevClean();
     });
 

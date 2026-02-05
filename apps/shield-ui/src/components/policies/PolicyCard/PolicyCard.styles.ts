@@ -3,12 +3,11 @@ import { styled } from '@mui/material/styles';
 export const Root = styled('div', {
   name: 'PolicyCard',
   slot: 'Root',
-  shouldForwardProp: (prop) => prop !== '$selected',
-})<{ $selected: boolean }>(({ theme, $selected }) => ({
+})(({ theme }) => ({
   padding: theme.spacing(3),
   borderRadius: (theme.shape.borderRadius as number) * 2,
-  border: `1px solid ${$selected ? theme.palette.primary.main : theme.palette.divider}`,
-  backgroundColor: $selected ? `${theme.palette.primary.main}06` : theme.palette.background.paper,
+  border: `1px solid ${theme.palette.divider}`,
+  backgroundColor: theme.palette.background.paper,
   cursor: 'pointer',
   transition: 'all 150ms ease',
   '&:hover': {

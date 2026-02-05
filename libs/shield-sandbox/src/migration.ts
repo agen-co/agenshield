@@ -48,10 +48,10 @@ function sudoExec(cmd: string): { success: boolean; output?: string; error?: str
 }
 
 /**
- * Copy a directory recursively with sudo
+ * Copy directory contents recursively with sudo (copies INTO dest, not nesting)
  */
 function sudoCopyDir(src: string, dest: string): { success: boolean; error?: string } {
-  return sudoExec(`cp -R "${src}" "${dest}"`);
+  return sudoExec(`cp -R "${src}/." "${dest}/"`);
 }
 
 /**
@@ -71,14 +71,22 @@ function createOpenClawWrapper(
     const entryPath = path.join(dirs.packageDir, 'dist', 'entry.js');
     wrapperContent = `#!/usr/bin/env bash
 set -euo pipefail
-exec node "${entryPath}" "$@"
+# Avoid getcwd errors when cwd is inaccessible
+cd ~ 2>/dev/null || cd /
+# Resolve node from wrapper's own bin directory
+AGENT_BIN="$(cd "$(dirname "$0")" && pwd)"
+exec "\${AGENT_BIN}/node" "${entryPath}" "$@"
 `;
   } else {
     // For git install, the entry point is in the source directory
     const entryPath = path.join(dirs.packageDir, 'dist', 'entry.js');
     wrapperContent = `#!/usr/bin/env bash
 set -euo pipefail
-exec node "${entryPath}" "$@"
+# Avoid getcwd errors when cwd is inaccessible
+cd ~ 2>/dev/null || cd /
+# Resolve node from wrapper's own bin directory
+AGENT_BIN="$(cd "$(dirname "$0")" && pwd)"
+exec "\${AGENT_BIN}/node" "${entryPath}" "$@"
 `;
   }
 
@@ -135,6 +143,9 @@ export function migrateNpmInstall(
     sudoExec(`rm -f "${dirs.configDir}/secrets.json" 2>/dev/null`);
     sudoExec(`rm -f "${dirs.configDir}/.env" 2>/dev/null`);
     sudoExec(`rm -f "${dirs.configDir}/credentials.json" 2>/dev/null`);
+
+    // Remove skills/ — skills must go through quarantine/approval system
+    sudoExec(`rm -rf "${dirs.configDir}/skills" 2>/dev/null`);
   }
 
   // Set ownership of all copied files
@@ -193,6 +204,9 @@ export function migrateGitInstall(
     sudoExec(`rm -f "${dirs.configDir}/secrets.json" 2>/dev/null`);
     sudoExec(`rm -f "${dirs.configDir}/.env" 2>/dev/null`);
     sudoExec(`rm -f "${dirs.configDir}/credentials.json" 2>/dev/null`);
+
+    // Remove skills/ — skills must go through quarantine/approval system
+    sudoExec(`rm -rf "${dirs.configDir}/skills" 2>/dev/null`);
   }
 
   // Set ownership of all copied files

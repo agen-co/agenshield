@@ -6,6 +6,10 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execAsync = promisify(exec);
 
 const SEATBELT_DIR = '/etc/agenshield/seatbelt';
 
@@ -313,10 +317,6 @@ export async function installSeatbeltProfiles(
 
   try {
     // Ensure directories exist
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-
     await execAsync(`sudo mkdir -p "${seatbeltDir}"`);
     await execAsync(`sudo mkdir -p "${opsDir}"`);
 

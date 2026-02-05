@@ -503,12 +503,21 @@ export async function installWrappers(
   try {
     await fs.mkdir(targetDir, { recursive: true });
   } catch {
-    // Directory might exist
+    // Permission denied or already exists — try sudo
+    try {
+      await execAsync(`sudo mkdir -p "${targetDir}"`);
+    } catch {
+      // Directory likely exists
+    }
   }
 
   for (const [name, def] of Object.entries(WRAPPER_DEFINITIONS)) {
     const content = def.generate(wrapperConfig);
-    const result = await installWrapper(name, content, targetDir);
+    // Try direct write first, fall back to sudo for root-owned directories
+    let result = await installWrapper(name, content, targetDir);
+    if (!result.success && result.error && (result.error as NodeJS.ErrnoException).code === 'EACCES') {
+      result = await installWrapperWithSudo(name, content, targetDir);
+    }
     results.push(result);
   }
 
@@ -530,7 +539,12 @@ export async function installSpecificWrappers(
   try {
     await fs.mkdir(targetDir, { recursive: true });
   } catch {
-    // Directory might exist
+    // Permission denied or already exists — try sudo
+    try {
+      await execAsync(`sudo mkdir -p "${targetDir}"`);
+    } catch {
+      // Directory likely exists
+    }
   }
 
   for (const name of names) {
@@ -546,7 +560,11 @@ export async function installSpecificWrappers(
     }
 
     const content = def.generate(wrapperConfig);
-    const result = await installWrapper(name, content, targetDir);
+    // Try direct write first, fall back to sudo for root-owned directories
+    let result = await installWrapper(name, content, targetDir);
+    if (!result.success && result.error && (result.error as NodeJS.ErrnoException).code === 'EACCES') {
+      result = await installWrapperWithSudo(name, content, targetDir);
+    }
     results.push(result);
   }
 

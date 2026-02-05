@@ -28,8 +28,10 @@ import {
 import { BUILTIN_SKILLS_DIR, getSoulContent } from '@agenshield/skills';
 import type { DevState } from './state.js';
 import { findTestHarness } from '../utils/find-test-harness.js';
+import { ensureSudoAccess, startSudoKeepalive } from '../utils/privileges.js';
 import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 type DevSetupPhase =
@@ -68,21 +70,6 @@ const SKILL_NAMES = [
   'secret-broker',
   'security-check',
 ];
-
-function copyDirRecursive(src: string, dest: string): void {
-  if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name === 'dist') continue;
-      copyDirRecursive(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
 
 async function checkConflicts(names: ComputedNames): Promise<{ users: string[]; groups: string[] }> {
   const existingUsers: string[] = [];
@@ -217,6 +204,10 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
     };
 
     (async () => {
+      // Prompt for sudo credentials before privileged steps
+      ensureSudoAccess();
+      const keepalive = startSudoKeepalive();
+
       try {
         // 1. Create groups
         updateStep(0, 'running');
@@ -275,9 +266,9 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
         const agentBinDir = path.join(cfg.agentUser.home, 'bin');
         const nodeDest = path.join(agentBinDir, 'node');
         try {
-          fs.mkdirSync(agentBinDir, { recursive: true });
-          fs.copyFileSync(process.execPath, nodeDest);
-          fs.chmodSync(nodeDest, 0o755);
+          execSync(`sudo mkdir -p "${agentBinDir}"`, { stdio: 'pipe' });
+          execSync(`sudo cp "${process.execPath}" "${nodeDest}"`, { stdio: 'pipe' });
+          execSync(`sudo chmod 755 "${nodeDest}"`, { stdio: 'pipe' });
           updateStep(5, 'done');
         } catch (err) {
           updateStep(5, 'error', (err as Error).message);
@@ -291,8 +282,8 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
         const harnessDestPath = path.join(cfg.agentUser.home, 'bin', 'dummy-openclaw.js');
         if (testHarnessSource) {
           try {
-            fs.copyFileSync(testHarnessSource, harnessDestPath);
-            fs.chmodSync(harnessDestPath, 0o755);
+            execSync(`sudo cp "${testHarnessSource}" "${harnessDestPath}"`, { stdio: 'pipe' });
+            execSync(`sudo chmod 755 "${harnessDestPath}"`, { stdio: 'pipe' });
             updateStep(6, 'done');
           } catch (err) {
             updateStep(6, 'error', (err as Error).message);
@@ -305,16 +296,18 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
         updateStep(7, 'running');
         const devSkillsDir = path.join(cfg.agentUser.home, '.openclaw-dev', 'skills');
         try {
-          fs.mkdirSync(devSkillsDir, { recursive: true });
+          execSync(`sudo mkdir -p "${devSkillsDir}"`, { stdio: 'pipe' });
           for (const name of SKILL_NAMES) {
             const src = path.join(BUILTIN_SKILLS_DIR, name);
             if (fs.existsSync(src)) {
-              copyDirRecursive(src, path.join(devSkillsDir, name));
+              execSync(`sudo cp -R "${src}" "${path.join(devSkillsDir, name)}"`, { stdio: 'pipe' });
             }
           }
+          // Remove node_modules/dist that may have been copied
+          execSync(`sudo find "${devSkillsDir}" -type d \\( -name node_modules -o -name dist \\) -exec rm -rf {} + 2>/dev/null || true`, { stdio: 'pipe' });
           // Set ownership: root-owned, agent reads via socket group
-          execSync(`chown -R root:${cfg.groups.socket.name} "${path.join(cfg.agentUser.home, '.openclaw-dev')}"`, { stdio: 'pipe' });
-          execSync(`chmod -R a+rX,go-w "${devSkillsDir}"`, { stdio: 'pipe' });
+          execSync(`sudo chown -R root:${cfg.groups.socket.name} "${path.join(cfg.agentUser.home, '.openclaw-dev')}"`, { stdio: 'pipe' });
+          execSync(`sudo chmod -R a+rX,go-w "${devSkillsDir}"`, { stdio: 'pipe' });
           updateStep(7, 'done');
         } catch (err) {
           updateStep(7, 'error', (err as Error).message);
@@ -338,8 +331,12 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
               enabled: SKILL_NAMES,
             },
           };
-          fs.writeFileSync(shieldConfigPath, JSON.stringify(shieldConfig, null, 2));
-          execSync(`chown root:${cfg.groups.socket.name} "${shieldConfigPath}" && chmod 640 "${shieldConfigPath}"`, { stdio: 'pipe' });
+          // Write to a temp file then sudo-move into place (devConfigDir is root-owned)
+          const tmpFile = path.join(os.tmpdir(), `shield-config-${Date.now()}.json`);
+          fs.writeFileSync(tmpFile, JSON.stringify(shieldConfig, null, 2));
+          execSync(`sudo cp "${tmpFile}" "${shieldConfigPath}"`, { stdio: 'pipe' });
+          fs.unlinkSync(tmpFile);
+          execSync(`sudo chown root:${cfg.groups.socket.name} "${shieldConfigPath}" && sudo chmod 640 "${shieldConfigPath}"`, { stdio: 'pipe' });
           updateStep(8, 'done');
         } catch (err) {
           updateStep(8, 'error', (err as Error).message);
@@ -370,6 +367,8 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
         exit();
       } catch (err) {
         setError(`Setup failed: ${(err as Error).message}`);
+      } finally {
+        clearInterval(keepalive);
       }
     })();
   }, [phase, prefix, baseName, baseUid, baseGid, onComplete, exit]);

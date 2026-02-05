@@ -6,8 +6,8 @@
  * Usage: node scripts/registry/start.mjs
  *
  * Requires:
- *   - NGROK_AUTHTOKEN env var for ngrok tunnel
- *   - verdaccio and @ngrok/ngrok installed as devDependencies
+ *   - ngrok CLI installed and authenticated (ngrok authtoken ...)
+ *   - verdaccio installed as a devDependency
  */
 
 import { execSync, spawn } from 'node:child_process';
@@ -20,6 +20,7 @@ const CONFIG_PATH = resolve(__dirname, 'verdaccio-config.yaml');
 const STATE_FILE = '/tmp/agenshield-registry.json';
 const VERDACCIO_PORT = 4873;
 const VERDACCIO_URL = `http://localhost:${VERDACCIO_PORT}`;
+const NGROK_DOMAIN = 'agenshield.ngrok.dev';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -27,13 +28,11 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function waitForVerdaccio(timeoutMs = 30_000) {
+async function waitForUrl(url, timeoutMs = 30_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`${VERDACCIO_URL}/-/ping`, {
-        signal: AbortSignal.timeout(2000),
-      });
+      const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
       if (res.ok) return true;
     } catch {
       // Not ready yet
@@ -43,13 +42,35 @@ async function waitForVerdaccio(timeoutMs = 30_000) {
   return false;
 }
 
+async function getNgrokTunnelUrl(timeoutMs = 15_000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch('http://localhost:4040/api/tunnels', {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const tunnel = data.tunnels?.[0];
+        if (tunnel?.public_url) return tunnel.public_url;
+      }
+    } catch {
+      // ngrok API not ready yet
+    }
+    await sleep(500);
+  }
+  return null;
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 async function main() {
-  // Check for NGROK_AUTHTOKEN
-  if (!process.env.NGROK_AUTHTOKEN) {
-    console.error('Error: NGROK_AUTHTOKEN environment variable is required.');
-    console.error('Get your token at https://dashboard.ngrok.com/get-started/your-authtoken');
+  // Verify ngrok is available
+  try {
+    execSync('which ngrok', { stdio: 'pipe' });
+  } catch {
+    console.error('Error: ngrok CLI not found in PATH.');
+    console.error('Install it from https://ngrok.com/download and run: ngrok authtoken <token>');
     process.exit(1);
   }
 
@@ -93,7 +114,7 @@ async function main() {
   });
 
   // Wait for Verdaccio to be ready
-  const ready = await waitForVerdaccio();
+  const ready = await waitForUrl(`${VERDACCIO_URL}/-/ping`);
   if (!ready) {
     console.error('Verdaccio failed to start within 30 seconds.');
     verdaccioProcess.kill();
@@ -102,20 +123,24 @@ async function main() {
 
   console.log('Verdaccio is ready.');
 
-  // Start ngrok tunnel
+  // Start ngrok tunnel via CLI
   console.log('Starting ngrok tunnel...');
-  let ngrokUrl;
 
-  try {
-    const ngrok = await import('@ngrok/ngrok');
-    const listener = await ngrok.forward({
-      addr: VERDACCIO_PORT,
-      authtoken_from_env: true,
-    });
-    ngrokUrl = listener.url();
-    console.log('ngrok tunnel established.');
-  } catch (err) {
-    console.error('Failed to start ngrok tunnel:', err.message);
+  const ngrokProcess = spawn('ngrok', ['http', String(VERDACCIO_PORT), `--domain=${NGROK_DOMAIN}`, '--log=stdout'], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  ngrokProcess.on('error', (err) => {
+    console.error('Failed to start ngrok:', err.message);
+    verdaccioProcess.kill();
+    process.exit(1);
+  });
+
+  // Wait for ngrok to expose its API and get the tunnel URL
+  const ngrokUrl = await getNgrokTunnelUrl();
+  if (!ngrokUrl) {
+    console.error('Failed to get ngrok tunnel URL within 15 seconds.');
+    ngrokProcess.kill();
     verdaccioProcess.kill();
     process.exit(1);
   }
@@ -126,6 +151,7 @@ async function main() {
     JSON.stringify(
       {
         pid: verdaccioProcess.pid,
+        ngrokPid: ngrokProcess.pid,
         ngrokUrl,
         localUrl: VERDACCIO_URL,
         startedAt: new Date().toISOString(),
@@ -155,6 +181,7 @@ async function main() {
   // Handle graceful shutdown
   const shutdown = () => {
     console.log('\nShutting down...');
+    ngrokProcess.kill();
     verdaccioProcess.kill();
     try {
       rmSync(STATE_FILE, { force: true });

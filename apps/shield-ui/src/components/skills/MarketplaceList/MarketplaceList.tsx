@@ -6,11 +6,10 @@ import { MarketplaceSkillCard } from '../MarketplaceSkillCard';
 
 interface MarketplaceListProps {
   search: string;
-  selectedSkill: string | null;
   onSelect: (slug: string) => void;
 }
 
-export function MarketplaceList({ search, selectedSkill, onSelect }: MarketplaceListProps) {
+export function MarketplaceList({ search, onSelect }: MarketplaceListProps) {
   const { data, isLoading, isError } = useMarketplaceSearch(search);
   const skills = data?.data ?? [];
 
@@ -60,7 +59,6 @@ export function MarketplaceList({ search, selectedSkill, onSelect }: Marketplace
         <MarketplaceSkillCard
           key={skill.slug}
           skill={skill}
-          selected={selectedSkill === skill.slug}
           onClick={() => onSelect(skill.slug)}
         />
       ))}

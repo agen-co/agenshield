@@ -10,6 +10,7 @@ import {
   Button,
   Chip,
   Skeleton,
+  Alert,
 } from '@mui/material';
 import { Link2, Link2Off, RefreshCw } from 'lucide-react';
 import { useAgentLinkStatus, useAgentLinkMCPStatus } from '../../api/hooks';
@@ -18,9 +19,10 @@ interface AgentLinkStatusProps {
   onConnect: () => void;
   onLogout: () => void;
   connecting?: boolean;
+  error?: string | null;
 }
 
-export function AgentLinkStatus({ onConnect, onLogout, connecting }: AgentLinkStatusProps) {
+export function AgentLinkStatus({ onConnect, onLogout, connecting, error }: AgentLinkStatusProps) {
   const { data: authData, isLoading: authLoading } = useAgentLinkStatus();
   const { data: mcpData, isLoading: mcpLoading } = useAgentLinkMCPStatus();
 
@@ -98,6 +100,11 @@ export function AgentLinkStatus({ onConnect, onLogout, connecting }: AgentLinkSt
             >
               {connecting ? 'Connecting...' : 'Connect AgentLink'}
             </Button>
+            {error && (
+              <Alert severity="error" sx={{ mt: 1 }} variant="outlined">
+                {error}
+              </Alert>
+            )}
           </>
         )}
       </CardContent>

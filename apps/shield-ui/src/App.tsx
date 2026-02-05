@@ -12,6 +12,7 @@ import { Layout } from './components/layout/Layout';
 import { Overview } from './pages/Overview';
 import { Policies } from './pages/Policies';
 import { Skills } from './pages/Skills';
+import { SkillPage } from './pages/SkillPage';
 import { Secrets } from './pages/Secrets';
 import { Settings } from './pages/Settings';
 import { Integrations } from './pages/Integrations';
@@ -104,6 +105,7 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
             <Route path="/" element={<Overview />} />
             <Route path="/policies" element={<Policies />} />
             <Route path="/skills" element={<Skills />} />
+            <Route path="/skills/:slug" element={<SkillPage />} />
             <Route path="/secrets" element={<Secrets />} />
             <Route path="/activity" element={<Activity />} />
             <Route path="/integrations" element={<Integrations />} />

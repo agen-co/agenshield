@@ -7,7 +7,6 @@ interface SkillsListProps {
   skills: SkillSummary[];
   search: string;
   statusFilter: string;
-  selectedSkill: string | null;
   onSelect: (name: string) => void;
 }
 
@@ -17,7 +16,7 @@ const sourceLabels: Record<string, string> = {
   quarantine: 'Quarantined',
 };
 
-export function SkillsList({ skills, search, statusFilter, selectedSkill, onSelect }: SkillsListProps) {
+export function SkillsList({ skills, search, statusFilter, onSelect }: SkillsListProps) {
   const filtered = useMemo(() => {
     return skills.filter((s) => {
       const matchesSearch = !search || s.name.toLowerCase().includes(search.toLowerCase());
@@ -45,7 +44,7 @@ export function SkillsList({ skills, search, statusFilter, selectedSkill, onSele
             <SkillCard
               key={skill.name}
               skill={skill}
-              selected={selectedSkill === skill.name}
+              selected={false}
               onClick={() => onSelect(skill.name)}
             />
           ))}

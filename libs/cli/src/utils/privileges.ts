@@ -64,9 +64,46 @@ export function detectPrivileges(): PrivilegeInfo {
 }
 
 /**
- * Commands that require root privileges
+ * Ensure sudo credentials are cached so subsequent `sudo` child-process
+ * calls succeed without a TTY prompt.
+ * Call this once before a batch of privileged operations.
  */
-const ROOT_COMMANDS = ['setup', 'uninstall', 'daemon start', 'daemon stop', 'daemon restart'];
+export function ensureSudoAccess(): void {
+  const priv = detectPrivileges();
+  if (priv.isRoot) return; // Already root, no need
+
+  // Check if sudo credentials are already cached (non-interactive check)
+  try {
+    execSync('sudo -n true', { stdio: 'pipe', timeout: 5_000 });
+    return; // Credentials already cached, no prompt needed
+  } catch {
+    // Credentials not cached — need to prompt
+  }
+
+  console.log('\nThis operation requires administrator privileges.\n');
+  try {
+    execSync('sudo -v', { stdio: 'inherit', timeout: 60_000 });
+  } catch {
+    console.error('Failed to obtain sudo access.');
+    process.exit(1);
+  }
+}
+
+/**
+ * Start a keepalive interval that refreshes sudo credentials every 2 minutes
+ * so the 5-minute sudo cache doesn't expire during long-running setup phases.
+ */
+export function startSudoKeepalive(): NodeJS.Timeout {
+  return setInterval(() => {
+    try { execSync('sudo -v', { stdio: 'pipe', timeout: 2000 }); } catch { /* ignore */ }
+  }, 120_000);
+}
+
+/**
+ * Commands that require root privileges
+ * (Empty — no command requires root upfront anymore; sudo is requested on demand)
+ */
+const ROOT_COMMANDS: string[] = [];
 
 /**
  * Check if a command requires root privileges

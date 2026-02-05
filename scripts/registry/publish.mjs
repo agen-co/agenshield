@@ -10,7 +10,7 @@
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -89,6 +89,28 @@ async function main() {
     console.log('Skipping build (--skip-build).\n');
   }
 
+  // Create dummy Verdaccio user and get auth token
+  const registryHost = new URL(REGISTRY_URL).host;
+  let authToken;
+  try {
+    const authRes = await fetch(`${REGISTRY_URL}/-/user/org.couchdb.user:local`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'local', password: 'local', email: 'local@localhost' }),
+    });
+    const authData = await authRes.json();
+    authToken = authData.token;
+  } catch {
+    // Ignore — will try without auth
+  }
+
+  // Write a temporary .npmrc with auth for the local registry
+  const tmpNpmrc = resolve(ROOT_DIR, '.npmrc-local-registry');
+  const npmrcContent = authToken
+    ? `//${registryHost}/:_authToken="${authToken}"\n`
+    : `//${registryHost}/:_authToken="anonymous"\n`;
+  writeFileSync(tmpNpmrc, npmrcContent);
+
   // Publish each package
   const results = [];
 
@@ -108,7 +130,7 @@ async function main() {
 
     try {
       exec(
-        `npm publish "${fullDistPath}" --registry ${REGISTRY_URL} --tag test --access public`,
+        `npm publish "${fullDistPath}" --registry ${REGISTRY_URL} --tag test --access public --userconfig "${tmpNpmrc}"`,
         { throwOnError: true }
       );
       console.log(' OK');
@@ -125,6 +147,9 @@ async function main() {
       }
     }
   }
+
+  // Clean up temporary .npmrc
+  rmSync(tmpNpmrc, { force: true });
 
   // Summary
   console.log('\n' + '='.repeat(60));

@@ -334,7 +334,7 @@ export function useMarketplaceSearch(query: string) {
     queryKey: queryKeys.marketplaceSearch(query),
     queryFn: () => api.marketplace.search(query),
     enabled: query.length >= 2,
-    staleTime: 60_000,
+    staleTime: 300_000,
   });
 }
 

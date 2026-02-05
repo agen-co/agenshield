@@ -22,7 +22,7 @@ import {
 export function Integrations() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
-  const { startAuth, loading: authLoading } = useAgentLinkOAuth();
+  const { startAuth, loading: authLoading, error: authError } = useAgentLinkOAuth();
   const logoutMutation = useAgentLinkLogout();
   const connectMutation = useAgentLinkConnectIntegration();
 
@@ -67,6 +67,7 @@ export function Integrations() {
           onConnect={startAuth}
           onLogout={handleLogout}
           connecting={authLoading}
+          error={authError}
         />
       </Box>
 

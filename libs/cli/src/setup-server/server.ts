@@ -59,6 +59,27 @@ export function createSetupServer(engine: WizardEngine): SetupServer {
       // CORS
       await app.register(cors, { origin: true });
 
+      // Request logging
+      app.addHook('onResponse', (request, reply, done) => {
+        if (!request.url.startsWith('/sse') && !request.url.includes('.') && !request.url.endsWith('/health')) {
+          const ms = Math.round(reply.elapsedTime);
+          const status = reply.statusCode;
+          const color = status >= 400 ? '\x1b[31m' : status >= 300 ? '\x1b[33m' : '\x1b[32m';
+          console.log(`${color}${request.method}\x1b[0m ${request.url} \x1b[2m${status} ${ms}ms\x1b[0m`);
+        }
+        done();
+      });
+
+      // Error handler — log details and send structured response
+      app.setErrorHandler((error: { statusCode?: number; message: string }, request, reply) => {
+        const status = error.statusCode ?? 500;
+        console.error(`\x1b[31mERROR\x1b[0m ${request.method} ${request.url} \x1b[2m${status}\x1b[0m — ${error.message}`);
+        reply.status(status).send({
+          success: false,
+          error: { message: error.message, statusCode: status },
+        });
+      });
+
       // API routes
       await registerRoutes(app, engine);
 

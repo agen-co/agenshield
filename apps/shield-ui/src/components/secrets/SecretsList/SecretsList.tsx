@@ -10,12 +10,13 @@ interface SecretsListProps {
   secrets: Secret[];
   search: string;
   onDelete: (id: string) => void;
+  onEdit: (secret: Secret) => void;
 }
 
 const ACTION_LABEL: Record<string, string> = { allow: 'Allow', deny: 'Deny', approval: 'Approval' };
 const TARGET_LABEL: Record<string, string> = { command: 'Cmd', skill: 'Skill', url: 'URL' };
 
-export function SecretsList({ secrets, search, onDelete }: SecretsListProps) {
+export function SecretsList({ secrets, search, onDelete, onEdit }: SecretsListProps) {
   const { data: configData } = useConfig();
   const policies = configData?.data?.policies ?? [];
 
@@ -36,7 +37,7 @@ export function SecretsList({ secrets, search, onDelete }: SecretsListProps) {
   return (
     <Box>
       {filtered.map((secret) => (
-        <SecretRow key={secret.id}>
+        <SecretRow key={secret.id} onClick={() => onEdit(secret)}>
           <SecretName>
             <Typography variant="body2" fontWeight={500}>
               {secret.name}
@@ -77,7 +78,7 @@ export function SecretsList({ secrets, search, onDelete }: SecretsListProps) {
           <IconButton
             size="small"
             color="error"
-            onClick={() => onDelete(secret.id)}
+            onClick={(e) => { e.stopPropagation(); onDelete(secret.id); }}
           >
             <Trash2 size={14} />
           </IconButton>

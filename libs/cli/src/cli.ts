@@ -13,11 +13,11 @@
  * # Check status
  * agenshield status
  *
- * # Run setup wizard (requires root)
- * sudo agenshield setup
+ * # Run setup wizard
+ * agenshield setup
  *
  * # Manage daemon
- * sudo agenshield daemon start
+ * agenshield daemon start
  * agenshield daemon status
  * ```
  */
@@ -55,11 +55,11 @@ Current user: ${priv.username} (UID: ${priv.uid})${priv.isRoot ? ' [ROOT]' : ''}
 Examples:
   $ agenshield status               Check current status
   $ agenshield doctor               Run diagnostics
-  $ sudo agenshield setup           Run setup wizard
-  $ sudo agenshield daemon start    Start daemon
-  $ sudo agenshield dev             Dev mode with interactive TUI
-  $ sudo agenshield dev clean       Clean dev environment
-  $ sudo agenshield uninstall       Reverse isolation
+  $ agenshield setup                Run setup wizard
+  $ agenshield daemon start         Start daemon
+  $ agenshield dev                  Dev mode with interactive TUI
+  $ agenshield dev clean            Clean dev environment
+  $ agenshield uninstall            Reverse isolation
 `
     );
 

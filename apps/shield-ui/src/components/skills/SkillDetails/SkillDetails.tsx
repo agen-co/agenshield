@@ -175,7 +175,7 @@ export function SkillDetails({ skillName }: SkillDetailsProps) {
     );
   }
 
-  const config = statusConfig[skill.status];
+  const config = statusConfig[skill.status] ?? { label: skill.status, variant: 'default' as const };
 
   return (
     <Root>

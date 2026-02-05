@@ -6,13 +6,13 @@
 
 import { Command } from 'commander';
 import * as readline from 'node:readline';
-import { ensureRoot } from '../utils/privileges.js';
+import { ensureSudoAccess } from '../utils/privileges.js';
 
 /**
  * Run the uninstall process
  */
 async function runUninstall(options: { force?: boolean; prefix?: string }): Promise<void> {
-  ensureRoot('uninstall');
+  ensureSudoAccess();
 
   const { canUninstall, restoreInstallation } = await import('@agenshield/sandbox');
 
@@ -90,7 +90,7 @@ async function runUninstall(options: { force?: boolean; prefix?: string }): Prom
  */
 export function createUninstallCommand(): Command {
   const cmd = new Command('uninstall')
-    .description('Reverse isolation and restore OpenClaw (requires root)')
+    .description('Reverse isolation and restore OpenClaw')
     .option('-f, --force', 'Skip confirmation prompt')
     .option('--prefix <prefix>', 'Uninstall a specific prefixed installation')
     .action(async (options) => {

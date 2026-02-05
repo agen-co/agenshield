@@ -26,13 +26,16 @@ interface SecretFormProps {
   onDirtyChange?: (dirty: boolean) => void;
   onFocusChange?: (focused: boolean) => void;
   saving?: boolean;
+  initialData?: { name: string; policyIds: string[] };
 }
 
-export function SecretForm({ onSave, onCancel, onDirtyChange, onFocusChange, saving }: SecretFormProps) {
-  const [name, setName] = useState('');
+export function SecretForm({ onSave, onCancel, onDirtyChange, onFocusChange, saving, initialData }: SecretFormProps) {
+  const [name, setName] = useState(initialData?.name ?? '');
   const [value, setValue] = useState('');
-  const [availability, setAvailability] = useState<'global' | 'policed'>('global');
-  const [policyIds, setPolicyIds] = useState<string[]>([]);
+  const [availability, setAvailability] = useState<'global' | 'policed'>(
+    (initialData?.policyIds?.length ?? 0) > 0 ? 'policed' : 'global'
+  );
+  const [policyIds, setPolicyIds] = useState<string[]>(initialData?.policyIds ?? []);
   const [creatingPolicy, setCreatingPolicy] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
@@ -98,18 +101,19 @@ export function SecretForm({ onSave, onCancel, onDirtyChange, onFocusChange, sav
   };
 
   const isValid = name.trim() && value.trim();
+  const isEditing = !!initialData;
 
   const ACTION_LABEL: Record<string, string> = { allow: 'Allow', deny: 'Deny', approval: 'Approval' };
   const TARGET_LABEL: Record<string, string> = { command: 'Cmd', skill: 'Skill', url: 'URL' };
 
   return (
     <FormCard
-      title="Add Secret"
+      title={isEditing ? 'Edit Secret' : 'Add Secret'}
       onSave={handleSave}
       onCancel={onCancel}
       saving={saving}
       saveDisabled={!isValid}
-      saveLabel="Add Secret"
+      saveLabel={isEditing ? 'Update Secret' : 'Add Secret'}
       onFocusChange={onFocusChange}
       error={error}
     >
@@ -140,7 +144,7 @@ export function SecretForm({ onSave, onCancel, onDirtyChange, onFocusChange, sav
           onChange={(e) => setValue(e.target.value)}
           fullWidth
           type="password"
-          placeholder="Enter secret value"
+          placeholder={isEditing ? 'Re-enter secret value' : 'Enter secret value'}
         />
 
         {/* Availability toggle */}

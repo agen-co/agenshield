@@ -76,8 +76,8 @@ export const BACKUP_CONFIG = {
   configDir: '/etc/agenshield',
   /** Backup file path */
   backupPath: '/etc/agenshield/backup.json',
-  /** Directory permissions (root only) */
-  dirMode: 0o700,
+  /** Directory permissions (readable by all, writable by root) */
+  dirMode: 0o755,
   /** File permissions (root only) */
   fileMode: 0o600,
 } as const;

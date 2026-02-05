@@ -18,15 +18,13 @@ const TARGET_LABEL: Record<string, string> = {
 
 export function PolicyCard({
   policy,
-  selected = false,
-  onSelect,
   onToggle,
   onEdit,
   onDelete,
   disabled,
 }: PolicyCardProps) {
   return (
-    <Root $selected={selected} onClick={onSelect}>
+    <Root onClick={onEdit}>
       <Header>
         <Typography variant="subtitle2" fontWeight={600}>
           {policy.name}

@@ -680,9 +680,16 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     // Verify directories
     const dirResult = await verifyDirectories(context.userConfig);
     if (!dirResult.valid) {
+      const parts: string[] = [];
+      if (dirResult.missing.length > 0) {
+        parts.push(`Missing directories: ${dirResult.missing.join(', ')}`);
+      }
+      if (dirResult.incorrect.length > 0) {
+        parts.push(`Incorrect directories: ${dirResult.incorrect.map(d => `${d.path} (${d.issue})`).join(', ')}`);
+      }
       return {
         success: false,
-        error: `Missing directories: ${dirResult.missing.join(', ')}`,
+        error: parts.join('; ') || 'Directory verification failed',
       };
     }
 
@@ -693,7 +700,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
       if (context.migration?.newPaths?.binaryPath) {
         const cmd = `sudo -u ${agentUsername} ${context.migration.newPaths.binaryPath} --version`;
-        const output = execSync(cmd, { encoding: 'utf-8', timeout: 30000 });
+        const output = execSync(cmd, { encoding: 'utf-8', timeout: 30000, cwd: '/' });
 
         if (!output.trim()) {
           return { success: false, error: 'Target did not return version' };
@@ -874,6 +881,21 @@ export function createWizardEngine(options?: WizardOptions): WizardEngine {
      * Called after user confirms they want to proceed
      */
     async runSetupPhase() {
+      // Prompt for sudo credentials before privileged steps (skip in dry-run)
+      if (!context.options?.dryRun) {
+        const { ensureSudoAccess, startSudoKeepalive } = await import('../utils/privileges.js');
+        ensureSudoAccess();
+        const keepalive = startSudoKeepalive();
+        try {
+          const setupSteps: WizardStepId[] = ['confirm', ...getStepsByPhase('setup')
+            .filter((id) => id !== 'setup-passcode' && id !== 'complete')];
+          await runSteps(state, context, setupSteps, engine.onStateChange);
+        } finally {
+          clearInterval(keepalive);
+        }
+        return;
+      }
+      // dry-run path (unchanged)
       const setupSteps: WizardStepId[] = ['confirm', ...getStepsByPhase('setup')
         .filter((id) => id !== 'setup-passcode' && id !== 'complete')];
       await runSteps(state, context, setupSteps, engine.onStateChange);

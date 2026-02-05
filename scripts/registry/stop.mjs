@@ -41,13 +41,18 @@ async function main() {
     }
   }
 
-  // Disconnect ngrok
-  try {
-    const ngrok = await import('@ngrok/ngrok');
-    await ngrok.disconnect();
-    console.log('  Disconnected ngrok tunnel.');
-  } catch {
-    console.log('  ngrok already disconnected.');
+  // Kill ngrok process
+  if (state.ngrokPid) {
+    try {
+      process.kill(state.ngrokPid, 'SIGTERM');
+      console.log(`  Killed ngrok (PID ${state.ngrokPid})`);
+    } catch (err) {
+      if (err.code === 'ESRCH') {
+        console.log('  ngrok process already stopped.');
+      } else {
+        console.warn(`  Warning: Could not kill ngrok PID ${state.ngrokPid}:`, err.message);
+      }
+    }
   }
 
   // Clean up state file

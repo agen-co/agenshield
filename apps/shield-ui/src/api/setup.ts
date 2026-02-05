@@ -53,6 +53,7 @@ export const setupApi = {
   confirm: () =>
     setupRequest<{ success: boolean; data: { started: boolean } }>('/setup/confirm', {
       method: 'POST',
+      body: JSON.stringify({}),
     }),
 
   setPasscode: (passcode?: string, skip?: boolean) =>

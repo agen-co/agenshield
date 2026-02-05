@@ -4,11 +4,11 @@ import { Globe, Download } from 'lucide-react';
 import { Root, SkillIcon, Info } from './MarketplaceSkillCard.styles';
 import type { MarketplaceSkillCardProps } from './MarketplaceSkillCard.types';
 
-export function MarketplaceSkillCard({ skill, selected = false, onClick }: MarketplaceSkillCardProps) {
+export function MarketplaceSkillCard({ skill, onClick }: MarketplaceSkillCardProps) {
   const theme = useTheme();
 
   return (
-    <Root $selected={selected} onClick={onClick}>
+    <Root onClick={onClick}>
       <SkillIcon $color={theme.palette.primary.main}>
         <Globe size={16} />
       </SkillIcon>

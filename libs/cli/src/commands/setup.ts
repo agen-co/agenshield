@@ -10,7 +10,6 @@ import { Command } from 'commander';
 import React from 'react';
 import { render } from 'ink';
 import { WizardApp } from '../wizard/index.js';
-import { ensureRoot } from '../utils/privileges.js';
 import { formatPresetList, getPreset } from '@agenshield/sandbox';
 import { createWizardEngine } from '../wizard/engine.js';
 import type { WizardOptions } from '../wizard/types.js';
@@ -50,6 +49,13 @@ async function runSetupWebUI(wizardOptions: WizardOptions): Promise<void> {
   console.log(`  Detected: ${engine.context.preset?.name ?? 'Unknown target'}`);
   console.log('');
 
+  // Acquire sudo credentials now (in the terminal) before opening the browser,
+  // so the setup phase can use cached credentials without a TTY prompt.
+  if (!wizardOptions.dryRun) {
+    const { ensureSudoAccess } = await import('../utils/privileges.js');
+    ensureSudoAccess();
+  }
+
   // Create and start the setup server
   const server = createSetupServer(engine);
   const port = 6969;
@@ -75,6 +81,16 @@ async function runSetupWebUI(wizardOptions: WizardOptions): Promise<void> {
     console.log('  Setup complete! Shutting down server...');
   } finally {
     await server.stop();
+  }
+
+  // Start the daemon now that port 6969 is free
+  console.log('  Starting daemon...');
+  const { startDaemon } = await import('../utils/daemon.js');
+  const daemonResult = await startDaemon();
+  if (daemonResult.success) {
+    console.log(`  Daemon started (PID: ${daemonResult.pid})`);
+  } else {
+    console.warn(`  Warning: ${daemonResult.message}`);
   }
 }
 
@@ -137,10 +153,7 @@ export function createSetupCommand(): Command {
         }
       }
 
-      // Require root unless dry-run
-      if (!options.dryRun) {
-        ensureRoot('setup');
-      }
+
 
       // Check for Web UI request (either --ui flag or env var from Ink wizard)
       if (options.ui || process.env['AGENSHIELD_WEBUI_REQUESTED'] === 'true') {

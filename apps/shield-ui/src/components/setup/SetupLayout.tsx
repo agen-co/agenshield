@@ -127,8 +127,8 @@ export function SetupLayout({ children }: SetupLayoutProps) {
   return (
     <FullScreen>
       <LeftPanel>
-        {/* Top section: branding + steps + content (scrollable) */}
-        <Box sx={{ flex: 1, overflowY: 'auto', p: 3, pb: 1 }}>
+        {/* Fixed header: branding + steps */}
+        <Box sx={{ flex: '0 0 auto', p: '24px 24px 0' }}>
           {/* Logo */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
             <Box
@@ -156,8 +156,10 @@ export function SetupLayout({ children }: SetupLayoutProps) {
 
           {/* Horizontal step indicator */}
           <StepIndicator currentStep={currentUIStep} />
+        </Box>
 
-          {/* Step content */}
+        {/* Scrollable content area */}
+        <Box sx={{ flex: '1 1 0%', overflowY: 'auto', p: '0 24px 8px' }}>
           {children}
         </Box>
 

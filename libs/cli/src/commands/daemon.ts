@@ -5,7 +5,6 @@
  */
 
 import { Command } from 'commander';
-import { ensureRoot } from '../utils/privileges.js';
 import {
   getDaemonStatus,
   startDaemon,
@@ -52,8 +51,6 @@ export function createDaemonCommand(): Command {
     .description('Start the daemon')
     .option('-f, --foreground', 'Run in foreground (blocking)')
     .action(async (options) => {
-      ensureRoot('daemon start');
-
       console.log('Starting AgenShield daemon...');
 
       const result = await startDaemon({ foreground: options.foreground });
@@ -75,8 +72,6 @@ export function createDaemonCommand(): Command {
     .command('stop')
     .description('Stop the daemon')
     .action(async () => {
-      ensureRoot('daemon stop');
-
       console.log('Stopping AgenShield daemon...');
 
       const result = await stopDaemon();
@@ -94,8 +89,6 @@ export function createDaemonCommand(): Command {
     .command('restart')
     .description('Restart the daemon')
     .action(async () => {
-      ensureRoot('daemon restart');
-
       console.log('Restarting AgenShield daemon...');
 
       const result = await restartDaemon();

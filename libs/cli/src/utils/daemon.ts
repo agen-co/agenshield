@@ -214,38 +214,75 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
     AGENSHIELD_HOST: DAEMON_CONFIG.HOST,
   };
 
-  // Capture calling user's secret NAMES (not values) and pass to daemon
-  const userEnv = captureCallingUserEnv();
-  if (userEnv) {
-    const secretNames = Object.keys(userEnv).filter(k => userEnv[k] && isSecretEnvVar(k));
+  const isUnderSudo = !!process.env['SUDO_USER'];
+
+  if (isUnderSudo) {
+    // Legacy path: running via "sudo agenshield daemon start"
+    const userEnv = captureCallingUserEnv();
+    if (userEnv) {
+      const secretNames = Object.keys(userEnv).filter(k => userEnv[k] && isSecretEnvVar(k));
+      if (secretNames.length > 0) {
+        env['AGENSHIELD_USER_SECRETS'] = secretNames.join(',');
+      }
+      if (userEnv['PATH']) {
+        env['PATH'] = userEnv['PATH'];
+      }
+    }
+  } else {
+    // User-mode: process.env already has correct PATH and secrets
+    const secretNames = Object.keys(process.env).filter(
+      k => process.env[k] && isSecretEnvVar(k)
+    );
     if (secretNames.length > 0) {
       env['AGENSHIELD_USER_SECRETS'] = secretNames.join(',');
     }
   }
 
-  // Privilege drop: run daemon as SUDO_USER instead of root
+  // Privilege drop: run daemon as SUDO_USER instead of root (legacy sudo path)
   const sudoUid = process.env['SUDO_UID'] ? parseInt(process.env['SUDO_UID'], 10) : undefined;
   const sudoGid = process.env['SUDO_GID'] ? parseInt(process.env['SUDO_GID'], 10) : undefined;
   const sudoUser = process.env['SUDO_USER'];
-  const shouldDropPrivileges = sudoUid !== undefined && sudoGid !== undefined && !!sudoUser;
+  const shouldDropPrivileges = isUnderSudo
+    && sudoUid !== undefined && sudoGid !== undefined;
+
+  // Ensure system dirs exist
+  for (const dir of [DAEMON_CONFIG.LOG_DIR, DAEMON_CONFIG.SOCKET_DIR]) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      if (shouldDropPrivileges) {
+        fs.chownSync(dir, sudoUid, sudoGid);
+      }
+    } catch {
+      // Permission denied — create via sudo
+      try {
+        execSync(`sudo mkdir -p "${dir}" && sudo chown $(id -un):$(id -gn) "${dir}"`, {
+          stdio: 'pipe', timeout: 10_000,
+        });
+      } catch {
+        // Fall back to user-local dir
+        const fallback = path.join(os.homedir(), '.agenshield',
+          dir === DAEMON_CONFIG.LOG_DIR ? 'logs' : 'run');
+        fs.mkdirSync(fallback, { recursive: true });
+        if (dir === DAEMON_CONFIG.LOG_DIR) env['AGENSHIELD_LOG_DIR'] = fallback;
+      }
+    }
+  }
+
+  // Ensure user config dir
+  const configDir = path.join(os.homedir(), '.agenshield');
+  fs.mkdirSync(configDir, { recursive: true });
 
   if (shouldDropPrivileges) {
-    // Pre-create system dirs as root, then chown to calling user
-    for (const dir of [DAEMON_CONFIG.LOG_DIR, DAEMON_CONFIG.SOCKET_DIR]) {
-      fs.mkdirSync(dir, { recursive: true });
-      fs.chownSync(dir, sudoUid, sudoGid);
-    }
-
-    // Resolve + prepare user's home config dir
+    // Resolve + prepare user's home config dir and set HOME/USER
     try {
       const userHome = execSync(`eval echo ~${sudoUser}`, {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
         timeout: 3000,
       }).trim();
-      const configDir = path.join(userHome, '.agenshield');
-      fs.mkdirSync(configDir, { recursive: true });
-      fs.chownSync(configDir, sudoUid, sudoGid);
+      const sudoConfigDir = path.join(userHome, '.agenshield');
+      fs.mkdirSync(sudoConfigDir, { recursive: true });
+      fs.chownSync(sudoConfigDir, sudoUid, sudoGid);
 
       // Set HOME/USER so daemon's os.homedir() and os.userInfo() work
       env['HOME'] = userHome;
@@ -288,17 +325,8 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
       // Not using launchd, fall back to nohup
     }
 
-    // Ensure directories exist (may already be created by privilege drop above)
-    if (!shouldDropPrivileges) {
-      try {
-        fs.mkdirSync(DAEMON_CONFIG.LOG_DIR, { recursive: true });
-        fs.mkdirSync(DAEMON_CONFIG.SOCKET_DIR, { recursive: true });
-      } catch {
-        // May already exist or require sudo
-      }
-    }
-
-    const logFile = path.join(DAEMON_CONFIG.LOG_DIR, 'daemon.log');
+    const logDir = env['AGENSHIELD_LOG_DIR'] || DAEMON_CONFIG.LOG_DIR;
+    const logFile = path.join(logDir, 'daemon.log');
     const logFd = fs.openSync(logFile, 'a');
 
     // Chown the log file so the de-privileged daemon can write to it

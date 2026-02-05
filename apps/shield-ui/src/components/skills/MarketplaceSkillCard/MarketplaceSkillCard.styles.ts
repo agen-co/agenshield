@@ -3,19 +3,17 @@ import { styled } from '@mui/material/styles';
 export const Root = styled('div', {
   name: 'MarketplaceSkillCard',
   slot: 'Root',
-  shouldForwardProp: (prop) => prop !== '$selected',
-})<{ $selected: boolean }>(({ theme, $selected }) => ({
+})(({ theme }) => ({
   display: 'flex',
   alignItems: 'center',
   gap: theme.spacing(1.5),
   padding: theme.spacing(1.5, 2),
   borderRadius: theme.shape.borderRadius,
   cursor: 'pointer',
-  border: `1px solid ${$selected ? theme.palette.primary.main : 'transparent'}`,
-  backgroundColor: $selected ? `${theme.palette.primary.main}08` : 'transparent',
+  border: '1px solid transparent',
   transition: 'all 150ms ease',
   '&:hover': {
-    backgroundColor: $selected ? `${theme.palette.primary.main}12` : theme.palette.action.hover,
+    backgroundColor: theme.palette.action.hover,
   },
 }));
 

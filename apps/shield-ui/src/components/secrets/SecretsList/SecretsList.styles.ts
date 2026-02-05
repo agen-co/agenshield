@@ -9,6 +9,7 @@ export const SecretRow = styled('div', {
   gap: theme.spacing(2),
   padding: theme.spacing(1.5, 2),
   borderBottom: `1px solid ${theme.palette.divider}`,
+  cursor: 'pointer',
   '&:last-child': {
     borderBottom: 'none',
   },

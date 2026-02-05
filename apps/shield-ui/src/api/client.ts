@@ -33,10 +33,12 @@ function getAuthToken(): string | null {
 /**
  * Build headers including auth token if available
  */
-function buildHeaders(extra?: HeadersInit): HeadersInit {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
+function buildHeaders(extra?: HeadersInit, hasBody?: boolean): HeadersInit {
+  const headers: Record<string, string> = {};
+
+  if (hasBody !== false) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   const token = getAuthToken();
   if (token) {
@@ -60,7 +62,7 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   try {
     res = await fetch(`${BASE_URL}${endpoint}`, {
       ...options,
-      headers: buildHeaders(options?.headers),
+      headers: buildHeaders(options?.headers, !!options?.body),
     });
   } catch {
     throw new Error('Unable to connect to daemon');
@@ -69,7 +71,8 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    const error = new Error(data.error || `API Error: ${res.status} ${res.statusText}`);
+    const msg = typeof data.error === 'string' ? data.error : data.error?.message;
+    const error = new Error(msg || `API Error: ${res.status} ${res.statusText}`);
     (error as Error & { status: number }).status = res.status;
     throw error;
   }

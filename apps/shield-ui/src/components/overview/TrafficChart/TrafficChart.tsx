@@ -38,13 +38,21 @@ function getTimeThreshold(range: TimeRange): Date {
   }
 }
 
-function getBucketFormat(range: TimeRange): string {
+/** Returns the bucket interval in seconds and a display format for each range */
+function getBucketConfig(range: TimeRange): { intervalSec: number; displayFmt: string } {
   switch (range) {
-    case '1h': return 'HH:mm';
-    case '6h': return 'HH:mm';
-    case '24h': return 'HH:00';
-    case '7d': return 'EEE';
+    case '1h': return { intervalSec: 5, displayFmt: 'HH:mm:ss' };
+    case '6h': return { intervalSec: 5, displayFmt: 'HH:mm:ss' };
+    case '24h': return { intervalSec: 60 * 60, displayFmt: 'HH:00' };
+    case '7d': return { intervalSec: 60 * 60 * 24, displayFmt: 'EEE' };
   }
+}
+
+/** Floor a timestamp (Date or epoch ms) to the nearest interval boundary */
+function floorToInterval(date: Date | number, intervalSec: number): Date {
+  const ms = intervalSec * 1000;
+  const epoch = typeof date === 'number' ? date : date.getTime();
+  return new Date(Math.floor(epoch / ms) * ms);
 }
 
 /** Generate a single random data point that drifts smoothly from prev */
@@ -93,14 +101,22 @@ export function TrafficChart() {
   const { events } = useSnapshot(eventStore);
   const healthy = useHealthGate();
 
+  // Tick every second so chart picks up new events promptly
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const chartData = useMemo(() => {
     const threshold = getTimeThreshold(range);
-    const fmt = getBucketFormat(range);
+    const { intervalSec, displayFmt } = getBucketConfig(range);
     const filtered = events.filter((e) => isAfter(e.timestamp, threshold));
 
-    const buckets = new Map<string, { requests: number; blocked: number }>();
+    const buckets = new Map<number, { requests: number; blocked: number }>();
     for (const event of filtered) {
-      const key = format(event.timestamp, fmt);
+      const floored = floorToInterval(event.timestamp, intervalSec);
+      const key = floored.getTime();
       const bucket = buckets.get(key) ?? { requests: 0, blocked: 0 };
       bucket.requests++;
       if (event.type === 'security:alert') bucket.blocked++;
@@ -108,9 +124,10 @@ export function TrafficChart() {
     }
 
     return Array.from(buckets.entries())
-      .map(([time, data]) => ({ time, ...data }))
-      .reverse();
-  }, [events, range]);
+      .sort(([a], [b]) => a - b)
+      .map(([ts, data]) => ({ time: format(new Date(ts), displayFmt), ...data }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, range, tick]);
 
   const isEmpty = !healthy || chartData.length === 0;
   const placeholderData = usePlaceholderData(isEmpty);
