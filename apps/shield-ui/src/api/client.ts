@@ -91,6 +91,7 @@ export interface SkillSummary {
   status: 'active' | 'workspace' | 'quarantined' | 'disabled';
   description?: string;
   path: string;
+  publisher?: string;
 }
 
 export interface SkillDetail extends SkillSummary {
@@ -197,6 +198,16 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    getCachedAnalysis: async (skillName: string, publisher: string) => {
+      try {
+        return await request<{ data: AnalyzeSkillResponse }>(
+          `/marketplace/analysis?skillName=${encodeURIComponent(skillName)}&publisher=${encodeURIComponent(publisher)}`
+        );
+      } catch (err) {
+        if ((err as Error & { status?: number }).status === 404) return null;
+        throw err;
+      }
+    },
   },
 
   // System binaries & allowed commands

@@ -62,11 +62,16 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       // Return basic skill info with cached analysis
       const analysis = getCachedAnalysis(name);
 
+      // Look up publisher from approved list
+      const approved = listApproved();
+      const entry = approved.find((s) => s.name === name);
+
       return reply.send({
         success: true,
         data: {
           name,
           analysis: analysis ?? null,
+          publisher: entry?.publisher ?? null,
         },
       });
     }

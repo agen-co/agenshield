@@ -245,26 +245,36 @@ export async function startDaemon(options: { foreground?: boolean } = {}): Promi
   const shouldDropPrivileges = isUnderSudo
     && sudoUid !== undefined && sudoGid !== undefined;
 
-  // Ensure system dirs exist
+  // Ensure system dirs exist and are writable
   for (const dir of [DAEMON_CONFIG.LOG_DIR, DAEMON_CONFIG.SOCKET_DIR]) {
+    let usable = false;
     try {
       fs.mkdirSync(dir, { recursive: true });
       if (shouldDropPrivileges) {
         fs.chownSync(dir, sudoUid, sudoGid);
       }
+      // Verify we can actually write to the directory
+      fs.accessSync(dir, fs.constants.W_OK);
+      usable = true;
     } catch {
       // Permission denied — create via sudo
       try {
         execSync(`sudo mkdir -p "${dir}" && sudo chown $(id -un):$(id -gn) "${dir}"`, {
           stdio: 'pipe', timeout: 10_000,
         });
+        fs.accessSync(dir, fs.constants.W_OK);
+        usable = true;
       } catch {
-        // Fall back to user-local dir
-        const fallback = path.join(os.homedir(), '.agenshield',
-          dir === DAEMON_CONFIG.LOG_DIR ? 'logs' : 'run');
-        fs.mkdirSync(fallback, { recursive: true });
-        if (dir === DAEMON_CONFIG.LOG_DIR) env['AGENSHIELD_LOG_DIR'] = fallback;
+        // sudo also failed
       }
+    }
+
+    if (!usable) {
+      // Fall back to user-local dir
+      const fallback = path.join(os.homedir(), '.agenshield',
+        dir === DAEMON_CONFIG.LOG_DIR ? 'logs' : 'run');
+      fs.mkdirSync(fallback, { recursive: true });
+      if (dir === DAEMON_CONFIG.LOG_DIR) env['AGENSHIELD_LOG_DIR'] = fallback;
     }
   }
 

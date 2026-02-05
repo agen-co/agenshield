@@ -1,11 +1,22 @@
 import { Typography, Chip, Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { Globe, Download } from 'lucide-react';
+import { useCachedAnalysis } from '../../../api/hooks';
 import { Root, SkillIcon, Info } from './MarketplaceSkillCard.styles';
 import type { MarketplaceSkillCardProps } from './MarketplaceSkillCard.types';
 
+const vulnDotColors: Record<string, string> = {
+  safe: '#6CB685',
+  low: '#6BAEF2',
+  medium: '#EEA45F',
+  high: '#E1583E',
+  critical: '#E1583E',
+};
+
 export function MarketplaceSkillCard({ skill, onClick }: MarketplaceSkillCardProps) {
   const theme = useTheme();
+  const { data: cachedData } = useCachedAnalysis(skill.name, skill.author);
+  const vulnLevel = cachedData?.data?.analysis?.vulnerability?.level;
 
   return (
     <Root onClick={onClick}>
@@ -20,6 +31,18 @@ export function MarketplaceSkillCard({ skill, onClick }: MarketplaceSkillCardPro
           <Typography variant="caption" color="text.secondary">
             v{skill.version}
           </Typography>
+          {vulnLevel && (
+            <Box
+              sx={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                bgcolor: vulnDotColors[vulnLevel] ?? theme.palette.grey[400],
+                flexShrink: 0,
+              }}
+              title={`Vulnerability: ${vulnLevel}`}
+            />
+          )}
         </Box>
         {skill.description && (
           <Typography variant="caption" color="text.secondary" noWrap>

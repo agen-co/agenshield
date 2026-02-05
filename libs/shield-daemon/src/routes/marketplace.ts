@@ -138,7 +138,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
       request: FastifyRequest<{ Body: InstallSkillRequest }>,
       reply: FastifyReply
     ) => {
-      const { slug, files, analysis } = request.body ?? {} as Partial<InstallSkillRequest>;
+      const { slug, files, analysis, publisher } = request.body ?? {} as Partial<InstallSkillRequest & { publisher?: string }>;
 
       // Validate required fields
       if (!slug || !Array.isArray(files) || !analysis) {
@@ -163,7 +163,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         // Pre-approve to prevent race with watcher quarantining
-        addToApprovedList(slug);
+        addToApprovedList(slug, publisher);
 
         // Create skill directory
         fs.mkdirSync(skillDir, { recursive: true });

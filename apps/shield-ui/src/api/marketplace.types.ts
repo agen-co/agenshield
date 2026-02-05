@@ -45,6 +45,7 @@ export interface InstallSkillRequest {
   slug: string;
   files: MarketplaceSkillFile[];
   analysis: AnalyzeSkillResponse['analysis'];
+  publisher?: string;
 }
 
 export type SkillsTab = 'active' | 'available' | 'blocked' | 'marketplace';

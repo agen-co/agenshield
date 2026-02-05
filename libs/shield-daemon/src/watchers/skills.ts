@@ -23,6 +23,7 @@ export interface ApprovedSkillEntry {
   name: string;
   approvedAt: string;
   hash?: string;
+  publisher?: string;
 }
 
 export interface QuarantinedSkillInfo {
@@ -378,12 +379,13 @@ export function getSkillsDir(): string {
  * Used by marketplace install to pre-approve before writing files,
  * preventing a race condition with the watcher quarantining new skills.
  */
-export function addToApprovedList(skillName: string): void {
+export function addToApprovedList(skillName: string, publisher?: string): void {
   const approved = loadApprovedSkills();
   if (!approved.some((s) => s.name === skillName)) {
     approved.push({
       name: skillName,
       approvedAt: new Date().toISOString(),
+      ...(publisher ? { publisher } : {}),
     });
     saveApprovedSkills(approved);
   }

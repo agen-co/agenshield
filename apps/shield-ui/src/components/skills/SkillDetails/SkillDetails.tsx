@@ -1,7 +1,7 @@
 import { Typography, Button, Skeleton, Box, Chip, CircularProgress, Alert } from '@mui/material';
 import { ShieldCheck, ShieldOff, Power, PowerOff, RefreshCw, CheckCircle, XCircle, FolderOpen, Globe } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useSkill, useToggleSkill, useActivateSkill, useQuarantineSkill, useReanalyzeSkill } from '../../../api/hooks';
+import { useSkill, useToggleSkill, useActivateSkill, useQuarantineSkill, useReanalyzeSkill, useCachedAnalysis } from '../../../api/hooks';
 import { StatusBadge } from '../../shared/StatusBadge';
 import { MarkdownViewer } from '../../shared/MarkdownViewer';
 import { parseSkillReadme } from '../../../utils/parseSkillReadme';
@@ -193,6 +193,10 @@ export function SkillDetails({ skillName }: SkillDetailsProps) {
   const reanalyzeSkill = useReanalyzeSkill();
 
   const skill = data?.data;
+  const { data: cachedMarketplace } = useCachedAnalysis(
+    skill?.name ?? null,
+    skill?.publisher ?? null
+  );
 
   if (isLoading) {
     return (
@@ -280,14 +284,25 @@ export function SkillDetails({ skillName }: SkillDetailsProps) {
             <MetaItem icon={FolderOpen} label={skill.path} />
           </SidebarSection>
 
-          {/* Analysis */}
-          {skill.analysis && (
+          {/* Analysis — prefer local, fall back to cached marketplace */}
+          {skill.analysis ? (
             <AnalysisCard
               analysis={skill.analysis}
               onRetry={() => reanalyzeSkill.mutate({ name: skill.name, content: skill.content, metadata: skill.metadata })}
               retrying={reanalyzeSkill.isPending}
             />
-          )}
+          ) : cachedMarketplace?.data?.analysis ? (
+            <AnalysisCard
+              analysis={{
+                status: cachedMarketplace.data.analysis.status === 'complete' ? 'complete' : 'error',
+                analyzerId: 'marketplace',
+                vulnerability: cachedMarketplace.data.analysis.vulnerability,
+                commands: cachedMarketplace.data.analysis.commands,
+              } as SkillAnalysis}
+              onRetry={() => reanalyzeSkill.mutate({ name: skill.name, content: skill.content, metadata: skill.metadata })}
+              retrying={reanalyzeSkill.isPending}
+            />
+          ) : null}
         </Sidebar>
       </ContentGrid>
     </Root>

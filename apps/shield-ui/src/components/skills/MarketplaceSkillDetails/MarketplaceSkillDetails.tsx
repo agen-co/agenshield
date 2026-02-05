@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Typography, Button, Skeleton, Box, Chip, CircularProgress, Divider } from '@mui/material';
 import { ShieldCheck, Download, RefreshCw, User, Tag, ExternalLink, CheckCircle, XCircle, ShieldAlert, AlertTriangle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useMarketplaceSkill, useAnalyzeMarketplaceSkill, useInstallMarketplaceSkill } from '../../../api/hooks';
+import { useQueryClient } from '@tanstack/react-query';
+import { useMarketplaceSkill, useAnalyzeMarketplaceSkill, useInstallMarketplaceSkill, useCachedAnalysis, queryKeys } from '../../../api/hooks';
 import type { AnalyzeSkillResponse } from '../../../api/marketplace.types';
 import { MarkdownViewer } from '../../shared/MarkdownViewer';
 import { parseSkillReadme } from '../../../utils/parseSkillReadme';
@@ -156,11 +157,21 @@ export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) 
   const { data, isLoading } = useMarketplaceSkill(slug);
   const analyzeMutation = useAnalyzeMarketplaceSkill();
   const installMutation = useInstallMarketplaceSkill();
+  const queryClient = useQueryClient();
 
   const [phase, setPhase] = useState<InstallPhase>('idle');
   const [analysis, setAnalysis] = useState<AnalyzeSkillResponse['analysis'] | null>(null);
 
   const skill = data?.data;
+  const cachedAnalysisQuery = useCachedAnalysis(skill?.name ?? null, skill?.author ?? null);
+
+  // Pre-populate from cached marketplace analysis
+  useEffect(() => {
+    if (phase === 'idle' && cachedAnalysisQuery.data?.data?.analysis) {
+      setAnalysis(cachedAnalysisQuery.data.data.analysis);
+      setPhase('analyzed');
+    }
+  }, [cachedAnalysisQuery.data, phase]);
 
   if (isLoading) {
     return (
@@ -193,6 +204,11 @@ export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) 
       });
       setAnalysis(result.data.analysis);
       setPhase('analyzed');
+      // Update cached analysis query
+      queryClient.setQueryData(
+        queryKeys.marketplaceCachedAnalysis(skill.name, skill.author),
+        result
+      );
     } catch {
       setPhase('analysis_failed');
     }
@@ -202,7 +218,12 @@ export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) 
     if (!skill.files?.length || !analysis) return;
     setPhase('installing');
     try {
-      await installMutation.mutateAsync({ slug: skill.slug, files: skill.files, analysis });
+      await installMutation.mutateAsync({
+        slug: skill.slug,
+        files: skill.files,
+        analysis,
+        publisher: skill.author,
+      });
       setPhase('installed');
     } catch {
       setPhase('analyzed');

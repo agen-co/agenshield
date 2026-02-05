@@ -1,6 +1,7 @@
 import { Typography, CircularProgress, Box } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { Zap } from 'lucide-react';
+import { useCachedAnalysis } from '../../../api/hooks';
 import { StatusBadge } from '../../shared/StatusBadge';
 import { Root, SkillIcon, Info } from './SkillCard.styles';
 import type { SkillCardProps } from './SkillCard.types';
@@ -24,10 +25,17 @@ export function SkillCard({ skill, selected = false, onClick }: SkillCardProps) 
   const theme = useTheme();
   const config = statusConfig[skill.status];
 
-  // Analysis status indicator
+  // Local analysis status indicator
   const analysis = (skill as { analysis?: { status: string; vulnerability?: { level: string } } }).analysis;
   const isAnalyzing = analysis?.status === 'pending' || analysis?.status === 'analyzing';
-  const vulnLevel = analysis?.status === 'complete' ? analysis.vulnerability?.level : undefined;
+  const localVulnLevel = analysis?.status === 'complete' ? analysis.vulnerability?.level : undefined;
+
+  // Cached marketplace analysis (only queries if skill has a publisher)
+  const { data: cachedData } = useCachedAnalysis(skill.name, skill.publisher ?? null);
+  const cachedVulnLevel = cachedData?.data?.analysis?.vulnerability?.level;
+
+  // Prefer local analysis, fall back to cached marketplace analysis
+  const vulnLevel = localVulnLevel ?? cachedVulnLevel;
 
   return (
     <Root $selected={selected} onClick={onClick}>

@@ -157,8 +157,10 @@ export const devHarnessPreset: TargetPreset = {
       // Create wrapper script that invokes the test harness via node
       const wrapperPath = path.join(context.directories.binDir, 'openclaw');
       const entryPath = path.join(packageDir, 'bin', 'dummy-openclaw.js');
+      const binDir = context.directories.binDir;
       const wrapperContent = `#!/bin/bash
 set -euo pipefail
+export PATH="${binDir}:\${PATH:-/usr/bin:/bin}"
 cd "${packageDir}"
 exec node "${entryPath}" "$@"
 `;

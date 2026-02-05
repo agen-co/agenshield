@@ -115,4 +115,5 @@ export interface InstallSkillRequest {
   slug: string;
   files: MarketplaceSkillFile[];
   analysis: AnalyzeSkillResponse['analysis'];
+  publisher?: string;
 }

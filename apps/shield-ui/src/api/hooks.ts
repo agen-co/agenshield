@@ -23,6 +23,8 @@ export const queryKeys = {
   agentlinkConnected: ['agentlink', 'connected'] as const,
   marketplaceSearch: (query: string) => ['marketplace', 'search', query] as const,
   marketplaceSkill: (slug: string) => ['marketplace', 'skill', slug] as const,
+  marketplaceCachedAnalysis: (skillName: string, publisher: string) =>
+    ['marketplace', 'cachedAnalysis', skillName, publisher] as const,
 };
 
 /**
@@ -350,6 +352,16 @@ export function useMarketplaceSkill(slug: string | null) {
 export function useAnalyzeMarketplaceSkill() {
   return useMutation({
     mutationFn: (data: AnalyzeSkillRequest) => api.marketplace.analyzeSkill(data),
+  });
+}
+
+export function useCachedAnalysis(skillName: string | null, publisher: string | null) {
+  return useQuery({
+    queryKey: queryKeys.marketplaceCachedAnalysis(skillName ?? '', publisher ?? ''),
+    queryFn: () => api.marketplace.getCachedAnalysis(skillName!, publisher!),
+    enabled: !!skillName && !!publisher,
+    staleTime: 300_000,
+    retry: false,
   });
 }
 
