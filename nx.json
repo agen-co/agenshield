@@ -78,8 +78,7 @@
     }
   },
   "release": {
-    "projects": ["cli"],
-    "projectsRelationship": "independent",
+    "projectsRelationship": "fixed",
     "version": {
       "conventionalCommits": false,
       "preVersionCommand": "npx nx run-many -t build",

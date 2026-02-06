@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/sandbox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "User isolation and sandboxing utilities for AgenShield",
   "main": "./dist/index.js",
