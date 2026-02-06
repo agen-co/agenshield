@@ -24,6 +24,7 @@ import {
   updateDownloadedAnalysis,
   downloadAndExtractZip,
   storeDownloadedSkill,
+  inlineImagesInMarkdown,
 } from '../services/marketplace';
 import { analyzeSkill } from '../services/skill-analyzer';
 import {
@@ -98,6 +99,12 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           const localFiles = getDownloadedSkillFiles(slug);
           const readmeFile = localFiles.find(f => /readme|skill\.md/i.test(f.name));
 
+          // Inline images in readme so markdown renders them properly
+          let readme = readmeFile?.content;
+          if (readme) {
+            readme = inlineImagesInMarkdown(readme, localFiles);
+          }
+
           const skill = {
             name: localMeta.name,
             slug: localMeta.slug,
@@ -106,7 +113,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
             version: localMeta.version,
             installs: 0, // Not stored locally
             tags: localMeta.tags,
-            readme: readmeFile?.content,
+            readme,
             files: localFiles,
           };
 

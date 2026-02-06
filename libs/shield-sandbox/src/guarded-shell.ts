@@ -61,6 +61,11 @@ export SHELL="/usr/local/bin/guarded-shell"
 unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_INSERT_LIBRARIES
 unset PYTHONPATH NODE_PATH RUBYLIB PERL5LIB
 unset SSH_ASKPASS LD_PRELOAD
+
+# Skip system rc files (/etc/zprofile, /etc/zshrc, /etc/zlogin)
+# They may call commands not in our restricted PATH (e.g. locale).
+# ZDOTDIR files (.zshrc) are still read.
+setopt NO_GLOBAL_RCS
 `;
 
 /**
@@ -74,6 +79,9 @@ emulate -LR zsh
 
 # Re-set HISTFILE (safety: ensure it points to agent's home, not ZDOTDIR)
 HISTFILE="$HOME/.zsh_history"
+
+# Re-set PATH (only ~/bin — override anything that may have been added)
+PATH="$HOME/bin"
 
 # ---- Shell options ----
 # Note: NOT using setopt RESTRICTED as it disables cd entirely.

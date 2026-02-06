@@ -217,6 +217,24 @@ function isTextMime(mime: string): boolean {
   return mime.startsWith('text/') || mime === 'application/json' || mime === 'text/yaml' || mime === 'text/toml';
 }
 
+const IMAGE_EXT_MAP: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+};
+
+function isImageExt(filePath: string): string | null {
+  const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+  return IMAGE_EXT_MAP[ext] ?? null;
+}
+
+/** Max size for inline images (500KB before base64) */
+const MAX_IMAGE_SIZE = 500_000;
+
 function getMarketplaceDir(): string {
   return path.join(os.homedir(), CONFIG_DIR, MARKETPLACE_DIR);
 }
@@ -252,10 +270,23 @@ export async function downloadAndExtractZip(slug: string): Promise<MarketplaceSk
     if (filename.startsWith('.')) continue;
 
     const mimeType = guessContentType(zipPath);
-    if (!isTextMime(mimeType)) continue;
 
-    const content = await zipEntry.async('text');
-    files.push({ name: zipPath, type: mimeType, content });
+    // Text files
+    if (isTextMime(mimeType)) {
+      const content = await zipEntry.async('text');
+      files.push({ name: zipPath, type: mimeType, content });
+      continue;
+    }
+
+    // Image files — store as base64 data URIs
+    const imageMime = isImageExt(zipPath);
+    if (imageMime) {
+      const buf = await zipEntry.async('nodebuffer');
+      if (buf.length <= MAX_IMAGE_SIZE) {
+        const dataUri = `data:${imageMime};base64,${buf.toString('base64')}`;
+        files.push({ name: zipPath, type: imageMime, content: dataUri });
+      }
+    }
   }
 
   return files;
@@ -399,6 +430,51 @@ export function getDownloadedSkillMeta(slug: string): DownloadedSkillMeta | null
   return null;
 }
 
+/**
+ * Inline relative image references in markdown with data URIs from extracted files.
+ * Replaces ![alt](path/to/image.png) with ![alt](data:image/png;base64,...)
+ */
+export function inlineImagesInMarkdown(
+  markdown: string,
+  files: MarketplaceSkillFile[],
+): string {
+  // Build a lookup of image files by their filename (stripped of leading dirs)
+  const imageMap = new Map<string, string>();
+  for (const file of files) {
+    const mime = isImageExt(file.name);
+    if (mime && file.content.startsWith('data:')) {
+      // Map both the full path and the basename
+      imageMap.set(file.name, file.content);
+      const basename = file.name.split('/').pop() ?? '';
+      if (basename && !imageMap.has(basename)) {
+        imageMap.set(basename, file.content);
+      }
+    }
+  }
+
+  if (imageMap.size === 0) return markdown;
+
+  // Replace markdown image references: ![alt](path)
+  return markdown.replace(
+    /!\[([^\]]*)\]\(([^)]+)\)/g,
+    (_match, alt: string, src: string) => {
+      // Skip absolute URLs
+      if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) {
+        return _match;
+      }
+      // Try exact path, then basename, then normalized
+      const normalized = src.replace(/^\.\//, '');
+      const dataUri = imageMap.get(src)
+        ?? imageMap.get(normalized)
+        ?? imageMap.get(normalized.split('/').pop() ?? '');
+      if (dataUri) {
+        return `![${alt}](${dataUri})`;
+      }
+      return _match;
+    }
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Search                                                             */
 /* ------------------------------------------------------------------ */
@@ -518,6 +594,11 @@ export async function getMarketplaceSkill(slug: string): Promise<MarketplaceSkil
   }
 
   const tags = tagsFromRecord(skill.tags);
+
+  // Inline images in the readme so markdown renders them
+  if (readme && files.length > 0) {
+    readme = inlineImagesInMarkdown(readme, files);
+  }
 
   const mapped: MarketplaceSkill = {
     name: skill.displayName,

@@ -214,8 +214,7 @@ export function createDirectoryStructure(user: SandboxUser): {
 
   // Create .bashrc and .zshrc with proper PATH
   const rcContent = `# AgenShield Sandbox Environment
-export PATH="$HOME/bin-wrappers:$HOME/bin:$HOME/.npm-global/bin"
-export npm_config_prefix="$HOME/.npm-global"
+export PATH="$HOME/bin"
 `;
 
   const tempRc = '/tmp/sandbox-rc';

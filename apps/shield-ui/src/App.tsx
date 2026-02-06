@@ -48,18 +48,36 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
   // Token triggers SSE reconnect on auth state change (authenticated ↔ anonymous)
   useSSE(serverMode !== 'setup', token);
 
-  // Auto-refresh page when server reconnects after being down
-  const wasDisconnected = useRef(false);
+  // Debounce disconnect state: only confirm after 5s of sustained failure
+  const disconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isConfirmedDisconnected, setIsConfirmedDisconnected] = useState(false);
+
   useEffect(() => {
-    // Track when we enter disconnected state
     if (healthError && !healthLoading) {
-      wasDisconnected.current = true;
+      // Start a 5-second timer before confirming disconnect
+      if (!disconnectTimer.current) {
+        disconnectTimer.current = setTimeout(() => {
+          setIsConfirmedDisconnected(true);
+        }, 5000);
+      }
+    } else {
+      // Health recovered — clear the timer and reset
+      if (disconnectTimer.current) {
+        clearTimeout(disconnectTimer.current);
+        disconnectTimer.current = null;
+      }
+      if (isConfirmedDisconnected && isSuccess) {
+        // Was confirmed disconnected, now recovered — reload
+        console.log('[Dashboard] Server reconnected, refreshing page...');
+        window.location.reload();
+      }
+      setIsConfirmedDisconnected(false);
     }
-    // When transitioning from disconnected to connected, reload the page
-    if (wasDisconnected.current && isSuccess && !healthError) {
-      console.log('[Dashboard] Server reconnected, refreshing page...');
-      window.location.reload();
-    }
+    return () => {
+      if (disconnectTimer.current) {
+        clearTimeout(disconnectTimer.current);
+      }
+    };
   }, [healthError, healthLoading, isSuccess]);
 
   // Keep wizard visible while daemon restarts after setup completes
@@ -93,7 +111,7 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
       <Layout
         darkMode={darkMode}
         onToggleDarkMode={onToggleDarkMode}
-        disconnected={healthError && !healthLoading}
+        disconnected={isConfirmedDisconnected}
         onReconnect={() => retryHealth()}
         reconnecting={isFetching}
       >

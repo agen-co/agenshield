@@ -235,50 +235,49 @@ export function SkillDetails({ skillName }: SkillDetailsProps) {
         )}
       </Box>
 
-      <ContentGrid $singleColumn={!cleanContent}>
+      <ContentGrid>
         {/* Left: Readme */}
-        {cleanContent && (
-          <ReadmeCard>
+        <ReadmeCard>
+          {cleanContent ? (
             <MarkdownViewer content={cleanContent} />
-          </ReadmeCard>
-        )}
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              No readme available.
+            </Typography>
+          )}
+        </ReadmeCard>
 
         {/* Right: Sidebar */}
         <Sidebar>
           {/* Action buttons */}
           <SidebarSection>
-            {skill.status === 'quarantined' && (
+            {(skill.status === 'quarantined' || skill.status === 'disabled') && (
               <Button
                 fullWidth
                 variant="contained"
-                startIcon={<ShieldCheck size={16} />}
-                onClick={() => activateSkill.mutate(skill.name)}
-                disabled={activateSkill.isPending}
+                startIcon={<Power size={16} />}
+                onClick={() =>
+                  skill.status === 'quarantined'
+                    ? activateSkill.mutate(skill.name)
+                    : toggleSkill.mutate(skill.name)
+                }
+                disabled={activateSkill.isPending || toggleSkill.isPending}
               >
                 Activate
               </Button>
             )}
-            {skill.status === 'active' && (
+            {(skill.status === 'active' || skill.status === 'workspace') && (
               <Button
                 fullWidth
                 variant="outlined"
-                color="warning"
-                startIcon={<ShieldOff size={16} />}
-                onClick={() => quarantineSkill.mutate(skill.name)}
-                disabled={quarantineSkill.isPending}
+                color="secondary"
+                startIcon={<PowerOff size={16} />}
+                onClick={() => toggleSkill.mutate(skill.name)}
+                disabled={toggleSkill.isPending}
               >
-                Quarantine
+                Disable
               </Button>
             )}
-            <Button
-              fullWidth
-              variant="outlined"
-              startIcon={skill.status === 'disabled' ? <Power size={16} /> : <PowerOff size={16} />}
-              onClick={() => toggleSkill.mutate(skill.name)}
-              disabled={toggleSkill.isPending}
-            >
-              {skill.status === 'disabled' ? 'Enable' : 'Disable'}
-            </Button>
           </SidebarSection>
 
           {/* About */}

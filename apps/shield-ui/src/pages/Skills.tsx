@@ -29,7 +29,7 @@ const tabEmptyMessages: Record<Exclude<SkillsTab, 'marketplace'>, { title: strin
   },
   available: {
     title: 'No available skills',
-    description: 'Disabled or workspace skills will appear here.',
+    description: 'Downloaded and disabled skills will appear here.',
   },
   blocked: {
     title: 'No blocked skills',
@@ -38,8 +38,8 @@ const tabEmptyMessages: Record<Exclude<SkillsTab, 'marketplace'>, { title: strin
 };
 
 const tabStatusFilters: Record<Exclude<SkillsTab, 'marketplace'>, (status: string) => boolean> = {
-  active: (status) => status === 'active',
-  available: (status) => status === 'disabled' || status === 'workspace' || status === 'downloaded',
+  active: (status) => status === 'active' || status === 'workspace',
+  available: (status) => status === 'downloaded' || status === 'disabled',
   blocked: (status) => status === 'quarantined',
 };
 

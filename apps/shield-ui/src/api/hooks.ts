@@ -38,7 +38,9 @@ export function useHealth() {
     queryKey: queryKeys.health,
     queryFn: api.getHealth,
     refetchInterval: (query) => (query.state.status === 'error' ? 10000 : 30000),
-    retry: 1,
+    retry: 3,
+    retryDelay: 2000,
+    staleTime: 15_000,
   });
 }
 
@@ -55,8 +57,10 @@ export function useServerMode() {
  * Returns true when the daemon is healthy and queries are safe to fire.
  */
 export function useHealthGate() {
-  const { data, isError, isLoading } = useHealth();
-  return !isError && !isLoading && !!data;
+  const { data, isLoading } = useHealth();
+  // Keep the gate open if we have cached data from a previous success,
+  // even if a background refetch is currently failing.
+  return !!data && !isLoading;
 }
 
 /**

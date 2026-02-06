@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/skills",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "type": "module",
   "description": "OpenClaw-compatible skills with Soul integration for AgenShield",
   "main": "./dist/index.js",
@@ -16,7 +16,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@agenshield/ipc": "0.4.4"
+    "@agenshield/ipc": "0.5.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

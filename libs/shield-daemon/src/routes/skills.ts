@@ -36,8 +36,14 @@ import {
   listDownloadedSkills,
   getDownloadedSkillFiles,
   getDownloadedSkillMeta,
+  inlineImagesInMarkdown,
 } from '../services/marketplace';
 import { requireAuth } from '../auth/middleware';
+import {
+  isBrokerAvailable,
+  uninstallSkillViaBroker,
+  installSkillViaBroker,
+} from '../services/broker-bridge';
 
 /** Normalized skill summary for frontend consumption */
 interface SkillSummary {
@@ -50,14 +56,40 @@ interface SkillSummary {
 }
 
 /**
+ * Recursively search for SKILL.md or README.md in a directory tree.
+ * Marketplace zips often nest files in subdirs (e.g., latest/SKILL.md).
+ * Returns the absolute path to the first match, or null if not found.
+ */
+function findSkillMdRecursive(dir: string, depth = 0): string | null {
+  if (depth > 3) return null; // don't descend too deep
+  try {
+    // Check root first
+    for (const name of ['SKILL.md', 'skill.md', 'README.md', 'readme.md']) {
+      const candidate = path.join(dir, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    // Check subdirectories
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const found = findSkillMdRecursive(path.join(dir, entry.name), depth + 1);
+      if (found) return found;
+    }
+  } catch {
+    // Directory may not exist or be unreadable
+  }
+  return null;
+}
+
+/**
  * Read the description from a skill's SKILL.md frontmatter.
  * Returns undefined if SKILL.md is missing or unparseable.
  */
 function readSkillDescription(skillDir: string): string | undefined {
   try {
-    const skillMdPath = path.join(skillDir, 'SKILL.md');
-    if (!fs.existsSync(skillMdPath)) return undefined;
-    const content = fs.readFileSync(skillMdPath, 'utf-8');
+    const mdPath = findSkillMdRecursive(skillDir);
+    if (!mdPath) return undefined;
+    const content = fs.readFileSync(mdPath, 'utf-8');
     const parsed = parseSkillMd(content);
     return parsed?.metadata?.description ?? undefined;
   } catch {
@@ -188,15 +220,15 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         skillPath = path.join(skillsDir, name);
       }
 
-      // Read SKILL.md content from disk
+      // Read SKILL.md content from disk (recursive search for nested paths)
       let content = '';
       let metadata: Record<string, unknown> | undefined;
       const dirToRead = skillPath || (skillsDir ? path.join(skillsDir, name) : '');
       if (dirToRead) {
         try {
-          const skillMdPath = path.join(dirToRead, 'SKILL.md');
-          if (fs.existsSync(skillMdPath)) {
-            content = fs.readFileSync(skillMdPath, 'utf-8');
+          const mdPath = findSkillMdRecursive(dirToRead);
+          if (mdPath) {
+            content = fs.readFileSync(mdPath, 'utf-8');
             const parsed = parseSkillMd(content);
             metadata = parsed?.metadata as Record<string, unknown> | undefined;
           }
@@ -205,8 +237,40 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      // Fall back to marketplace download cache for readme content
+      if (!content) {
+        try {
+          const localMeta = getDownloadedSkillMeta(name);
+          if (localMeta) {
+            const localFiles = getDownloadedSkillFiles(name);
+            const readmeFile = localFiles.find(f => /readme|skill\.md/i.test(f.name));
+            if (readmeFile?.content) {
+              content = readmeFile.content;
+              if (!metadata) {
+                const parsed = parseSkillMd(content);
+                metadata = parsed?.metadata as Record<string, unknown> | undefined;
+              }
+            }
+          }
+        } catch {
+          // Best-effort fallback
+        }
+      }
+
       // Read description from frontmatter
       const description = dirToRead ? readSkillDescription(dirToRead) : undefined;
+
+      // Inline images from marketplace download cache into content
+      if (content) {
+        try {
+          const cachedFiles = getDownloadedSkillFiles(name);
+          if (cachedFiles.length > 0) {
+            content = inlineImagesInMarkdown(content, cachedFiles);
+          }
+        } catch {
+          // Best-effort image inlining
+        }
+      }
 
       return reply.send({
         success: true,
@@ -371,10 +435,19 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       const isInstalled = fs.existsSync(skillDir);
 
       if (isInstalled) {
-        // DISABLE: Remove from workspace, wrapper, config, approved list
+        // DISABLE: Remove from workspace via broker (handles root-owned dirs)
         try {
-          fs.rmSync(skillDir, { recursive: true, force: true });
-          removeSkillWrapper(name, binDir);
+          const brokerAvailable = await isBrokerAvailable();
+          if (brokerAvailable) {
+            await uninstallSkillViaBroker(name, {
+              removeWrapper: true,
+              agentHome,
+            });
+          } else {
+            // Fallback: direct fs removal (may fail for root-owned dirs)
+            fs.rmSync(skillDir, { recursive: true, force: true });
+            removeSkillWrapper(name, binDir);
+          }
           removeSkillEntry(name);
           removeSkillPolicy(name);
           removeFromApprovedList(name);
@@ -401,24 +474,35 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           // Pre-approve
           addToApprovedList(name, meta.author);
 
-          // Write files to workspace
-          fs.mkdirSync(skillDir, { recursive: true });
-          for (const file of files) {
-            const filePath = path.join(skillDir, file.name);
-            fs.mkdirSync(path.dirname(filePath), { recursive: true });
-            fs.writeFileSync(filePath, file.content, 'utf-8');
+          // Install via broker if available (handles mkdir, write, chown, wrapper)
+          const brokerAvailable = await isBrokerAvailable();
+          if (brokerAvailable) {
+            const brokerResult = await installSkillViaBroker(
+              name,
+              files.map((f) => ({ name: f.name, content: f.content })),
+              { createWrapper: true, agentHome, socketGroup }
+            );
+            if (!brokerResult.installed) {
+              throw new Error('Broker failed to install skill files');
+            }
+          } else {
+            // Fallback: direct fs operations
+            fs.mkdirSync(skillDir, { recursive: true });
+            for (const file of files) {
+              const filePath = path.join(skillDir, file.name);
+              fs.mkdirSync(path.dirname(filePath), { recursive: true });
+              fs.writeFileSync(filePath, file.content, 'utf-8');
+            }
+            try {
+              execSync(`chown -R root:${socketGroup} "${skillDir}"`, { stdio: 'pipe' });
+              execSync(`chmod -R a+rX,go-w "${skillDir}"`, { stdio: 'pipe' });
+            } catch {
+              // May fail if not root
+            }
+            createSkillWrapper(name, binDir);
           }
 
-          // Set ownership
-          try {
-            execSync(`chown -R root:${socketGroup} "${skillDir}"`, { stdio: 'pipe' });
-            execSync(`chmod -R a+rX,go-w "${skillDir}"`, { stdio: 'pipe' });
-          } catch {
-            // May fail if not root
-          }
-
-          // Create wrapper + config + policy
-          createSkillWrapper(name, binDir);
+          // Config + policy
           addSkillEntry(name);
           addSkillPolicy(name);
 

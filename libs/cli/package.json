@@ -1,6 +1,6 @@
 {
   "name": "agenshield",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "type": "module",
   "description": "AgenShield - CLI for managing AI agent security sandbox",
   "main": "./dist/src/index.js",
@@ -43,13 +43,13 @@
     "sandbox"
   ],
   "dependencies": {
-    "@agenshield/broker": "0.4.4",
-    "@agenshield/daemon": "0.4.4",
-    "@agenshield/interceptor": "0.4.4",
-    "@agenshield/ipc": "0.4.4",
-    "@agenshield/patcher": "0.4.4",
-    "@agenshield/sandbox": "0.4.4",
-    "@agenshield/skills": "0.4.4",
+    "@agenshield/broker": "0.5.0",
+    "@agenshield/daemon": "0.5.0",
+    "@agenshield/interceptor": "0.5.0",
+    "@agenshield/ipc": "0.5.0",
+    "@agenshield/patcher": "0.5.0",
+    "@agenshield/sandbox": "0.5.0",
+    "@agenshield/skills": "0.5.0",
     "commander": "^14.0.0",
     "ink": "^5.2.0",
     "ink-spinner": "^5.0.0",
