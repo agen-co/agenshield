@@ -53,17 +53,17 @@ export function createDirectoryStructure(config?: UserConfig): DirectoryStructur
         group: 'wheel',
       },
       '/opt/agenshield/config': {
-        mode: 0o755,
+        mode: 0o775,
         owner: brokerUsername,
         group: socketGroupName,
       },
       '/opt/agenshield/policies': {
-        mode: 0o755,
+        mode: 0o775,
         owner: brokerUsername,
         group: socketGroupName,
       },
       '/opt/agenshield/policies/custom': {
-        mode: 0o755,
+        mode: 0o775,
         owner: brokerUsername,
         group: socketGroupName,
       },
@@ -152,6 +152,11 @@ export function createDirectoryStructure(config?: UserConfig): DirectoryStructur
         group: workspaceGroupName,
       },
       [`${agentHome}/.openclaw-pkg`]: {
+        mode: 0o755,
+        owner: agentUsername,
+        group: socketGroupName,
+      },
+      [`${agentHome}/.nvm`]: {
         mode: 0o755,
         owner: agentUsername,
         group: socketGroupName,

@@ -22,6 +22,30 @@ export const BuiltinPolicies: PolicyRule[] = [
     priority: 1000,
   },
 
+  // Allow interceptor policy checks (internal RPC — must not be subject to policy gate)
+  {
+    id: 'builtin-allow-policy-check',
+    name: 'Allow interceptor policy checks',
+    action: 'allow',
+    target: 'command',
+    operations: ['policy_check'],
+    patterns: ['*'],
+    enabled: true,
+    priority: 1000,
+  },
+
+  // Allow interceptor event reporting (internal RPC)
+  {
+    id: 'builtin-allow-events-batch',
+    name: 'Allow interceptor event reporting',
+    action: 'allow',
+    target: 'command',
+    operations: ['events_batch'],
+    patterns: ['*'],
+    enabled: true,
+    priority: 1000,
+  },
+
   // Allow skill installation/uninstallation (daemon management operations)
   {
     id: 'builtin-allow-skill-management',
@@ -43,9 +67,13 @@ export const BuiltinPolicies: PolicyRule[] = [
     operations: ['http_request'],
     patterns: [
       'http://localhost:*',
+      'http://localhost:*/**',
       'http://127.0.0.1:*',
+      'http://127.0.0.1:*/**',
       'https://localhost:*',
+      'https://localhost:*/**',
       'https://127.0.0.1:*',
+      'https://127.0.0.1:*/**',
     ],
     enabled: true,
     priority: 100,
@@ -150,10 +178,15 @@ export const BuiltinPolicies: PolicyRule[] = [
     target: 'url',
     operations: ['http_request'],
     patterns: [
+      'https://api.anthropic.com',
       'https://api.anthropic.com/**',
+      'https://api.openai.com',
       'https://api.openai.com/**',
+      'https://api.cohere.ai',
       'https://api.cohere.ai/**',
+      'https://generativelanguage.googleapis.com',
       'https://generativelanguage.googleapis.com/**',
+      'https://api.mistral.ai',
       'https://api.mistral.ai/**',
     ],
     enabled: true,
@@ -168,10 +201,15 @@ export const BuiltinPolicies: PolicyRule[] = [
     target: 'url',
     operations: ['http_request'],
     patterns: [
+      'https://registry.npmjs.org',
       'https://registry.npmjs.org/**',
+      'https://pypi.org',
       'https://pypi.org/**',
+      'https://files.pythonhosted.org',
       'https://files.pythonhosted.org/**',
+      'https://crates.io',
       'https://crates.io/**',
+      'https://rubygems.org',
       'https://rubygems.org/**',
     ],
     enabled: true,
@@ -186,9 +224,13 @@ export const BuiltinPolicies: PolicyRule[] = [
     target: 'url',
     operations: ['http_request'],
     patterns: [
+      'https://github.com',
       'https://github.com/**',
+      'https://api.github.com',
       'https://api.github.com/**',
+      'https://raw.githubusercontent.com',
       'https://raw.githubusercontent.com/**',
+      'https://gist.github.com',
       'https://gist.github.com/**',
     ],
     enabled: true,
@@ -199,14 +241,18 @@ export const BuiltinPolicies: PolicyRule[] = [
 /**
  * Get default policy configuration
  */
-export function getDefaultPolicies(): PolicyConfig {
+export function getDefaultPolicies(options?: { agentHome?: string }): PolicyConfig {
+  const agentHome = options?.agentHome
+    || process.env['AGENSHIELD_AGENT_HOME']
+    || '/Users/clawagent';
+
   return {
     version: '1.0.0',
     defaultAction: 'deny',
     rules: [...BuiltinPolicies],
     fsConstraints: {
       allowedPaths: [
-        '/Users/clawagent/workspace',
+        agentHome,
         '/tmp/agenshield',
       ],
       deniedPatterns: [

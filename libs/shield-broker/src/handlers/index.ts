@@ -9,5 +9,7 @@ export { handleOpenUrl } from './open-url.js';
 export { handleSecretInject } from './secret-inject.js';
 export { handlePing } from './ping.js';
 export { handleSkillInstall, handleSkillUninstall } from './skill-install.js';
+export { handlePolicyCheck } from './policy-check.js';
+export { handleEventsBatch } from './events-batch.js';
 
 export type { HandlerDependencies } from './types.js';

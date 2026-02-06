@@ -16,6 +16,7 @@ import { getVault } from '../vault';
 import { getSessionManager } from '../auth/session';
 import { syncFilesystemPolicyAcls } from '../acl';
 import { syncCommandPoliciesAndWrappers } from '../command-sync';
+import { installShieldExec, createUserConfig } from '@agenshield/sandbox';
 
 export async function configRoutes(app: FastifyInstance): Promise<void> {
   // Get current configuration
@@ -98,6 +99,42 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         error: {
           message: error instanceof Error ? error.message : 'Factory reset failed',
         },
+      };
+    }
+  });
+
+  /**
+   * POST /config/install-wrappers - Install shield-exec and proxied command wrappers
+   *
+   * One-time operation that writes /opt/agenshield/bin/shield-exec (requires sudo)
+   * and creates symlinks for proxied commands (curl, wget, git, etc.) in the
+   * agent user's bin directory.
+   */
+  app.post('/config/install-wrappers', async (): Promise<{
+    success: boolean;
+    installed?: string[];
+    error?: string;
+  }> => {
+    try {
+      const state = loadState();
+      const agentUser = state.users.find((u) => u.type === 'agent');
+      if (!agentUser) {
+        return { success: false, error: 'No agent user found in state' };
+      }
+
+      const userConfig = createUserConfig();
+      const binDir = path.join(agentUser.homeDir, 'bin');
+      const result = await installShieldExec(userConfig, binDir);
+
+      return {
+        success: result.success,
+        installed: result.installed,
+        error: result.error,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to install wrappers',
       };
     }
   });

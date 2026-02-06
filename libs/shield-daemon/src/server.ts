@@ -86,6 +86,19 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   const activityLog = getActivityLog();
   activityLog.start();
 
+  // Self-heal command wrappers at boot
+  try {
+    const { loadConfig: loadDaemonConfig } = await import('./config/loader.js');
+    const { loadState } = await import('./state/index.js');
+    const { syncCommandPoliciesAndWrappers } = await import('./command-sync.js');
+    const cfg = loadDaemonConfig();
+    const st = loadState();
+    syncCommandPoliciesAndWrappers(cfg.policies, st, app.log);
+    app.log.info('[startup] boot-time command-sync completed');
+  } catch (err) {
+    app.log.warn(`[startup] boot-time command-sync failed: ${(err as Error).message}`);
+  }
+
   // Auto-activate MCP if valid tokens exist
   try {
     const vault = getVault();

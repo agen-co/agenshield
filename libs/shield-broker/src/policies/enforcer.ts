@@ -71,6 +71,35 @@ export class PolicyEnforcer {
   }
 
   /**
+   * Normalize a policy rule — infer operations from target when missing,
+   * default priority to 0.
+   */
+  private normalizeRule(rule: PolicyRule): PolicyRule {
+    const normalized = { ...rule };
+    if (!normalized.priority && normalized.priority !== 0) {
+      normalized.priority = 0;
+    }
+    if (normalized.operations && normalized.operations.length > 0) {
+      return normalized;
+    }
+    switch (normalized.target) {
+      case 'url':
+        normalized.operations = ['http_request', 'open_url'];
+        break;
+      case 'command':
+        normalized.operations = ['exec'];
+        break;
+      case 'skill':
+        normalized.operations = ['skill_install', 'skill_uninstall'];
+        break;
+      default:
+        normalized.operations = ['*'];
+        break;
+    }
+    return normalized;
+  }
+
+  /**
    * Load policies from disk
    */
   private loadPolicies(): void {
@@ -85,7 +114,7 @@ export class PolicyEnforcer {
         this.policies = {
           ...this.policies,
           ...loaded,
-          rules: [...this.policies.rules, ...(loaded.rules || [])],
+          rules: [...this.policies.rules, ...(loaded.rules || []).map((r) => this.normalizeRule(r))],
         };
 
         this.lastLoad = Date.now();
@@ -104,7 +133,7 @@ export class PolicyEnforcer {
             const content = fs.readFileSync(path.join(customDir, file), 'utf-8');
             const custom = JSON.parse(content) as PolicyConfig;
             if (custom.rules) {
-              this.policies.rules.push(...custom.rules);
+              this.policies.rules.push(...custom.rules.map((r) => this.normalizeRule(r)));
             }
           }
         }

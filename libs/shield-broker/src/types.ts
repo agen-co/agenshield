@@ -43,6 +43,12 @@ export interface BrokerConfig {
 
   /** Socket owner group */
   socketGroup?: string;
+
+  /** Agent home directory (for fs policy paths) */
+  agentHome?: string;
+
+  /** Daemon RPC URL for policy forwarding (default: http://127.0.0.1:5200) */
+  daemonUrl?: string;
 }
 
 /**

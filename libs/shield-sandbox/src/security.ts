@@ -9,6 +9,9 @@ import { execSync } from 'node:child_process';
 import { userExists } from './macos';
 import { GUARDED_SHELL_PATH } from './guarded-shell';
 
+/** Users recognized as valid sandbox users */
+const SANDBOX_USERS = ['openclaw', 'ash_default_agent'];
+
 /**
  * Security status report
  */
@@ -139,14 +142,14 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
   const recommendations: string[] = [];
 
   // Check sandbox user
-  const sandboxUserExists = userExists('openclaw');
+  const sandboxUserExists = SANDBOX_USERS.some((u) => userExists(u));
   const guardedShellInstalled = isGuardedShellInstalled();
 
   // Check if OpenClaw is running in sandbox
   const processes = getOpenClawProcesses();
-  const isolatedProcesses = processes.filter((p) => p.user === 'openclaw');
-  const unIsolatedProcesses = processes.filter((p) => p.user !== 'openclaw');
-  const isIsolated = sandboxUserExists && isolatedProcesses.length > 0 && unIsolatedProcesses.length === 0;
+  const isolatedProcesses = processes.filter((p) => SANDBOX_USERS.includes(p.user));
+  const unIsolatedProcesses = processes.filter((p) => !SANDBOX_USERS.includes(p.user));
+  const isIsolated = sandboxUserExists && unIsolatedProcesses.length === 0;
 
   // Check exposed secrets
   const exposedSecrets = checkExposedSecrets(options?.env);
@@ -158,7 +161,7 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
   }
 
   if (!sandboxUserExists) {
-    warnings.push('Sandbox user "openclaw" not created');
+    warnings.push('No sandbox user found (checked: ' + SANDBOX_USERS.join(', ') + ')');
     recommendations.push('Run "agenshield setup" to create isolated sandbox user');
   }
 

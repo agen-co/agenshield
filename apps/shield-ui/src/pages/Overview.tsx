@@ -17,7 +17,7 @@ import { PageHeader } from '../components/shared/PageHeader';
 import { StatsRow } from '../components/overview/StatsRow';
 import { TrafficChart } from '../components/overview/TrafficChart';
 import { ActivityFeed } from '../components/overview/ActivityFeed';
-import { SecurityStatusCard } from '../components/overview/SecurityStatus';
+import { ArchitectureGraph } from '../components/overview/ArchitectureGraph';
 
 export function Overview() {
   const { data: status, isLoading: statusLoading } = useStatus();
@@ -52,7 +52,7 @@ export function Overview() {
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr', lg: '1fr 360px' },
+          gridTemplateColumns: { xs: '1fr', lg: '2fr 1fr' },
           gap: 3,
           mt: 3,
         }}
@@ -63,14 +63,14 @@ export function Overview() {
             <TrafficChart />
           </Box>
           <Box sx={cardAnim(200)}>
-            <ActivityFeed />
+            <ArchitectureGraph />
           </Box>
         </Box>
 
         {/* Right column - stacked cards */}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           <Box sx={cardAnim(150)}>
-            <SecurityStatusCard />
+            <ActivityFeed />
           </Box>
           <Card sx={cardAnim(250)}>
             <CardContent>

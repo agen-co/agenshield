@@ -81,6 +81,8 @@ export interface WizardOptions {
   skipConfirm?: boolean;
   /** Verbose output */
   verbose?: boolean;
+  /** Node.js version to install via NVM (default: '24') */
+  nodeVersion?: string;
 }
 
 export interface WizardContext {

@@ -103,10 +103,13 @@ export class SyncClient {
     `;
 
     try {
-      // Run the script synchronously (use captured original to avoid interception)
-      _spawnSync('node', ['-e', script], {
+      // Run the script synchronously using the unintercepted node binary.
+      // We must use the absolute path to node-bin to avoid the wrapper that
+      // sets NODE_OPTIONS (which loads the interceptor → infinite recursion).
+      _spawnSync('/opt/agenshield/bin/node-bin', ['-e', script], {
         timeout: this.timeout + 1000,
         stdio: 'ignore',
+        env: { ...process.env, NODE_OPTIONS: '' },
       });
 
       // Read the response (use captured originals to avoid interception)
@@ -152,9 +155,10 @@ export class SyncClient {
     });
 
     try {
-      // Use curl for synchronous HTTP request (use captured original to avoid interception)
+      // Use curl for synchronous HTTP request (use captured original to avoid interception).
+      // Absolute path avoids the guarded shell's restricted PATH ($HOME/bin).
       const result = _execSync(
-        `curl -s -X POST -H "Content-Type: application/json" -d '${request.replace(/'/g, "\\'")}' "${url}"`,
+        `/usr/bin/curl -s -X POST -H "Content-Type: application/json" -d '${request.replace(/'/g, "\\'")}' "${url}"`,
         {
           timeout: this.timeout,
           encoding: 'utf-8',

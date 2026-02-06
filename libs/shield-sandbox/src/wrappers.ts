@@ -1156,17 +1156,150 @@ PKGJSONEOF`
 }
 
 /**
+ * Copy the shield-client binary to /opt/agenshield/bin/
+ * Shield-client is the CLI used by wrapper scripts (curl, git, etc.) to route
+ * operations through the broker.
+ *
+ * IMPORTANT: The shebang is rewritten from #!/usr/bin/env node to
+ * #!/opt/agenshield/bin/node-bin so that shield-client runs WITHOUT the
+ * interceptor. Otherwise there's an infinite recursion:
+ * interceptor → curl wrapper → shield-client → node+interceptor → …
+ */
+export async function copyShieldClient(
+  userConfig?: UserConfig
+): Promise<WrapperResult> {
+  const targetPath = '/opt/agenshield/bin/shield-client';
+  const socketGroupName = userConfig?.groups?.socket?.name || 'ash_socket';
+
+  try {
+    // Resolve the shield-client from the broker package
+    const brokerPkgPath = require.resolve('@agenshield/broker/package.json');
+    const brokerDir = path.dirname(brokerPkgPath);
+    const brokerPkg = JSON.parse(await fs.readFile(brokerPkgPath, 'utf-8'));
+    const clientEntry = typeof brokerPkg.bin === 'object'
+      ? brokerPkg.bin['shield-client']
+      : null;
+    const srcPath = path.resolve(brokerDir, clientEntry || './dist/client/shield-client.js');
+
+    // Verify source exists
+    await fs.access(srcPath);
+
+    // Read and rewrite shebang to use node-bin directly (bypass interceptor)
+    let content = await fs.readFile(srcPath, 'utf-8');
+    content = content.replace(
+      /^#!\/usr\/bin\/env node/,
+      '#!/opt/agenshield/bin/node-bin'
+    );
+
+    // Write via temp file + sudo mv
+    const tmpPath = '/tmp/shield-client-install';
+    await fs.writeFile(tmpPath, content, { mode: 0o755 });
+
+    await execAsync('sudo mkdir -p /opt/agenshield/bin');
+    await execAsync(`sudo mv "${tmpPath}" "${targetPath}"`);
+    await execAsync(`sudo chmod 755 "${targetPath}"`);
+    await execAsync(`sudo chown root:${socketGroupName} "${targetPath}"`);
+
+    return {
+      success: true,
+      name: 'shield-client',
+      path: targetPath,
+      message: `Shield-client installed to ${targetPath}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      name: 'shield-client',
+      path: targetPath,
+      message: `Failed to install shield-client: ${(error as Error).message}`,
+      error: error as Error,
+    };
+  }
+}
+
+/**
+ * Detect and copy Node.js dynamic libraries (dylibs) alongside the binary.
+ *
+ * On macOS, Node.js 22+ (especially NVM builds) is dynamically linked to
+ * `libnode.127.dylib` via `@loader_path/../lib/libnode.127.dylib`.
+ * When the binary runs from `/opt/agenshield/bin/`, this resolves to
+ * `/opt/agenshield/lib/libnode.127.dylib` — which doesn't exist unless
+ * we copy it there.
+ *
+ * Graceful no-op when: node is statically linked, `otool` is unavailable
+ * (non-macOS), or no matching dylibs are found.
+ */
+async function copyNodeDylibs(
+  srcBinaryPath: string,
+  socketGroupName: string
+): Promise<{ copied: string[]; errors: string[] }> {
+  const copied: string[] = [];
+  const errors: string[] = [];
+
+  try {
+    const { stdout } = await execAsync(`/usr/bin/otool -L "${srcBinaryPath}"`);
+    const lines = stdout.split('\n');
+
+    for (const line of lines) {
+      // Match lines like: @loader_path/../lib/libnode.127.dylib (...)
+      // or @rpath/libnode.127.dylib (...)
+      const match = line.match(
+        /\s+(@loader_path|@rpath)(\/[^\s]+\/)(libnode[^\s(]+)/
+      );
+      if (!match) continue;
+
+      const prefix = match[1];     // @loader_path or @rpath
+      const relPath = match[2];    // e.g. /../lib/
+      const dylibName = match[3];  // e.g. libnode.127.dylib
+
+      // Resolve the actual file on disk
+      let resolvedPath: string;
+      if (prefix === '@loader_path') {
+        // @loader_path resolves relative to the binary's directory
+        resolvedPath = path.resolve(path.dirname(srcBinaryPath) + relPath + dylibName);
+      } else {
+        // @rpath — try the binary's parent lib directory as a best guess
+        resolvedPath = path.resolve(path.dirname(srcBinaryPath), '..', 'lib', dylibName);
+      }
+
+      try {
+        await fs.access(resolvedPath);
+      } catch {
+        errors.push(`dylib not found on disk: ${resolvedPath}`);
+        continue;
+      }
+
+      // Copy to /opt/agenshield/lib/ (directory already exists from setup)
+      const targetPath = `/opt/agenshield/lib/${dylibName}`;
+      try {
+        await execAsync(`sudo cp "${resolvedPath}" "${targetPath}"`);
+        await execAsync(`sudo chown root:${socketGroupName} "${targetPath}"`);
+        await execAsync(`sudo chmod 755 "${targetPath}"`);
+        copied.push(dylibName);
+      } catch (err) {
+        errors.push(`Failed to copy ${dylibName}: ${(err as Error).message}`);
+      }
+    }
+  } catch {
+    // otool not available or failed — non-macOS or static build, no-op
+  }
+
+  return { copied, errors };
+}
+
+/**
  * Copy the current Node.js binary to the sandbox so the node wrapper
  * can exec a known-good binary without relying on system PATH.
  */
 export async function copyNodeBinary(
-  userConfig?: UserConfig
+  userConfig?: UserConfig,
+  sourcePath?: string,
 ): Promise<WrapperResult> {
   const targetPath = '/opt/agenshield/bin/node-bin';
   const socketGroupName = userConfig?.groups?.socket?.name || 'ash_socket';
 
   try {
-    const srcPath = process.execPath;
+    const srcPath = sourcePath || process.execPath;
 
     // Verify source exists
     await fs.access(srcPath);
@@ -1176,11 +1309,17 @@ export async function copyNodeBinary(
     await execAsync(`sudo chown root:${socketGroupName} "${targetPath}"`);
     await execAsync(`sudo chmod 755 "${targetPath}"`);
 
+    // Copy any dylibs the node binary is dynamically linked to (e.g. libnode.127.dylib on NVM builds)
+    const dylibs = await copyNodeDylibs(srcPath, socketGroupName);
+    const dylibInfo = dylibs.copied.length > 0
+      ? ` (dylibs: ${dylibs.copied.join(', ')})`
+      : '';
+
     return {
       success: true,
       name: 'node-bin',
       path: targetPath,
-      message: `Copied node binary from ${srcPath} to ${targetPath}`,
+      message: `Copied node binary from ${srcPath} to ${targetPath}${dylibInfo}`,
     };
   } catch (error) {
     return {
@@ -1188,6 +1327,116 @@ export async function copyNodeBinary(
       name: 'node-bin',
       path: targetPath,
       message: `Failed to copy node binary: ${(error as Error).message}`,
+      error: error as Error,
+    };
+  }
+}
+
+/**
+ * Result of NVM + Node.js installation for the agent user
+ */
+export interface NvmInstallResult {
+  success: boolean;
+  nvmDir: string;
+  nodeVersion: string;
+  nodeBinaryPath: string;
+  message: string;
+  error?: Error;
+}
+
+const NVM_INSTALL_URL = 'https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh';
+
+/**
+ * Install NVM and a specific Node.js version for the agent user.
+ *
+ * Runs as the agent user via `sudo -u` with `/bin/bash` (not guarded-shell).
+ * The NVM directory is created under the agent's home so versions can be
+ * managed independently of the host system.
+ *
+ * The installed node binary is then copied to /opt/agenshield/bin/node-bin
+ * by the caller via copyNodeBinary(userConfig, nodeBinaryPath).
+ */
+export async function installAgentNvm(options: {
+  agentHome: string;
+  agentUsername: string;
+  socketGroupName: string;
+  nodeVersion?: string;
+  verbose?: boolean;
+}): Promise<NvmInstallResult> {
+  const { agentHome, agentUsername, socketGroupName, verbose } = options;
+  const nodeVersion = options.nodeVersion || '24';
+  const nvmDir = `${agentHome}/.nvm`;
+  const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+
+  const empty: NvmInstallResult = {
+    success: false,
+    nvmDir,
+    nodeVersion,
+    nodeBinaryPath: '',
+    message: '',
+  };
+
+  try {
+    // 1. Ensure .nvm directory exists with correct ownership
+    log(`Creating NVM directory at ${nvmDir}`);
+    await execAsync(`sudo mkdir -p "${nvmDir}"`);
+    await execAsync(`sudo chown ${agentUsername}:${socketGroupName} "${nvmDir}"`);
+    await execAsync(`sudo chmod 755 "${nvmDir}"`);
+
+    // 2. Download and install NVM as the agent user
+    // PROFILE=/dev/null prevents NVM from modifying shell rc files
+    log('Downloading and installing NVM');
+    const installCmd = [
+      `export HOME="${agentHome}"`,
+      `export NVM_DIR="${nvmDir}"`,
+      `/usr/bin/curl -o- "${NVM_INSTALL_URL}" | PROFILE=/dev/null /bin/bash`,
+    ].join(' && ');
+    await execAsync(`sudo -u ${agentUsername} /bin/bash -c '${installCmd}'`, { timeout: 60000 });
+
+    // 3. Install the specified Node.js version
+    log(`Installing Node.js v${nodeVersion} via NVM`);
+    const nvmInstallCmd = [
+      `export HOME="${agentHome}"`,
+      `export NVM_DIR="${nvmDir}"`,
+      `source "${nvmDir}/nvm.sh"`,
+      `nvm install ${nodeVersion}`,
+    ].join(' && ');
+    await execAsync(`sudo -u ${agentUsername} /bin/bash -c '${nvmInstallCmd}'`, { timeout: 120000 });
+
+    // 4. Resolve the installed node binary path
+    log('Resolving installed node binary path');
+    const whichCmd = [
+      `export HOME="${agentHome}"`,
+      `export NVM_DIR="${nvmDir}"`,
+      `source "${nvmDir}/nvm.sh"`,
+      `nvm which ${nodeVersion}`,
+    ].join(' && ');
+    const { stdout } = await execAsync(`sudo -u ${agentUsername} /bin/bash -c '${whichCmd}'`);
+    const nodeBinaryPath = stdout.trim();
+
+    if (!nodeBinaryPath) {
+      return { ...empty, message: 'NVM installed but could not resolve node binary path' };
+    }
+
+    // 5. Verify the binary works
+    log(`Verifying node binary at ${nodeBinaryPath}`);
+    const { stdout: versionOut } = await execAsync(
+      `sudo -u ${agentUsername} /bin/bash -c '"${nodeBinaryPath}" --version'`
+    );
+    const actualVersion = versionOut.trim();
+    log(`Node.js ${actualVersion} installed successfully`);
+
+    return {
+      success: true,
+      nvmDir,
+      nodeVersion: actualVersion,
+      nodeBinaryPath,
+      message: `Installed Node.js ${actualVersion} via NVM at ${nodeBinaryPath}`,
+    };
+  } catch (error) {
+    return {
+      ...empty,
+      message: `NVM installation failed: ${(error as Error).message}`,
       error: error as Error,
     };
   }
@@ -1258,6 +1507,7 @@ export async function installPresetBinaries(options: {
   userConfig: UserConfig;
   binDir: string;
   socketGroupName: string;
+  nodeVersion?: string;
   verbose?: boolean;
 }): Promise<PresetInstallResult> {
   const { requiredBins, userConfig, binDir, socketGroupName, verbose } = options;
@@ -1266,12 +1516,36 @@ export async function installPresetBinaries(options: {
   const installedWrappers: string[] = [];
   let seatbeltInstalled = false;
 
-  // 1. Copy node binary to /opt/agenshield/bin/node-bin (if 'node' in requiredBins)
+  // 1. Install node binary to /opt/agenshield/bin/node-bin (if 'node' in requiredBins)
   if (requiredBins.includes('node')) {
-    log(`Copying node binary to /opt/agenshield/bin/node-bin`);
-    const nodeResult = await copyNodeBinary(userConfig);
-    if (!nodeResult.success) {
-      errors.push(`Node binary: ${nodeResult.message}`);
+    const agentHome = userConfig.agentUser.home;
+    const agentUsername = userConfig.agentUser.username;
+
+    // Try NVM-based install first for version control
+    log('Installing NVM + Node.js for agent user');
+    const nvmResult = await installAgentNvm({
+      agentHome,
+      agentUsername,
+      socketGroupName,
+      nodeVersion: options.nodeVersion,
+      verbose,
+    });
+
+    if (nvmResult.success) {
+      log(`NVM installed Node.js ${nvmResult.nodeVersion} at ${nvmResult.nodeBinaryPath}`);
+      log('Copying NVM node binary to /opt/agenshield/bin/node-bin');
+      const nodeResult = await copyNodeBinary(userConfig, nvmResult.nodeBinaryPath);
+      if (!nodeResult.success) {
+        errors.push(`Node binary (from NVM): ${nodeResult.message}`);
+      }
+    } else {
+      // Fallback: copy host's node binary (original behavior)
+      log(`NVM install failed: ${nvmResult.message}. Falling back to host node binary.`);
+      log('Copying node binary to /opt/agenshield/bin/node-bin');
+      const nodeResult = await copyNodeBinary(userConfig);
+      if (!nodeResult.success) {
+        errors.push(`Node binary: ${nodeResult.message}`);
+      }
     }
   }
 

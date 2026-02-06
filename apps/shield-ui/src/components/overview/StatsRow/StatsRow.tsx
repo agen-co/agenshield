@@ -76,18 +76,23 @@ export function StatsRow({ status, config, security, statusLoading, configLoadin
         value={security?.data?.level ? security.data.level.charAt(0).toUpperCase() + security.data.level.slice(1) : '—'}
         icon={<ShieldAlert size={20} />}
         color={
-          security?.data?.level === 'high'
+          security?.data?.level === 'secure'
             ? theme.palette.success.main
-            : security?.data?.level === 'medium'
+            : security?.data?.level === 'partial'
               ? theme.palette.warning.main
               : theme.palette.error.main
         }
         loading={securityPending}
       />
       <StatCard
-        title="Requests Today"
-        value={security?.data?.totalRequests ?? 0}
+        title="Warnings"
+        value={security?.data?.warnings?.length ?? 0}
         icon={<BarChart3 size={20} />}
+        color={
+          (security?.data?.warnings?.length ?? 0) > 0
+            ? theme.palette.warning.main
+            : undefined
+        }
         loading={securityPending}
       />
     </Root>

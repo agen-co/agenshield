@@ -27,4 +27,5 @@ export interface HandlerDependencies {
   commandAllowlist: CommandAllowlist;
   onExecMonitor?: (event: ExecMonitorEvent) => void;
   onExecDenied?: (command: string, reason: string) => void;
+  daemonUrl?: string;
 }

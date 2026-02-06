@@ -15,6 +15,7 @@ import type {
   AgenCoConnectedIntegrationsResponse,
   AgenCoConnectIntegrationResponse,
   FsBrowseEntry,
+  SecurityStatusData,
 } from '@agenshield/ipc';
 import type {
   MarketplaceSkill,
@@ -115,13 +116,7 @@ export interface CreateSecretRequest {
   policyIds: string[];
 }
 
-export interface SecurityStatus {
-  level: 'high' | 'medium' | 'low';
-  activePolicies: number;
-  blockedRequests: number;
-  totalRequests: number;
-  lastIncident?: string;
-}
+export type SecurityStatus = SecurityStatusData;
 
 // --- API methods ---
 

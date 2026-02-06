@@ -78,7 +78,7 @@ function createOpenClawWrapper(
     // package.json not found or unreadable, use fallback
   }
 
-  const wrapperContent = `#!/usr/bin/env bash
+  const wrapperContent = `#!/bin/bash
 set -euo pipefail
 # Avoid getcwd errors when cwd is inaccessible
 cd ~ 2>/dev/null || cd /
@@ -286,12 +286,36 @@ export function createNodeWrapper(user: SandboxUser, dirs: DirectoryStructure): 
   success: boolean;
   error?: string;
 } {
-  // Find the system node binary
+  // Find node binary: prefer sandbox copy, then agent NVM, then system
   let nodePath: string;
-  try {
-    nodePath = execSync('which node', { encoding: 'utf-8' }).trim();
-  } catch {
-    return { success: false, error: 'Node.js not found in PATH' };
+  const sandboxNodeBin = '/opt/agenshield/bin/node-bin';
+  if (fs.existsSync(sandboxNodeBin)) {
+    nodePath = sandboxNodeBin;
+  } else {
+    // Try NVM under agent home
+    const nvmVersionsDir = path.join(user.homeDir, '.nvm', 'versions', 'node');
+    let nvmNode: string | undefined;
+    try {
+      const versions = fs.readdirSync(nvmVersionsDir).sort();
+      for (const v of versions.reverse()) {
+        const candidate = path.join(nvmVersionsDir, v, 'bin', 'node');
+        if (fs.existsSync(candidate)) {
+          nvmNode = candidate;
+          break;
+        }
+      }
+    } catch {
+      // NVM not installed for agent, fall through
+    }
+    if (nvmNode) {
+      nodePath = nvmNode;
+    } else {
+      try {
+        nodePath = execSync('which node', { encoding: 'utf-8' }).trim();
+      } catch {
+        return { success: false, error: 'Node.js not found (checked /opt/agenshield/bin/node-bin, agent NVM, and system PATH)' };
+      }
+    }
   }
 
   // Create a wrapper that calls the system node

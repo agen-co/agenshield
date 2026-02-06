@@ -72,6 +72,8 @@ export function generateBrokerPlist(
         <string>${configPath}</string>
         <key>AGENSHIELD_SOCKET</key>
         <string>${socketPath}</string>
+        <key>AGENSHIELD_AGENT_HOME</key>
+        <string>${config.agentUser.home}</string>
         <key>NODE_ENV</key>
         <string>production</string>
     </dict>

@@ -8,6 +8,7 @@
 import { execSync } from 'node:child_process';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { PolicyConfig } from '@agenshield/ipc';
 
 interface Logger {
@@ -15,6 +16,22 @@ interface Logger {
 }
 
 const noop: Logger = { warn() { /* no-op */ } };
+
+const TRAVERSAL_PERMS = 'search';
+
+const WORLD_TRAVERSABLE_PATHS = new Set([
+  '/', '/Users', '/tmp', '/private', '/private/tmp', '/private/var',
+  '/var', '/opt', '/usr', '/usr/local', '/Applications', '/Library',
+  '/System', '/Volumes',
+]);
+
+/**
+ * Remove trailing slashes from a path (preserves root `/`).
+ */
+function normalizePath(p: string): string {
+  if (p === '/') return p;
+  return p.replace(/\/+$/, '') || '/';
+}
 
 /**
  * Strip glob wildcards from a path, returning the deepest concrete directory.
@@ -37,7 +54,7 @@ export function stripGlobToBasePath(pattern: string): string {
   }
 
   // If we consumed every segment (no wildcards), return the original path
-  return base.length === 0 ? '/' : base.join('/') || '/';
+  return normalizePath(base.length === 0 ? '/' : base.join('/') || '/');
 }
 
 /**
@@ -117,6 +134,71 @@ export function removeGroupAcl(targetPath: string, groupName: string, log: Logge
 }
 
 /**
+ * Walk up from `targetPath` collecting ancestor directories that are NOT
+ * world-traversable and therefore need an explicit `search` ACL.
+ */
+function getAncestorsNeedingTraversal(targetPath: string): string[] {
+  const ancestors: string[] = [];
+  let dir = path.dirname(targetPath);
+  while (dir !== targetPath && dir !== '/') {
+    if (!WORLD_TRAVERSABLE_PATHS.has(dir)) {
+      ancestors.push(dir);
+    }
+    targetPath = dir;
+    dir = path.dirname(dir);
+  }
+  return ancestors;
+}
+
+/**
+ * Merge two comma-separated permission strings, deduplicating.
+ */
+function mergePerms(a: string, b: string): string {
+  const set = new Set([
+    ...a.split(',').filter(Boolean),
+    ...b.split(',').filter(Boolean),
+  ]);
+  return [...set].join(',');
+}
+
+/**
+ * Build a `Map<path, permissions>` from a set of filesystem policies.
+ *
+ * Pass 1: collect direct targets with merged permissions.
+ * Pass 2: add `search` for traversal ancestors not already in the map.
+ */
+function computeAclMap(policies: PolicyConfig[]): Map<string, string> {
+  const aclMap = new Map<string, string>();
+
+  // Pass 1 — direct targets
+  for (const policy of policies) {
+    const perms = operationsToAclPerms(policy.operations ?? []);
+    if (!perms) continue;
+    for (const pattern of policy.patterns) {
+      const target = stripGlobToBasePath(pattern);
+      const existing = aclMap.get(target);
+      aclMap.set(target, existing ? mergePerms(existing, perms) : perms);
+    }
+  }
+
+  // Pass 2 — traversal ancestors
+  for (const policy of policies) {
+    const perms = operationsToAclPerms(policy.operations ?? []);
+    if (!perms) continue;
+    for (const pattern of policy.patterns) {
+      const target = stripGlobToBasePath(pattern);
+      for (const ancestor of getAncestorsNeedingTraversal(target)) {
+        if (!aclMap.has(ancestor)) {
+          aclMap.set(ancestor, TRAVERSAL_PERMS);
+        }
+      }
+    }
+  }
+
+  return aclMap;
+}
+
+/**
  * Synchronise filesystem policy ACLs after a config change.
  *
  * Compares old and new policy arrays, and for filesystem-target policies:
@@ -135,48 +217,18 @@ export function syncFilesystemPolicyAcls(
   const oldFs = oldPolicies.filter((p) => p.target === 'filesystem');
   const newFs = newPolicies.filter((p) => p.target === 'filesystem');
 
-  const oldMap = new Map(oldFs.map((p) => [p.id, p]));
-  const newMap = new Map(newFs.map((p) => [p.id, p]));
+  const oldAclMap = computeAclMap(oldFs);
+  const newAclMap = computeAclMap(newFs);
 
-  // Removed policies — revoke ACLs
-  for (const [id, oldP] of oldMap) {
-    if (!newMap.has(id)) {
-      for (const pattern of oldP.patterns) {
-        removeGroupAcl(stripGlobToBasePath(pattern), groupName, log);
-      }
+  // Phase 1 — Remove ACLs for paths no longer needed
+  for (const oldPath of oldAclMap.keys()) {
+    if (!newAclMap.has(oldPath)) {
+      removeGroupAcl(oldPath, groupName, log);
     }
   }
 
-  // Added policies — apply ACLs
-  for (const [id, newP] of newMap) {
-    if (!oldMap.has(id)) {
-      const perms = operationsToAclPerms(newP.operations ?? []);
-      if (!perms) continue;
-      for (const pattern of newP.patterns) {
-        addGroupAcl(stripGlobToBasePath(pattern), groupName, perms, log);
-      }
-    }
-  }
-
-  // Changed policies — revoke old, apply new
-  for (const [id, newP] of newMap) {
-    const oldP = oldMap.get(id);
-    if (!oldP) continue;
-
-    const patternsChanged = JSON.stringify(oldP.patterns) !== JSON.stringify(newP.patterns);
-    const opsChanged = JSON.stringify(oldP.operations ?? []) !== JSON.stringify(newP.operations ?? []);
-
-    if (patternsChanged || opsChanged) {
-      // Revoke old
-      for (const pattern of oldP.patterns) {
-        removeGroupAcl(stripGlobToBasePath(pattern), groupName, log);
-      }
-      // Apply new
-      const perms = operationsToAclPerms(newP.operations ?? []);
-      if (!perms) continue;
-      for (const pattern of newP.patterns) {
-        addGroupAcl(stripGlobToBasePath(pattern), groupName, perms, log);
-      }
-    }
+  // Phase 2 — Add/update ACLs for current paths
+  for (const [targetPath, perms] of newAclMap) {
+    addGroupAcl(targetPath, groupName, perms, log);
   }
 }

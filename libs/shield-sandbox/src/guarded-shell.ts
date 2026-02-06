@@ -128,20 +128,9 @@ disable -r builtin command exec eval hash nohup setopt source unfunction functio
 
 # ---- Intercept every interactive command before execution ----
 preexec() {
-  local line="$1"
-  local cmd="\${line%%[[:space:]]*}"
-
-  # Empty / whitespace lines
-  [[ -z "\$cmd" ]] && return 0
-
-  # Deny anything with slash in the command token (direct path execution)
-  [[ "\$cmd" == */* ]] && { print -r -- "Denied: direct path execution"; kill -KILL $$; }
-
-  # Deny anything not allowed
-  if ! is_allowed_cmd "\$cmd"; then
-    print -r -- "Denied: \$cmd (not in \$HOME/bin)"
-    kill -KILL $$
-  fi
+  # Enforcement handled by TRAPDEBUG (which can cancel execution via return 126).
+  # preexec cannot prevent execution, so we don't enforce here.
+  return 0
 }
 
 # ---- Also intercept non-interactive \\\`zsh -c\\\` cases ----

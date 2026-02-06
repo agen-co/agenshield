@@ -193,7 +193,7 @@ if (process.argv[1]?.endsWith('shield-exec')) {
 /**
  * The content of shield-exec as a string, for installation
  */
-export const SHIELD_EXEC_CONTENT = `#!/usr/bin/env node
+export const SHIELD_EXEC_CONTENT = `#!/opt/agenshield/bin/node-bin
 import path from 'node:path';
 import net from 'node:net';
 

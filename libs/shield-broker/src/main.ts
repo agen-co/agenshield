@@ -16,6 +16,16 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 /**
+ * Commands that get wrapper shims in the agent's bin directory.
+ * Must stay in sync with PROXIED_COMMANDS in shield-sandbox/shield-exec.ts.
+ */
+const PROXIED_COMMANDS = [
+  'curl', 'wget', 'git', 'ssh', 'scp', 'rsync',
+  'brew', 'npm', 'npx', 'pip', 'pip3',
+  'open-url', 'shieldctl', 'agenco',
+] as const;
+
+/**
  * Load configuration from environment and config file
  */
 function loadConfig(): BrokerConfig {
@@ -65,6 +75,13 @@ function loadConfig(): BrokerConfig {
     socketMode: fileConfig.socketMode || 0o666,
     socketOwner: fileConfig.socketOwner || 'clawbroker',
     socketGroup: fileConfig.socketGroup || 'clawshield',
+    agentHome:
+      process.env['AGENSHIELD_AGENT_HOME'] ||
+      (fileConfig as Record<string, unknown>).agentHome as string | undefined,
+    daemonUrl:
+      process.env['AGENSHIELD_DAEMON_URL'] ||
+      fileConfig.daemonUrl ||
+      'http://127.0.0.1:5200',
   };
 }
 
@@ -86,6 +103,59 @@ function ensureDirectories(config: BrokerConfig): void {
         }
       }
     }
+  }
+}
+
+/**
+ * Ensure all proxied command wrappers exist in the agent's bin directory.
+ * Prefers symlinks to shield-exec; falls back to bash wrapper scripts.
+ */
+function ensureProxiedCommandWrappers(binDir: string): void {
+  if (!fs.existsSync(binDir)) {
+    try {
+      fs.mkdirSync(binDir, { recursive: true, mode: 0o755 });
+    } catch {
+      console.warn(`[broker] cannot create bin dir ${binDir}`);
+      return;
+    }
+  }
+
+  const shieldExecPath = '/opt/agenshield/bin/shield-exec';
+  const hasShieldExec = fs.existsSync(shieldExecPath);
+  let installed = 0;
+
+  for (const cmd of PROXIED_COMMANDS) {
+    const wrapperPath = path.join(binDir, cmd);
+    if (fs.existsSync(wrapperPath)) continue;
+
+    if (hasShieldExec) {
+      try {
+        fs.symlinkSync(shieldExecPath, wrapperPath);
+        installed++;
+        continue;
+      } catch {
+        // fall through to bash wrapper
+      }
+    }
+
+    // Fallback: bash wrapper that routes through shield-client
+    try {
+      const script = [
+        '#!/bin/bash',
+        `# ${cmd} - AgenShield proxy (auto-generated)`,
+        'if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi',
+        `exec /opt/agenshield/bin/shield-client exec ${cmd} "$@"`,
+        '',
+      ].join('\n');
+      fs.writeFileSync(wrapperPath, script, { mode: 0o755 });
+      installed++;
+    } catch {
+      console.warn(`[broker] cannot write wrapper for ${cmd}`);
+    }
+  }
+
+  if (installed > 0) {
+    console.log(`[broker] installed ${installed} command wrappers in ${binDir}`);
   }
 }
 
@@ -112,6 +182,8 @@ async function main(): Promise<void> {
   console.log(`Socket owner: ${config.socketOwner}, group: ${config.socketGroup}`);
   console.log(`HTTP Fallback: ${config.httpEnabled ? `${config.httpHost}:${config.httpPort}` : 'disabled'}`);
   console.log(`Policies: ${config.policiesPath}`);
+  console.log(`Agent Home: ${config.agentHome || '(env fallback)'}`);
+  console.log(`Daemon URL: ${config.daemonUrl || '(default)'}`);
   console.log(`Log Level: ${config.logLevel}`);
 
   try {
@@ -129,13 +201,18 @@ async function main(): Promise<void> {
 
   const policyEnforcer = new PolicyEnforcer({
     policiesPath: config.policiesPath,
-    defaultPolicies: getDefaultPolicies(),
+    defaultPolicies: getDefaultPolicies({ agentHome: config.agentHome }),
     failOpen: config.failOpen,
   });
 
   const secretVault = new SecretVault({
     vaultPath: '/etc/agenshield/vault.enc',
   });
+
+  // Ensure proxied command wrappers exist in agent's bin directory
+  if (config.agentHome) {
+    ensureProxiedCommandWrappers(path.join(config.agentHome, 'bin'));
+  }
 
   // Start Unix socket server
   const socketServer = new UnixSocketServer({

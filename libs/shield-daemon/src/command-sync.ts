@@ -16,6 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { PolicyConfig, SystemState } from '@agenshield/ipc';
+import { PROXIED_COMMANDS } from '@agenshield/sandbox';
 
 interface Logger {
   warn(msg: string, ...args: unknown[]): void;
@@ -37,12 +38,8 @@ const BIN_SEARCH_DIRS = [
   '/opt/homebrew/sbin',
 ];
 
-/** All proxied commands that get wrapper shims */
-const ALL_PROXIED_COMMANDS = [
-  'curl', 'wget', 'git', 'ssh', 'scp', 'rsync',
-  'brew', 'npm', 'npx', 'pip', 'pip3',
-  'open-url', 'shieldctl', 'agenco',
-];
+/** All proxied commands that get wrapper shims (from sandbox canonical list) */
+const ALL_PROXIED_COMMANDS = [...PROXIED_COMMANDS];
 
 interface AllowedCommand {
   name: string;
@@ -156,22 +153,38 @@ export function syncCommandPolicies(
     commands,
   };
 
+  const json = JSON.stringify(config, null, 2) + '\n';
+
   try {
     const dir = path.dirname(ALLOWED_COMMANDS_PATH);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(ALLOWED_COMMANDS_PATH, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+    fs.writeFileSync(ALLOWED_COMMANDS_PATH, json, 'utf-8');
     log.info(`[command-sync] wrote ${commands.length} commands to allowlist`);
-  } catch (err) {
-    log.warn(`[command-sync] failed to write allowlist: ${(err as Error).message}`);
+  } catch {
+    log.warn(`[command-sync] cannot write to ${ALLOWED_COMMANDS_PATH} (broker forwards to daemon for policy checks)`);
   }
 }
 
 /**
+ * Generate a bash wrapper script that routes through shield-client.
+ * Used as a fallback when shield-exec binary is not installed.
+ */
+function generateFallbackWrapper(cmd: string): string {
+  return [
+    '#!/bin/bash',
+    `# ${cmd} - AgenShield proxy (auto-generated)`,
+    'if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi',
+    `exec /opt/agenshield/bin/shield-client exec ${cmd} "$@"`,
+    '',
+  ].join('\n');
+}
+
+/**
  * Ensure all proxied command wrappers are installed in a user's bin directory.
- * Uses the sandbox library's installSpecificWrappers if available,
- * or falls back to creating symlinks to shield-exec.
+ * Prefers symlinks to shield-exec when available, falls back to bash wrapper
+ * scripts that route through shield-client.
  */
 function installWrappersInDir(binDir: string, log: Logger): void {
   const shieldExecPath = '/opt/agenshield/bin/shield-exec';
@@ -179,10 +192,15 @@ function installWrappersInDir(binDir: string, log: Logger): void {
   if (!fs.existsSync(binDir)) {
     try {
       fs.mkdirSync(binDir, { recursive: true, mode: 0o755 });
-    } catch (err) {
-      log.warn(`[command-sync] failed to create bin dir ${binDir}: ${(err as Error).message}`);
+    } catch {
+      log.warn(`[command-sync] cannot create bin dir ${binDir}`);
       return;
     }
+  }
+
+  const hasShieldExec = fs.existsSync(shieldExecPath);
+  if (!hasShieldExec) {
+    log.warn('[command-sync] shield-exec not found, using bash wrapper fallback');
   }
 
   for (const cmd of ALL_PROXIED_COMMANDS) {
@@ -191,16 +209,21 @@ function installWrappersInDir(binDir: string, log: Logger): void {
       continue; // Already installed
     }
 
-    // Create symlink to shield-exec
-    try {
-      if (fs.existsSync(shieldExecPath)) {
+    // Prefer symlink to shield-exec when available
+    if (hasShieldExec) {
+      try {
         fs.symlinkSync(shieldExecPath, wrapperPath);
-      } else {
-        // shield-exec not installed yet — skip silently
-        log.warn(`[command-sync] shield-exec not found at ${shieldExecPath}, skipping ${cmd} wrapper`);
+        continue;
+      } catch {
+        log.warn(`[command-sync] cannot symlink ${cmd}, falling back to bash wrapper`);
       }
-    } catch (err) {
-      log.warn(`[command-sync] failed to create wrapper ${wrapperPath}: ${(err as Error).message}`);
+    }
+
+    // Fallback: bash wrapper that routes through shield-client
+    try {
+      fs.writeFileSync(wrapperPath, generateFallbackWrapper(cmd), { mode: 0o755 });
+    } catch {
+      log.warn(`[command-sync] cannot write wrapper for ${cmd}`);
     }
   }
 }

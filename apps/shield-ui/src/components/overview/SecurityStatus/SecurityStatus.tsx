@@ -4,8 +4,8 @@ import { StatusBadge } from '../../shared/StatusBadge';
 import { MetricRow } from './SecurityStatus.styles';
 
 function levelToVariant(level: string) {
-  if (level === 'high') return 'success' as const;
-  if (level === 'medium') return 'warning' as const;
+  if (level === 'secure') return 'success' as const;
+  if (level === 'partial') return 'warning' as const;
   return 'error' as const;
 }
 
@@ -32,31 +32,29 @@ export function SecurityStatusCard() {
           )}
         </MetricRow>
         <MetricRow>
-          <Typography variant="body2" color="text.secondary">Active Policies</Typography>
+          <Typography variant="body2" color="text.secondary">Sandbox User</Typography>
           <Typography variant="body2" fontWeight={500}>
-            {pending ? <Skeleton width={30} /> : sec.activePolicies}
+            {pending ? <Skeleton width={30} /> : sec.sandboxUserExists ? 'Created' : 'Missing'}
           </Typography>
         </MetricRow>
         <MetricRow>
-          <Typography variant="body2" color="text.secondary">Blocked Requests</Typography>
-          <Typography variant="body2" fontWeight={500} color="error.main">
-            {pending ? <Skeleton width={30} /> : sec.blockedRequests}
+          <Typography variant="body2" color="text.secondary">Isolation</Typography>
+          <Typography variant="body2" fontWeight={500}>
+            {pending ? <Skeleton width={30} /> : sec.isIsolated ? 'Isolated' : 'Not isolated'}
           </Typography>
         </MetricRow>
         <MetricRow>
-          <Typography variant="body2" color="text.secondary">Total Requests</Typography>
-          <Typography variant="body2" fontWeight={500}>
-            {pending ? <Skeleton width={30} /> : sec.totalRequests}
+          <Typography variant="body2" color="text.secondary">Warnings</Typography>
+          <Typography variant="body2" fontWeight={500} color={sec?.warnings?.length ? 'warning.main' : undefined}>
+            {pending ? <Skeleton width={30} /> : sec.warnings.length}
           </Typography>
         </MetricRow>
-        {sec?.lastIncident && (
-          <MetricRow>
-            <Typography variant="body2" color="text.secondary">Last Incident</Typography>
-            <Typography variant="body2" fontWeight={500}>
-              {new Date(sec.lastIncident).toLocaleString()}
-            </Typography>
-          </MetricRow>
-        )}
+        <MetricRow>
+          <Typography variant="body2" color="text.secondary">Exposed Secrets</Typography>
+          <Typography variant="body2" fontWeight={500} color={sec?.exposedSecrets?.length ? 'error.main' : undefined}>
+            {pending ? <Skeleton width={30} /> : sec.exposedSecrets.length}
+          </Typography>
+        </MetricRow>
       </CardContent>
     </Card>
   );

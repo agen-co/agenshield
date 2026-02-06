@@ -14,6 +14,7 @@ export const OperationTypeSchema = z.enum([
   'secret_inject',
   'ping',
   'policy_check',
+  'events_batch',
 ]);
 
 export const HttpRequestParamsSchema = z.object({

@@ -72,22 +72,30 @@ export function ExecutionStep() {
             <ListItemIcon sx={{ minWidth: 32 }}>
               {step.status === 'completed' && <CheckCircle size={18} color="#22c55e" />}
               {step.status === 'running' && (
-                <Loader size={18} color="#3b82f6" style={{ animation: `${slowSpin} 1s linear infinite` }} />
+                <Box component="span" sx={{ display: 'inline-flex', animation: `${slowSpin} 1s linear infinite` }}>
+                  <Loader size={18} color="#3b82f6" />
+                </Box>
               )}
               {step.status === 'error' && <XCircle size={18} color="#ef4444" />}
               {(step.status === 'pending' || step.status === 'skipped') && <Circle size={18} color="#374151" />}
             </ListItemIcon>
             <ListItemText
               primary={step.name}
-              secondary={step.status === 'error' ? step.error : undefined}
+              secondary={
+                step.status === 'error'
+                  ? step.error
+                  : step.status === 'running' && step.id === 'install-wrappers'
+                    ? 'This may take up to a minute...'
+                    : undefined
+              }
               primaryTypographyProps={{
                 variant: 'body2',
                 color: step.status === 'pending' ? 'text.secondary' : 'text.primary',
               }}
               secondaryTypographyProps={{
                 variant: 'caption',
-                color: 'error.main',
-                fontFamily: 'monospace',
+                color: step.status === 'error' ? 'error.main' : 'text.secondary',
+                fontFamily: step.status === 'error' ? 'monospace' : undefined,
               }}
             />
           </ListItem>

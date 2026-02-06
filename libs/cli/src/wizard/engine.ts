@@ -27,6 +27,7 @@ import {
   deployInterceptor,
   copyNodeBinary,
   copyBrokerBinary,
+  copyShieldClient,
   installGuardedShell,
   // Preset system
   getPreset,
@@ -554,12 +555,26 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
           userConfig: context.userConfig,
           binDir: context.directories.binDir,
           socketGroupName: context.userConfig.groups.socket.name,
+          nodeVersion: context.options?.nodeVersion,
           verbose: context.options?.verbose,
         });
         context.wrappersInstalled = result.installedWrappers;
         if (!result.success) {
           return { success: false, error: result.errors.join('; ') };
         }
+
+        // Install shield-exec binary for daemon runtime self-healing
+        try {
+          const { SHIELD_EXEC_CONTENT, SHIELD_EXEC_PATH } = await import('@agenshield/sandbox');
+          const { execSync } = await import('node:child_process');
+          execSync(`sudo tee "${SHIELD_EXEC_PATH}" > /dev/null << 'SHIELDEXECEOF'\n${SHIELD_EXEC_CONTENT}\nSHIELDEXECEOF`);
+          execSync(`sudo chmod 755 "${SHIELD_EXEC_PATH}"`);
+          execSync(`sudo chown root:wheel "${SHIELD_EXEC_PATH}"`);
+          logVerbose(`Installed shield-exec to ${SHIELD_EXEC_PATH}`, context);
+        } catch (err) {
+          logVerbose(`Warning: shield-exec install failed: ${(err as Error).message}`, context);
+        }
+
         return { success: true };
       }
 
@@ -620,6 +635,13 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       success: true,
     };
 
+    // Also install shield-client (used by curl/git/etc. wrappers)
+    logVerbose('Installing shield-client to /opt/agenshield/bin/shield-client', context);
+    const clientResult = await copyShieldClient(context.userConfig);
+    if (!clientResult.success) {
+      logVerbose(`Warning: shield-client install failed: ${clientResult.message}`, context);
+    }
+
     return { success: true };
   },
 
@@ -651,6 +673,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
         socketGroup: socketGroupName,
         policiesPath: '/opt/agenshield/policies',
         auditLogPath: '/var/log/agenshield/audit.log',
+        agentHome: context.userConfig.agentUser.home,
       }, null, 2);
 
       logVerbose(`Writing daemon config to ${configPath}`, context);

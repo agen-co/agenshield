@@ -8,11 +8,75 @@
 
 import { Command } from 'commander';
 import React from 'react';
+import readline from 'node:readline';
 import { render } from 'ink';
 import { WizardApp } from '../wizard/index.js';
 import { formatPresetList, getPreset } from '@agenshield/sandbox';
 import { createWizardEngine } from '../wizard/engine.js';
 import type { WizardOptions } from '../wizard/types.js';
+
+/**
+ * Check for an existing AgenShield installation and offer to uninstall it.
+ * Equivalent to running `agenshield uninstall --skip-backup --force` before setup.
+ */
+async function checkExistingInstallation(options: { skipConfirm?: boolean }): Promise<void> {
+  const { ensureSudoAccess } = await import('../utils/privileges.js');
+  ensureSudoAccess();
+
+  const { canUninstall, forceUninstall } = await import('@agenshield/sandbox');
+  const check = canUninstall();
+
+  if (!check.hasBackup) return; // No existing installation
+
+  console.log('');
+  console.log('  AgenShield is already installed.');
+  if (check.backup) {
+    console.log(`  Backup from: ${check.backup.timestamp}`);
+  }
+  console.log('');
+
+  if (!options.skipConfirm) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise<string>((resolve) => {
+      rl.question('  Uninstall existing installation and re-setup? [y/N] ', (ans) => {
+        rl.close();
+        resolve(ans);
+      });
+    });
+    if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes') {
+      console.log('');
+      console.log('  Setup cancelled.');
+      process.exit(0);
+    }
+  } else {
+    console.log('  --skip-confirm: auto-uninstalling existing installation...');
+  }
+
+  // Stop daemon
+  console.log('');
+  console.log('  Stopping daemon...');
+  const { stopDaemon } = await import('../utils/daemon.js');
+  await stopDaemon();
+
+  // Force uninstall
+  console.log('  Uninstalling existing installation...');
+  console.log('');
+  const result = forceUninstall((progress) => {
+    const icon = progress.success ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
+    console.log(`  ${icon} ${progress.step}: ${progress.message || progress.error || ''}`);
+  });
+
+  if (!result.success) {
+    console.error('');
+    console.error(`  \x1b[31mUninstall failed: ${result.error}\x1b[0m`);
+    process.exit(1);
+  }
+
+  console.log('');
+  console.log('  \x1b[32mExisting installation removed.\x1b[0m');
+  console.log('  Proceeding with fresh setup...');
+  console.log('');
+}
 
 /**
  * Run the setup wizard (CLI/Ink mode)
@@ -175,7 +239,10 @@ export function createSetupCommand(): Command {
         }
       }
 
-
+      // Check for existing installation (skip in dry-run mode)
+      if (!options.dryRun) {
+        await checkExistingInstallation({ skipConfirm: options.skipConfirm });
+      }
 
       // Default to Web UI unless --cli is specified or env var opts out
       if (!options.cli && process.env['AGENSHIELD_WEBUI_REQUESTED'] !== 'false') {

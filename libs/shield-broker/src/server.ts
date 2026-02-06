@@ -18,6 +18,7 @@ import type { PolicyEnforcer } from './policies/enforcer.js';
 import type { AuditLogger } from './audit/logger.js';
 import type { SecretVault } from './secrets/vault.js';
 import * as handlers from './handlers/index.js';
+import { forwardPolicyToDaemon } from './daemon-forward.js';
 
 export interface UnixSocketServerOptions {
   config: BrokerConfig;
@@ -175,21 +176,33 @@ export class UnixSocketServer {
         context
       );
 
-      if (!policyResult.allowed) {
+      // If broker denies, try forwarding to daemon for user-defined policies
+      // (skip for policy_check — it has its own forwarding in the handler)
+      let finalPolicy = policyResult;
+      if (!policyResult.allowed && request.method !== 'policy_check') {
+        const target = this.extractTarget(request);
+        const daemonUrl = this.config.daemonUrl || 'http://127.0.0.1:5200';
+        const override = await forwardPolicyToDaemon(request.method, target, daemonUrl);
+        if (override) {
+          finalPolicy = override;
+        }
+      }
+
+      if (!finalPolicy.allowed) {
         await this.auditLogger.log({
           id: requestId,
           timestamp: new Date(),
           operation: request.method,
           channel: 'socket',
           allowed: false,
-          policyId: policyResult.policyId,
+          policyId: finalPolicy.policyId,
           target: this.extractTarget(request),
           result: 'denied',
-          errorMessage: policyResult.reason,
+          errorMessage: finalPolicy.reason,
           durationMs: Date.now() - startTime,
         });
 
-        return this.errorResponse(request.id, 1001, policyResult.reason || 'Policy denied');
+        return this.errorResponse(request.id, 1001, finalPolicy.reason || 'Policy denied');
       }
 
       // Execute handler
@@ -202,6 +215,7 @@ export class UnixSocketServer {
         policyEnforcer: this.policyEnforcer,
         auditLogger: this.auditLogger,
         secretVault: this.secretVault,
+        daemonUrl: this.config.daemonUrl,
       });
 
       // Log success
@@ -211,7 +225,7 @@ export class UnixSocketServer {
         operation: request.method,
         channel: 'socket',
         allowed: true,
-        policyId: policyResult.policyId,
+        policyId: finalPolicy.policyId,
         target: this.extractTarget(request),
         result: result.success ? 'success' : 'error',
         errorMessage: result.error?.message,
@@ -261,6 +275,8 @@ export class UnixSocketServer {
       ping: handlers.handlePing,
       skill_install: handlers.handleSkillInstall,
       skill_uninstall: handlers.handleSkillUninstall,
+      policy_check: handlers.handlePolicyCheck,
+      events_batch: handlers.handleEventsBatch,
     };
 
     return handlerMap[method];
