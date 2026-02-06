@@ -11,9 +11,10 @@ export const Root = styled('div', {
 export const ContentGrid = styled('div', {
   name: 'SkillDetails',
   slot: 'ContentGrid',
-})(({ theme }) => ({
+  shouldForwardProp: (prop) => prop !== '$singleColumn',
+})<{ $singleColumn?: boolean }>(({ theme, $singleColumn }) => ({
   display: 'grid',
-  gridTemplateColumns: '1fr 280px',
+  gridTemplateColumns: $singleColumn ? '1fr' : '1fr 280px',
   gap: theme.spacing(3),
   alignItems: 'start',
   [theme.breakpoints.down('md')]: {

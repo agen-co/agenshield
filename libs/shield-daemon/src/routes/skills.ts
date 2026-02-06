@@ -145,7 +145,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * GET /skills/:name - Get skill detail with analysis
+   * GET /skills/:name - Get skill detail with analysis and SKILL.md content
    */
   app.get(
     '/skills/:name',
@@ -164,12 +164,60 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
       // Look up publisher from approved list
       const approved = listApproved();
+      const quarantined = listQuarantined();
       const entry = approved.find((s) => s.name === name);
+      const qEntry = quarantined.find((q) => q.name === name);
+
+      // Determine source and status
+      const skillsDir = getSkillsDir();
+      let source: 'user' | 'workspace' | 'quarantine' | 'marketplace' = 'user';
+      let status: 'active' | 'workspace' | 'quarantined' | 'disabled' | 'downloaded' = 'active';
+      let skillPath = '';
+
+      if (qEntry) {
+        source = 'quarantine';
+        status = 'quarantined';
+        skillPath = qEntry.originalPath;
+      } else if (entry) {
+        source = 'user';
+        status = 'active';
+        skillPath = skillsDir ? path.join(skillsDir, name) : '';
+      } else if (skillsDir) {
+        source = 'workspace';
+        status = 'workspace';
+        skillPath = path.join(skillsDir, name);
+      }
+
+      // Read SKILL.md content from disk
+      let content = '';
+      let metadata: Record<string, unknown> | undefined;
+      const dirToRead = skillPath || (skillsDir ? path.join(skillsDir, name) : '');
+      if (dirToRead) {
+        try {
+          const skillMdPath = path.join(dirToRead, 'SKILL.md');
+          if (fs.existsSync(skillMdPath)) {
+            content = fs.readFileSync(skillMdPath, 'utf-8');
+            const parsed = parseSkillMd(content);
+            metadata = parsed?.metadata as Record<string, unknown> | undefined;
+          }
+        } catch {
+          // SKILL.md may not exist or be unreadable
+        }
+      }
+
+      // Read description from frontmatter
+      const description = dirToRead ? readSkillDescription(dirToRead) : undefined;
 
       return reply.send({
         success: true,
         data: {
           name,
+          source,
+          status,
+          path: skillPath,
+          description,
+          content,
+          metadata: metadata ?? null,
           analysis: analysis ?? null,
           publisher: entry?.publisher ?? null,
         },

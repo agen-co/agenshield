@@ -235,11 +235,13 @@ export function SkillDetails({ skillName }: SkillDetailsProps) {
         )}
       </Box>
 
-      <ContentGrid>
+      <ContentGrid $singleColumn={!cleanContent}>
         {/* Left: Readme */}
-        <ReadmeCard>
-          <MarkdownViewer content={cleanContent} />
-        </ReadmeCard>
+        {cleanContent && (
+          <ReadmeCard>
+            <MarkdownViewer content={cleanContent} />
+          </ReadmeCard>
+        )}
 
         {/* Right: Sidebar */}
         <Sidebar>
