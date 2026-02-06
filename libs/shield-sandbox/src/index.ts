@@ -57,6 +57,7 @@ export {
   createAgentDirectories,
   createAllDirectories,
   verifyDirectories,
+  seedConfigFiles,
   setupSocketDirectory,
   getDirectoryInfo,
   removeAllDirectories,

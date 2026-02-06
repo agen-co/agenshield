@@ -628,10 +628,13 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       return { success: false, error: 'Configuration not set' };
     }
 
-    const configPath = `${context.pathsConfig.configDir}/daemon.json`;
+    const configPath = `${context.pathsConfig.configDir}/shield.json`;
+    const brokerUsername = context.userConfig.brokerUser.username;
+    const socketGroupName = context.userConfig.groups.socket.name;
 
     // Skip in dry-run mode
     if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would write daemon config to ${configPath}`, context);
       context.daemonConfig = {
         configPath,
         success: true,
@@ -639,14 +642,40 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       return { success: true };
     }
 
-    // TODO: Implement actual daemon config installation
-    // For now, just mark as success
-    context.daemonConfig = {
-      configPath,
-      success: true,
-    };
+    try {
+      const { execSync } = await import('node:child_process');
 
-    return { success: true };
+      const shieldConfig = JSON.stringify({
+        socketPath: context.pathsConfig.socketPath,
+        socketOwner: brokerUsername,
+        socketGroup: socketGroupName,
+        policiesPath: '/opt/agenshield/policies',
+        auditLogPath: '/var/log/agenshield/audit.log',
+      }, null, 2);
+
+      logVerbose(`Writing daemon config to ${configPath}`, context);
+
+      // Write config file via sudo tee
+      execSync(`sudo tee "${configPath}" > /dev/null << 'SHIELD_EOF'
+${shieldConfig}
+SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
+
+      // Set ownership and permissions
+      execSync(`sudo chown ${brokerUsername}:${socketGroupName} "${configPath}"`, { encoding: 'utf-8', stdio: 'pipe' });
+      execSync(`sudo chmod 640 "${configPath}"`, { encoding: 'utf-8', stdio: 'pipe' });
+
+      context.daemonConfig = {
+        configPath,
+        success: true,
+      };
+
+      return { success: true };
+    } catch (err) {
+      return {
+        success: false,
+        error: `Failed to install daemon config: ${(err as Error).message}`,
+      };
+    }
   },
 
   'install-policies': async (context) => {
@@ -690,6 +719,31 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     }
 
     try {
+      const { execSync } = await import('node:child_process');
+      const brokerUsername = context.userConfig.brokerUser.username;
+      const socketGroupName = context.userConfig.groups.socket.name;
+
+      // Remove stale socket from previous installs (may be root-owned, causing EACCES)
+      logVerbose('Removing stale socket file if present', context);
+      execSync(`sudo rm -f /var/run/agenshield/agenshield.sock`, { encoding: 'utf-8', stdio: 'pipe' });
+
+      // Ensure log files exist with correct ownership BEFORE loading daemon.
+      // launchd opens stdout/stderr files at process start; if they don't exist
+      // or are root-owned, the broker's output may be lost.
+      logVerbose('Ensuring log files have correct ownership', context);
+      execSync(`sudo mkdir -p /var/log/agenshield`, { encoding: 'utf-8', stdio: 'pipe' });
+      execSync(`sudo touch /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log`, { encoding: 'utf-8', stdio: 'pipe' });
+      execSync(`sudo chown ${brokerUsername}:${socketGroupName} /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log`, { encoding: 'utf-8', stdio: 'pipe' });
+
+      // Bootout any stale broker daemon entry from a previous install.
+      // Without this, `launchctl load` may no-op if the old entry is cached.
+      logVerbose('Removing stale launchd entry if present', context);
+      try {
+        execSync(`sudo launchctl bootout system/com.agenshield.broker 2>/dev/null`, { encoding: 'utf-8', stdio: 'pipe' });
+      } catch {
+        // Not loaded — that's fine
+      }
+
       // Generate plist
       const plist = generateBrokerPlist(context.userConfig, {
         brokerPath: context.brokerInstalled.binaryPath,
@@ -700,6 +754,16 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
       if (!result.success) {
         return { success: false, error: result.message };
+      }
+
+      // Force-start the broker immediately. launchctl load + RunAtLoad may not
+      // start the process if launchd throttles it (e.g. ThrottleInterval from a
+      // prior crashed run). kickstart bypasses throttling.
+      logVerbose('Kickstarting broker daemon', context);
+      try {
+        execSync(`sudo launchctl kickstart system/com.agenshield.broker`, { encoding: 'utf-8', stdio: 'pipe' });
+      } catch {
+        // May fail if already running from RunAtLoad — that's fine
       }
 
       // Fix socket permissions after broker starts

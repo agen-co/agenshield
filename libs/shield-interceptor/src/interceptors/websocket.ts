@@ -71,15 +71,4 @@ export class WebSocketInterceptor extends BaseInterceptor {
     this.installed = false;
   }
 
-  private isBrokerUrl(url: string): boolean {
-    try {
-      const parsed = new URL(url);
-      return (
-        (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
-        parsed.port === '5200'
-      );
-    } catch {
-      return false;
-    }
-  }
 }

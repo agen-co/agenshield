@@ -93,16 +93,33 @@ function ensureDirectories(config: BrokerConfig): void {
  * Main entry point
  */
 async function main(): Promise<void> {
-  console.log('AgenShield Broker v0.1.0');
+  // Early diagnostics — always visible in logs even if config loading fails
+  console.log(`AgenShield Broker starting at ${new Date().toISOString()}`);
+  console.log(`PID: ${process.pid}, UID: ${process.getuid?.()}, GID: ${process.getgid?.()}`);
+  console.log(`Node: ${process.version}, Platform: ${process.platform}`);
   console.log('========================');
 
-  const config = loadConfig();
+  let config: BrokerConfig;
+  try {
+    config = loadConfig();
+  } catch (err) {
+    console.error('FATAL: Failed to load configuration:', err);
+    process.exit(1);
+  }
+
+  console.log(`Config: ${config.configPath}`);
   console.log(`Socket: ${config.socketPath}`);
+  console.log(`Socket owner: ${config.socketOwner}, group: ${config.socketGroup}`);
   console.log(`HTTP Fallback: ${config.httpEnabled ? `${config.httpHost}:${config.httpPort}` : 'disabled'}`);
   console.log(`Policies: ${config.policiesPath}`);
   console.log(`Log Level: ${config.logLevel}`);
 
-  ensureDirectories(config);
+  try {
+    ensureDirectories(config);
+  } catch (err) {
+    console.error('FATAL: Failed to ensure directories:', err);
+    process.exit(1);
+  }
 
   // Initialize components
   const auditLogger = new AuditLogger({

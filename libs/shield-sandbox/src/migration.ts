@@ -64,31 +64,28 @@ function createOpenClawWrapper(
 ): { success: boolean; error?: string } {
   const wrapperPath = path.join(dirs.binDir, 'openclaw');
 
-  let wrapperContent: string;
-
-  if (method === 'npm') {
-    // For npm install, the entry point is in the package directory
-    const entryPath = path.join(dirs.packageDir, 'dist', 'entry.js');
-    wrapperContent = `#!/usr/bin/env bash
-set -euo pipefail
-# Avoid getcwd errors when cwd is inaccessible
-cd ~ 2>/dev/null || cd /
-# Resolve node from wrapper's own bin directory
-AGENT_BIN="$(cd "$(dirname "$0")" && pwd)"
-exec "\${AGENT_BIN}/node" "${entryPath}" "$@"
-`;
-  } else {
-    // For git install, the entry point is in the source directory
-    const entryPath = path.join(dirs.packageDir, 'dist', 'entry.js');
-    wrapperContent = `#!/usr/bin/env bash
-set -euo pipefail
-# Avoid getcwd errors when cwd is inaccessible
-cd ~ 2>/dev/null || cd /
-# Resolve node from wrapper's own bin directory
-AGENT_BIN="$(cd "$(dirname "$0")" && pwd)"
-exec "\${AGENT_BIN}/node" "${entryPath}" "$@"
-`;
+  // Resolve entry point from package.json bin field so it works both
+  // in monorepo (dist/entry.js) and when published (entry.js at root)
+  let entryPath = path.join(dirs.packageDir, 'dist', 'entry.js'); // fallback
+  try {
+    const pkgJsonPath = path.join(dirs.packageDir, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+    const binEntry = typeof pkg.bin === 'string'
+      ? pkg.bin
+      : pkg.bin?.['openclaw'] || './dist/entry.js';
+    entryPath = path.resolve(dirs.packageDir, binEntry);
+  } catch {
+    // package.json not found or unreadable, use fallback
   }
+
+  const wrapperContent = `#!/usr/bin/env bash
+set -euo pipefail
+# Avoid getcwd errors when cwd is inaccessible
+cd ~ 2>/dev/null || cd /
+# Resolve node from wrapper's own bin directory
+AGENT_BIN="$(cd "$(dirname "$0")" && pwd)"
+exec "\${AGENT_BIN}/node" "${entryPath}" "$@"
+`;
 
   // Write wrapper to temp file
   const tempPath = '/tmp/openclaw-wrapper';
@@ -105,7 +102,7 @@ exec "\${AGENT_BIN}/node" "${entryPath}" "$@"
   }
 
   // Set ownership and permissions
-  result = sudoExec(`chown ${user.username}:${user.username} "${wrapperPath}"`);
+  result = sudoExec(`chown ${user.username}:${user.gid} "${wrapperPath}"`);
   if (!result.success) {
     return { success: false, error: `Failed to set wrapper ownership: ${result.error}` };
   }
@@ -152,13 +149,13 @@ export function migrateNpmInstall(
   }
 
   // Set ownership of all copied files
-  result = sudoExec(`chown -R ${user.username}:${user.username} "${dirs.packageDir}"`);
+  result = sudoExec(`chown -R ${user.username}:${user.gid} "${dirs.packageDir}"`);
   if (!result.success) {
     return { success: false, error: `Failed to set package ownership: ${result.error}` };
   }
 
   if (fs.existsSync(dirs.configDir)) {
-    result = sudoExec(`chown -R ${user.username}:${user.username} "${dirs.configDir}"`);
+    result = sudoExec(`chown -R ${user.username}:${user.gid} "${dirs.configDir}"`);
     if (!result.success) {
       return { success: false, error: `Failed to set config ownership: ${result.error}` };
     }
@@ -216,13 +213,13 @@ export function migrateGitInstall(
   }
 
   // Set ownership of all copied files
-  result = sudoExec(`chown -R ${user.username}:${user.username} "${dirs.packageDir}"`);
+  result = sudoExec(`chown -R ${user.username}:${user.gid} "${dirs.packageDir}"`);
   if (!result.success) {
     return { success: false, error: `Failed to set package ownership: ${result.error}` };
   }
 
   if (fs.existsSync(dirs.configDir)) {
-    result = sudoExec(`chown -R ${user.username}:${user.username} "${dirs.configDir}"`);
+    result = sudoExec(`chown -R ${user.username}:${user.gid} "${dirs.configDir}"`);
     if (!result.success) {
       return { success: false, error: `Failed to set config ownership: ${result.error}` };
     }
@@ -315,7 +312,7 @@ exec "${nodePath}" "$@"
     return { success: false, error: `Failed to install node wrapper: ${result.error}` };
   }
 
-  result = sudoExec(`chown ${user.username}:${user.username} "${wrapperPath}"`);
+  result = sudoExec(`chown ${user.username}:${user.gid} "${wrapperPath}"`);
   if (!result.success) {
     return { success: false, error: `Failed to set node wrapper ownership: ${result.error}` };
   }

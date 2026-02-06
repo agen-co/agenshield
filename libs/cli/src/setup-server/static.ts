@@ -5,8 +5,11 @@
  */
 
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,13 +19,22 @@ const __dirname = path.dirname(__filename);
  * @returns Path to UI assets or null if not found
  */
 export function getUiAssetsPath(): string | null {
-  // Check for bundled UI assets (production) — <cli-dist>/ui-assets/
+  // Try npm-installed daemon package — ui-assets is at the package root
+  try {
+    const pkgPath = require.resolve('@agenshield/daemon/package.json');
+    const npmPath = path.join(path.dirname(pkgPath), 'ui-assets');
+    if (fs.existsSync(npmPath)) return npmPath;
+  } catch {
+    /* package not installed via npm */
+  }
+
+  // Bundled UI assets (production) — <cli-dist>/ui-assets/
   const bundledPath = path.join(__dirname, '..', 'ui-assets');
   if (fs.existsSync(bundledPath)) {
     return bundledPath;
   }
 
-  // Check for development build — <monorepo-root>/dist/apps/shield-ui/
+  // Development: monorepo Nx build output
   const devPaths = [
     path.join(__dirname, '..', '..', '..', '..', 'dist', 'apps', 'shield-ui'),
     path.join(process.cwd(), 'dist', 'apps', 'shield-ui'),

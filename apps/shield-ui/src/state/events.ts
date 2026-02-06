@@ -34,6 +34,22 @@ export function setConnected(connected: boolean) {
   eventStore.connected = connected;
 }
 
+export function setEvents(historical: SSEEvent[]) {
+  // Merge: keep existing SSE events (newer), append historical that aren't duplicates
+  const existing = new Set(
+    eventStore.events.map((e) => `${e.type}:${e.timestamp}`),
+  );
+  const toAdd = historical.filter(
+    (e) => !existing.has(`${e.type}:${e.timestamp}`),
+  );
+  eventStore.events.push(...toAdd);
+  // Sort newest first
+  eventStore.events.sort((a, b) => b.timestamp - a.timestamp);
+  if (eventStore.events.length > MAX_EVENTS) {
+    eventStore.events.splice(MAX_EVENTS);
+  }
+}
+
 export function clearEvents() {
   eventStore.events.splice(0);
 }

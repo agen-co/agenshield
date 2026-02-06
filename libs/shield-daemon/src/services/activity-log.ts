@@ -15,6 +15,15 @@ const MAX_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;   // 24 hours
 const PRUNE_INTERVAL = 1000;               // prune every N events
 
+let instance: ActivityLog | null = null;
+
+export function getActivityLog(): ActivityLog {
+  if (!instance) {
+    instance = new ActivityLog();
+  }
+  return instance;
+}
+
 export class ActivityLog {
   private filePath: string;
   private writeCount = 0;
@@ -22,6 +31,26 @@ export class ActivityLog {
 
   constructor() {
     this.filePath = path.join(getConfigDir(), ACTIVITY_FILE);
+  }
+
+  /** Read historical events from the JSONL file, newest first */
+  getHistory(limit = 500): DaemonEvent[] {
+    if (!fs.existsSync(this.filePath)) return [];
+    const content = fs.readFileSync(this.filePath, 'utf-8');
+    const lines = content.split('\n').filter(Boolean);
+    const events: DaemonEvent[] = [];
+    for (const line of lines) {
+      try {
+        const evt = JSON.parse(line) as DaemonEvent;
+        if (evt.type === 'heartbeat') continue;
+        events.push(evt);
+      } catch {
+        // skip malformed lines
+      }
+    }
+    // newest first
+    events.reverse();
+    return events.slice(0, limit);
   }
 
   start(): void {

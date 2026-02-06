@@ -132,18 +132,18 @@ export function createDirectoryStructure(config?: UserConfig): DirectoryStructur
         group: socketGroupName,
       },
       [`${agentHome}/bin`]: {
-        mode: 0o755,                // only owner can write
+        mode: 0o2775,               // setgid + group-writable
         owner: brokerUsername,      // broker owns bin, can create skill wrappers
         group: socketGroupName,     // agent can read+exec via group
       },
       [`${agentHome}/.openclaw`]: {
-        mode: 0o755,
-        owner: 'root',
+        mode: 0o2775,               // setgid + group-writable for broker
+        owner: brokerUsername,      // broker needs write access
         group: socketGroupName,
       },
       [`${agentHome}/.openclaw/skills`]: {
         mode: 0o2775, // setgid bit, group-writable for broker to create subdirectories
-        owner: 'root',
+        owner: brokerUsername,      // broker needs write access
         group: socketGroupName,
       },
       [`${agentHome}/workspace`]: {
@@ -256,6 +256,35 @@ export async function createSystemDirectories(config?: UserConfig, options?: Ver
 }
 
 /**
+ * Seed configuration files inside agent directories so the broker can
+ * read/write them at runtime without needing to create them (which would
+ * require root and result in wrong ownership).
+ */
+export async function seedConfigFiles(config?: UserConfig, options?: VerboseOptions): Promise<DirectoryResult[]> {
+  const cfg = config || createUserConfig();
+  const agentHome = cfg.agentUser.home;
+  const brokerUsername = cfg.brokerUser.username;
+  const socketGroupName = cfg.groups.socket.name;
+  const log = (msg: string) => options?.verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+
+  const filePath = `${agentHome}/.openclaw/openclaw.json`;
+  try {
+    log(`Seeding ${filePath}`);
+    await execAsync(`sudo tee "${filePath}" > /dev/null <<< '{}'`);
+    await execAsync(`sudo chown ${brokerUsername}:${socketGroupName} "${filePath}"`);
+    await execAsync(`sudo chmod 664 "${filePath}"`);
+    return [{ success: true, path: filePath, message: `Seeded ${filePath}` }];
+  } catch (error) {
+    return [{
+      success: false,
+      path: filePath,
+      message: `Failed to seed ${filePath}: ${(error as Error).message}`,
+      error: error as Error,
+    }];
+  }
+}
+
+/**
  * Create all agent directories
  *
  * @param config - Optional UserConfig, uses defaults if not provided
@@ -269,6 +298,10 @@ export async function createAgentDirectories(config?: UserConfig, options?: Verb
     const result = await createDirectory(dirPath, dirOptions, options);
     results.push(result);
   }
+
+  // Seed config files that the broker needs to read/write at runtime
+  const seedResults = await seedConfigFiles(config, options);
+  results.push(...seedResults);
 
   return results;
 }
@@ -314,9 +347,9 @@ export async function verifyDirectories(config?: UserConfig): Promise<{
         continue;
       }
 
-      // Check mode (ignore setgid bit for comparison)
-      const actualMode = stats.mode & 0o7777;
-      const expectedMode = expected.mode & 0o7777;
+      // Check mode (ignore setuid/setgid/sticky bits for comparison)
+      const actualMode = stats.mode & 0o0777;
+      const expectedMode = expected.mode & 0o0777;
       if (actualMode !== expectedMode) {
         incorrect.push({
           path: dirPath,
@@ -332,8 +365,8 @@ export async function verifyDirectories(config?: UserConfig): Promise<{
         try {
           // macOS: stat -f '%Lp' returns octal mode (e.g. "755")
           const { stdout: modeStr } = await execAsync(`sudo stat -f '%Lp' "${dirPath}"`);
-          const actualMode = parseInt(modeStr.trim(), 8);
-          const expectedMode = expected.mode & 0o7777;
+          const actualMode = parseInt(modeStr.trim(), 8) & 0o0777;
+          const expectedMode = expected.mode & 0o0777;
           if (actualMode !== expectedMode) {
             incorrect.push({
               path: dirPath,
@@ -374,7 +407,7 @@ export async function setupSocketDirectory(config?: UserConfig): Promise<Directo
 
     // Set ownership and permissions
     await execAsync(`sudo chown ${cfg.brokerUser.username}:${cfg.groups.socket.name} "${socketDir}"`);
-    await execAsync(`sudo chmod 770 "${socketDir}"`);
+    await execAsync(`sudo chmod 775 "${socketDir}"`);
 
     return {
       success: true,

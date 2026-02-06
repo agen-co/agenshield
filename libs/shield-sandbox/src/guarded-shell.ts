@@ -37,7 +37,7 @@ unset SSH_ASKPASS LD_PRELOAD
 export ZDOTDIR="/etc/agenshield/zdot"
 
 # Start zsh — it will read ZDOTDIR/.zshenv then ZDOTDIR/.zshrc
-exec /bin/zsh
+exec /bin/zsh "$@"
 `;
 
 /**
@@ -49,6 +49,11 @@ export const ZDOT_ZSHENV_CONTENT = `# AgenShield restricted .zshenv
 
 # ALWAYS set HOME based on actual user, never inherit
 export HOME="/Users/\$(id -un)"
+export HISTFILE="\$HOME/.zsh_history"
+
+# Suppress locale to prevent /etc/zshrc from calling locale command
+export LC_ALL=C LANG=C
+
 export PATH="$HOME/bin"
 export SHELL="/usr/local/bin/guarded-shell"
 
@@ -67,6 +72,9 @@ export const ZDOT_ZSHRC_CONTENT = `# AgenShield restricted .zshrc
 
 emulate -LR zsh
 
+# Re-set HISTFILE (safety: ensure it points to agent's home, not ZDOTDIR)
+HISTFILE="$HOME/.zsh_history"
+
 # ---- Shell options ----
 # Note: NOT using setopt RESTRICTED as it disables cd entirely.
 # Instead we use preexec hooks and builtin disable for enforcement.
@@ -74,7 +82,7 @@ setopt NO_CASE_GLOB
 setopt NO_BEEP
 
 # ---- Lock critical variables (readonly) ----
-typeset -r PATH HOME SHELL
+typeset -r PATH HOME SHELL HISTFILE
 
 # ---- Enforcement helpers ----
 deny() {
@@ -85,8 +93,11 @@ deny() {
 is_allowed_cmd() {
   local cmd="$1"
 
+  # Allow zsh reserved words (if, for, while, [[, case, etc.)
+  [[ "\$(whence -w "\$cmd" 2>/dev/null)" == *": reserved" ]] && return 0
+
   # Allow shell builtins we explicitly permit
-  case "\\$cmd" in
+  case "\$cmd" in
     cd|pwd|echo|printf|test|true|false|exit|return|break|continue|shift|set|unset|export|typeset|local|declare|readonly|let|read|print|pushd|popd|dirs|jobs|fg|bg|kill|wait|times|ulimit|umask|history|fc|type|whence|which|where|rehash)
       return 0
       ;;
@@ -97,10 +108,10 @@ is_allowed_cmd() {
 
   # Resolve command path
   local resolved
-  resolved="\\$(whence -p -- "\\$cmd" 2>/dev/null)" || return 1
+  resolved="\$(whence -p -- "\$cmd" 2>/dev/null)" || return 1
 
   # Must live under HOME/bin exactly
-  [[ "\\$resolved" == "$HOME/bin/"* ]] && return 0
+  [[ "\$resolved" == "$HOME/bin/"* ]] && return 0
   return 1
 }
 
@@ -113,26 +124,39 @@ preexec() {
   local cmd="\${line%%[[:space:]]*}"
 
   # Empty / whitespace lines
-  [[ -z "\\$cmd" ]] && return 0
+  [[ -z "\$cmd" ]] && return 0
 
   # Deny anything with slash in the command token (direct path execution)
-  [[ "\\$cmd" == */* ]] && { print -r -- "Denied: direct path execution"; kill -KILL $$; }
+  [[ "\$cmd" == */* ]] && { print -r -- "Denied: direct path execution"; kill -KILL $$; }
 
   # Deny anything not allowed
-  if ! is_allowed_cmd "\\$cmd"; then
-    print -r -- "Denied: \\$cmd (not in \\$HOME/bin)"
+  if ! is_allowed_cmd "\$cmd"; then
+    print -r -- "Denied: \$cmd (not in \$HOME/bin)"
     kill -KILL $$
   fi
 }
 
 # ---- Also intercept non-interactive \\\`zsh -c\\\` cases ----
+typeset -gi __ash_guard=0
+
 TRAPDEBUG() {
+  # Prevent recursion when our own checks invoke whence/is_allowed_cmd
+  (( __ash_guard )) && return 0
+
   local line="\${ZSH_DEBUG_CMD:-$1}"
   local cmd="\${line%%[[:space:]]*}"
-  [[ -z "\\$cmd" ]] && return 0
+  [[ -z "\$cmd" ]] && return 0
 
-  [[ "\\$cmd" == */* ]] && { print -r -- "Denied: direct path execution"; return 126; }
-  is_allowed_cmd "\\$cmd" || { print -r -- "Denied: \\$cmd"; return 126; }
+  # Skip variable assignments (e.g. resolved="$(whence ...)")
+  [[ "\$cmd" == *=* ]] && return 0
+
+  # Skip zsh reserved words ([[, if, for, while, case, etc.)
+  __ash_guard=1
+  [[ "\$(whence -w "\$cmd" 2>/dev/null)" == *": reserved" ]] && { __ash_guard=0; return 0; }
+
+  [[ "\$cmd" == */* ]] && { __ash_guard=0; print -r -- "Denied: direct path execution"; return 126; }
+  is_allowed_cmd "\$cmd" || { __ash_guard=0; print -r -- "Denied: \$cmd"; return 126; }
+  __ash_guard=0
   return 0
 }
 

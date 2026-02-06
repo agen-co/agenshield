@@ -14,13 +14,19 @@ const __dirname = path.dirname(__filename);
  * @returns Path to UI assets or null if not found
  */
 export function getUiAssetsPath(): string | null {
-  // Check for bundled UI assets (production - same directory as main.js)
+  // npm install: ui-assets is at the package root (sibling of dist/)
+  const pkgRootPath = path.join(__dirname, '..', 'ui-assets');
+  if (fs.existsSync(pkgRootPath)) {
+    return pkgRootPath;
+  }
+
+  // Bundled: ui-assets copied into dist/ alongside main.js
   const bundledPath = path.join(__dirname, 'ui-assets');
   if (fs.existsSync(bundledPath)) {
     return bundledPath;
   }
 
-  // Check for development build (from libs/shield-daemon/dist/ → repo root → dist/apps/shield-ui)
+  // Development: monorepo Nx build output
   const devPath = path.join(__dirname, '..', '..', '..', 'dist', 'apps', 'shield-ui');
   if (fs.existsSync(devPath)) {
     return devPath;

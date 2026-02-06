@@ -14,7 +14,7 @@ import { startSkillsWatcher, stopSkillsWatcher } from './watchers/skills';
 import { emitSkillQuarantined, emitSkillApproved } from './events/emitter';
 import { getVault } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
-import { ActivityLog } from './services/activity-log';
+import { getActivityLog } from './services/activity-log';
 
 /**
  * Create and configure the Fastify server
@@ -83,7 +83,7 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   }, 30000); // Check every 30 seconds
 
   // Start persistent activity log
-  const activityLog = new ActivityLog();
+  const activityLog = getActivityLog();
   activityLog.start();
 
   // Auto-activate MCP if valid tokens exist

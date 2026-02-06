@@ -42,8 +42,9 @@ export class EventReporter {
     this.client = options.client;
     this.logLevel = options.logLevel;
 
-    // Start periodic flush
+    // Start periodic flush (unref so it doesn't keep Node alive on exit)
     this.flushInterval = setInterval(() => this.flush(), 5000);
+    this.flushInterval.unref();
   }
 
   /**

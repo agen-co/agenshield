@@ -75,45 +75,56 @@ function findDaemonPidByPort(port: number): number | null {
 /**
  * Stop the AgenShield daemon
  */
+/**
+ * Wait for a process to exit, escalating to SIGKILL if needed.
+ * Returns true if the process is gone.
+ */
+function waitForProcessExit(pid: number, timeoutMs = 5000): boolean {
+  const start = Date.now();
+  // Poll until process is gone or timeout
+  while (Date.now() - start < timeoutMs) {
+    try {
+      process.kill(pid, 0); // Throws ESRCH if process is gone
+    } catch {
+      return true; // Process exited
+    }
+    execSync('sleep 0.2', { stdio: 'pipe' });
+  }
+  // Still alive — escalate to SIGKILL
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    return true; // Already gone
+  }
+  // Wait a bit more after SIGKILL
+  const killStart = Date.now();
+  while (Date.now() - killStart < 2000) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    execSync('sleep 0.2', { stdio: 'pipe' });
+  }
+  return false;
+}
+
 function stopDaemon(): RestoreProgress {
   const plistPath = '/Library/LaunchDaemons/com.agenshield.daemon.plist';
 
-  // Check if daemon plist exists (launchd managed)
+  // Remove plist FIRST to prevent launchd from respawning, then unload
   if (fs.existsSync(plistPath)) {
-    // Unload the daemon
-    const result = sudoExec(`launchctl unload "${plistPath}"`);
-    if (!result.success) {
-      // Not critical if it fails (might not be loaded)
-      return {
-        step: 'stop-daemon',
-        success: true,
-        message: 'Daemon stopped (or was not running)',
-      };
-    }
-
-    // Remove the plist
     sudoExec(`rm -f "${plistPath}"`);
-
-    return {
-      step: 'stop-daemon',
-      success: true,
-      message: 'Daemon stopped and plist removed',
-    };
+    sudoExec(`launchctl unload "${plistPath}" 2>/dev/null || true`);
   }
 
-  // Fallback: kill manually started daemon by port
+  // Kill any process still on the port
   const pid = findDaemonPidByPort(DEFAULT_PORT);
 
   if (pid) {
     try {
       process.kill(pid, 'SIGTERM');
-      return {
-        step: 'stop-daemon',
-        success: true,
-        message: `Daemon stopped (PID ${pid}, via port lookup)`,
-      };
     } catch (err) {
-      // ESRCH = process doesn't exist, EPERM = permission denied
       const errCode = (err as NodeJS.ErrnoException).code;
       if (errCode === 'ESRCH') {
         return {
@@ -122,13 +133,22 @@ function stopDaemon(): RestoreProgress {
           message: `Daemon process ${pid} already terminated`,
         };
       }
-      return {
-        step: 'stop-daemon',
-        success: false,
-        message: `Failed to kill daemon PID ${pid}`,
-        error: String(err),
-      };
+      // EPERM — try sudo kill
+      sudoExec(`kill -9 ${pid}`);
     }
+
+    const exited = waitForProcessExit(pid);
+    if (!exited) {
+      // Last resort: sudo kill -9
+      sudoExec(`kill -9 ${pid}`);
+      waitForProcessExit(pid, 2000);
+    }
+
+    return {
+      step: 'stop-daemon',
+      success: true,
+      message: `Daemon stopped (PID ${pid})`,
+    };
   }
 
   return {
@@ -152,11 +172,9 @@ function stopBrokerDaemon(): RestoreProgress {
     };
   }
 
-  // Unload the daemon
-  sudoExec(`launchctl unload "${plistPath}"`);
-
-  // Remove the plist
+  // Remove plist first to prevent respawn, then unload
   sudoExec(`rm -f "${plistPath}"`);
+  sudoExec(`launchctl unload "${plistPath}" 2>/dev/null || true`);
 
   return {
     step: 'stop-broker',
@@ -579,6 +597,19 @@ function discoverSocketGroups(): string[] {
  * Force uninstall without a backup
  * Used when no backup exists but user wants to clean up AgenShield artifacts
  */
+/**
+ * Check if daemon or broker are still present (plist exists or process on port)
+ */
+function isDaemonPresent(): boolean {
+  if (fs.existsSync('/Library/LaunchDaemons/com.agenshield.daemon.plist')) return true;
+  if (findDaemonPidByPort(DEFAULT_PORT)) return true;
+  return false;
+}
+
+function isBrokerPresent(): boolean {
+  return fs.existsSync('/Library/LaunchDaemons/com.agenshield.broker.plist');
+}
+
 export function forceUninstall(
   onProgress?: (progress: RestoreProgress) => void
 ): RestoreResult {
@@ -591,11 +622,19 @@ export function forceUninstall(
     return result.success;
   };
 
-  // Stop main daemon
-  runStep(() => stopDaemon());
+  // Loop stop daemon + broker until both are fully gone (launchd may respawn)
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const daemonUp = isDaemonPresent();
+    const brokerUp = isBrokerPresent();
+    if (!daemonUp && !brokerUp) break;
 
-  // Stop broker daemon
-  runStep(() => stopBrokerDaemon());
+    if (daemonUp) runStep(() => stopDaemon());
+    if (brokerUp) runStep(() => stopBrokerDaemon());
+
+    // Brief pause for launchd to settle
+    try { execSync('sleep 1', { encoding: 'utf-8' }); } catch { /* ignore */ }
+  }
 
   // Discover sandbox users
   const sandboxUsers = discoverSandboxUsers();

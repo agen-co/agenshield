@@ -126,6 +126,10 @@ export interface SecurityStatus {
 // --- API methods ---
 
 export const api = {
+  // Activity history
+  getActivity: (limit = 500) =>
+    request<{ data: Array<{ type: string; timestamp: string; data: unknown }> }>(`/activity?limit=${limit}`),
+
   // Existing endpoints
   getHealth: () => request<HealthResponse>('/health'),
 

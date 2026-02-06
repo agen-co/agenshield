@@ -1,6 +1,6 @@
 {
   "name": "dummy-openclaw",
-  "version": "0.2.0",
+  "version": "0.4.4",
   "description": "Dummy OpenClaw for AgenShield testing",
   "main": "src/index.js",
   "bin": {

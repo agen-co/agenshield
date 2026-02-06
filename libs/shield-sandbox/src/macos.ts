@@ -162,7 +162,7 @@ export function createSandboxUser(config: Partial<SandboxConfig> = {}): CreateUs
   if (!result.success)
     return { success: false, error: `Failed to create home dir: ${result.error}` };
 
-  result = sudoExec(`chown -R ${cfg.username}:${cfg.username} ${cfg.homeDir}`);
+  result = sudoExec(`chown -R ${cfg.username}:${gid} ${cfg.homeDir}`);
   if (!result.success)
     return { success: false, error: `Failed to set ownership: ${result.error}` };
 
@@ -207,7 +207,7 @@ export function createDirectoryStructure(user: SandboxUser): {
   }
 
   // Set ownership
-  const result = sudoExec(`chown -R ${user.username}:${user.username} ${user.homeDir}`);
+  const result = sudoExec(`chown -R ${user.username}:${user.gid} ${user.homeDir}`);
   if (!result.success) {
     return { success: false, error: `Failed to set ownership: ${result.error}` };
   }
@@ -222,7 +222,7 @@ export npm_config_prefix="$HOME/.npm-global"
   fs.writeFileSync(tempRc, rcContent);
   sudoExec(`cp ${tempRc} ${user.homeDir}/.bashrc`);
   sudoExec(`cp ${tempRc} ${user.homeDir}/.zshrc`);
-  sudoExec(`chown ${user.username}:${user.username} ${user.homeDir}/.bashrc ${user.homeDir}/.zshrc`);
+  sudoExec(`chown ${user.username}:${user.gid} ${user.homeDir}/.bashrc ${user.homeDir}/.zshrc`);
   fs.unlinkSync(tempRc);
 
   return { success: true, dirs };

@@ -50,6 +50,22 @@ interface SkillSummary {
 }
 
 /**
+ * Read the description from a skill's SKILL.md frontmatter.
+ * Returns undefined if SKILL.md is missing or unparseable.
+ */
+function readSkillDescription(skillDir: string): string | undefined {
+  try {
+    const skillMdPath = path.join(skillDir, 'SKILL.md');
+    if (!fs.existsSync(skillMdPath)) return undefined;
+    const content = fs.readFileSync(skillMdPath, 'utf-8');
+    const parsed = parseSkillMd(content);
+    return parsed?.metadata?.description ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Register skills management routes
  */
 export async function skillsRoutes(app: FastifyInstance): Promise<void> {
@@ -60,19 +76,35 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
     const approved = listApproved();
     const quarantined = listQuarantined();
     const downloaded = listDownloadedSkills();
-    const approvedNames = new Set(approved.map((a) => a.name));
-    const availableDownloads = downloaded.filter((d) => !approvedNames.has(d.slug));
     const skillsDir = getSkillsDir();
 
+    // Scan the skills directory on disk to find workspace skills
+    const approvedNames = new Set(approved.map((a) => a.name));
+    const availableDownloads = downloaded.filter((d) => !approvedNames.has(d.slug));
+    const quarantinedNames = new Set(quarantined.map((q) => q.name));
+    let onDiskNames: string[] = [];
+    if (skillsDir) {
+      try {
+        onDiskNames = fs.readdirSync(skillsDir, { withFileTypes: true })
+          .filter((d) => d.isDirectory())
+          .map((d) => d.name);
+      } catch {
+        // Skills directory may not exist yet
+      }
+    }
+    const workspaceNames = onDiskNames.filter(
+      (n) => !approvedNames.has(n) && !quarantinedNames.has(n)
+    );
+
     const data: SkillSummary[] = [
-      // Approved → active
+      // Approved → active (with descriptions from SKILL.md)
       ...approved.map((a) => ({
         name: a.name,
         source: 'user' as const,
         status: 'active' as const,
         path: path.join(skillsDir ?? '', a.name),
         publisher: a.publisher,
-        description: undefined,
+        description: skillsDir ? readSkillDescription(path.join(skillsDir, a.name)) : undefined,
       })),
       // Quarantined
       ...quarantined.map((q) => ({
@@ -81,6 +113,14 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         status: 'quarantined' as const,
         path: q.originalPath,
         description: undefined,
+      })),
+      // Workspace: on disk but not approved or quarantined
+      ...workspaceNames.map((name) => ({
+        name,
+        source: 'workspace' as const,
+        status: 'workspace' as const,
+        path: path.join(skillsDir ?? '', name),
+        description: skillsDir ? readSkillDescription(path.join(skillsDir, name)) : undefined,
       })),
       // Downloaded (not installed) → available
       ...availableDownloads.map((d) => ({

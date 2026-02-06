@@ -9,9 +9,12 @@ import type { SpawnOptions } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { isSecretEnvVar } from '@agenshield/sandbox';
 import { captureCallingUserEnv } from './sudo-env.js';
+
+const require = createRequire(import.meta.url);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -81,12 +84,28 @@ export async function getDaemonStatus(): Promise<DaemonStatus> {
  * Find the daemon executable path
  */
 export function findDaemonExecutable(): string | null {
+  // Try npm-installed package first (works when installed via npm)
+  // Resolve bin path from package.json so it works both in monorepo (dist/main.js)
+  // and when published (main.js directly in package root)
+  try {
+    const pkgPath = require.resolve('@agenshield/daemon/package.json');
+    const pkgDir = path.dirname(pkgPath);
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    const binEntry = typeof pkg.bin === 'string'
+      ? pkg.bin
+      : pkg.bin?.['agenshield-daemon'] || './dist/main.js';
+    const npmPath = path.resolve(pkgDir, binEntry);
+    if (fs.existsSync(npmPath)) return npmPath;
+  } catch {
+    /* package not installed via npm */
+  }
+
   const searchPaths = [
-    // Relative to CLI dist
+    // Monorepo: relative to CLI dist
     path.join(__dirname, '../../../shield-daemon/dist/main.js'),
-    // Installed location
+    // System-installed location
     '/opt/agenshield/bin/agenshield-daemon',
-    // Development location from project root
+    // Development from CWD
     path.join(process.cwd(), 'libs/shield-daemon/dist/main.js'),
   ];
 

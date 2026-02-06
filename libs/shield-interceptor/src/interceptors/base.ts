@@ -14,6 +14,8 @@ export interface BaseInterceptorOptions {
   policyEvaluator: PolicyEvaluator;
   eventReporter: EventReporter;
   failOpen: boolean;
+  /** HTTP port used by the broker (to skip interception of broker traffic) */
+  brokerHttpPort?: number;
 }
 
 export abstract class BaseInterceptor {
@@ -22,12 +24,30 @@ export abstract class BaseInterceptor {
   protected eventReporter: EventReporter;
   protected failOpen: boolean;
   protected installed: boolean = false;
+  private brokerHttpPort: number;
 
   constructor(options: BaseInterceptorOptions) {
     this.client = options.client;
     this.policyEvaluator = options.policyEvaluator;
     this.eventReporter = options.eventReporter;
     this.failOpen = options.failOpen;
+    this.brokerHttpPort = options.brokerHttpPort ?? 5201;
+  }
+
+  /**
+   * Check if a URL targets the broker or daemon (should not be intercepted)
+   */
+  protected isBrokerUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1') {
+        return false;
+      }
+      const port = parsed.port;
+      return port === String(this.brokerHttpPort) || port === '5200';
+    } catch {
+      return false;
+    }
   }
 
   /**

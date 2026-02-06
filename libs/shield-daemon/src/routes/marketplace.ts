@@ -30,7 +30,6 @@ import {
   createSkillWrapper,
   addSkillPolicy,
 } from '../services/skill-lifecycle';
-import { addSkillEntry } from '../services/openclaw-config';
 import {
   getSkillsDir,
   addToApprovedList,
@@ -363,9 +362,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           logs.push(`Wrapper created: ${brokerResult.wrapperPath}`);
         }
 
-        // 10. Add to OpenClaw config
-        addSkillEntry(slug);
-        logs.push('Config entry added');
+        // 10. OpenClaw config entry is written by the broker during install
 
         // 11. Add policy rule
         addSkillPolicy(slug);

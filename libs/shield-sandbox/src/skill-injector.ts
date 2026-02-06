@@ -9,7 +9,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import type { UserConfig } from '@agenshield/ipc';
+
+const require = createRequire(import.meta.url);
 
 export interface SkillInjectionResult {
   success: boolean;
@@ -42,16 +45,19 @@ export function getSkillsDir(homeDir: string): string {
  * Get the path to the bundled AgenCo skill
  */
 export function getAgenCoSkillPath(): string {
-  // The skill is bundled with the agenshield package
-  // Look for it relative to this module's location
-  const possiblePaths = [
-    // Development: built-in skill in shield-skills
-    path.resolve(__dirname, '../../..', 'libs/shield-skills/skills/agenco-secure-integrations'),
-    // Installed: in node_modules
-    path.resolve(__dirname, '..', 'agenco-secure-integrations'),
+  // The skill is bundled with the @agenshield/skills package
+  const possiblePaths: string[] = [];
+
+  // npm/npx: resolve via package name
+  try {
+    const pkgPath = require.resolve('@agenshield/skills/package.json');
+    possiblePaths.push(path.join(path.dirname(pkgPath), 'skills', 'agenco-secure-integrations'));
+  } catch { /* not installed via npm */ }
+
+  possiblePaths.push(
     // Global install
     '/opt/agenshield/skills/agenco-secure-integrations',
-  ];
+  );
 
   for (const p of possiblePaths) {
     if (fs.existsSync(path.join(p, 'SKILL.md'))) {

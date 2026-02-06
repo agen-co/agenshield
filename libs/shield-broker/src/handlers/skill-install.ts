@@ -148,6 +148,29 @@ export async function handleSkillInstall(
       console.warn(`[SkillInstall] chown failed (may be expected in dev): ${(err as Error).message}`);
     }
 
+    // Update openclaw.json with skill entry (broker has write access to .openclaw)
+    const openclawConfigPath = path.join(agentHome, '.openclaw', 'openclaw.json');
+    try {
+      let openclawConfig: Record<string, unknown> = {};
+      try {
+        const raw = fsSync.readFileSync(openclawConfigPath, 'utf-8');
+        openclawConfig = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        // File doesn't exist or is invalid — start fresh
+      }
+      if (!openclawConfig.skills) {
+        openclawConfig.skills = {};
+      }
+      const skills = openclawConfig.skills as Record<string, unknown>;
+      if (!skills.entries) {
+        skills.entries = {};
+      }
+      (skills.entries as Record<string, unknown>)[slug] = { enabled: true };
+      fsSync.writeFileSync(openclawConfigPath, JSON.stringify(openclawConfig, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn(`[SkillInstall] openclaw.json update failed: ${(err as Error).message}`);
+    }
+
     // Create wrapper script
     let wrapperPath: string | undefined;
     if (createWrapper) {
@@ -232,6 +255,21 @@ export async function handleSkillUninstall(
     // Remove skill directory
     if (skillExists) {
       await fs.rm(skillDir, { recursive: true, force: true });
+    }
+
+    // Remove skill entry from openclaw.json
+    const openclawConfigPath = path.join(agentHome, '.openclaw', 'openclaw.json');
+    try {
+      const raw = fsSync.readFileSync(openclawConfigPath, 'utf-8');
+      const openclawConfig = JSON.parse(raw) as Record<string, unknown>;
+      const skills = openclawConfig.skills as Record<string, unknown> | undefined;
+      const entries = skills?.entries as Record<string, unknown> | undefined;
+      if (entries?.[slug]) {
+        delete entries[slug];
+        fsSync.writeFileSync(openclawConfigPath, JSON.stringify(openclawConfig, null, 2), 'utf-8');
+      }
+    } catch {
+      // Best-effort removal
     }
 
     // Remove wrapper if requested

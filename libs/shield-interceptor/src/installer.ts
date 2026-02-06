@@ -67,6 +67,7 @@ export function installInterceptors(
       policyEvaluator,
       eventReporter,
       failOpen: config.failOpen,
+      brokerHttpPort: config.httpPort,
     });
     installed.fetch.install();
     log(config, 'debug', 'Installed fetch interceptor');
@@ -79,6 +80,7 @@ export function installInterceptors(
       policyEvaluator,
       eventReporter,
       failOpen: config.failOpen,
+      brokerHttpPort: config.httpPort,
     });
     installed.http.install();
     log(config, 'debug', 'Installed http/https interceptor');
@@ -91,6 +93,7 @@ export function installInterceptors(
       policyEvaluator,
       eventReporter,
       failOpen: config.failOpen,
+      brokerHttpPort: config.httpPort,
     });
     installed.websocket.install();
     log(config, 'debug', 'Installed WebSocket interceptor');
@@ -103,6 +106,7 @@ export function installInterceptors(
       policyEvaluator,
       eventReporter,
       failOpen: config.failOpen,
+      brokerHttpPort: config.httpPort,
     });
     installed.childProcess.install();
     log(config, 'debug', 'Installed child_process interceptor');
@@ -115,6 +119,7 @@ export function installInterceptors(
       policyEvaluator,
       eventReporter,
       failOpen: config.failOpen,
+      brokerHttpPort: config.httpPort,
     });
     installed.fs.install();
     log(config, 'debug', 'Installed fs interceptor');

@@ -55,10 +55,7 @@ export function generateBrokerPlist(
     <true/>
 
     <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
+    <true/>
 
     <key>ThrottleInterval</key>
     <integer>10</integer>
@@ -126,10 +123,7 @@ export function generateBrokerPlistLegacy(options?: {
     <true/>
 
     <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
+    <true/>
 
     <key>ThrottleInterval</key>
     <integer>10</integer>
@@ -397,28 +391,37 @@ export async function fixSocketPermissions(config?: import('@agenshield/ipc').Us
   const socketDir = '/var/run/agenshield';
   const socketPath = `${socketDir}/agenshield.sock`;
   const brokerUsername = config?.brokerUser?.username || 'ash_default_broker';
+  const socketGroupName = config?.groups?.socket?.name || 'ash_default';
 
   try {
     // Set directory permissions: 775 (owner/group rwx, others rx)
     await execAsync(`sudo chmod 775 "${socketDir}"`);
 
     // Wait for socket to be created (broker might still be starting)
-    let attempts = 0;
-    while (attempts < 10) {
+    let socketFound = false;
+    for (let attempt = 0; attempt < 20; attempt++) {
       try {
         await fs.access(socketPath);
+        socketFound = true;
         break;
       } catch {
         await new Promise(resolve => setTimeout(resolve, 500));
-        attempts++;
       }
     }
 
-    // Set socket file permissions: 660 (owner/group rw)
-    await execAsync(`sudo chmod 660 "${socketPath}"`);
+    if (!socketFound) {
+      return {
+        success: false,
+        message: 'Broker socket not created after 10s — check /var/log/agenshield/broker.error.log',
+      };
+    }
 
-    // Set socket ownership: broker user, staff group (allows all staff members to access)
-    await execAsync(`sudo chown ${brokerUsername}:staff "${socketPath}"`);
+    // Set socket file permissions: 666 (world rw) — safe because Unix sockets are local-only
+    // and the broker enforces authorization at the protocol level
+    await execAsync(`sudo chmod 666 "${socketPath}"`);
+
+    // Set socket ownership: broker user + socket group (allows group members to access)
+    await execAsync(`sudo chown ${brokerUsername}:${socketGroupName} "${socketPath}"`);
 
     return {
       success: true,

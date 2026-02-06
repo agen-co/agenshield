@@ -18,6 +18,7 @@ import { authRoutes } from './auth';
 import { secretsRoutes } from './secrets';
 import { marketplaceRoutes } from './marketplace';
 import { fsRoutes } from './fs';
+import { activityRoutes } from './activity';
 import { rpcRoutes } from './rpc';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
@@ -46,7 +47,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // Skip SSE, RPC, static file requests, and noisy health polls
     if (!request.url.startsWith('/sse') && !request.url.startsWith('/rpc') && !request.url.includes('.') && !request.url.endsWith('/health')) {
       // Skip successful status polls — too noisy
-      if (request.method === 'GET' && request.url.startsWith('/api/status') && reply.statusCode === 200) {
+      if (request.method === 'GET' && (request.url.startsWith('/api/status') || request.url.startsWith('/api/activity')) && reply.statusCode === 200) {
         done();
         return;
       }
@@ -108,6 +109,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(secretsRoutes);
       await api.register(marketplaceRoutes);
       await api.register(fsRoutes);
+      await api.register(activityRoutes);
     },
     { prefix: API_PREFIX }
   );

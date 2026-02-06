@@ -770,6 +770,7 @@ export async function installGuardedShell(
   try {
     // 1. Install the guarded-shell launcher
     log(`Installing guarded shell launcher to ${shellPath}`);
+    await execAsync(`sudo mkdir -p "${path.dirname(shellPath)}"`);
     await execAsync(`sudo tee "${shellPath}" > /dev/null << 'GUARDEDEOF'
 ${GUARDED_SHELL_CONTENT}
 GUARDEDEOF`);
@@ -916,9 +917,10 @@ PY3EOF`);
     await execAsync(`sudo chmod 755 "${python3Path}"`);
     installed.push('python3');
 
-    // 4. Set root ownership on entire bin dir
+    // 4. Lock down wrapper files as root-owned, then restore bin dir for broker writes
     await execAsync(`sudo chown -R root:${socketGroupName} "${binDir}"`);
-    await execAsync(`sudo chmod 755 "${binDir}"`);
+    await execAsync(`sudo chown ${userConfig.brokerUser.username}:${socketGroupName} "${binDir}"`);
+    await execAsync(`sudo chmod 2775 "${binDir}"`);
 
     return { success: true, installed };
   } catch (err) {
@@ -1050,8 +1052,8 @@ export async function updateWrapper(
 /**
  * Deploy the interceptor CJS bundle to the sandbox.
  *
- * Copies `libs/shield-interceptor/dist/register.js` (which is CJS despite the
- * package.json "type":"module") to `/opt/agenshield/lib/interceptor/register.cjs`
+ * Copies `@agenshield/interceptor/register` (CJS despite the package.json
+ * "type":"module") to `/opt/agenshield/lib/interceptor/register.cjs`
  * so that node wrappers can use `--require` to load it.
  */
 export async function deployInterceptor(
@@ -1061,11 +1063,8 @@ export async function deployInterceptor(
   const socketGroupName = userConfig?.groups?.socket?.name || 'ash_socket';
 
   try {
-    // Locate register.js relative to this package (shield-sandbox)
-    // Works in both dev (src/) and production (dist/) because both are one level
-    // below the package root: ../../shield-interceptor/dist/register.js
-    const currentDir = path.dirname(fileURLToPath(import.meta.url));
-    const srcPath = path.resolve(currentDir, '..', '..', 'shield-interceptor', 'dist', 'register.js');
+    // Resolve via package name so it works regardless of directory layout
+    const srcPath = require.resolve('@agenshield/interceptor/register');
 
     // Verify source exists
     await fs.access(srcPath);
@@ -1107,10 +1106,15 @@ export async function copyBrokerBinary(
 
   try {
     // Get the broker main.js from this package's installed location
-    // The broker is built and the dist/main.js has a shebang
+    // Resolve the bin path from package.json so it works both in monorepo (dist/main.js)
+    // and when published (main.js directly in package root)
     const brokerPkgPath = require.resolve('@agenshield/broker/package.json');
     const brokerDir = path.dirname(brokerPkgPath);
-    const srcPath = path.join(brokerDir, 'dist', 'main.js');
+    const brokerPkg = JSON.parse(await fs.readFile(brokerPkgPath, 'utf-8'));
+    const binEntry = typeof brokerPkg.bin === 'string'
+      ? brokerPkg.bin
+      : brokerPkg.bin?.['agenshield-broker'] || './dist/main.js';
+    const srcPath = path.resolve(brokerDir, binEntry);
 
     // Verify source exists
     await fs.access(srcPath);
@@ -1122,6 +1126,17 @@ export async function copyBrokerBinary(
     await execAsync(`sudo cp "${srcPath}" "${targetPath}"`);
     await execAsync(`sudo chmod 755 "${targetPath}"`);
     await execAsync(`sudo chown root:${socketGroupName} "${targetPath}"`);
+
+    // Create a package.json at /opt/agenshield/ so Node.js treats .js files as ESM.
+    // The broker binary is built with esbuild format:"esm" and uses `import` statements.
+    // Without this, Node defaults to CJS and crashes with "Cannot use import statement".
+    await execAsync(
+      `sudo tee /opt/agenshield/package.json > /dev/null << 'PKGJSONEOF'
+{"type":"module"}
+PKGJSONEOF`
+    );
+    await execAsync(`sudo chown root:wheel /opt/agenshield/package.json`);
+    await execAsync(`sudo chmod 644 /opt/agenshield/package.json`);
 
     return {
       success: true,
@@ -1314,13 +1329,15 @@ export async function installPresetBinaries(options: {
   }
   installedWrappers.push(...basicResult.installed);
 
-  // 6. Lock down bin directory ownership: root:<socketGroup>, mode 755
-  //    Agent can execute but not modify wrappers
+  // 6. Lock down wrapper files: root-owned, mode 755 (agent can't modify)
+  //    But keep bin dir broker-owned with 2775 so skills can be installed later
   try {
-    log(`Locking down bin directory: root:${socketGroupName} ownership`);
+    log(`Locking down bin directory: root:${socketGroupName} file ownership`);
     await execAsync(`sudo chown -R root:${socketGroupName} "${binDir}"`);
-    await execAsync(`sudo chmod 755 "${binDir}"`);
     await execAsync(`sudo chmod -R 755 "${binDir}"`);
+    // Restore bin dir itself to broker-owned, setgid + group-writable
+    await execAsync(`sudo chown ${userConfig.brokerUser.username}:${socketGroupName} "${binDir}"`);
+    await execAsync(`sudo chmod 2775 "${binDir}"`);
   } catch (err) {
     errors.push(`Lockdown: ${(err as Error).message}`);
   }

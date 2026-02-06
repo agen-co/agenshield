@@ -7,6 +7,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 
 function getOpenClawConfigPath(): string {
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
@@ -37,6 +38,18 @@ function writeConfig(config: OpenClawConfig): void {
   const configPath = getOpenClawConfigPath();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+  // Fix ownership so the broker user can update the file in the future,
+  // even when the daemon (running as root) was the one that created it.
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+  const brokerUser = path.basename(agentHome) + '_broker';
+  const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'clawshield';
+  try {
+    execSync(`chown ${brokerUser}:${socketGroup} "${configPath}"`, { stdio: 'pipe' });
+    execSync(`chmod 664 "${configPath}"`, { stdio: 'pipe' });
+  } catch {
+    // May fail if not root — acceptable in development
+  }
 }
 
 /**
