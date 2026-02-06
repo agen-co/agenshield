@@ -10,6 +10,30 @@ import type { PolicyConfig, PolicyRule } from './enforcer.js';
  * Built-in policy rules
  */
 export const BuiltinPolicies: PolicyRule[] = [
+  // Always allow ping (health check for broker availability)
+  {
+    id: 'builtin-allow-ping',
+    name: 'Allow ping health checks',
+    action: 'allow',
+    target: 'command',
+    operations: ['ping'],
+    patterns: ['*'],
+    enabled: true,
+    priority: 1000,
+  },
+
+  // Allow skill installation/uninstallation (daemon management operations)
+  {
+    id: 'builtin-allow-skill-management',
+    name: 'Allow skill management operations',
+    action: 'allow',
+    target: 'command',
+    operations: ['skill_install', 'skill_uninstall'],
+    patterns: ['*'],
+    enabled: true,
+    priority: 1000,
+  },
+
   // Allow localhost connections (for broker communication)
   {
     id: 'builtin-allow-localhost',

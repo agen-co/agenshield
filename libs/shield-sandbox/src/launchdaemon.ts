@@ -388,3 +388,47 @@ export async function restartDaemon(): Promise<DaemonResult> {
     };
   }
 }
+
+/**
+ * Fix socket permissions after broker starts
+ * This ensures the daemon user can access the broker socket
+ */
+export async function fixSocketPermissions(config?: import('@agenshield/ipc').UserConfig): Promise<DaemonResult> {
+  const socketDir = '/var/run/agenshield';
+  const socketPath = `${socketDir}/agenshield.sock`;
+  const brokerUsername = config?.brokerUser?.username || 'ash_default_broker';
+
+  try {
+    // Set directory permissions: 775 (owner/group rwx, others rx)
+    await execAsync(`sudo chmod 775 "${socketDir}"`);
+
+    // Wait for socket to be created (broker might still be starting)
+    let attempts = 0;
+    while (attempts < 10) {
+      try {
+        await fs.access(socketPath);
+        break;
+      } catch {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        attempts++;
+      }
+    }
+
+    // Set socket file permissions: 660 (owner/group rw)
+    await execAsync(`sudo chmod 660 "${socketPath}"`);
+
+    // Set socket ownership: broker user, staff group (allows all staff members to access)
+    await execAsync(`sudo chown ${brokerUsername}:staff "${socketPath}"`);
+
+    return {
+      success: true,
+      message: 'Socket permissions configured',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to fix socket permissions: ${(error as Error).message}`,
+      error: error as Error,
+    };
+  }
+}

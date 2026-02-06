@@ -143,6 +143,7 @@ export {
   isDaemonRunning,
   getDaemonStatus,
   restartDaemon,
+  fixSocketPermissions,
   type DaemonResult,
 } from './launchdaemon';
 

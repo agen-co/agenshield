@@ -2,7 +2,7 @@
  * Main App component with routing
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -42,11 +42,25 @@ const queryClient = new QueryClient({
  */
 function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggleDarkMode: () => void }) {
   const { requiresFullAuth, isReadOnly, loaded, passcodeSet, protectionEnabled, token } = useAuth();
-  const { isError: healthError, isLoading: healthLoading, refetch: retryHealth, isFetching } = useHealth();
+  const { isError: healthError, isLoading: healthLoading, refetch: retryHealth, isFetching, isSuccess } = useHealth();
   const serverMode = useServerMode();
   // Connect to SSE events (skip in setup mode but always call the hook)
   // Token triggers SSE reconnect on auth state change (authenticated ↔ anonymous)
   useSSE(serverMode !== 'setup', token);
+
+  // Auto-refresh page when server reconnects after being down
+  const wasDisconnected = useRef(false);
+  useEffect(() => {
+    // Track when we enter disconnected state
+    if (healthError && !healthLoading) {
+      wasDisconnected.current = true;
+    }
+    // When transitioning from disconnected to connected, reload the page
+    if (wasDisconnected.current && isSuccess && !healthError) {
+      console.log('[Dashboard] Server reconnected, refreshing page...');
+      window.location.reload();
+    }
+  }, [healthError, healthLoading, isSuccess]);
 
   // Keep wizard visible while daemon restarts after setup completes
   const { phase: setupPhase } = useSnapshot(setupStore);

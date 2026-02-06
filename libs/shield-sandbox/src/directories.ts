@@ -113,7 +113,7 @@ export function createDirectoryStructure(config?: UserConfig): DirectoryStructur
         group: 'wheel',
       },
       '/var/run/agenshield': {
-        mode: 0o770,
+        mode: 0o775,
         owner: brokerUsername,
         group: socketGroupName,
       },
@@ -132,9 +132,9 @@ export function createDirectoryStructure(config?: UserConfig): DirectoryStructur
         group: socketGroupName,
       },
       [`${agentHome}/bin`]: {
-        mode: 0o755,
-        owner: 'root',              // only root can write; agent can read+exec via group
-        group: socketGroupName,
+        mode: 0o755,                // only owner can write
+        owner: brokerUsername,      // broker owns bin, can create skill wrappers
+        group: socketGroupName,     // agent can read+exec via group
       },
       [`${agentHome}/.openclaw`]: {
         mode: 0o755,

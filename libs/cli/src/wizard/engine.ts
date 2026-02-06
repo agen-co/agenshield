@@ -22,6 +22,7 @@ import {
   installPresetBinaries,
   generateBrokerPlist,
   installLaunchDaemon,
+  fixSocketPermissions,
   createPathsConfig,
   deployInterceptor,
   copyNodeBinary,
@@ -699,6 +700,14 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
       if (!result.success) {
         return { success: false, error: result.message };
+      }
+
+      // Fix socket permissions after broker starts
+      // This ensures the daemon user can access the broker socket
+      const socketResult = await fixSocketPermissions(context.userConfig);
+      if (!socketResult.success) {
+        // Non-fatal: log warning but continue
+        console.warn(`[Setup] Warning: ${socketResult.message}`);
       }
 
       context.launchDaemon = {
