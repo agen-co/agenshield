@@ -38,18 +38,19 @@ function globToRegex(pattern: string): RegExp {
 }
 
 /**
- * Normalize a URL pattern for more intuitive matching:
+ * Normalize a URL pattern base:
  * - Strip trailing slashes
  * - If pattern is a bare domain (no protocol), prefix with https:// (HTTP is blocked by default)
- * - If pattern doesn't end with wildcard, add ** to match any path
+ *
+ * Does NOT append wildcards — the matching logic handles exact + sub-path matching.
  *
  * Examples:
- *   "example.com"           -> "https://example.com/**"
- *   "https://example.com"   -> "https://example.com/**"
- *   "http://example.com"    -> "http://example.com/**" (explicit http)
- *   "*://example.com/*"     -> "*://example.com/*" (already has wildcards)
+ *   "example.com"           -> "https://example.com"
+ *   "https://example.com/"  -> "https://example.com"
+ *   "http://example.com"    -> "http://example.com" (explicit http preserved)
+ *   "*://example.com/*"     -> "*://example.com/*" (wildcards preserved)
  */
-function normalizeUrlPattern(pattern: string): string {
+function normalizeUrlBase(pattern: string): string {
   let p = pattern.trim();
 
   // Strip trailing slashes (but not from protocol)
@@ -61,12 +62,31 @@ function normalizeUrlPattern(pattern: string): string {
     p = `https://${p}`;
   }
 
-  // If pattern doesn't end with a wildcard, add ** to match any path
-  if (!p.endsWith('*')) {
-    p = `${p}/**`;
+  return p;
+}
+
+/**
+ * Match a URL target against a URL pattern.
+ * For patterns without wildcards, matches both the exact URL and any sub-paths.
+ * For patterns with wildcards, matches as-is.
+ *
+ * Examples:
+ *   "https://example.com/api" matches "https://example.com/api" (exact)
+ *   "https://example.com/api" matches "https://example.com/api/users" (sub-path)
+ *   "https://example.com/api" does NOT match "https://example.com/api-evil"
+ *   "https://example.com/*"   matches "https://example.com/anything"
+ */
+function matchUrlPattern(pattern: string, target: string): boolean {
+  const base = normalizeUrlBase(pattern);
+  const trimmed = pattern.trim().replace(/\/+$/, '');
+
+  if (trimmed.endsWith('*')) {
+    // User already provided wildcards — match as-is
+    return globToRegex(base).test(target);
   }
 
-  return p;
+  // No wildcards — match exact URL OR any sub-path
+  return globToRegex(base).test(target) || globToRegex(`${base}/**`).test(target);
 }
 
 /**
@@ -138,10 +158,8 @@ function evaluatePolicyCheck(
       for (const pattern of policy.patterns) {
         // Only check patterns that explicitly allow http://
         if (!pattern.match(/^http:\/\//i)) continue;
-        const effectivePattern = normalizeUrlPattern(pattern);
         const effectiveTarget = normalizeUrlTarget(target);
-        const regex = globToRegex(effectivePattern);
-        if (regex.test(effectiveTarget)) {
+        if (matchUrlPattern(pattern, effectiveTarget)) {
           explicitHttpAllow = true;
           break;
         }
@@ -171,14 +189,17 @@ function evaluatePolicyCheck(
 
     // Check if target matches any pattern
     for (const pattern of policy.patterns) {
-      // For URL targets, normalize both pattern and target for intuitive matching
-      const effectivePattern = targetType === 'url' ? normalizeUrlPattern(pattern) : pattern;
       const effectiveTarget = targetType === 'url' ? normalizeUrlTarget(target) : target;
 
-      const regex = globToRegex(effectivePattern);
-      const matches = regex.test(effectiveTarget);
+      let matches: boolean;
+      if (targetType === 'url') {
+        matches = matchUrlPattern(pattern, effectiveTarget);
+      } else {
+        const regex = globToRegex(pattern);
+        matches = regex.test(effectiveTarget);
+      }
 
-      console.log('[policy_check]   pattern:', pattern, '-> normalized:', effectivePattern, '| target:', effectiveTarget, '| matches:', matches);
+      console.log('[policy_check]   pattern:', pattern, '-> base:', targetType === 'url' ? normalizeUrlBase(pattern) : pattern, '| target:', effectiveTarget, '| matches:', matches);
 
       if (matches) {
         console.log('[policy_check] MATCHED policy:', policy.name, 'action:', policy.action);

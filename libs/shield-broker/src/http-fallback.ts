@@ -15,6 +15,7 @@ import type {
 } from './types.js';
 import type { PolicyEnforcer } from './policies/enforcer.js';
 import type { AuditLogger } from './audit/logger.js';
+import type { CommandAllowlist } from './policies/command-allowlist.js';
 import * as handlers from './handlers/index.js';
 import { forwardPolicyToDaemon } from './daemon-forward.js';
 
@@ -40,6 +41,7 @@ export interface HttpFallbackServerOptions {
   config: BrokerConfig;
   policyEnforcer: PolicyEnforcer;
   auditLogger: AuditLogger;
+  commandAllowlist: CommandAllowlist;
 }
 
 export class HttpFallbackServer {
@@ -47,11 +49,13 @@ export class HttpFallbackServer {
   private config: BrokerConfig;
   private policyEnforcer: PolicyEnforcer;
   private auditLogger: AuditLogger;
+  private commandAllowlist: CommandAllowlist;
 
   constructor(options: HttpFallbackServerOptions) {
     this.config = options.config;
     this.policyEnforcer = options.policyEnforcer;
     this.auditLogger = options.auditLogger;
+    this.commandAllowlist = options.commandAllowlist;
   }
 
   /**
@@ -207,17 +211,15 @@ export class HttpFallbackServer {
         config: this.config,
       };
 
-      // Check policy
-      const policyResult = await this.policyEnforcer.check(
-        request.method as any,
-        request.params,
-        context
-      );
+      // Check policy (skip for policy_check — the handler evaluates
+      // the inner operation with proper params and daemon forwarding)
+      const policyResult = request.method === 'policy_check'
+        ? { allowed: true, policyId: undefined, reason: undefined }
+        : await this.policyEnforcer.check(request.method as any, request.params, context);
 
       // If broker denies, try forwarding to daemon for user-defined policies
-      // (skip for policy_check — it has its own forwarding in the handler)
       let finalPolicy = policyResult;
-      if (!policyResult.allowed && request.method !== 'policy_check') {
+      if (!policyResult.allowed) {
         const target = this.extractTarget(request);
         const daemonUrl = this.config.daemonUrl || 'http://127.0.0.1:5200';
         const override = await forwardPolicyToDaemon(request.method, target, daemonUrl);
@@ -253,6 +255,7 @@ export class HttpFallbackServer {
         policyEnforcer: this.policyEnforcer,
         auditLogger: this.auditLogger,
         secretVault: null as any, // Not available over HTTP
+        commandAllowlist: this.commandAllowlist,
         daemonUrl: this.config.daemonUrl,
       });
 

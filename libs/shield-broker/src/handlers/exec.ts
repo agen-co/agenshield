@@ -12,6 +12,7 @@ import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { HandlerContext, HandlerResult, ExecParams, ExecResult } from '../types.js';
 import type { HandlerDependencies } from './types.js';
+import { forwardPolicyToDaemon } from '../daemon-forward.js';
 
 /** Maximum output size (10MB) */
 const MAX_OUTPUT_SIZE = 10 * 1024 * 1024;
@@ -165,12 +166,17 @@ export async function handleExec(
       if (url) {
         const networkCheck = await deps.policyEnforcer.check('http_request', { url }, context);
         if (!networkCheck.allowed) {
-          const reason = `URL not allowed: ${url} - ${networkCheck.reason}`;
-          deps.onExecDenied?.(command, reason);
-          return {
-            success: false,
-            error: { code: 1009, message: reason },
-          };
+          // Forward to daemon for user-defined URL policies
+          const daemonUrl = deps.daemonUrl || 'http://127.0.0.1:5200';
+          const override = await forwardPolicyToDaemon('http_request', url, daemonUrl);
+          if (!override || !override.allowed) {
+            const reason = `URL not allowed: ${url} - ${networkCheck.reason}`;
+            deps.onExecDenied?.(command, reason);
+            return {
+              success: false,
+              error: { code: 1009, message: reason },
+            };
+          }
         }
       }
     }

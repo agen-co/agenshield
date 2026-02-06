@@ -17,6 +17,7 @@ import type {
 import type { PolicyEnforcer } from './policies/enforcer.js';
 import type { AuditLogger } from './audit/logger.js';
 import type { SecretVault } from './secrets/vault.js';
+import type { CommandAllowlist } from './policies/command-allowlist.js';
 import * as handlers from './handlers/index.js';
 import { forwardPolicyToDaemon } from './daemon-forward.js';
 
@@ -25,6 +26,7 @@ export interface UnixSocketServerOptions {
   policyEnforcer: PolicyEnforcer;
   auditLogger: AuditLogger;
   secretVault: SecretVault;
+  commandAllowlist: CommandAllowlist;
 }
 
 export class UnixSocketServer {
@@ -33,6 +35,7 @@ export class UnixSocketServer {
   private policyEnforcer: PolicyEnforcer;
   private auditLogger: AuditLogger;
   private secretVault: SecretVault;
+  private commandAllowlist: CommandAllowlist;
   private connections: Set<net.Socket> = new Set();
 
   constructor(options: UnixSocketServerOptions) {
@@ -40,6 +43,7 @@ export class UnixSocketServer {
     this.policyEnforcer = options.policyEnforcer;
     this.auditLogger = options.auditLogger;
     this.secretVault = options.secretVault;
+    this.commandAllowlist = options.commandAllowlist;
   }
 
   /**
@@ -169,17 +173,15 @@ export class UnixSocketServer {
         // Socket credentials would be extracted here on supported platforms
       };
 
-      // Check policy
-      const policyResult = await this.policyEnforcer.check(
-        request.method,
-        request.params,
-        context
-      );
+      // Check policy (skip for policy_check — the handler evaluates
+      // the inner operation with proper params and daemon forwarding)
+      const policyResult = request.method === 'policy_check'
+        ? { allowed: true, policyId: undefined, reason: undefined }
+        : await this.policyEnforcer.check(request.method, request.params, context);
 
       // If broker denies, try forwarding to daemon for user-defined policies
-      // (skip for policy_check — it has its own forwarding in the handler)
       let finalPolicy = policyResult;
-      if (!policyResult.allowed && request.method !== 'policy_check') {
+      if (!policyResult.allowed) {
         const target = this.extractTarget(request);
         const daemonUrl = this.config.daemonUrl || 'http://127.0.0.1:5200';
         const override = await forwardPolicyToDaemon(request.method, target, daemonUrl);
@@ -215,6 +217,7 @@ export class UnixSocketServer {
         policyEnforcer: this.policyEnforcer,
         auditLogger: this.auditLogger,
         secretVault: this.secretVault,
+        commandAllowlist: this.commandAllowlist,
         daemonUrl: this.config.daemonUrl,
       });
 

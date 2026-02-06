@@ -8,6 +8,7 @@ import type * as childProcess from 'node:child_process';
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { SyncClient } from '../client/sync-client.js';
 import { PolicyDeniedError } from '../errors.js';
+import { debugLog } from '../debug-log.js';
 
 // Use require() for modules we need to monkey-patch (ESM imports are immutable)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -15,6 +16,7 @@ const childProcessModule = require('node:child_process') as typeof childProcess;
 
 export class ChildProcessInterceptor extends BaseInterceptor {
   private syncClient: SyncClient;
+  private _checking = false;
   private originalExec: typeof childProcess.exec | null = null;
   private originalExecSync: typeof childProcess.execSync | null = null;
   private originalSpawn: typeof childProcess.spawn | null = null;
@@ -86,6 +88,14 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         ? args.pop()
         : undefined;
 
+      debugLog(`cp.exec ENTER command=${command} _checking=${self._checking}`);
+
+      // Re-entrancy guard
+      if (self._checking) {
+        debugLog(`cp.exec SKIP (re-entrancy) command=${command}`);
+        return original(command, ...args, callback) as childProcess.ChildProcess;
+      }
+
       self.eventReporter.intercept('exec', command);
 
       // Check policy asynchronously
@@ -113,14 +123,25 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       command: string,
       options?: childProcess.ExecSyncOptions
     ): Buffer | string {
-      self.eventReporter.intercept('exec', command);
+      debugLog(`cp.execSync ENTER command=${command} _checking=${self._checking}`);
 
-      // Check policy synchronously using sync client
+      // Re-entrancy guard
+      if (self._checking) {
+        debugLog(`cp.execSync SKIP (re-entrancy) command=${command}`);
+        return original(command, options);
+      }
+
+      self._checking = true;
       try {
+        self.eventReporter.intercept('exec', command);
+
+        // Check policy synchronously using sync client
+        debugLog(`cp.execSync policy_check START command=${command}`);
         const result = self.syncClient.request<{ allowed: boolean; reason?: string }>(
           'policy_check',
           { operation: 'exec', target: command }
         );
+        debugLog(`cp.execSync policy_check DONE allowed=${result.allowed} command=${command}`);
 
         if (!result.allowed) {
           throw new PolicyDeniedError(result.reason || 'Operation denied by policy', {
@@ -129,6 +150,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
           });
         }
       } catch (error) {
+        debugLog(`cp.execSync policy_check ERROR: ${(error as Error).message} command=${command}`);
         if (error instanceof PolicyDeniedError) {
           throw error;
         }
@@ -136,8 +158,11 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         if (!self.failOpen) {
           throw error;
         }
+      } finally {
+        self._checking = false;
       }
 
+      debugLog(`cp.execSync calling original command=${command}`);
       return original(command, options);
     };
 
@@ -153,6 +178,15 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       args?: readonly string[],
       options?: childProcess.SpawnOptions
     ): childProcess.ChildProcess {
+      const fullCmd = args ? `${command} ${args.join(' ')}` : command;
+      debugLog(`cp.spawn ENTER command=${fullCmd} _checking=${self._checking}`);
+
+      // Re-entrancy guard
+      if (self._checking) {
+        debugLog(`cp.spawn SKIP (re-entrancy) command=${fullCmd}`);
+        return original(command, args as string[], options || {});
+      }
+
       const fullCommand = args ? `${command} ${args.join(' ')}` : command;
 
       self.eventReporter.intercept('exec', fullCommand);
@@ -179,15 +213,25 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       options?: childProcess.SpawnSyncOptions
     ): childProcess.SpawnSyncReturns<Buffer | string> {
       const fullCommand = args ? `${command} ${args.join(' ')}` : command;
+      debugLog(`cp.spawnSync ENTER command=${fullCommand} _checking=${self._checking}`);
 
-      self.eventReporter.intercept('exec', fullCommand);
+      // Re-entrancy guard
+      if (self._checking) {
+        debugLog(`cp.spawnSync SKIP (re-entrancy) command=${fullCommand}`);
+        return original(command, args as string[], options);
+      }
 
-      // Check policy synchronously
+      self._checking = true;
       try {
+        self.eventReporter.intercept('exec', fullCommand);
+
+        // Check policy synchronously
+        debugLog(`cp.spawnSync policy_check START command=${fullCommand}`);
         const result = self.syncClient.request<{ allowed: boolean; reason?: string }>(
           'policy_check',
           { operation: 'exec', target: fullCommand }
         );
+        debugLog(`cp.spawnSync policy_check DONE allowed=${result.allowed} command=${fullCommand}`);
 
         if (!result.allowed) {
           return {
@@ -201,6 +245,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
           };
         }
       } catch (error) {
+        debugLog(`cp.spawnSync policy_check ERROR: ${(error as Error).message} command=${fullCommand}`);
         if (!self.failOpen) {
           return {
             pid: -1,
@@ -212,8 +257,11 @@ export class ChildProcessInterceptor extends BaseInterceptor {
             error: error as Error,
           };
         }
+      } finally {
+        self._checking = false;
       }
 
+      debugLog(`cp.spawnSync calling original command=${fullCommand}`);
       return original(command, args as string[], options);
     } as typeof childProcess.spawnSync;
   }
@@ -226,6 +274,11 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       file: string,
       ...args: any[]
     ): childProcess.ChildProcess {
+      // Re-entrancy guard
+      if (self._checking) {
+        return original(file, ...args) as childProcess.ChildProcess;
+      }
+
       self.eventReporter.intercept('exec', file);
 
       // Check policy asynchronously
@@ -246,6 +299,11 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       args?: readonly string[],
       options?: childProcess.ForkOptions
     ): childProcess.ChildProcess {
+      // Re-entrancy guard
+      if (self._checking) {
+        return original(modulePath, args as string[], options);
+      }
+
       const pathStr = modulePath.toString();
       self.eventReporter.intercept('exec', `fork:${pathStr}`);
 

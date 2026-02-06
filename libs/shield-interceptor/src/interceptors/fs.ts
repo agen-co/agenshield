@@ -6,9 +6,11 @@
 
 import type * as fs from 'node:fs';
 import type * as fsPromises from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { SyncClient } from '../client/sync-client.js';
 import { PolicyDeniedError } from '../errors.js';
+import { debugLog } from '../debug-log.js';
 
 // Use require() for modules we need to monkey-patch (ESM imports are immutable)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -33,9 +35,26 @@ function safeOverride(target: any, prop: string, value: any): void {
   }
 }
 
+/**
+ * Normalize a path argument to a plain filesystem path.
+ * Node.js ESM loader passes file:// URLs to fs.readFileSync;
+ * strip the protocol so policy checks match allowed directories.
+ */
+function normalizePathArg(p: fs.PathLike): string {
+  if (p instanceof URL) {
+    return fileURLToPath(p);
+  }
+  const s = p.toString();
+  if (s.startsWith('file://')) {
+    try { return fileURLToPath(new URL(s)); } catch { /* fall through */ }
+  }
+  return s;
+}
+
 export class FsInterceptor extends BaseInterceptor {
   private syncClient: SyncClient;
   private originals: Map<string, Function> = new Map();
+  private _checking = false;
 
   constructor(options: BaseInterceptorOptions) {
     super(options);
@@ -114,21 +133,32 @@ export class FsInterceptor extends BaseInterceptor {
       path: fs.PathLike,
       ...args: any[]
     ): void {
-      const pathString = path.toString();
+      const pathString = normalizePathArg(path);
 
       // Extract callback
       const callback = typeof args[args.length - 1] === 'function'
         ? args.pop()
         : undefined;
 
+      debugLog(`fs.${methodName} ENTER (async) path=${pathString} _checking=${self._checking}`);
+
+      // Re-entrancy guard: skip policy check if already inside one
+      if (self._checking) {
+        debugLog(`fs.${methodName} SKIP (re-entrancy, async) path=${pathString}`);
+        original.call(module, path, ...args, callback);
+        return;
+      }
+
       self.eventReporter.intercept(operation, pathString);
 
       // Check policy asynchronously
       self.checkPolicy(operation, pathString)
         .then(() => {
+          debugLog(`fs.${methodName} policy OK (async) path=${pathString}`);
           original.call(module, path, ...args, callback);
         })
         .catch((error: any) => {
+          debugLog(`fs.${methodName} policy ERROR (async): ${error.message} path=${pathString}`);
           if (callback) {
             callback(error);
           }
@@ -153,16 +183,27 @@ export class FsInterceptor extends BaseInterceptor {
       path: fs.PathLike,
       ...args: any[]
     ): any {
-      const pathString = path.toString();
+      const pathString = normalizePathArg(path);
 
-      self.eventReporter.intercept(operation, pathString);
+      debugLog(`fs.${methodName} ENTER path=${pathString} _checking=${self._checking}`);
 
-      // Check policy synchronously via daemon's policy_check RPC
+      // Re-entrancy guard: skip policy check if already inside one
+      if (self._checking) {
+        debugLog(`fs.${methodName} SKIP (re-entrancy) path=${pathString}`);
+        return original.call(module, path, ...args);
+      }
+
+      self._checking = true;
       try {
+        self.eventReporter.intercept(operation, pathString);
+
+        // Check policy synchronously via daemon's policy_check RPC
+        debugLog(`fs.${methodName} policy_check START path=${pathString}`);
         const result = self.syncClient.request<{ allowed: boolean; reason?: string }>(
           'policy_check',
           { operation, target: pathString }
         );
+        debugLog(`fs.${methodName} policy_check DONE allowed=${result.allowed} path=${pathString}`);
 
         if (!result.allowed) {
           throw new PolicyDeniedError(result.reason || 'Operation denied by policy', {
@@ -171,6 +212,7 @@ export class FsInterceptor extends BaseInterceptor {
           });
         }
       } catch (error) {
+        debugLog(`fs.${methodName} policy_check ERROR: ${(error as Error).message} path=${pathString}`);
         if (error instanceof PolicyDeniedError) {
           throw error;
         }
@@ -178,8 +220,11 @@ export class FsInterceptor extends BaseInterceptor {
         if (!self.failOpen) {
           throw error;
         }
+      } finally {
+        self._checking = false;
       }
 
+      debugLog(`fs.${methodName} calling original path=${pathString}`);
       return original.call(module, path, ...args);
     });
   }
@@ -201,12 +246,21 @@ export class FsInterceptor extends BaseInterceptor {
       path: fs.PathLike,
       ...args: any[]
     ): Promise<any> {
-      const pathString = path.toString();
+      const pathString = normalizePathArg(path);
+
+      debugLog(`fsPromises.${methodName} ENTER path=${pathString} _checking=${self._checking}`);
+
+      // Re-entrancy guard: skip policy check if already inside one
+      if (self._checking) {
+        debugLog(`fsPromises.${methodName} SKIP (re-entrancy) path=${pathString}`);
+        return original.call(module, path, ...args);
+      }
 
       self.eventReporter.intercept(operation, pathString);
 
       // Check policy
       await self.checkPolicy(operation, pathString);
+      debugLog(`fsPromises.${methodName} policy OK path=${pathString}`);
 
       return original.call(module, path, ...args);
     });

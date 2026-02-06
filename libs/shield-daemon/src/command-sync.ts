@@ -16,7 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { PolicyConfig, SystemState } from '@agenshield/ipc';
-import { PROXIED_COMMANDS } from '@agenshield/sandbox';
+import { PROXIED_COMMANDS, BASIC_SYSTEM_COMMANDS } from '@agenshield/sandbox';
 
 interface Logger {
   warn(msg: string, ...args: unknown[]): void;
@@ -40,6 +40,15 @@ const BIN_SEARCH_DIRS = [
 
 /** All proxied commands that get wrapper shims (from sandbox canonical list) */
 const ALL_PROXIED_COMMANDS = [...PROXIED_COMMANDS];
+
+/** Basic system commands (ls, cat, etc.) that are symlinked to real binaries - never overwrite */
+const BASIC_SYSTEM_COMMANDS_SET = new Set(BASIC_SYSTEM_COMMANDS);
+
+/** Specialized wrappers (in WRAPPER_DEFINITIONS but not PROXIED_COMMANDS) - never remove */
+const SPECIALIZED_WRAPPER_COMMANDS = new Set(['node', 'python', 'python3']);
+
+/** Set of all predefined proxied commands for O(1) lookup */
+const PROXIED_COMMANDS_SET = new Set<string>(ALL_PROXIED_COMMANDS);
 
 interface AllowedCommand {
   name: string;
@@ -102,6 +111,22 @@ function resolveCommandPaths(name: string): string[] {
  */
 function extractCommandName(pattern: string): string {
   return pattern.trim().split(/\s+/)[0];
+}
+
+/**
+ * Extract unique command names from enabled allow+command policies.
+ */
+function extractPolicyCommandNames(policies: PolicyConfig[]): Set<string> {
+  const names = new Set<string>();
+  for (const p of policies) {
+    if (p.target === 'command' && p.action === 'allow' && p.enabled) {
+      for (const pattern of p.patterns) {
+        const name = extractCommandName(pattern);
+        if (name) names.add(name);
+      }
+    }
+  }
+  return names;
 }
 
 /**
@@ -186,7 +211,7 @@ function generateFallbackWrapper(cmd: string): string {
  * Prefers symlinks to shield-exec when available, falls back to bash wrapper
  * scripts that route through shield-client.
  */
-function installWrappersInDir(binDir: string, log: Logger): void {
+function installWrappersInDir(binDir: string, log: Logger, policyCommands?: Set<string>): void {
   const shieldExecPath = '/opt/agenshield/bin/shield-exec';
 
   if (!fs.existsSync(binDir)) {
@@ -203,6 +228,7 @@ function installWrappersInDir(binDir: string, log: Logger): void {
     log.warn('[command-sync] shield-exec not found, using bash wrapper fallback');
   }
 
+  // Install predefined proxied command wrappers
   for (const cmd of ALL_PROXIED_COMMANDS) {
     const wrapperPath = path.join(binDir, cmd);
     if (fs.existsSync(wrapperPath)) {
@@ -226,6 +252,83 @@ function installWrappersInDir(binDir: string, log: Logger): void {
       log.warn(`[command-sync] cannot write wrapper for ${cmd}`);
     }
   }
+
+  // Install dynamic wrappers for policy-managed commands not in predefined lists
+  if (policyCommands) {
+    for (const cmd of policyCommands) {
+      if (PROXIED_COMMANDS_SET.has(cmd)) continue;
+      if (BASIC_SYSTEM_COMMANDS_SET.has(cmd)) continue;
+      if (SPECIALIZED_WRAPPER_COMMANDS.has(cmd)) continue;
+
+      const wrapperPath = path.join(binDir, cmd);
+      if (fs.existsSync(wrapperPath)) continue;
+
+      if (hasShieldExec) {
+        try {
+          fs.symlinkSync(shieldExecPath, wrapperPath);
+          log.info(`[command-sync] installed dynamic wrapper (symlink): ${cmd}`);
+          continue;
+        } catch {
+          log.warn(`[command-sync] cannot symlink ${cmd}, falling back to bash wrapper`);
+        }
+      }
+
+      try {
+        fs.writeFileSync(wrapperPath, generateFallbackWrapper(cmd), { mode: 0o755 });
+        log.info(`[command-sync] installed dynamic wrapper (bash): ${cmd}`);
+      } catch {
+        log.warn(`[command-sync] cannot write dynamic wrapper for ${cmd}`);
+      }
+    }
+  }
+}
+
+/**
+ * Remove dynamic wrappers for commands that are no longer in any policy.
+ * Only removes files that match dynamic wrapper signatures (symlink to
+ * shield-exec, or bash script with auto-generated marker).
+ */
+function cleanupStaleWrappers(binDir: string, policyCommands: Set<string>, log: Logger): void {
+  const shieldExecPath = '/opt/agenshield/bin/shield-exec';
+
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(binDir);
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    // Never touch predefined, specialized, or basic system commands
+    if (PROXIED_COMMANDS_SET.has(entry)) continue;
+    if (SPECIALIZED_WRAPPER_COMMANDS.has(entry)) continue;
+    if (BASIC_SYSTEM_COMMANDS_SET.has(entry)) continue;
+
+    // If still in active policies, keep it
+    if (policyCommands.has(entry)) continue;
+
+    const wrapperPath = path.join(binDir, entry);
+
+    // Only remove if it matches a dynamic wrapper we created
+    try {
+      const stat = fs.lstatSync(wrapperPath);
+      if (stat.isSymbolicLink()) {
+        const target = fs.readlinkSync(wrapperPath);
+        if (target === shieldExecPath) {
+          fs.unlinkSync(wrapperPath);
+          log.info(`[command-sync] removed stale dynamic wrapper (symlink): ${entry}`);
+        }
+      } else if (stat.isFile()) {
+        const content = fs.readFileSync(wrapperPath, 'utf-8');
+        if (content.includes('shield-client exec') && content.includes('AgenShield proxy (auto-generated)')) {
+          fs.unlinkSync(wrapperPath);
+          log.info(`[command-sync] removed stale dynamic wrapper (bash): ${entry}`);
+        }
+      }
+    } catch {
+      // Can't inspect — skip
+    }
+  }
 }
 
 /**
@@ -239,6 +342,7 @@ function installWrappersInDir(binDir: string, log: Logger): void {
 export function ensureWrappersInstalled(
   state: SystemState,
   logger?: Logger,
+  policyCommands?: Set<string>,
 ): void {
   const log = logger ?? noop;
 
@@ -250,14 +354,20 @@ export function ensureWrappersInstalled(
 
   const agentBinDir = path.join(agentUser.homeDir, 'bin');
   log.info(`[command-sync] ensuring wrappers in agent bin: ${agentBinDir}`);
-  installWrappersInDir(agentBinDir, log);
+  installWrappersInDir(agentBinDir, log, policyCommands);
+  if (policyCommands) {
+    cleanupStaleWrappers(agentBinDir, policyCommands, log);
+  }
 
   // Also install in AGENSHIELD_AGENT_HOME if set and different
   const agentHomeEnv = process.env['AGENSHIELD_AGENT_HOME'];
   if (agentHomeEnv && agentHomeEnv !== agentUser.homeDir) {
     const envBinDir = path.join(agentHomeEnv, 'bin');
     log.info(`[command-sync] ensuring wrappers in env agent bin: ${envBinDir}`);
-    installWrappersInDir(envBinDir, log);
+    installWrappersInDir(envBinDir, log, policyCommands);
+    if (policyCommands) {
+      cleanupStaleWrappers(envBinDir, policyCommands, log);
+    }
   }
 }
 
@@ -270,6 +380,7 @@ export function syncCommandPoliciesAndWrappers(
   state: SystemState,
   logger?: Logger,
 ): void {
+  const policyCommands = extractPolicyCommandNames(policies);
   syncCommandPolicies(policies, logger);
-  ensureWrappersInstalled(state, logger);
+  ensureWrappersInstalled(state, logger, policyCommands);
 }

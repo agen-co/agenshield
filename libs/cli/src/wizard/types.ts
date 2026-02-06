@@ -319,7 +319,7 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
   {
     id: 'install-wrappers',
     name: 'Install Wrappers',
-    description: 'Install command wrappers to agent home bin directory',
+    description: 'Install command wrappers to agent home bin directory (this may take up to a minute)',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['create-directories'],
@@ -351,7 +351,7 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
   {
     id: 'setup-launchdaemon',
     name: 'Setup LaunchDaemon',
-    description: 'Create and load launchd plist',
+    description: 'Create and load launchd plist (this may take up to a minute)',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['install-broker', 'install-daemon-config'],

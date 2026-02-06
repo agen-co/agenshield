@@ -54,7 +54,7 @@ export function createConfig(overrides?: Partial<InterceptorConfig>): Intercepto
     interceptFetch: env['AGENSHIELD_INTERCEPT_FETCH'] !== 'false',
     interceptHttp: env['AGENSHIELD_INTERCEPT_HTTP'] !== 'false',
     interceptWs: env['AGENSHIELD_INTERCEPT_WS'] !== 'false',
-    interceptFs: env['AGENSHIELD_INTERCEPT_FS'] !== 'false',
+    interceptFs: false,
     interceptExec: env['AGENSHIELD_INTERCEPT_EXEC'] !== 'false',
     timeout: parseInt(env['AGENSHIELD_TIMEOUT'] || '30000', 10),
     ...overrides,

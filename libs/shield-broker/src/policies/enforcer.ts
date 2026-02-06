@@ -200,7 +200,16 @@ export class PolicyEnforcer {
         return constraintResult;
       }
 
-      // Default action
+      // For operations with positive constraints (file paths, network hosts),
+      // passing constraints means the operation is explicitly allowed
+      if (['file_read', 'file_write', 'file_list'].includes(operation) && this.policies.fsConstraints) {
+        return { allowed: true, reason: 'Allowed by file system constraints' };
+      }
+      if (operation === 'http_request' && this.policies.networkConstraints) {
+        return { allowed: true, reason: 'Allowed by network constraints' };
+      }
+
+      // Default action (for unconstrained operations like exec)
       return {
         allowed: this.policies.defaultAction === 'allow',
         reason:

@@ -308,7 +308,6 @@ export AGENSHIELD_HTTP_PORT="${config.httpPort}"
 export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_EXEC=true
-export AGENSHIELD_INTERCEPT_FS=true
 
 # Find node - prefer copied binary, then homebrew, then system
 if [ -x "/opt/agenshield/bin/node-bin" ]; then
@@ -876,7 +875,6 @@ export AGENSHIELD_HTTP_PORT="${wrapperConfig.httpPort}"
 export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_EXEC=true
-export AGENSHIELD_INTERCEPT_FS=true
 if [ -x "/opt/agenshield/bin/node-bin" ]; then
   exec /opt/agenshield/bin/node-bin "$@"
 elif [ -x "/opt/homebrew/bin/node" ]; then

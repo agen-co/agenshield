@@ -64,16 +64,16 @@ export async function forwardPolicyToDaemon(
 
     const result = json.result;
 
-    // Only trust explicit user policy matches (must have policyId)
-    if (result.allowed && result.policyId) {
+    // Trust explicit user policy matches (must have policyId) — both allow and deny
+    if (result.policyId) {
       return {
-        allowed: true,
+        allowed: !!result.allowed,
         policyId: result.policyId,
         reason: result.reason,
       };
     }
 
-    // Daemon default-allow (no policyId) or deny — keep broker denial
+    // Daemon default-allow (no policyId) — don't override broker's decision
     return null;
   } catch {
     // Daemon unreachable or timeout — keep broker denial

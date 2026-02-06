@@ -68,35 +68,33 @@ export async function handlePolicyCheck(
   // Evaluate the inner operation against broker policies
   const result = await deps.policyEnforcer.check(operation, checkParams, context);
 
-  // If broker allows, return immediately
   if (result.allowed) {
+    // Broker allowed — return immediately (fast path).
+    // This matches the pattern in server.ts / http-fallback.ts which only
+    // forward to daemon on broker denial.
     return {
       success: true,
       data: {
-        allowed: result.allowed,
+        allowed: true,
         policyId: result.policyId,
         reason: result.reason,
       },
     };
   }
 
-  // Broker denied — forward to daemon RPC for user-defined policies
+  // Broker denied — forward to daemon to check for user-defined allow override
   const daemonUrl = deps.daemonUrl || DEFAULT_DAEMON_URL;
   const daemonResult = await forwardPolicyToDaemon(operation, target || '', daemonUrl);
 
-  if (daemonResult) {
-    // Daemon found an explicit user policy that allows this
-    return {
-      success: true,
-      data: daemonResult,
-    };
+  if (daemonResult && daemonResult.allowed) {
+    return { success: true, data: daemonResult };
   }
 
   // Keep broker denial
   return {
     success: true,
     data: {
-      allowed: result.allowed,
+      allowed: false,
       policyId: result.policyId,
       reason: result.reason,
     },

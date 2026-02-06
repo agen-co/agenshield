@@ -76,6 +76,17 @@ async function checkExistingInstallation(options: { skipConfirm?: boolean }): Pr
   console.log('  \x1b[32mExisting installation removed.\x1b[0m');
   console.log('  Proceeding with fresh setup...');
   console.log('');
+
+  // Re-exec the setup command so it starts fresh after uninstall.
+  // All original flags (-v, --target, --skip-confirm, etc.) carry over
+  // via process.argv. The re-exec'd process will call canUninstall()
+  // again, which returns hasBackup=false (already removed), so no loop.
+  const { spawnSync } = await import('node:child_process');
+  const child = spawnSync(process.execPath, [...process.execArgv, ...process.argv.slice(1)], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+  process.exit(child.status ?? 1);
 }
 
 /**

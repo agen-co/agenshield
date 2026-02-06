@@ -13,7 +13,20 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 
-const HOME = os.homedir();
+/**
+ * Resolve home directory, accounting for sudo.
+ * Under sudo, os.homedir() returns /var/root; use SUDO_USER to find the real user.
+ */
+function getHome(): string {
+  const sudoUser = process.env['SUDO_USER'];
+  if (sudoUser) {
+    const userHome = path.join('/Users', sudoUser);
+    if (fs.existsSync(userHome)) return userHome;
+  }
+  return os.homedir();
+}
+
+const HOME = getHome();
 
 // ============================================================================
 // Types

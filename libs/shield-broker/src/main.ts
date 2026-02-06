@@ -9,6 +9,7 @@ import { UnixSocketServer } from './server.js';
 import { HttpFallbackServer } from './http-fallback.js';
 import { PolicyEnforcer } from './policies/enforcer.js';
 import { getDefaultPolicies } from './policies/builtin.js';
+import { CommandAllowlist } from './policies/command-allowlist.js';
 import { AuditLogger } from './audit/logger.js';
 import { SecretVault } from './secrets/vault.js';
 import type { BrokerConfig } from './types.js';
@@ -209,6 +210,10 @@ async function main(): Promise<void> {
     vaultPath: '/etc/agenshield/vault.enc',
   });
 
+  const commandAllowlist = new CommandAllowlist(
+    '/opt/agenshield/config/allowed-commands.json'
+  );
+
   // Ensure proxied command wrappers exist in agent's bin directory
   if (config.agentHome) {
     ensureProxiedCommandWrappers(path.join(config.agentHome, 'bin'));
@@ -220,6 +225,7 @@ async function main(): Promise<void> {
     policyEnforcer,
     auditLogger,
     secretVault,
+    commandAllowlist,
   });
 
   await socketServer.start();
@@ -232,6 +238,7 @@ async function main(): Promise<void> {
       config,
       policyEnforcer,
       auditLogger,
+      commandAllowlist,
     });
 
     await httpServer.start();

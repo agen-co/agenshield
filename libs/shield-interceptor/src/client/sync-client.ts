@@ -9,6 +9,7 @@ import { execSync as nodeExecSync, spawnSync } from 'node:child_process';
 import * as net from 'node:net';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { debugLog } from '../debug-log.js';
 
 // Capture original function references BEFORE any interceptor can patch them.
 // These run at module load time (during require()), before installInterceptors().
@@ -43,12 +44,18 @@ export class SyncClient {
    * Send a synchronous request to the broker
    */
   request<T>(method: string, params: Record<string, unknown>): T {
+    debugLog(`syncClient.request START method=${method}`);
     // Try socket first using a synchronous approach
     try {
-      return this.socketRequestSync<T>(method, params);
-    } catch {
+      const result = this.socketRequestSync<T>(method, params);
+      debugLog(`syncClient.request socket OK method=${method}`);
+      return result;
+    } catch (socketErr) {
+      debugLog(`syncClient.request socket FAILED: ${(socketErr as Error).message}, trying HTTP`);
       // Fall back to HTTP via subprocess
-      return this.httpRequestSync<T>(method, params);
+      const result = this.httpRequestSync<T>(method, params);
+      debugLog(`syncClient.request http OK method=${method}`);
+      return result;
     }
   }
 
@@ -106,15 +113,21 @@ export class SyncClient {
       // Run the script synchronously using the unintercepted node binary.
       // We must use the absolute path to node-bin to avoid the wrapper that
       // sets NODE_OPTIONS (which loads the interceptor → infinite recursion).
-      _spawnSync('/opt/agenshield/bin/node-bin', ['-e', script], {
+      debugLog(`syncClient.socketRequestSync _spawnSync START node-bin method=${method}`);
+      const spawnResult = _spawnSync('/opt/agenshield/bin/node-bin', ['-e', script], {
         timeout: this.timeout + 1000,
         stdio: 'ignore',
         env: { ...process.env, NODE_OPTIONS: '' },
       });
+      debugLog(`syncClient.socketRequestSync _spawnSync DONE status=${spawnResult?.status} signal=${spawnResult?.signal} error=${spawnResult?.error?.message || 'none'}`);
 
       // Read the response (use captured originals to avoid interception)
-      if (_existsSync(tmpFile)) {
-        const response = JSON.parse(_readFileSync(tmpFile, 'utf-8'));
+      const tmpExists = _existsSync(tmpFile);
+      debugLog(`syncClient.socketRequestSync tmpFile exists=${tmpExists}`);
+      if (tmpExists) {
+        const raw = _readFileSync(tmpFile, 'utf-8');
+        debugLog(`syncClient.socketRequestSync response raw=${raw.slice(0, 200)}`);
+        const response = JSON.parse(raw);
         _unlinkSync(tmpFile);
 
         if (response.error) {
@@ -157,6 +170,7 @@ export class SyncClient {
     try {
       // Use curl for synchronous HTTP request (use captured original to avoid interception).
       // Absolute path avoids the guarded shell's restricted PATH ($HOME/bin).
+      debugLog(`syncClient.httpRequestSync curl START url=${url} method=${method}`);
       const result = _execSync(
         `/usr/bin/curl -s -X POST -H "Content-Type: application/json" -d '${request.replace(/'/g, "\\'")}' "${url}"`,
         {
@@ -164,6 +178,7 @@ export class SyncClient {
           encoding: 'utf-8',
         }
       );
+      debugLog(`syncClient.httpRequestSync curl DONE len=${result?.length}`);
 
       const response = JSON.parse(result);
 
@@ -173,6 +188,7 @@ export class SyncClient {
 
       return response.result as T;
     } catch (error) {
+      debugLog(`syncClient.httpRequestSync FAILED: ${(error as Error).message}`);
       throw new Error(`Sync request failed: ${(error as Error).message}`);
     }
   }

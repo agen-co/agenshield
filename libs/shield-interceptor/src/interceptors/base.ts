@@ -8,6 +8,7 @@ import type { AsyncClient } from '../client/http-client.js';
 import type { PolicyEvaluator } from '../policy/evaluator.js';
 import type { EventReporter } from '../events/reporter.js';
 import { PolicyDeniedError, BrokerUnavailableError } from '../errors.js';
+import { debugLog } from '../debug-log.js';
 
 export interface BaseInterceptorOptions {
   client: AsyncClient;
@@ -44,7 +45,9 @@ export abstract class BaseInterceptor {
         return false;
       }
       const port = parsed.port;
-      return port === String(this.brokerHttpPort) || port === '5200';
+      const result = port === String(this.brokerHttpPort) || port === '5200';
+      debugLog(`isBrokerUrl url=${url} hostname=${parsed.hostname} port=${port} brokerPort=${this.brokerHttpPort} result=${result}`);
+      return result;
     } catch {
       return false;
     }
@@ -75,11 +78,13 @@ export abstract class BaseInterceptor {
     target: string
   ): Promise<void> {
     const startTime = Date.now();
+    debugLog(`base.checkPolicy START op=${operation} target=${target}`);
 
     try {
       this.eventReporter.intercept(operation, target);
 
       const result = await this.policyEvaluator.check(operation, target);
+      debugLog(`base.checkPolicy evaluator result op=${operation} target=${target} allowed=${result.allowed} policyId=${result.policyId}`);
 
       if (!result.allowed) {
         this.eventReporter.deny(operation, target, result.policyId, result.reason);
@@ -98,9 +103,11 @@ export abstract class BaseInterceptor {
       );
     } catch (error) {
       if (error instanceof PolicyDeniedError) {
+        debugLog(`base.checkPolicy DENIED op=${operation} target=${target} reason=${(error as Error).message}`);
         throw error;
       }
 
+      debugLog(`base.checkPolicy ERROR op=${operation} target=${target} error=${(error as Error).message} failOpen=${this.failOpen}`);
       // Handle broker unavailable
       if (this.failOpen) {
         this.eventReporter.error(

@@ -69,6 +69,8 @@ const BUILTIN_COMMANDS: Record<string, string[]> = {
 export class CommandAllowlist {
   private configPath: string;
   private dynamicCommands: Map<string, AllowedCommand> = new Map();
+  private lastLoad: number = 0;
+  private reloadInterval: number = 30000; // 30 seconds
 
   constructor(configPath: string) {
     this.configPath = configPath;
@@ -80,6 +82,7 @@ export class CommandAllowlist {
    */
   load(): void {
     if (!fs.existsSync(this.configPath)) {
+      this.lastLoad = Date.now();
       return;
     }
 
@@ -91,8 +94,19 @@ export class CommandAllowlist {
       for (const cmd of config.commands || []) {
         this.dynamicCommands.set(cmd.name, cmd);
       }
+      this.lastLoad = Date.now();
     } catch {
       // Ignore parse errors, keep existing state
+      this.lastLoad = Date.now();
+    }
+  }
+
+  /**
+   * Reload dynamic commands if stale
+   */
+  private maybeReload(): void {
+    if (Date.now() - this.lastLoad > this.reloadInterval) {
+      this.load();
     }
   }
 
@@ -181,20 +195,23 @@ export class CommandAllowlist {
   /**
    * Resolve a command name to an absolute path.
    * Checks builtin commands first, then dynamic commands.
+   * Validates that the resolved path exists on disk.
    * Returns null if the command is not allowed.
    */
   resolve(command: string): string | null {
-    // If command is already an absolute path, check it's in an allowed list
+    this.maybeReload();
+
+    // If command is already an absolute path, check it's in an allowed list and exists
     if (path.isAbsolute(command)) {
       // Check builtins
       for (const paths of Object.values(BUILTIN_COMMANDS)) {
-        if (paths.includes(command)) {
+        if (paths.includes(command) && fs.existsSync(command)) {
           return command;
         }
       }
       // Check dynamic
       for (const cmd of this.dynamicCommands.values()) {
-        if (cmd.paths.includes(command)) {
+        if (cmd.paths.includes(command) && fs.existsSync(command)) {
           return command;
         }
       }
@@ -204,16 +221,21 @@ export class CommandAllowlist {
     // Look up by command basename
     const basename = path.basename(command);
 
-    // Check builtins first
+    // Check builtins first - validate existence
     const builtinPaths = BUILTIN_COMMANDS[basename];
     if (builtinPaths) {
-      return builtinPaths[0];
+      for (const p of builtinPaths) {
+        if (fs.existsSync(p)) return p;
+      }
+      // No builtin path exists on disk, fall through to dynamic commands
     }
 
     // Check dynamic commands
     const dynamicCmd = this.dynamicCommands.get(basename);
     if (dynamicCmd && dynamicCmd.paths.length > 0) {
-      return dynamicCmd.paths[0];
+      for (const p of dynamicCmd.paths) {
+        if (fs.existsSync(p)) return p;
+      }
     }
 
     return null;

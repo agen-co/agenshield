@@ -41,9 +41,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
           const state = loadState();
 
           // Filesystem ACLs
-          const wsGroup = state.groups.find((g) => g.type === 'workspace');
-          if (wsGroup) {
-            syncFilesystemPolicyAcls(oldPolicies, updated.policies, wsGroup.name, app.log);
+          const agentUser = state.users.find((u) => u.type === 'agent');
+          if (agentUser) {
+            syncFilesystemPolicyAcls(oldPolicies, updated.policies, agentUser.username, app.log);
           }
 
           // Command allowlist + wrappers
@@ -72,9 +72,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       // Revoke all policy enforcement before wiping config
       const oldConfig = loadConfig();
       const state = loadState();
-      const wsGroup = state.groups.find((g) => g.type === 'workspace');
-      if (wsGroup) {
-        syncFilesystemPolicyAcls(oldConfig.policies, [], wsGroup.name, app.log);
+      const agentUser = state.users.find((u) => u.type === 'agent');
+      if (agentUser) {
+        syncFilesystemPolicyAcls(oldConfig.policies, [], agentUser.username, app.log);
       }
       // Clear command allowlist (empty policies = empty allowlist)
       syncCommandPoliciesAndWrappers([], state, app.log);

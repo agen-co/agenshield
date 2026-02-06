@@ -5,6 +5,7 @@
  */
 
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
+import { debugLog } from '../debug-log.js';
 
 export class FetchInterceptor extends BaseInterceptor {
   private originalFetch: typeof fetch | null = null;
@@ -51,13 +52,18 @@ export class FetchInterceptor extends BaseInterceptor {
       url = input.url;
     }
 
+    const isBroker = this.isBrokerUrl(url);
+    debugLog(`fetch ENTER url=${url} isBroker=${isBroker}`);
+
     // Skip localhost broker communication
-    if (this.isBrokerUrl(url)) {
+    if (isBroker) {
       return this.originalFetch(input, init);
     }
 
     // Check policy
+    debugLog(`fetch checkPolicy START url=${url}`);
     await this.checkPolicy('http_request', url);
+    debugLog(`fetch checkPolicy DONE url=${url}`);
 
     // Make request through broker
     try {
@@ -109,6 +115,7 @@ export class FetchInterceptor extends BaseInterceptor {
         headers: responseHeaders,
       });
     } catch (error) {
+      debugLog(`fetch ERROR url=${url} error=${(error as Error).message}`);
       // Re-throw policy errors
       if ((error as Error).name === 'PolicyDeniedError') {
         throw error;
@@ -116,6 +123,7 @@ export class FetchInterceptor extends BaseInterceptor {
 
       // Fall back to direct fetch if broker fails and failOpen is true
       if (this.failOpen) {
+        debugLog(`fetch failOpen fallback url=${url}`);
         return this.originalFetch(input, init);
       }
 

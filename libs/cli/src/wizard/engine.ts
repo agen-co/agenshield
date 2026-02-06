@@ -409,7 +409,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     const directories = {
       binDir: `${agentUser.home}/bin`,
       wrappersDir: `${agentUser.home}/bin`,
-      configDir: context.pathsConfig.configDir,
+      configDir: `${agentUser.home}/.openclaw`,
       packageDir: `${agentUser.home}/.openclaw-pkg`,
       npmDir: `${agentUser.home}/.npm`,
       socketDir: context.pathsConfig.socketDir,
@@ -848,6 +848,19 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     const result = await context.preset.migrate(migrationContext);
     if (!result.success) {
       return { success: false, error: result.error };
+    }
+
+    // Re-apply correct ownership for .openclaw (broker-owned, setgid per directories.ts)
+    // Migration may have set agent ownership; .openclaw must be broker-writable.
+    try {
+      const { execSync } = await import('node:child_process');
+      const agentConfigDir = `${context.userConfig.agentUser.home}/.openclaw`;
+      const brokerUser = context.userConfig.brokerUser.username;
+      const socketGroup = context.userConfig.groups.socket.name;
+      execSync(`sudo chown -R ${brokerUser}:${socketGroup} "${agentConfigDir}"`, { encoding: 'utf-8', stdio: 'pipe' });
+      execSync(`sudo chmod 2775 "${agentConfigDir}"`, { encoding: 'utf-8', stdio: 'pipe' });
+    } catch (err) {
+      logVerbose(`Warning: failed to fix .openclaw ownership: ${(err as Error).message}`, context);
     }
 
     context.migration = {

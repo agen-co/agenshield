@@ -1,7 +1,7 @@
 /**
  * macOS ACL utilities for filesystem policies.
  *
- * Uses `chmod +a / -a` to grant/revoke group-level ACLs on paths
+ * Uses `chmod +a / -a` to grant/revoke user-level ACLs on paths
  * derived from policy patterns. Failures are logged but never thrown.
  */
 
@@ -72,16 +72,16 @@ export function operationsToAclPerms(operations: string[]): string {
 }
 
 /**
- * Add a group ACL entry to a path.
+ * Add a user ACL entry to a path.
  */
-export function addGroupAcl(targetPath: string, groupName: string, permissions: string, log: Logger = noop): void {
+export function addUserAcl(targetPath: string, userName: string, permissions: string, log: Logger = noop): void {
   try {
     if (!fs.existsSync(targetPath)) {
       log.warn(`[acl] skipping non-existent path: ${targetPath}`);
       return;
     }
     execSync(
-      `sudo chmod +a "group:${groupName} allow ${permissions}" "${targetPath}"`,
+      `sudo chmod +a "user:${userName} allow ${permissions}" "${targetPath}"`,
       { stdio: 'pipe' },
     );
   } catch (err) {
@@ -90,12 +90,13 @@ export function addGroupAcl(targetPath: string, groupName: string, permissions: 
 }
 
 /**
- * Remove all ACL entries for a group from a path.
+ * Remove all ACL entries for a user from a path.
  *
- * Reads current ACL entries via `ls -le`, finds entries matching the group,
- * and removes them by index (highest-first so indices stay valid).
+ * Reads current ACL entries via `ls -le`, finds entries matching the user
+ * (both allow and deny), and removes them by index (highest-first so indices
+ * stay valid). This ensures a clean slate before reapplying permissions.
  */
-export function removeGroupAcl(targetPath: string, groupName: string, log: Logger = noop): void {
+export function removeUserAcl(targetPath: string, userName: string, log: Logger = noop): void {
   try {
     if (!fs.existsSync(targetPath)) {
       log.warn(`[acl] skipping non-existent path: ${targetPath}`);
@@ -107,11 +108,12 @@ export function removeGroupAcl(targetPath: string, groupName: string, log: Logge
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    // Parse ACL entries — lines like " 0: group:mygroup allow read,write"
+    // Parse ACL entries — lines like " 0: user:ash_default_agent allow read,write"
+    // Match both allow and deny entries to get a clean slate
     const indices: number[] = [];
     for (const line of output.split('\n')) {
-      const match = line.match(/^\s*(\d+):\s+group:(\S+)\s+allow/);
-      if (match && match[2] === groupName) {
+      const match = line.match(/^\s*(\d+):\s+user:(\S+)\s+/);
+      if (match && match[2] === userName) {
         indices.push(Number(match[1]));
       }
     }
@@ -170,8 +172,8 @@ function mergePerms(a: string, b: string): string {
 function computeAclMap(policies: PolicyConfig[]): Map<string, string> {
   const aclMap = new Map<string, string>();
 
-  // Pass 1 — direct targets
-  for (const policy of policies) {
+  // Pass 1 — direct targets (only ALLOW policies get ACLs; deny is enforced at runtime)
+  for (const policy of policies.filter(p => p.action === 'allow')) {
     const perms = operationsToAclPerms(policy.operations ?? []);
     if (!perms) continue;
     for (const pattern of policy.patterns) {
@@ -181,8 +183,8 @@ function computeAclMap(policies: PolicyConfig[]): Map<string, string> {
     }
   }
 
-  // Pass 2 — traversal ancestors
-  for (const policy of policies) {
+  // Pass 2 — traversal ancestors (only ALLOW policies)
+  for (const policy of policies.filter(p => p.action === 'allow')) {
     const perms = operationsToAclPerms(policy.operations ?? []);
     if (!perms) continue;
     for (const pattern of policy.patterns) {
@@ -201,15 +203,17 @@ function computeAclMap(policies: PolicyConfig[]): Map<string, string> {
 /**
  * Synchronise filesystem policy ACLs after a config change.
  *
- * Compares old and new policy arrays, and for filesystem-target policies:
- *   - Removed policies → revoke ACLs for each pattern
- *   - Added policies   → apply ACLs for each pattern
- *   - Changed policies → revoke old patterns, apply new ones
+ * For every path in the union of old and new ACL maps:
+ *   1. Remove all existing user ACLs (clean slate)
+ *   2. Reapply permissions if the path is in the new map
+ *
+ * This "wipe then reapply" strategy avoids stale permission accumulation
+ * and the deny+allow conflict where layering ACLs produces wrong results.
  */
 export function syncFilesystemPolicyAcls(
   oldPolicies: PolicyConfig[],
   newPolicies: PolicyConfig[],
-  groupName: string,
+  userName: string,
   logger?: Logger,
 ): void {
   const log = logger ?? noop;
@@ -220,15 +224,17 @@ export function syncFilesystemPolicyAcls(
   const oldAclMap = computeAclMap(oldFs);
   const newAclMap = computeAclMap(newFs);
 
-  // Phase 1 — Remove ACLs for paths no longer needed
-  for (const oldPath of oldAclMap.keys()) {
-    if (!newAclMap.has(oldPath)) {
-      removeGroupAcl(oldPath, groupName, log);
-    }
-  }
+  // Collect ALL paths that had or will have ACLs
+  const allPaths = new Set([...oldAclMap.keys(), ...newAclMap.keys()]);
 
-  // Phase 2 — Add/update ACLs for current paths
-  for (const [targetPath, perms] of newAclMap) {
-    addGroupAcl(targetPath, groupName, perms, log);
+  for (const targetPath of allPaths) {
+    // Step 1: Remove all existing ACLs for this user on this path
+    removeUserAcl(targetPath, userName, log);
+
+    // Step 2: Reapply if the path is in the new map
+    const newPerms = newAclMap.get(targetPath);
+    if (newPerms) {
+      addUserAcl(targetPath, userName, newPerms, log);
+    }
   }
 }

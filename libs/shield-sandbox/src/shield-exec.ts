@@ -43,16 +43,12 @@ interface JsonRpcResponse {
   jsonrpc: '2.0';
   id: string;
   result?: {
-    success: boolean;
-    data?: {
-      exitCode?: number;
-      stdout?: string;
-      stderr?: string;
-      status?: number;
-      body?: string;
-      headers?: Record<string, string>;
-    };
-    error?: { code: number; message: string };
+    exitCode?: number;
+    stdout?: string;
+    stderr?: string;
+    status?: number;
+    body?: string;
+    headers?: Record<string, string>;
   };
   error?: { code: number; message: string };
 }
@@ -151,19 +147,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    const result = response.result;
-    if (!result) {
-      process.stderr.write('Error: Empty response from broker\n');
-      process.exit(1);
-    }
-
-    if (!result.success) {
-      const errMsg = result.error?.message || 'Unknown error';
-      process.stderr.write(`Error: ${errMsg}\n`);
-      process.exit(1);
-    }
-
-    const data = result.data;
+    const data = response.result;
     if (!data) {
       process.exit(0);
     }
@@ -259,13 +243,7 @@ async function main() {
       process.stderr.write('Error: ' + response.error.message + '\\n');
       process.exit(1);
     }
-    const result = response.result;
-    if (!result) { process.stderr.write('Error: Empty response\\n'); process.exit(1); }
-    if (!result.success) {
-      process.stderr.write('Error: ' + (result.error?.message || 'Unknown error') + '\\n');
-      process.exit(1);
-    }
-    const data = result.data;
+    const data = response.result;
     if (!data) process.exit(0);
     if (data.stdout) process.stdout.write(data.stdout);
     if (data.stderr) process.stderr.write(data.stderr);
