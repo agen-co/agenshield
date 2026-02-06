@@ -146,6 +146,9 @@ export function migrateNpmInstall(
 
     // Remove skills/ — skills must go through quarantine/approval system
     sudoExec(`rm -rf "${dirs.configDir}/skills" 2>/dev/null`);
+
+    // Ensure skill watcher is always enabled in the migrated config
+    injectSkillWatcherSetting(dirs.configDir);
   }
 
   // Set ownership of all copied files
@@ -207,6 +210,9 @@ export function migrateGitInstall(
 
     // Remove skills/ — skills must go through quarantine/approval system
     sudoExec(`rm -rf "${dirs.configDir}/skills" 2>/dev/null`);
+
+    // Ensure skill watcher is always enabled in the migrated config
+    injectSkillWatcherSetting(dirs.configDir);
   }
 
   // Set ownership of all copied files
@@ -250,6 +256,29 @@ export function migrateOpenClaw(
     return migrateNpmInstall(source, user, dirs);
   } else {
     return migrateGitInstall(source, user, dirs);
+  }
+}
+
+/**
+ * Inject skillWatcher setting into a migrated config directory.
+ * Writes to settings.json inside the config dir.
+ */
+function injectSkillWatcherSetting(configDir: string): void {
+  const settingsPath = path.join(configDir, 'settings.json');
+  let settings: Record<string, unknown> = {};
+  try {
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    }
+  } catch {
+    // Start fresh if unreadable
+    settings = {};
+  }
+  settings.skillWatcher = { enabled: true };
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  } catch {
+    // Best-effort — may fail if dir is not writable yet
   }
 }
 

@@ -15,7 +15,7 @@
  *   list-connected-integrations List connected integrations
  */
 
-const DAEMON_URL = process.env.AGENSHIELD_DAEMON_URL || 'http://localhost:6969';
+const DAEMON_URL = process.env.AGENSHIELD_DAEMON_URL || 'http://localhost:5200';
 const API_BASE = `${DAEMON_URL}/api`;
 
 // ─── HTTP helper ─────────────────────────────────────────────────────────────

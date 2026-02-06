@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
 const PREFIX_FILE = '/tmp/agenshield-e2e-prefix.txt';
 const ROOT_DIR = resolve(__dirname, '../../../..');
 const CLI_PATH = resolve(ROOT_DIR, 'libs/cli/dist/src/cli.js');
-const DEFAULT_DAEMON_PORT = 6969;
+const DEFAULT_DAEMON_PORT = 5200;
 const DAEMON_BASE_URL = `http://localhost:${DEFAULT_DAEMON_PORT}`;
 
 export interface ExecResult {

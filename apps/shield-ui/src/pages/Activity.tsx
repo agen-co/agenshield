@@ -15,13 +15,7 @@ import {
 } from '@mui/material';
 import {
   Activity as ActivityIcon,
-  Globe,
-  ShieldAlert,
-  ArrowRightLeft,
-  ArrowUpRight,
-  Settings as SettingsIcon,
   Trash2,
-  Link2,
   ChevronRight,
 } from 'lucide-react';
 import { useTheme } from '@mui/material/styles';
@@ -34,9 +28,10 @@ import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
 import { EmptyState } from '../components/shared/EmptyState';
 import { useAuth } from '../context/AuthContext';
+import { getEventDisplay, resolveEventColor, EVENT_DISPLAY } from '../utils/eventDisplay';
 
 type TimeFilter = 'all' | '1h' | '6h' | '24h' | '7d';
-type TypeFilter = 'all' | 'api' | 'security' | 'broker' | 'config' | 'skills' | 'exec' | 'agenco';
+type TypeFilter = 'all' | 'api' | 'security' | 'broker' | 'config' | 'skills' | 'exec' | 'agenco' | 'wrappers' | 'process' | 'interceptor';
 
 const TIME_OPTIONS: { label: string; value: TimeFilter }[] = [
   { label: 'All Time', value: 'all' },
@@ -55,31 +50,10 @@ const TYPE_OPTIONS: { label: string; value: TypeFilter }[] = [
   { label: 'Skills', value: 'skills' },
   { label: 'Execution', value: 'exec' },
   { label: 'AgenCo', value: 'agenco' },
+  { label: 'Wrappers', value: 'wrappers' },
+  { label: 'Process', value: 'process' },
+  { label: 'Interceptor', value: 'interceptor' },
 ];
-
-const EVENT_DISPLAY: Record<string, { icon: React.ComponentType<{ size?: number }>; label: string; color: string }> = {
-  'api:request': { icon: Globe, label: 'API Request', color: 'primary' },
-  'api:outbound': { icon: ArrowUpRight, label: 'Outbound Request', color: 'info' },
-  'security:status': { icon: ShieldAlert, label: 'Security Status', color: 'warning' },
-  'security:alert': { icon: ShieldAlert, label: 'Security Alert', color: 'error' },
-  'broker:request': { icon: ArrowRightLeft, label: 'Broker Request', color: 'info' },
-  'broker:response': { icon: ArrowRightLeft, label: 'Broker Response', color: 'info' },
-  'config:changed': { icon: SettingsIcon, label: 'Config Changed', color: 'secondary' },
-  'skills:quarantined': { icon: ShieldAlert, label: 'Skill Quarantined', color: 'warning' },
-  'skills:approved': { icon: ShieldAlert, label: 'Skill Approved', color: 'success' },
-  'exec:monitored': { icon: Globe, label: 'Exec Monitored', color: 'info' },
-  'exec:denied': { icon: ShieldAlert, label: 'Exec Denied', color: 'error' },
-  'agenco:connected': { icon: Link2, label: 'AgenCo Connected', color: 'success' },
-  'agenco:disconnected': { icon: Link2, label: 'AgenCo Disconnected', color: 'error' },
-  'agenco:auth_required': { icon: Link2, label: 'Auth Required', color: 'warning' },
-  'agenco:auth_completed': { icon: Link2, label: 'Auth Completed', color: 'success' },
-  'agenco:tool_executed': { icon: Link2, label: 'Tool Executed', color: 'info' },
-  'agenco:error': { icon: Link2, label: 'AgenCo Error', color: 'error' },
-};
-
-function getEventDisplay(event: SSEEvent) {
-  return EVENT_DISPLAY[event.type] ?? { icon: Globe, label: event.type, color: 'primary' };
-}
 
 function getTimeThreshold(filter: TimeFilter): Date | null {
   if (filter === 'all') return null;
@@ -99,6 +73,13 @@ function getEventSummary(event: SSEEvent): string {
     const status = d.statusCode ?? '';
     const url = d.url ?? '';
     return `${ctx} [${status}] ${url}`;
+  }
+  if (event.type === 'interceptor:event') {
+    const d = event.data as Record<string, unknown>;
+    const operation = d.operation ?? '';
+    const target = d.target ?? '';
+    const type = d.type ?? '';
+    return `${operation} → ${target} [${type}]`;
   }
   return (event.data?.message as string) ??
     (event.data?.url as string) ??
@@ -170,17 +151,6 @@ export function Activity() {
   useEffect(() => {
     virtualizer.measure();
   }, [expandedIds, virtualizer]);
-
-  const colorForType = (color: string): string => {
-    switch (color) {
-      case 'error': return theme.palette.error.main;
-      case 'warning': return theme.palette.warning.main;
-      case 'success': return theme.palette.success.main;
-      case 'info': return theme.palette.info.main;
-      case 'secondary': return theme.palette.text.secondary;
-      default: return theme.palette.primary.main;
-    }
-  };
 
   return (
     <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
@@ -262,9 +232,9 @@ export function Activity() {
               <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
                 {virtualizer.getVirtualItems().map(virtualRow => {
                   const event = filteredEvents[virtualRow.index];
-                  const display = getEventDisplay(event);
+                  const display = getEventDisplay(event.type);
                   const IconComp = display.icon;
-                  const color = colorForType(display.color);
+                  const color = resolveEventColor(display.color, theme.palette);
                   const isExpanded = expandedIds.has(event.id);
 
                   return (

@@ -117,6 +117,7 @@ export const PROTECTED_ROUTES = [
   { method: 'PATCH', path: '/api/secrets' },
   { method: 'DELETE', path: '/api/secrets' },
   { method: 'POST', path: '/api/config/factory-reset' },
+  { method: 'POST', path: '/api/skills/install' },
 ];
 
 /**

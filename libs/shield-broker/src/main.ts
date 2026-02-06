@@ -36,12 +36,12 @@ function loadConfig(): BrokerConfig {
     socketPath:
       process.env['AGENSHIELD_SOCKET'] ||
       fileConfig.socketPath ||
-      '/var/run/agenshield.sock',
+      '/var/run/agenshield/agenshield.sock',
     httpEnabled:
       process.env['AGENSHIELD_HTTP_ENABLED'] !== 'false' &&
       (fileConfig.httpEnabled ?? true),
     httpPort: parseInt(
-      process.env['AGENSHIELD_HTTP_PORT'] || String(fileConfig.httpPort || 6969),
+      process.env['AGENSHIELD_HTTP_PORT'] || String(fileConfig.httpPort || 5201),
       10
     ),
     httpHost:
@@ -62,7 +62,7 @@ function loadConfig(): BrokerConfig {
     failOpen:
       process.env['AGENSHIELD_FAIL_OPEN'] === 'true' ||
       (fileConfig.failOpen ?? false),
-    socketMode: fileConfig.socketMode || 0o770,
+    socketMode: fileConfig.socketMode || 0o666,
     socketOwner: fileConfig.socketOwner || 'clawbroker',
     socketGroup: fileConfig.socketGroup || 'clawshield',
   };

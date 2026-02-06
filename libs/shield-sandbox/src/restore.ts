@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { InstallationBackup } from '@agenshield/ipc';
-import { BACKUP_CONFIG } from '@agenshield/ipc';
+import { BACKUP_CONFIG, DEFAULT_PORT } from '@agenshield/ipc';
 import { loadBackup, deleteBackup, restoreOriginalConfig } from './backup';
 import { deleteSandboxUser } from './macos';
 import { GUARDED_SHELL_PATH } from './guarded-shell';
@@ -29,6 +29,8 @@ function sudoExec(cmd: string): { success: boolean; output?: string; error?: str
 export type RestoreStep =
   | 'validate'
   | 'stop-daemon'
+  | 'stop-broker'
+  | 'kill-processes'
   | 'restore-config'
   | 'restore-package'
   | 'delete-user'
@@ -50,38 +52,152 @@ export interface RestoreResult {
 }
 
 /**
+ * Find daemon PID by port using lsof
+ * Fallback for manually started daemons without launchd
+ */
+function findDaemonPidByPort(port: number): number | null {
+  try {
+    const output = execSync(`lsof -ti :${port}`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 3000,
+    }).trim();
+    if (output) {
+      const pid = parseInt(output.split('\n')[0], 10);
+      if (!isNaN(pid)) return pid;
+    }
+  } catch {
+    // lsof failed or no process found
+  }
+  return null;
+}
+
+/**
  * Stop the AgenShield daemon
  */
 function stopDaemon(): RestoreProgress {
   const plistPath = '/Library/LaunchDaemons/com.agenshield.daemon.plist';
 
-  // Check if daemon plist exists
-  if (!fs.existsSync(plistPath)) {
+  // Check if daemon plist exists (launchd managed)
+  if (fs.existsSync(plistPath)) {
+    // Unload the daemon
+    const result = sudoExec(`launchctl unload "${plistPath}"`);
+    if (!result.success) {
+      // Not critical if it fails (might not be loaded)
+      return {
+        step: 'stop-daemon',
+        success: true,
+        message: 'Daemon stopped (or was not running)',
+      };
+    }
+
+    // Remove the plist
+    sudoExec(`rm -f "${plistPath}"`);
+
     return {
       step: 'stop-daemon',
       success: true,
-      message: 'Daemon not installed (plist not found)',
+      message: 'Daemon stopped and plist removed',
+    };
+  }
+
+  // Fallback: kill manually started daemon by port
+  const pid = findDaemonPidByPort(DEFAULT_PORT);
+
+  if (pid) {
+    try {
+      process.kill(pid, 'SIGTERM');
+      return {
+        step: 'stop-daemon',
+        success: true,
+        message: `Daemon stopped (PID ${pid}, via port lookup)`,
+      };
+    } catch (err) {
+      // ESRCH = process doesn't exist, EPERM = permission denied
+      const errCode = (err as NodeJS.ErrnoException).code;
+      if (errCode === 'ESRCH') {
+        return {
+          step: 'stop-daemon',
+          success: true,
+          message: `Daemon process ${pid} already terminated`,
+        };
+      }
+      return {
+        step: 'stop-daemon',
+        success: false,
+        message: `Failed to kill daemon PID ${pid}`,
+        error: String(err),
+      };
+    }
+  }
+
+  return {
+    step: 'stop-daemon',
+    success: true,
+    message: 'Daemon not installed (plist not found, no process on port)',
+  };
+}
+
+/**
+ * Stop and remove the broker LaunchDaemon
+ */
+function stopBrokerDaemon(): RestoreProgress {
+  const plistPath = '/Library/LaunchDaemons/com.agenshield.broker.plist';
+
+  if (!fs.existsSync(plistPath)) {
+    return {
+      step: 'stop-broker',
+      success: true,
+      message: 'Broker daemon not installed (plist not found)',
     };
   }
 
   // Unload the daemon
-  const result = sudoExec(`launchctl unload "${plistPath}"`);
-  if (!result.success) {
-    // Not critical if it fails (might not be loaded)
-    return {
-      step: 'stop-daemon',
-      success: true,
-      message: 'Daemon stopped (or was not running)',
-    };
-  }
+  sudoExec(`launchctl unload "${plistPath}"`);
 
   // Remove the plist
   sudoExec(`rm -f "${plistPath}"`);
 
   return {
-    step: 'stop-daemon',
+    step: 'stop-broker',
     success: true,
-    message: 'Daemon stopped and plist removed',
+    message: 'Broker daemon stopped and plist removed',
+  };
+}
+
+/**
+ * Kill all processes running as a specific user
+ *
+ * This ensures that:
+ * 1. Terminal sessions running as the user are terminated
+ * 2. Home directory can be removed without "resource busy" errors
+ */
+function killUserProcesses(username: string): RestoreProgress {
+  // First, try graceful termination
+  try {
+    sudoExec(`pkill -u ${username} 2>/dev/null || true`);
+  } catch {
+    // Ignore - user may not exist or have no processes
+  }
+
+  // Brief wait for graceful termination
+  try {
+    execSync('sleep 1', { encoding: 'utf-8' });
+  } catch {
+    // Ignore sleep errors
+  }
+
+  // Force kill any remaining processes
+  try {
+    sudoExec(`pkill -9 -u ${username} 2>/dev/null || true`);
+  } catch {
+    // Ignore
+  }
+
+  return {
+    step: 'kill-processes',
+    success: true,
+    message: `Terminated processes for user "${username}"`,
   };
 }
 
@@ -226,6 +342,8 @@ function cleanup(): RestoreProgress {
     BACKUP_CONFIG.configDir, // /etc/agenshield
     '/var/log/agenshield',
     '/var/run/agenshield',
+    '/var/run/agenshield/agenshield.sock', // Socket file (legacy location)
+    '/opt/agenshield', // Installation directory
   ];
 
   const errors: string[] = [];
@@ -309,8 +427,24 @@ export function restoreInstallation(
     return result.success;
   };
 
-  // Stop daemon
+  // Stop main daemon
   runStep(() => stopDaemon());
+
+  // Stop broker daemon
+  runStep(() => stopBrokerDaemon());
+
+  // Kill agent user processes (ensures home directory can be removed)
+  if (backup.sandboxUser?.username) {
+    runStep(() => killUserProcesses(backup.sandboxUser.username));
+  }
+
+  // Kill broker user processes
+  // The broker username follows pattern: {prefix}_broker instead of {prefix}_agent
+  const agentUsername = backup.sandboxUser?.username;
+  if (agentUsername && agentUsername.endsWith('_agent')) {
+    const brokerUsername = agentUsername.replace(/_agent$/, '_broker');
+    runStep(() => killUserProcesses(brokerUsername));
+  }
 
   // Restore config (not critical)
   runStep(() => restoreConfig(backup));
@@ -325,6 +459,27 @@ export function restoreInstallation(
       steps,
       error: steps[steps.length - 1].error,
     };
+  }
+
+  // Delete broker user (if exists)
+  if (agentUsername && agentUsername.endsWith('_agent')) {
+    const brokerUsername = agentUsername.replace(/_agent$/, '_broker');
+    runStep(() => {
+      const result = deleteSandboxUser(brokerUsername, { removeHomeDir: true });
+      if (!result.success) {
+        return {
+          step: 'delete-user' as RestoreStep,
+          success: false,
+          message: `Failed to delete broker user ${brokerUsername}`,
+          error: result.error,
+        };
+      }
+      return {
+        step: 'delete-user' as RestoreStep,
+        success: true,
+        message: `Broker user "${brokerUsername}" removed`,
+      };
+    });
   }
 
   // Remove guarded shell
@@ -381,5 +536,160 @@ export function canUninstall(): {
     isRoot: true,
     hasBackup: true,
     backup,
+  };
+}
+
+/**
+ * Discover sandbox users by looking for users with ash_ prefix
+ */
+function discoverSandboxUsers(): string[] {
+  try {
+    const output = execSync('dscl . -list /Users', { encoding: 'utf-8' });
+    return output.split('\n').filter((u) => u.startsWith('ash_'));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Discover workspace groups by looking for groups with ash_ prefix
+ */
+function discoverWorkspaceGroups(): string[] {
+  try {
+    const output = execSync('dscl . -list /Groups', { encoding: 'utf-8' });
+    return output.split('\n').filter((g) => g.startsWith('ash_') && g.endsWith('_workspace'));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Discover socket groups by looking for groups with ash_ prefix (excluding workspace groups)
+ */
+function discoverSocketGroups(): string[] {
+  try {
+    const output = execSync('dscl . -list /Groups', { encoding: 'utf-8' });
+    return output.split('\n').filter((g) => g.startsWith('ash_') && !g.endsWith('_workspace'));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Force uninstall without a backup
+ * Used when no backup exists but user wants to clean up AgenShield artifacts
+ */
+export function forceUninstall(
+  onProgress?: (progress: RestoreProgress) => void
+): RestoreResult {
+  const steps: RestoreProgress[] = [];
+
+  const runStep = (fn: () => RestoreProgress): boolean => {
+    const result = fn();
+    steps.push(result);
+    onProgress?.(result);
+    return result.success;
+  };
+
+  // Stop main daemon
+  runStep(() => stopDaemon());
+
+  // Stop broker daemon
+  runStep(() => stopBrokerDaemon());
+
+  // Discover sandbox users
+  const sandboxUsers = discoverSandboxUsers();
+
+  // Kill processes for all sandbox users before deletion
+  for (const username of sandboxUsers) {
+    runStep(() => killUserProcesses(username));
+  }
+
+  // Delete sandbox users
+  for (const username of sandboxUsers) {
+    runStep(() => {
+      const result = deleteSandboxUser(username, { removeHomeDir: true });
+      if (!result.success) {
+        return {
+          step: 'delete-user',
+          success: false,
+          message: `Failed to delete user ${username}`,
+          error: result.error,
+        };
+      }
+      return {
+        step: 'delete-user',
+        success: true,
+        message: `Deleted sandbox user "${username}"`,
+      };
+    });
+  }
+
+  if (sandboxUsers.length === 0) {
+    runStep(() => ({
+      step: 'delete-user',
+      success: true,
+      message: 'No sandbox users found to delete',
+    }));
+  }
+
+  // Discover and delete workspace groups
+  const workspaceGroups = discoverWorkspaceGroups();
+  for (const groupName of workspaceGroups) {
+    runStep(() => {
+      const result = sudoExec(`dscl . -delete /Groups/${groupName}`);
+      if (!result.success) {
+        return {
+          step: 'cleanup',
+          success: true, // Non-critical
+          message: `Could not delete group ${groupName}`,
+          error: result.error,
+        };
+      }
+      return {
+        step: 'cleanup',
+        success: true,
+        message: `Deleted workspace group "${groupName}"`,
+      };
+    });
+  }
+
+  // Discover and delete socket groups (non-workspace groups)
+  const socketGroups = discoverSocketGroups();
+  for (const groupName of socketGroups) {
+    runStep(() => {
+      const result = sudoExec(`dscl . -delete /Groups/${groupName}`);
+      if (!result.success) {
+        return {
+          step: 'cleanup',
+          success: true, // Non-critical
+          message: `Could not delete group ${groupName}`,
+          error: result.error,
+        };
+      }
+      return {
+        step: 'cleanup',
+        success: true,
+        message: `Deleted socket group "${groupName}"`,
+      };
+    });
+  }
+
+  // Remove guarded shell
+  runStep(() => removeGuardedShell());
+
+  // Cleanup directories
+  runStep(() => cleanup());
+
+  // Verify - skip since we don't have original binary info
+  runStep(() => ({
+    step: 'verify',
+    success: true,
+    message: 'Force uninstall complete (no backup to verify against)',
+  }));
+
+  return {
+    success: true,
+    steps,
   };
 }

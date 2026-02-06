@@ -3,10 +3,10 @@
  */
 
 /** Default HTTP server port */
-export const DEFAULT_PORT = 6969;
+export const DEFAULT_PORT = 5200;
 
-/** Default HTTP server host */
-export const DEFAULT_HOST = 'localhost';
+/** Default HTTP server host - use IPv4 explicitly to avoid IPv6 binding issues */
+export const DEFAULT_HOST = '127.0.0.1';
 
 /** Custom hostname for hosts file entry */
 export const CUSTOM_HOSTNAME = 'agen.shield';
@@ -38,6 +38,9 @@ export const POLICIES_DIR = 'policies';
 
 /** Users subdirectory */
 export const USERS_DIR = 'users';
+
+/** Marketplace downloads subdirectory (under CONFIG_DIR) */
+export const MARKETPLACE_DIR = 'marketplace';
 
 /** Default OAuth callback port */
 export const CALLBACK_PORT = 9876;

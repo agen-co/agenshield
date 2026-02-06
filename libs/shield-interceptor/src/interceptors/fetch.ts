@@ -128,7 +128,7 @@ export class FetchInterceptor extends BaseInterceptor {
       const parsed = new URL(url);
       return (
         (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
-        parsed.port === '6969'
+        parsed.port === '5200'
       );
     } catch {
       return false;

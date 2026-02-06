@@ -20,11 +20,11 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:6969',
+        target: 'http://localhost:5200',
         changeOrigin: true,
       },
       '/sse': {
-        target: 'http://localhost:6969',
+        target: 'http://localhost:5200',
         changeOrigin: true,
       },
     },

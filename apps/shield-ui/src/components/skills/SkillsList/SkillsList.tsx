@@ -14,6 +14,7 @@ const sourceLabels: Record<string, string> = {
   user: 'User Skills',
   workspace: 'Workspace Skills',
   quarantine: 'Quarantined',
+  marketplace: 'Marketplace Downloads',
 };
 
 export function SkillsList({ skills, search, statusFilter, onSelect }: SkillsListProps) {

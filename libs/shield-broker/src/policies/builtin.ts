@@ -204,7 +204,7 @@ export function getDefaultPolicies(): PolicyConfig {
         'api.github.com',
       ],
       deniedHosts: ['*'],
-      allowedPorts: [80, 443, 6969],
+      allowedPorts: [80, 443, 5200],
     },
   };
 }

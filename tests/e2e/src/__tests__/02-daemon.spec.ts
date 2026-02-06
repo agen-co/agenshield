@@ -24,7 +24,7 @@ describe('daemon lifecycle', () => {
   });
 
   it('should be reachable via health endpoint', async () => {
-    const healthy = await waitForDaemon(6969, 15_000);
+    const healthy = await waitForDaemon(5200, 15_000);
     expect(healthy).toBe(true);
   });
 
@@ -63,7 +63,7 @@ describe('daemon lifecycle', () => {
     const timeout = setTimeout(() => controller.abort(), 5000);
 
     try {
-      const res = await fetch('http://localhost:6969/sse/events', {
+      const res = await fetch('http://localhost:5200/sse/events', {
         signal: controller.signal,
         headers: { Accept: 'text/event-stream' },
       });

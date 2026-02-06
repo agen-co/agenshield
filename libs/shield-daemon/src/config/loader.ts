@@ -5,7 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ShieldConfig } from '@agenshield/ipc';
-import { ShieldConfigSchema } from '@agenshield/ipc';
+import { ShieldConfigSchema, DEFAULT_PORT } from '@agenshield/ipc';
 import { getConfigDir, getConfigPath } from './paths';
 import { getDefaultConfig } from './defaults';
 
@@ -34,6 +34,12 @@ export function loadConfig(): ShieldConfig {
     const raw = fs.readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(raw);
     const validated = ShieldConfigSchema.parse(parsed);
+
+    // Migrate old port 6969 to new default 5200
+    if (validated.daemon.port === 6969) {
+      validated.daemon.port = DEFAULT_PORT;
+    }
+
     return validated;
   } catch (error) {
     console.error('Failed to load config, using defaults:', error);

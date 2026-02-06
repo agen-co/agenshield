@@ -27,6 +27,8 @@ interface UninstallStep {
 const STEP_NAMES: Record<RestoreStep, string> = {
   validate: 'Validate',
   'stop-daemon': 'Stop Daemon',
+  'stop-broker': 'Stop Broker',
+  'kill-processes': 'Kill Processes',
   'restore-config': 'Restore Config',
   'restore-package': 'Restore Package',
   'delete-user': 'Delete Sandbox User',

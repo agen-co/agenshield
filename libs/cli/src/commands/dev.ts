@@ -65,7 +65,7 @@ async function runDevWebUI(options: { baseName?: string; prefix?: string; baseUi
   ensureSudoAccess();
 
   const server = createSetupServer(engine);
-  const url = await server.start(6970);
+  const url = await server.start(5200);
   console.log(`Web UI available at: ${url}`);
 
   // Open browser (already running as user, so default browser is correct)

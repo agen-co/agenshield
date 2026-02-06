@@ -27,7 +27,7 @@ describe('agenshield uninstall', () => {
 
   it('daemon health endpoint should be unreachable', async () => {
     try {
-      await fetch('http://localhost:6969/api/health', {
+      await fetch('http://localhost:5200/api/health', {
         signal: AbortSignal.timeout(2000),
       });
       // If we get here, daemon is still running

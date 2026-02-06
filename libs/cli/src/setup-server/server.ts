@@ -92,12 +92,11 @@ export function createSetupServer(engine: WizardEngine): SetupServer {
         await app.register(fastifyStatic, {
           root: uiPath,
           prefix: '/',
-          decorateReply: false,
         });
 
         // SPA fallback: non-/api and non-/sse paths serve index.html
         app.setNotFoundHandler(async (request, reply) => {
-          if (request.url.startsWith('/api') || request.url.startsWith('/sse')) {
+          if (request.url.startsWith('/api') || request.url.startsWith('/sse') || request.url.startsWith('/rpc')) {
             return reply.code(404).send({ error: 'Not found' });
           }
           return reply.sendFile('index.html');

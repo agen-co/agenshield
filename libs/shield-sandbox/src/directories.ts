@@ -142,7 +142,7 @@ export function createDirectoryStructure(config?: UserConfig): DirectoryStructur
         group: socketGroupName,
       },
       [`${agentHome}/.openclaw/skills`]: {
-        mode: 0o755,
+        mode: 0o2775, // setgid bit, group-writable for broker to create subdirectories
         owner: 'root',
         group: socketGroupName,
       },
@@ -189,6 +189,13 @@ export interface DirectoryResult {
 }
 
 /**
+ * Verbose logging options
+ */
+export interface VerboseOptions {
+  verbose?: boolean;
+}
+
+/**
  * Create a directory with specific ownership and permissions
  */
 export async function createDirectory(
@@ -197,16 +204,22 @@ export async function createDirectory(
     mode: number;
     owner: string;
     group: string;
-  }
+  },
+  verboseOptions?: VerboseOptions
 ): Promise<DirectoryResult> {
+  const log = (msg: string) => verboseOptions?.verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+
   try {
     // Create directory (via sudo for system paths like /opt, /etc, /var)
+    log(`Running: sudo mkdir -p "${dirPath}"`);
     await execAsync(`sudo mkdir -p "${dirPath}"`);
 
     // Set ownership (requires sudo)
+    log(`Running: sudo chown ${options.owner}:${options.group} "${dirPath}"`);
     await execAsync(`sudo chown ${options.owner}:${options.group} "${dirPath}"`);
 
     // Ensure mode is set correctly (mkdir might not set all bits)
+    log(`Running: sudo chmod ${options.mode.toString(8)} "${dirPath}"`);
     await execAsync(`sudo chmod ${options.mode.toString(8)} "${dirPath}"`);
 
     return {
@@ -228,13 +241,14 @@ export async function createDirectory(
  * Create all system directories
  *
  * @param config - Optional UserConfig, uses defaults if not provided
+ * @param options - Optional verbose options
  */
-export async function createSystemDirectories(config?: UserConfig): Promise<DirectoryResult[]> {
+export async function createSystemDirectories(config?: UserConfig, options?: VerboseOptions): Promise<DirectoryResult[]> {
   const structure = createDirectoryStructure(config);
   const results: DirectoryResult[] = [];
 
-  for (const [dirPath, options] of Object.entries(structure.system)) {
-    const result = await createDirectory(dirPath, options);
+  for (const [dirPath, dirOptions] of Object.entries(structure.system)) {
+    const result = await createDirectory(dirPath, dirOptions, options);
     results.push(result);
   }
 
@@ -245,13 +259,14 @@ export async function createSystemDirectories(config?: UserConfig): Promise<Dire
  * Create all agent directories
  *
  * @param config - Optional UserConfig, uses defaults if not provided
+ * @param options - Optional verbose options
  */
-export async function createAgentDirectories(config?: UserConfig): Promise<DirectoryResult[]> {
+export async function createAgentDirectories(config?: UserConfig, options?: VerboseOptions): Promise<DirectoryResult[]> {
   const structure = createDirectoryStructure(config);
   const results: DirectoryResult[] = [];
 
-  for (const [dirPath, options] of Object.entries(structure.agent)) {
-    const result = await createDirectory(dirPath, options);
+  for (const [dirPath, dirOptions] of Object.entries(structure.agent)) {
+    const result = await createDirectory(dirPath, dirOptions, options);
     results.push(result);
   }
 
@@ -262,10 +277,11 @@ export async function createAgentDirectories(config?: UserConfig): Promise<Direc
  * Create all directories
  *
  * @param config - Optional UserConfig, uses defaults if not provided
+ * @param options - Optional verbose options
  */
-export async function createAllDirectories(config?: UserConfig): Promise<DirectoryResult[]> {
-  const systemResults = await createSystemDirectories(config);
-  const agentResults = await createAgentDirectories(config);
+export async function createAllDirectories(config?: UserConfig, options?: VerboseOptions): Promise<DirectoryResult[]> {
+  const systemResults = await createSystemDirectories(config, options);
+  const agentResults = await createAgentDirectories(config, options);
 
   return [...systemResults, ...agentResults];
 }

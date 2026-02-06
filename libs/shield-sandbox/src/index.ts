@@ -101,7 +101,10 @@ export {
   installShieldExec,
   deployInterceptor,
   copyNodeBinary,
+  copyBrokerBinary,
   installPresetBinaries,
+  installBasicCommands,
+  BASIC_SYSTEM_COMMANDS,
   type PresetInstallResult,
   // Dynamic wrapper management
   getAvailableWrappers,
@@ -170,6 +173,7 @@ export {
   scanBinaries,
   scanSkills,
   parseSkillMd,
+  extractSkillInfo,
   classifyDirectory,
 } from './discovery';
 

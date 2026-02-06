@@ -41,3 +41,12 @@ npx nx run cli:dev
 ## License
 
 MIT
+
+
+
+## Helpers
+
+```bash
+
+sudo -u ash_default_agent /usr/local/bin/guarded-shell -c 'echo HOME=$HOME PATH=$PATH'
+```

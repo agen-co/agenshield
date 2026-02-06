@@ -201,6 +201,9 @@ export class SkillLoader {
       os: raw.os,
       primaryEnv: raw['primary-env'] ?? raw.primaryEnv,
       install: raw.install,
+      homepage: raw.homepage,
+      emoji: raw.emoji,
+      metadata: raw.metadata,
     };
   }
 }

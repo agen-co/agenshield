@@ -10,7 +10,11 @@ import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import type { UserConfig } from '@agenshield/ipc';
+
+// Create a require function for ESM compatibility (needed for require.resolve)
+const require = createRequire(import.meta.url);
 
 const execAsync = promisify(exec);
 
@@ -64,7 +68,7 @@ export function getDefaultWrapperConfig(userConfig?: UserConfig): WrapperConfig 
     agentHome,
     agentUsername: userConfig?.agentUser.username || 'agenshield_agent',
     socketPath: '/var/run/agenshield/agenshield.sock',
-    httpPort: 6969,
+    httpPort: 5201, // Broker uses 5201, daemon uses 5200
     interceptorPath: '/opt/agenshield/lib/interceptor/register.cjs',
     interceptorFlag: '--require',
     seatbeltDir: '/etc/agenshield/seatbelt',
@@ -738,16 +742,34 @@ export async function installAllWrappers(
 }
 
 /**
+ * Verbose logging options
+ */
+export interface VerboseOptions {
+  verbose?: boolean;
+}
+
+/**
  * Install guarded shell using the hardened zsh guarded-shell content
  */
 export async function installGuardedShell(
-  userConfig?: UserConfig
+  userConfig?: UserConfig,
+  options?: VerboseOptions
 ): Promise<WrapperResult> {
-  // Use the hardened guarded shell from guarded-shell.ts
-  const { GUARDED_SHELL_PATH, GUARDED_SHELL_CONTENT } = await import('./guarded-shell');
+  const log = (msg: string) => options?.verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+
+  // Use the hardened guarded shell from guarded-shell.ts (ZDOTDIR approach)
+  const {
+    GUARDED_SHELL_PATH,
+    GUARDED_SHELL_CONTENT,
+    ZDOT_DIR,
+    ZDOT_ZSHENV_CONTENT,
+    ZDOT_ZSHRC_CONTENT,
+  } = await import('./guarded-shell');
   const shellPath = GUARDED_SHELL_PATH;
 
   try {
+    // 1. Install the guarded-shell launcher
+    log(`Installing guarded shell launcher to ${shellPath}`);
     await execAsync(`sudo tee "${shellPath}" > /dev/null << 'GUARDEDEOF'
 ${GUARDED_SHELL_CONTENT}
 GUARDEDEOF`);
@@ -756,14 +778,36 @@ GUARDEDEOF`);
     // Add to /etc/shells
     const { stdout } = await execAsync('cat /etc/shells');
     if (!stdout.includes(shellPath)) {
+      log(`Adding ${shellPath} to /etc/shells`);
       await execAsync(`echo "${shellPath}" | sudo tee -a /etc/shells > /dev/null`);
     }
+
+    // 2. Install ZDOTDIR files (root-owned, agent cannot modify)
+    log(`Creating ZDOTDIR at ${ZDOT_DIR}`);
+    await execAsync(`sudo mkdir -p "${ZDOT_DIR}"`);
+
+    log(`Installing .zshenv to ${ZDOT_DIR}/.zshenv`);
+    await execAsync(`sudo tee "${ZDOT_DIR}/.zshenv" > /dev/null << 'ZSHENVEOF'
+${ZDOT_ZSHENV_CONTENT}
+ZSHENVEOF`);
+    await execAsync(`sudo chmod 644 "${ZDOT_DIR}/.zshenv"`);
+
+    log(`Installing .zshrc to ${ZDOT_DIR}/.zshrc`);
+    await execAsync(`sudo tee "${ZDOT_DIR}/.zshrc" > /dev/null << 'ZSHRCEOF'
+${ZDOT_ZSHRC_CONTENT}
+ZSHRCEOF`);
+    await execAsync(`sudo chmod 644 "${ZDOT_DIR}/.zshrc"`);
+
+    // Lock down the ZDOTDIR: root-owned, no write for anyone else
+    log(`Locking down ZDOTDIR (root:wheel ownership)`);
+    await execAsync(`sudo chown -R root:wheel "${ZDOT_DIR}"`);
+    await execAsync(`sudo chmod 755 "${ZDOT_DIR}"`);
 
     return {
       success: true,
       name: 'guarded-shell',
       path: shellPath,
-      message: 'Installed guarded shell',
+      message: 'Installed guarded shell + ZDOTDIR',
     };
   } catch (error) {
     return {
@@ -1052,6 +1096,51 @@ export async function deployInterceptor(
 }
 
 /**
+ * Copy the broker binary to /opt/agenshield/bin/
+ * The broker is the privileged daemon that handles socket communication.
+ */
+export async function copyBrokerBinary(
+  userConfig?: UserConfig
+): Promise<WrapperResult> {
+  const targetPath = '/opt/agenshield/bin/agenshield-broker';
+  const socketGroupName = userConfig?.groups?.socket?.name || 'ash_socket';
+
+  try {
+    // Get the broker main.js from this package's installed location
+    // The broker is built and the dist/main.js has a shebang
+    const brokerPkgPath = require.resolve('@agenshield/broker/package.json');
+    const brokerDir = path.dirname(brokerPkgPath);
+    const srcPath = path.join(brokerDir, 'dist', 'main.js');
+
+    // Verify source exists
+    await fs.access(srcPath);
+
+    // Create target directory if needed
+    await execAsync('sudo mkdir -p /opt/agenshield/bin');
+
+    // Copy the broker binary
+    await execAsync(`sudo cp "${srcPath}" "${targetPath}"`);
+    await execAsync(`sudo chmod 755 "${targetPath}"`);
+    await execAsync(`sudo chown root:${socketGroupName} "${targetPath}"`);
+
+    return {
+      success: true,
+      name: 'agenshield-broker',
+      path: targetPath,
+      message: `Broker binary installed to ${targetPath}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      name: 'agenshield-broker',
+      path: targetPath,
+      message: `Failed to install broker: ${(error as Error).message}`,
+      error: error as Error,
+    };
+  }
+}
+
+/**
  * Copy the current Node.js binary to the sandbox so the node wrapper
  * can exec a known-good binary without relying on system PATH.
  */
@@ -1097,6 +1186,56 @@ export interface PresetInstallResult {
 }
 
 /**
+ * Basic system commands that should be available via symlinks (no interception needed)
+ */
+export const BASIC_SYSTEM_COMMANDS = [
+  'ls', 'cat', 'head', 'tail', 'less', 'more', 'grep', 'find',
+  'mkdir', 'rmdir', 'rm', 'cp', 'mv', 'pwd', 'basename', 'dirname',
+  'wc', 'sort', 'uniq', 'tr', 'cut', 'sed', 'awk', 'date', 'touch',
+  'chmod', 'file', 'which', 'env', 'echo', 'printf', 'test', 'true', 'false',
+  'id', 'whoami', 'hostname', 'uname', 'tee', 'xargs', 'diff', 'tar', 'gzip', 'gunzip',
+];
+
+/**
+ * Install symlinks for basic system commands that don't need interception
+ */
+export async function installBasicCommands(
+  binDir: string,
+  options?: { verbose?: boolean }
+): Promise<{ success: boolean; installed: string[]; errors: string[] }> {
+  const log = (msg: string) => options?.verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+  const installed: string[] = [];
+  const errors: string[] = [];
+
+  for (const cmd of BASIC_SYSTEM_COMMANDS) {
+    // Check common locations for the command
+    const locations = [`/bin/${cmd}`, `/usr/bin/${cmd}`];
+    let found = false;
+
+    for (const loc of locations) {
+      try {
+        await fs.access(loc, fs.constants.X_OK);
+        const symlinkPath = path.join(binDir, cmd);
+
+        log(`Creating symlink: ${cmd} -> ${loc}`);
+        await execAsync(`sudo ln -sf "${loc}" "${symlinkPath}"`);
+        installed.push(cmd);
+        found = true;
+        break;
+      } catch {
+        // Not found at this location, try next
+      }
+    }
+
+    if (!found) {
+      // Command not found in standard locations, skip silently
+    }
+  }
+
+  return { success: errors.length === 0, installed, errors };
+}
+
+/**
  * Install binaries for a preset: node binary, interceptor, wrappers, seatbelt, ownership lockdown.
  */
 export async function installPresetBinaries(options: {
@@ -1104,14 +1243,17 @@ export async function installPresetBinaries(options: {
   userConfig: UserConfig;
   binDir: string;
   socketGroupName: string;
+  verbose?: boolean;
 }): Promise<PresetInstallResult> {
-  const { requiredBins, userConfig, binDir, socketGroupName } = options;
+  const { requiredBins, userConfig, binDir, socketGroupName, verbose } = options;
+  const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
   const errors: string[] = [];
   const installedWrappers: string[] = [];
   let seatbeltInstalled = false;
 
   // 1. Copy node binary to /opt/agenshield/bin/node-bin (if 'node' in requiredBins)
   if (requiredBins.includes('node')) {
+    log(`Copying node binary to /opt/agenshield/bin/node-bin`);
     const nodeResult = await copyNodeBinary(userConfig);
     if (!nodeResult.success) {
       errors.push(`Node binary: ${nodeResult.message}`);
@@ -1123,6 +1265,7 @@ export async function installPresetBinaries(options: {
     name => WRAPPER_DEFINITIONS[name]?.usesInterceptor
   );
   if (needsInterceptor) {
+    log(`Deploying interceptor to /opt/agenshield/lib/interceptor/register.cjs`);
     const intResult = await deployInterceptor(userConfig);
     if (!intResult.success) {
       errors.push(`Interceptor: ${intResult.message}`);
@@ -1132,6 +1275,9 @@ export async function installPresetBinaries(options: {
   // 3. Install wrapper scripts for required bins
   const wrapperConfig = getDefaultWrapperConfig(userConfig);
   const validNames = requiredBins.filter(name => WRAPPER_DEFINITIONS[name]);
+  for (const name of validNames) {
+    log(`Installing wrapper: ${name} -> ${binDir}/${name}`);
+  }
   const results = await installSpecificWrappers(validNames, binDir, wrapperConfig);
   for (const r of results) {
     if (r.success) {
@@ -1147,6 +1293,7 @@ export async function installPresetBinaries(options: {
   );
   if (needsSeatbelt) {
     try {
+      log(`Installing seatbelt profiles`);
       const { generateAgentProfileFromConfig, installSeatbeltProfiles } = await import('./seatbelt');
       const agentProfile = generateAgentProfileFromConfig(userConfig);
       const sbResult = await installSeatbeltProfiles(userConfig, { agentProfile });
@@ -1159,9 +1306,18 @@ export async function installPresetBinaries(options: {
     }
   }
 
-  // 5. Lock down bin directory ownership: root:<socketGroup>, mode 755
+  // 5. Install basic system commands as symlinks (ls, cat, grep, etc.)
+  log(`Installing basic system commands as symlinks`);
+  const basicResult = await installBasicCommands(binDir, { verbose });
+  if (!basicResult.success) {
+    errors.push(...basicResult.errors);
+  }
+  installedWrappers.push(...basicResult.installed);
+
+  // 6. Lock down bin directory ownership: root:<socketGroup>, mode 755
   //    Agent can execute but not modify wrappers
   try {
+    log(`Locking down bin directory: root:${socketGroupName} ownership`);
     await execAsync(`sudo chown -R root:${socketGroupName} "${binDir}"`);
     await execAsync(`sudo chmod 755 "${binDir}"`);
     await execAsync(`sudo chmod -R 755 "${binDir}"`);

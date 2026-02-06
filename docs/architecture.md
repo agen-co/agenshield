@@ -57,7 +57,7 @@ AgenShield is a security framework for AI agents that provides network isolation
     ┌────┴────┐                          ┌────┴────┐
     │Seatbelt │                          │ HTTP    │
     │Profile  │                          │Fallback │
-    │(deny-net)│                         │:6969    │
+    │(deny-net)│                         │:5200    │
     └─────────┘                          └─────────┘
 ```
 
@@ -100,7 +100,7 @@ AgenShield is a security framework for AI agents that provides network isolation
 
 ### Fallback: HTTP
 
-**Endpoint**: `http://localhost:6969`
+**Endpoint**: `http://localhost:5200`
 
 **Properties**:
 - Only accessible from localhost
@@ -518,7 +518,7 @@ ls -la /var/run/agenshield/
 
 # Daemon running
 launchctl list | grep agenshield
-curl http://localhost:6969/api/health
+curl http://localhost:5200/api/health
 
 # Agent network blocked
 sudo -u clawagent curl https://example.com
@@ -552,6 +552,6 @@ sudo -u clawagent /Users/clawagent/bin/shieldctl request ping
 |----------|---------|-------------|
 | AGENSHIELD_CONFIG | /opt/agenshield/config/shield.json | Config file path |
 | AGENSHIELD_SOCKET | /var/run/agenshield.sock | Unix socket path |
-| AGENSHIELD_HTTP_PORT | 6969 | HTTP fallback port |
+| AGENSHIELD_HTTP_PORT | 5200 | HTTP fallback port |
 | AGENSHIELD_LOG_LEVEL | info | Logging level |
 | AGENSHIELD_FAIL_OPEN | false | Allow on daemon failure |

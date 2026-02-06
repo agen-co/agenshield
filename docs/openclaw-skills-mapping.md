@@ -433,7 +433,7 @@ AgenShield Config (~/.agenshield/config.json)
 {
   "version": "0.1.0",
   "daemon": {
-    "port": 6969,
+    "port": 5200,
     "host": "localhost",
     "logLevel": "info"
   },

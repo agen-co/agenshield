@@ -18,7 +18,7 @@ import type {
 } from '@agenshield/ipc';
 import type {
   MarketplaceSkill,
-  AnalyzeSkillRequest,
+  AnalyzeSkillRequestUnion,
   AnalyzeSkillResponse,
   InstallSkillRequest,
 } from './marketplace.types';
@@ -88,8 +88,8 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
 
 export interface SkillSummary {
   name: string;
-  source: 'user' | 'workspace' | 'quarantine';
-  status: 'active' | 'workspace' | 'quarantined' | 'disabled';
+  source: 'user' | 'workspace' | 'quarantine' | 'marketplace';
+  status: 'active' | 'workspace' | 'quarantined' | 'disabled' | 'downloaded';
   description?: string;
   path: string;
   publisher?: string;
@@ -189,13 +189,13 @@ export const api = {
       request<{ data: MarketplaceSkill[] }>(`/marketplace/search?q=${encodeURIComponent(query)}`),
     getSkill: (slug: string) =>
       request<{ data: MarketplaceSkill }>(`/marketplace/skills/${encodeURIComponent(slug)}`),
-    analyzeSkill: (data: AnalyzeSkillRequest) =>
+    analyzeSkill: (data: AnalyzeSkillRequestUnion) =>
       request<{ data: AnalyzeSkillResponse }>('/marketplace/analyze', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
     installSkill: (data: InstallSkillRequest) =>
-      request<{ data: { success: boolean; name: string } }>('/marketplace/install', {
+      request<{ data: { success: boolean; name: string; analysis?: AnalyzeSkillResponse['analysis']; logs?: string[] } }>('/marketplace/install', {
         method: 'POST',
         body: JSON.stringify(data),
       }),

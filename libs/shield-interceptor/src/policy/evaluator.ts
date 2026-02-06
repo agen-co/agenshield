@@ -1,15 +1,14 @@
 /**
  * Policy Evaluator
  *
- * Evaluates operations against cached policies.
+ * Evaluates operations against daemon policies via RPC.
+ * No caching - always checks daemon for up-to-date policy decisions.
  */
 
 import type { AsyncClient } from '../client/http-client.js';
-import { PolicyCache } from './cache.js';
 
 export interface PolicyEvaluatorOptions {
   client: AsyncClient;
-  cacheTtl: number;
 }
 
 export interface PolicyCheckResult {
@@ -20,58 +19,32 @@ export interface PolicyCheckResult {
 
 export class PolicyEvaluator {
   private client: AsyncClient;
-  private cache: PolicyCache;
 
   constructor(options: PolicyEvaluatorOptions) {
     this.client = options.client;
-    this.cache = new PolicyCache({ ttl: options.cacheTtl });
   }
 
   /**
    * Check if an operation is allowed
+   * Always queries the daemon for fresh policy decisions
    */
   async check(
     operation: string,
     target: string
   ): Promise<PolicyCheckResult> {
-    // Check cache first
-    const cacheKey = `${operation}:${target}`;
-    const cached = this.cache.get<PolicyCheckResult>(cacheKey);
-    if (cached !== undefined) {
-      return cached;
-    }
-
-    // Make request to broker
     try {
       const result = await this.client.request<PolicyCheckResult>(
         'policy_check',
         { operation, target }
       );
 
-      // Cache the result
-      this.cache.set(cacheKey, result);
-
       return result;
     } catch (error) {
-      // If we can't reach the broker, assume denied
+      // If we can't reach the daemon, deny by default for security
       return {
         allowed: false,
         reason: `Policy check failed: ${(error as Error).message}`,
       };
     }
-  }
-
-  /**
-   * Clear the policy cache
-   */
-  clearCache(): void {
-    this.cache.clear();
-  }
-
-  /**
-   * Get cache stats
-   */
-  getCacheStats(): { size: number; hits: number; misses: number } {
-    return this.cache.getStats();
   }
 }

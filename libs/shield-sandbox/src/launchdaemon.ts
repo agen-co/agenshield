@@ -22,11 +22,13 @@ export function generateBrokerPlist(
     brokerPath?: string;
     configPath?: string;
     socketPath?: string;
+    nodeBinPath?: string;
   }
 ): string {
+  const nodeBinary = options?.nodeBinPath || '/opt/agenshield/bin/node-bin';
   const brokerBinary = options?.brokerPath || '/opt/agenshield/bin/agenshield-broker';
   const configPath = options?.configPath || '/opt/agenshield/config/shield.json';
-  const socketPath = options?.socketPath || '/var/run/agenshield.sock';
+  const socketPath = options?.socketPath || '/var/run/agenshield/agenshield.sock';
   const brokerUsername = config.brokerUser.username;
   const socketGroupName = config.groups.socket.name;
 
@@ -39,6 +41,7 @@ export function generateBrokerPlist(
 
     <key>ProgramArguments</key>
     <array>
+        <string>${nodeBinary}</string>
         <string>${brokerBinary}</string>
     </array>
 
@@ -99,7 +102,7 @@ export function generateBrokerPlistLegacy(options?: {
 }): string {
   const brokerBinary = options?.brokerBinary || '/opt/agenshield/bin/agenshield-broker';
   const configPath = options?.configPath || '/opt/agenshield/config/shield.json';
-  const socketPath = options?.socketPath || '/var/run/agenshield.sock';
+  const socketPath = options?.socketPath || '/var/run/agenshield/agenshield.sock';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

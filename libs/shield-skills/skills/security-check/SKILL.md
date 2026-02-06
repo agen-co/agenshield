@@ -52,7 +52,7 @@ AgenShield Status
 =================
 Broker: Running (PID: 12345)
 Socket: /var/run/agenshield.sock (OK)
-HTTP Fallback: localhost:6969 (OK)
+HTTP Fallback: localhost:5200 (OK)
 Active Policies: 8
 Last Audit Entry: 2 minutes ago
 

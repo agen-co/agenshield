@@ -28,11 +28,11 @@
         "command": "npx tsx libs/cli/src/cli.ts"
       }
     },
-    "nx-release-publish": {
-      "executor": "@nx/js:release-publish",
+    "publish": {
+      "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
-        "packageRoot": "libs/cli/dist"
+        "command": "npm publish libs/cli/dist --access public --registry=https://registry.npmjs.org/"
       }
     }
   }

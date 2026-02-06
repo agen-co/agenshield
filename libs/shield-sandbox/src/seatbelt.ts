@@ -30,31 +30,43 @@ export function generateAgentProfile(options: {
 ;; AgenShield Agent Sandbox Profile
 ;; Generated at: ${new Date().toISOString()}
 ;;
+;; HYBRID SECURITY MODEL:
+;; - Seatbelt: Static deny rules for dangerous system paths (kernel-enforced)
+;; - ACLs: Dynamic allow rules for fine-grained runtime control
+;;
 
 (version 1)
 (deny default)
 
 ;; ========================================
-;; System Libraries & Frameworks
+;; CRITICAL DENIALS - Dangerous System Paths
+;; (kernel-enforced, cannot be bypassed at runtime)
 ;; ========================================
-(allow file-read*
-  (subpath "/System")
-  (subpath "/usr/lib")
-  (subpath "/usr/share")
-  (subpath "/Library/Frameworks")
-  (subpath "/Library/Preferences")
-  (subpath "/private/var/db")
-  (subpath "/private/etc"))
+;; System binaries - prevent reading/execution of system commands
+(deny file-read*
+  (subpath "/usr/bin")
+  (subpath "/usr/sbin")
+  (subpath "/sbin")
+  (subpath "/bin"))
 
-;; ========================================
-;; Runtime Dependencies
-;; ========================================
-(allow file-read*
-  (subpath "/usr/local/lib/node_modules")
-  (subpath "/opt/homebrew/lib/node_modules")
-  (subpath "/usr/local/Cellar")
-  (subpath "/opt/homebrew/Cellar")
-  (subpath "/Library/Frameworks/Python.framework"))
+;; Sensitive system configuration
+(deny file-read*
+  (subpath "/etc")
+  (subpath "/private/etc/sudoers")
+  (subpath "/private/etc/sudoers.d")
+  (subpath "/private/etc/ssh")
+  (subpath "/private/etc/pam.d"))
+
+;; System logs - prevent information disclosure
+(deny file-read*
+  (subpath "/var/log")
+  (subpath "/private/var/log")
+  (subpath "/Library/Logs"))
+
+;; Root and admin directories
+(deny file-read*
+  (subpath "/private/var/root")
+  (subpath "/Library/Admin"))
 
 ;; ========================================
 ;; CRITICAL DENIALS - Prevent agent from modifying
@@ -66,12 +78,46 @@ ${options.agentHome ? `(deny file-write* (subpath "${options.agentHome}/bin"))
 (deny file-write* (subpath "/etc/agenshield"))
 
 ;; ========================================
+;; System Libraries & Frameworks (Read-only)
+;; Required for process execution
+;; ========================================
+(allow file-read*
+  (subpath "/System")
+  (subpath "/usr/lib")
+  (subpath "/usr/share")
+  (subpath "/Library/Frameworks")
+  (subpath "/Library/Preferences")
+  (subpath "/private/var/db"))
+
+;; ========================================
+;; Runtime Dependencies
+;; ========================================
+(allow file-read*
+  (subpath "/usr/local/lib/node_modules")
+  (subpath "/opt/homebrew/lib/node_modules")
+  (subpath "/usr/local/Cellar")
+  (subpath "/opt/homebrew/Cellar")
+  (subpath "/usr/local/bin")
+  (subpath "/opt/homebrew/bin")
+  (subpath "/Library/Frameworks/Python.framework"))
+
+;; ========================================
+;; BROAD USER FILESYSTEM ACCESS
+;; (ACLs will handle fine-grained runtime control)
+;; ========================================
+(allow file-read*
+  (subpath "/Users")
+  (subpath "/Volumes")
+  (subpath "/android")
+  (subpath "/opt"))
+
+;; ========================================
 ;; Workspace (Read/Write)
 ;; ========================================
 (allow file-read* file-write*
   (subpath "${options.workspacePath}"))
 
-;; Temp directories
+;; Temp directories (Read/Write)
 (allow file-read* file-write*
   (subpath "/tmp")
   (subpath "/private/tmp")
@@ -89,8 +135,10 @@ ${additionalReads}
   (literal "/bin/sh")
   (literal "/bin/bash")
   (literal "/usr/bin/env")
-  (subpath "/Users/clawagent/bin")
-  (subpath "/opt/agenshield/bin"))
+  ${options.agentHome ? `(subpath "${options.agentHome}/bin")` : ''}
+  (subpath "/opt/agenshield/bin")
+  (subpath "/usr/local/bin")
+  (subpath "/opt/homebrew/bin"))
 
 ;; ========================================
 ;; Unix Socket (Broker Communication)
@@ -191,8 +239,12 @@ function generateHttpProfile(targetHost?: string): string {
 function generateExecProfile(binaryPath?: string): string {
   return `(version 1)
 (deny default)
-(allow file-read* (subpath "/System") (subpath "/usr/lib") (subpath "/usr/bin") (subpath "/bin"))
+;; System libraries for execution
+(allow file-read* (subpath "/System") (subpath "/usr/lib") (subpath "/usr/share"))
+;; Homebrew and local binaries (not system /bin, /usr/bin)
+(allow file-read* (subpath "/usr/local/bin") (subpath "/opt/homebrew/bin"))
 (allow process-exec (literal "/bin/sh") (literal "/bin/bash") (literal "/usr/bin/env"))
+(allow process-exec (subpath "/usr/local/bin") (subpath "/opt/homebrew/bin"))
 ${binaryPath ? `(allow process-exec (literal "${binaryPath}"))` : ''}
 (deny network*)
 (allow process-fork)

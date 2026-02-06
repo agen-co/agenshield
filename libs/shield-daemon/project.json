@@ -27,18 +27,29 @@
         }
       }
     },
+    "bundle-ui": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-cjs", "shield-ui:build"],
+      "options": {
+        "commands": [
+          "rm -rf libs/shield-daemon/dist/ui-assets",
+          "cp -r dist/apps/shield-ui libs/shield-daemon/dist/ui-assets"
+        ],
+        "parallel": false
+      }
+    },
     "build": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-cjs"],
+      "dependsOn": ["bundle-ui"],
       "options": {
         "command": "node scripts/strip-dist-from-pkg.js libs/shield-daemon/dist/package.json"
       }
     },
-    "nx-release-publish": {
-      "executor": "@nx/js:release-publish",
+    "publish": {
+      "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
-        "packageRoot": "libs/shield-daemon/dist"
+        "command": "npm publish libs/shield-daemon/dist --access public --registry=https://registry.npmjs.org/"
       }
     }
   }

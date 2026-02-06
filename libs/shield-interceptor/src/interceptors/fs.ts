@@ -4,11 +4,34 @@
  * Intercepts fs module calls.
  */
 
-import * as fs from 'node:fs';
-import * as fsPromises from 'node:fs/promises';
+import type * as fs from 'node:fs';
+import type * as fsPromises from 'node:fs/promises';
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { SyncClient } from '../client/sync-client.js';
 import { PolicyDeniedError } from '../errors.js';
+
+// Use require() for modules we need to monkey-patch (ESM imports are immutable)
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const fsModule = require('node:fs') as typeof fs;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const fsPromisesModule = require('node:fs/promises') as typeof fsPromises;
+
+/**
+ * Safely override a module property, falling back to Object.defineProperty
+ * for getter-only properties (Node.js v24+).
+ */
+function safeOverride(target: any, prop: string, value: any): void {
+  try {
+    target[prop] = value;
+  } catch {
+    Object.defineProperty(target, prop, {
+      value,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
+  }
+}
 
 export class FsInterceptor extends BaseInterceptor {
   private syncClient: SyncClient;
@@ -17,9 +40,9 @@ export class FsInterceptor extends BaseInterceptor {
   constructor(options: BaseInterceptorOptions) {
     super(options);
     this.syncClient = new SyncClient({
-      socketPath: '/var/run/agenshield.sock',
+      socketPath: '/var/run/agenshield/agenshield.sock',
       httpHost: 'localhost',
-      httpPort: 6969,
+      httpPort: 5201, // Broker uses 5201
       timeout: 30000,
     });
   }
@@ -28,34 +51,34 @@ export class FsInterceptor extends BaseInterceptor {
     if (this.installed) return;
 
     // Intercept async methods
-    this.interceptMethod(fs, 'readFile', 'file_read');
-    this.interceptMethod(fs, 'writeFile', 'file_write');
-    this.interceptMethod(fs, 'appendFile', 'file_write');
-    this.interceptMethod(fs, 'unlink', 'file_write');
-    this.interceptMethod(fs, 'mkdir', 'file_write');
-    this.interceptMethod(fs, 'rmdir', 'file_write');
-    this.interceptMethod(fs, 'rm', 'file_write');
-    this.interceptMethod(fs, 'readdir', 'file_list');
+    this.interceptMethod(fsModule, 'readFile', 'file_read');
+    this.interceptMethod(fsModule, 'writeFile', 'file_write');
+    this.interceptMethod(fsModule, 'appendFile', 'file_write');
+    this.interceptMethod(fsModule, 'unlink', 'file_write');
+    this.interceptMethod(fsModule, 'mkdir', 'file_write');
+    this.interceptMethod(fsModule, 'rmdir', 'file_write');
+    this.interceptMethod(fsModule, 'rm', 'file_write');
+    this.interceptMethod(fsModule, 'readdir', 'file_list');
 
     // Intercept sync methods
-    this.interceptSyncMethod(fs, 'readFileSync', 'file_read');
-    this.interceptSyncMethod(fs, 'writeFileSync', 'file_write');
-    this.interceptSyncMethod(fs, 'appendFileSync', 'file_write');
-    this.interceptSyncMethod(fs, 'unlinkSync', 'file_write');
-    this.interceptSyncMethod(fs, 'mkdirSync', 'file_write');
-    this.interceptSyncMethod(fs, 'rmdirSync', 'file_write');
-    this.interceptSyncMethod(fs, 'rmSync', 'file_write');
-    this.interceptSyncMethod(fs, 'readdirSync', 'file_list');
+    this.interceptSyncMethod(fsModule, 'readFileSync', 'file_read');
+    this.interceptSyncMethod(fsModule, 'writeFileSync', 'file_write');
+    this.interceptSyncMethod(fsModule, 'appendFileSync', 'file_write');
+    this.interceptSyncMethod(fsModule, 'unlinkSync', 'file_write');
+    this.interceptSyncMethod(fsModule, 'mkdirSync', 'file_write');
+    this.interceptSyncMethod(fsModule, 'rmdirSync', 'file_write');
+    this.interceptSyncMethod(fsModule, 'rmSync', 'file_write');
+    this.interceptSyncMethod(fsModule, 'readdirSync', 'file_list');
 
     // Intercept promises API
-    this.interceptPromiseMethod(fsPromises, 'readFile', 'file_read');
-    this.interceptPromiseMethod(fsPromises, 'writeFile', 'file_write');
-    this.interceptPromiseMethod(fsPromises, 'appendFile', 'file_write');
-    this.interceptPromiseMethod(fsPromises, 'unlink', 'file_write');
-    this.interceptPromiseMethod(fsPromises, 'mkdir', 'file_write');
-    this.interceptPromiseMethod(fsPromises, 'rmdir', 'file_write');
-    this.interceptPromiseMethod(fsPromises, 'rm', 'file_write');
-    this.interceptPromiseMethod(fsPromises, 'readdir', 'file_list');
+    this.interceptPromiseMethod(fsPromisesModule, 'readFile', 'file_read');
+    this.interceptPromiseMethod(fsPromisesModule, 'writeFile', 'file_write');
+    this.interceptPromiseMethod(fsPromisesModule, 'appendFile', 'file_write');
+    this.interceptPromiseMethod(fsPromisesModule, 'unlink', 'file_write');
+    this.interceptPromiseMethod(fsPromisesModule, 'mkdir', 'file_write');
+    this.interceptPromiseMethod(fsPromisesModule, 'rmdir', 'file_write');
+    this.interceptPromiseMethod(fsPromisesModule, 'rm', 'file_write');
+    this.interceptPromiseMethod(fsPromisesModule, 'readdir', 'file_list');
 
     this.installed = true;
   }
@@ -66,8 +89,8 @@ export class FsInterceptor extends BaseInterceptor {
     // Restore all originals
     for (const [key, original] of this.originals) {
       const [moduleName, methodName] = key.split(':');
-      const module = moduleName === 'fs' ? fs : fsPromises;
-      (module as any)[methodName] = original;
+      const module = moduleName === 'fs' ? fsModule : fsPromisesModule;
+      safeOverride(module, methodName, original);
     }
 
     this.originals.clear();
@@ -87,7 +110,7 @@ export class FsInterceptor extends BaseInterceptor {
 
     const self = this;
 
-    (module as any)[methodName] = function intercepted(
+    safeOverride(module, methodName, function intercepted(
       path: fs.PathLike,
       ...args: any[]
     ): void {
@@ -105,12 +128,12 @@ export class FsInterceptor extends BaseInterceptor {
         .then(() => {
           original.call(module, path, ...args, callback);
         })
-        .catch((error) => {
+        .catch((error: any) => {
           if (callback) {
             callback(error);
           }
         });
-    };
+    });
   }
 
   private interceptSyncMethod(
@@ -126,7 +149,7 @@ export class FsInterceptor extends BaseInterceptor {
 
     const self = this;
 
-    (module as any)[methodName] = function interceptedSync(
+    safeOverride(module, methodName, function interceptedSync(
       path: fs.PathLike,
       ...args: any[]
     ): any {
@@ -134,7 +157,7 @@ export class FsInterceptor extends BaseInterceptor {
 
       self.eventReporter.intercept(operation, pathString);
 
-      // Check policy synchronously
+      // Check policy synchronously via daemon's policy_check RPC
       try {
         const result = self.syncClient.request<{ allowed: boolean; reason?: string }>(
           'policy_check',
@@ -158,7 +181,7 @@ export class FsInterceptor extends BaseInterceptor {
       }
 
       return original.call(module, path, ...args);
-    };
+    });
   }
 
   private interceptPromiseMethod(
@@ -174,7 +197,7 @@ export class FsInterceptor extends BaseInterceptor {
 
     const self = this;
 
-    (module as any)[methodName] = async function interceptedPromise(
+    safeOverride(module, methodName, async function interceptedPromise(
       path: fs.PathLike,
       ...args: any[]
     ): Promise<any> {
@@ -186,6 +209,6 @@ export class FsInterceptor extends BaseInterceptor {
       await self.checkPolicy(operation, pathString);
 
       return original.call(module, path, ...args);
-    };
+    });
   }
 }

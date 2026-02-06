@@ -39,9 +39,58 @@ export interface SkillMetadata {
   name?: string;
   description?: string;
   version?: string;
-  requires?: { bins?: string[]; [key: string]: unknown };
+  homepage?: string;
+  emoji?: string;
+  'user-invocable'?: boolean;
+  'disable-model-invocation'?: boolean;
+  'command-dispatch'?: string;
+  'command-tool'?: string;
+  'command-arg-mode'?: string;
+  requires?: {
+    bins?: string[];
+    anyBins?: string[];
+    env?: string[];
+    config?: string[];
+    [key: string]: unknown;
+  };
+  metadata?: {
+    openclaw?: OpenClawSkillMetadata;
+    [key: string]: unknown;
+  };
   agenshield?: { allowedCommands?: string[]; [key: string]: unknown };
   [key: string]: unknown;
+}
+
+export interface OpenClawSkillMetadata {
+  always?: boolean;
+  os?: string[];
+  requires?: {
+    bins?: string[];
+    anyBins?: string[];
+    env?: string[];
+    config?: string[];
+  };
+  primaryEnv?: string;
+  homepage?: string;
+  install?: Array<{
+    id: string;
+    kind: string;
+    formula?: string;
+    bins?: string[];
+  }>;
+}
+
+export interface SkillExtractedInfo {
+  /** API keys / env vars required */
+  apiKeys: string[];
+  /** Binary dependencies */
+  bins: string[];
+  /** Optional binary alternatives */
+  anyBins: string[];
+  /** OpenClaw config paths required */
+  configOptions: string[];
+  /** Install instructions */
+  installSteps: OpenClawSkillMetadata['install'];
 }
 
 export interface DiscoveredSkill {
@@ -51,6 +100,7 @@ export interface DiscoveredSkill {
   metadata: SkillMetadata | null;
   requiredCommands: SkillCommandRequirement[];
   approval: 'approved' | 'quarantined' | 'unknown';
+  extractedInfo?: SkillExtractedInfo;
 }
 
 export interface SkillCommandRequirement {

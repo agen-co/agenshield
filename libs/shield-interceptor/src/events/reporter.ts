@@ -26,6 +26,10 @@ export class EventReporter {
   private logLevel: EventReporterOptions['logLevel'];
   private queue: InterceptorEvent[] = [];
   private flushInterval: NodeJS.Timeout | null = null;
+  private failedFlushCount = 0;
+
+  private static readonly MAX_QUEUE_SIZE = 500;
+  private static readonly MAX_RETRIES = 3;
 
   private readonly levelPriority: Record<string, number> = {
     debug: 0,
@@ -47,6 +51,11 @@ export class EventReporter {
    */
   report(event: InterceptorEvent): void {
     this.queue.push(event);
+
+    // Drop oldest events if queue exceeds max size
+    if (this.queue.length > EventReporter.MAX_QUEUE_SIZE) {
+      this.queue.splice(0, this.queue.length - EventReporter.MAX_QUEUE_SIZE);
+    }
 
     // Log locally based on level
     const level = this.getLogLevel(event);
@@ -124,9 +133,18 @@ export class EventReporter {
 
     try {
       await this.client.request('events_batch', { events });
+      this.failedFlushCount = 0;
     } catch {
-      // Put events back in queue if send fails
-      this.queue.unshift(...events);
+      this.failedFlushCount++;
+
+      if (this.failedFlushCount < EventReporter.MAX_RETRIES) {
+        // Re-queue events for retry, respecting max queue size
+        this.queue.unshift(...events);
+        if (this.queue.length > EventReporter.MAX_QUEUE_SIZE) {
+          this.queue.splice(0, this.queue.length - EventReporter.MAX_QUEUE_SIZE);
+        }
+      }
+      // After MAX_RETRIES, drop the events to prevent infinite loop
     }
   }
 

@@ -62,11 +62,11 @@ export const InstallationConfigSchema = z.object({
   users: UserConfigSchema,
   paths: PathsConfigSchema,
   httpFallback: z.boolean().default(true),
-  httpPort: z.number().int().min(1024).max(65535).default(6969),
+  httpPort: z.number().int().min(1024).max(65535).default(5201), // Broker HTTP fallback port
 });
 
 export const DaemonConfigSchema = z.object({
-  port: z.number().min(1).max(65535).default(6969),
+  port: z.number().min(1).max(65535).default(5200),
   host: z.string().default('localhost'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   enableHostsEntry: z.boolean().default(false),

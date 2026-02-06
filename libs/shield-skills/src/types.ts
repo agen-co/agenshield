@@ -19,6 +19,9 @@ export interface SkillManifest {
   os?: string[];
   primaryEnv?: string;
   install?: string;
+  homepage?: string;
+  emoji?: string;
+  metadata?: Record<string, unknown>;
 }
 
 /**

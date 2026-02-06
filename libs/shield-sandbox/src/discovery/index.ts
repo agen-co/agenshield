@@ -16,5 +16,6 @@ export {
   scanSkills,
   parseSkillMd,
   extractCommands,
+  extractSkillInfo,
   getApprovalStatus,
 } from './skill-scanner';

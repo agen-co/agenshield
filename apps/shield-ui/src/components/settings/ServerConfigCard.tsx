@@ -10,11 +10,11 @@ export function ServerConfigCard() {
   const { isReadOnly } = useAuth();
 
   const [host, setHost] = useState('localhost');
-  const [port, setPort] = useState(6969);
+  const [port, setPort] = useState(5200);
   const [saved, setSaved] = useState(false);
 
   const syncedHost = useRef('localhost');
-  const syncedPort = useRef(6969);
+  const syncedPort = useRef(5200);
 
   const serverHost = config?.data?.daemon?.host;
   const serverPort = config?.data?.daemon?.port;

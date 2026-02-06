@@ -25,6 +25,8 @@ import {
   createPathsConfig,
   deployInterceptor,
   copyNodeBinary,
+  copyBrokerBinary,
+  installGuardedShell,
   // Preset system
   getPreset,
   autoDetectPreset,
@@ -42,6 +44,16 @@ import type {
 import { createWizardSteps, getStepsByPhase, getAllStepIds } from './types.js';
 
 export type StepExecutor = (context: WizardContext) => Promise<{ success: boolean; error?: string }>;
+
+/**
+ * Verbose logging helper - logs messages when verbose mode is enabled
+ * Uses stderr to bypass Ink's stdout capture
+ */
+function logVerbose(message: string, context?: WizardContext): void {
+  if (context?.options?.verbose || process.env['AGENSHIELD_VERBOSE'] === 'true') {
+    process.stderr.write(`[SETUP] ${message}\n`);
+  }
+}
 
 export interface WizardEngine {
   state: WizardState;
@@ -276,6 +288,8 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
     // Skip in dry-run mode
     if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would create group: ${context.userConfig.groups.socket.name} (gid=${context.userConfig.groups.socket.gid})`, context);
+      logVerbose(`[dry-run] Would create group: ${context.userConfig.groups.workspace.name} (gid=${context.userConfig.groups.workspace.gid})`, context);
       context.groupsCreated = {
         socket: context.userConfig.groups.socket,
         workspace: context.userConfig.groups.workspace,
@@ -283,7 +297,10 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       return { success: true };
     }
 
-    const results = await createGroups(context.userConfig);
+    logVerbose(`Creating group: ${context.userConfig.groups.socket.name} (gid=${context.userConfig.groups.socket.gid})`, context);
+    logVerbose(`Creating group: ${context.userConfig.groups.workspace.name} (gid=${context.userConfig.groups.workspace.gid})`, context);
+
+    const results = await createGroups(context.userConfig, { verbose: context.options?.verbose });
     const failed = results.filter((r) => !r.success);
 
     if (failed.length > 0) {
@@ -306,29 +323,38 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       return { success: false, error: 'User configuration not set' };
     }
 
+    const { agentUser } = context.userConfig;
+
     // Skip in dry-run mode
     if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would create user: ${agentUser.username} (uid=${agentUser.uid}, gid=${agentUser.gid})`, context);
+      logVerbose(`[dry-run] Home directory: ${agentUser.home}`, context);
+      logVerbose(`[dry-run] Shell: ${agentUser.shell}`, context);
       context.agentUser = {
-        username: context.userConfig.agentUser.username,
-        uid: context.userConfig.agentUser.uid,
-        gid: context.userConfig.agentUser.gid,
-        homeDir: context.userConfig.agentUser.home,
-        shell: context.userConfig.agentUser.shell,
+        username: agentUser.username,
+        uid: agentUser.uid,
+        gid: agentUser.gid,
+        homeDir: agentUser.home,
+        shell: agentUser.shell,
       };
       return { success: true };
     }
 
-    const result = await createAgentUser(context.userConfig);
+    logVerbose(`Creating user: ${agentUser.username} (uid=${agentUser.uid}, gid=${agentUser.gid})`, context);
+    logVerbose(`Home directory: ${agentUser.home}`, context);
+    logVerbose(`Shell: ${agentUser.shell}`, context);
+
+    const result = await createAgentUser(context.userConfig, { verbose: context.options?.verbose });
     if (!result.success) {
       return { success: false, error: result.message };
     }
 
     context.agentUser = {
-      username: context.userConfig.agentUser.username,
-      uid: context.userConfig.agentUser.uid,
-      gid: context.userConfig.agentUser.gid,
-      homeDir: context.userConfig.agentUser.home,
-      shell: context.userConfig.agentUser.shell,
+      username: agentUser.username,
+      uid: agentUser.uid,
+      gid: agentUser.gid,
+      homeDir: agentUser.home,
+      shell: agentUser.shell,
     };
 
     return { success: true };
@@ -339,29 +365,34 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       return { success: false, error: 'User configuration not set' };
     }
 
+    const { brokerUser } = context.userConfig;
+
     // Skip in dry-run mode
     if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would create user: ${brokerUser.username} (uid=${brokerUser.uid}, gid=${brokerUser.gid})`, context);
       context.brokerUser = {
-        username: context.userConfig.brokerUser.username,
-        uid: context.userConfig.brokerUser.uid,
-        gid: context.userConfig.brokerUser.gid,
-        homeDir: context.userConfig.brokerUser.home,
-        shell: context.userConfig.brokerUser.shell,
+        username: brokerUser.username,
+        uid: brokerUser.uid,
+        gid: brokerUser.gid,
+        homeDir: brokerUser.home,
+        shell: brokerUser.shell,
       };
       return { success: true };
     }
 
-    const result = await createBrokerUser(context.userConfig);
+    logVerbose(`Creating user: ${brokerUser.username} (uid=${brokerUser.uid}, gid=${brokerUser.gid})`, context);
+
+    const result = await createBrokerUser(context.userConfig, { verbose: context.options?.verbose });
     if (!result.success) {
       return { success: false, error: result.message };
     }
 
     context.brokerUser = {
-      username: context.userConfig.brokerUser.username,
-      uid: context.userConfig.brokerUser.uid,
-      gid: context.userConfig.brokerUser.gid,
-      homeDir: context.userConfig.brokerUser.home,
-      shell: context.userConfig.brokerUser.shell,
+      username: brokerUser.username,
+      uid: brokerUser.uid,
+      gid: brokerUser.gid,
+      homeDir: brokerUser.home,
+      shell: brokerUser.shell,
     };
 
     return { success: true };
@@ -372,22 +403,35 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       return { success: false, error: 'Configuration not set' };
     }
 
+    const { agentUser } = context.userConfig;
+    const directories = {
+      binDir: `${agentUser.home}/bin`,
+      wrappersDir: `${agentUser.home}/bin`,
+      configDir: context.pathsConfig.configDir,
+      packageDir: `${agentUser.home}/.openclaw-pkg`,
+      npmDir: `${agentUser.home}/.npm`,
+      socketDir: context.pathsConfig.socketDir,
+      logDir: context.pathsConfig.logDir,
+      seatbeltDir: context.pathsConfig.seatbeltDir,
+    };
+
     // Skip in dry-run mode
     if (context.options?.dryRun) {
-      context.directories = {
-        binDir: `${context.userConfig.agentUser.home}/bin`,
-        wrappersDir: `${context.userConfig.agentUser.home}/bin`,
-        configDir: context.pathsConfig.configDir,
-        packageDir: `${context.userConfig.agentUser.home}/.openclaw-pkg`,
-        npmDir: `${context.userConfig.agentUser.home}/.npm`,
-        socketDir: context.pathsConfig.socketDir,
-        logDir: context.pathsConfig.logDir,
-        seatbeltDir: context.pathsConfig.seatbeltDir,
-      };
+      logVerbose(`[dry-run] Would create directory: ${directories.binDir}`, context);
+      logVerbose(`[dry-run] Would create directory: ${directories.configDir}`, context);
+      logVerbose(`[dry-run] Would create directory: ${directories.socketDir}`, context);
+      logVerbose(`[dry-run] Would create directory: ${directories.logDir}`, context);
+      context.directories = directories;
       return { success: true };
     }
 
-    const results = await createAllDirectories(context.userConfig);
+    logVerbose(`Creating directory: ${directories.binDir}`, context);
+    logVerbose(`Creating directory: ${directories.configDir}`, context);
+    logVerbose(`Creating directory: ${directories.socketDir}`, context);
+    logVerbose(`Creating directory: ${directories.logDir}`, context);
+    logVerbose(`Creating directory: ${agentUser.home}/workspace (mode=2775, group=${context.userConfig.groups.workspace.name})`, context);
+
+    const results = await createAllDirectories(context.userConfig, { verbose: context.options?.verbose });
     const failed = results.filter((r) => !r.success);
 
     if (failed.length > 0) {
@@ -397,16 +441,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       };
     }
 
-    context.directories = {
-      binDir: `${context.userConfig.agentUser.home}/bin`,
-      wrappersDir: `${context.userConfig.agentUser.home}/bin`,
-      configDir: context.pathsConfig.configDir,
-      packageDir: `${context.userConfig.agentUser.home}/.openclaw-pkg`,
-      npmDir: `${context.userConfig.agentUser.home}/.npm`,
-      socketDir: context.pathsConfig.socketDir,
-      logDir: context.pathsConfig.logDir,
-      seatbeltDir: context.pathsConfig.seatbeltDir,
-    };
+    context.directories = directories;
 
     return { success: true };
   },
@@ -492,18 +527,33 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
     // Skip in dry-run mode
     if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install guarded shell to /usr/local/bin/guarded-shell`, context);
+      logVerbose(`[dry-run] Would install ZDOTDIR files to /etc/agenshield/zdot/`, context);
+      logVerbose(`[dry-run] Would install wrappers: ${(requiredBins || ['node', 'npm', 'git', 'curl', 'shieldctl']).join(', ')}`, context);
       context.wrappersInstalled = requiredBins || ['node', 'npm', 'git', 'curl', 'shieldctl'];
       return { success: true };
     }
 
     try {
+      // First, install guarded shell (critical for PATH/HOME enforcement)
+      logVerbose(`Installing guarded shell to /usr/local/bin/guarded-shell`, context);
+      logVerbose(`Installing .zshenv to /etc/agenshield/zdot/.zshenv`, context);
+      logVerbose(`Installing .zshrc to /etc/agenshield/zdot/.zshrc`, context);
+
+      const guardedShellResult = await installGuardedShell(context.userConfig);
+      if (!guardedShellResult.success) {
+        return { success: false, error: guardedShellResult.message };
+      }
+
       if (requiredBins && requiredBins.length > 0) {
         // Preset-driven installation
+        logVerbose(`Installing wrappers: ${requiredBins.join(', ')}`, context);
         const result = await installPresetBinaries({
           requiredBins,
           userConfig: context.userConfig,
           binDir: context.directories.binDir,
           socketGroupName: context.userConfig.groups.socket.name,
+          verbose: context.options?.verbose,
         });
         context.wrappersInstalled = result.installedWrappers;
         if (!result.success) {
@@ -513,14 +563,19 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       }
 
       // Fallback: install all wrappers (no preset or preset has no requiredBins)
+      logVerbose(`Deploying interceptor to /opt/agenshield/lib/interceptor/register.cjs`, context);
       const interceptorResult = await deployInterceptor(context.userConfig);
       if (!interceptorResult.success) {
         return { success: false, error: interceptorResult.message };
       }
+
+      logVerbose(`Copying node binary to /opt/agenshield/bin/node-bin`, context);
       const nodeBinResult = await copyNodeBinary(context.userConfig);
       if (!nodeBinResult.success) {
         return { success: false, error: nodeBinResult.message };
       }
+
+      logVerbose(`Installing all wrappers to ${context.directories.binDir}`, context);
       const result = await installAllWrappers(context.userConfig, context.directories);
       if (!result.success) {
         return { success: false, error: result.error };
@@ -544,6 +599,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
     // Skip in dry-run mode
     if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install broker binary to ${brokerPath}`, context);
       context.brokerInstalled = {
         binaryPath: brokerPath,
         success: true,
@@ -551,8 +607,13 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       return { success: true };
     }
 
-    // TODO: Implement actual broker installation
-    // For now, just mark as success (broker will be installed separately)
+    logVerbose(`Installing broker binary to ${brokerPath}`, context);
+
+    const result = await copyBrokerBinary(context.userConfig);
+    if (!result.success) {
+      return { success: false, error: result.message };
+    }
+
     context.brokerInstalled = {
       binaryPath: brokerPath,
       success: true,
@@ -771,23 +832,10 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       };
     }
 
-    // Try to run the target binary as the sandbox user
-    try {
-      const { execSync } = await import('node:child_process');
-      const agentUsername = context.userConfig.agentUser.username;
-
-      if (context.migration?.newPaths?.binaryPath) {
-        const cmd = `sudo -u ${agentUsername} ${context.migration.newPaths.binaryPath} --version`;
-        const output = execSync(cmd, { encoding: 'utf-8', timeout: 30000, cwd: '/' });
-
-        if (!output.trim()) {
-          return { success: false, error: 'Target did not return version' };
-        }
-      }
-    } catch (err) {
-      // Don't fail on version check - it's optional
-      console.warn(`Warning: Version check failed: ${(err as Error).message}`);
-    }
+    // NOTE: We skip running the target binary during setup verification.
+    // The interceptor (loaded via NODE_OPTIONS) would try to connect to the
+    // broker, which isn't running yet, causing ETIMEDOUT errors.
+    // The users/groups/directories verification above is sufficient.
 
     context.verification = {
       usersValid: true,

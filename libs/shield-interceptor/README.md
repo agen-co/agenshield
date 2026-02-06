@@ -72,8 +72,8 @@ uninstallInterceptors();
 ## Limitations and Caveats
 - Only `fetch` is truly proxied through the broker; other interceptors are policy checks around local calls.
 - Async HTTP and process interceptors cannot fully block before the underlying operation starts.
-- Sync interceptors (`fs`, `execSync`, `spawnSync`) use a hardcoded broker socket/host/port (`/var/run/agenshield.sock`, `localhost:6969`) and ignore config overrides.
-- Broker URL bypass checks are hardcoded to `localhost:6969`; non-default ports can lead to interception recursion.
+- Sync interceptors (`fs`, `execSync`, `spawnSync`) use a hardcoded broker socket/host/port (`/var/run/agenshield.sock`, `localhost:5200`) and ignore config overrides.
+- Broker URL bypass checks are hardcoded to `localhost:5200`; non-default ports can lead to interception recursion.
 - WebSocket interception requires `globalThis.WebSocket` to exist (not always true in Node without a polyfill).
 - Native modules or direct syscalls that bypass Node APIs are not intercepted.
 

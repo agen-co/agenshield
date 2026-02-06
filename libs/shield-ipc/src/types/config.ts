@@ -105,7 +105,7 @@ export interface ShieldConfig {
 }
 
 export interface DaemonConfig {
-  /** HTTP server port (default: 6969) */
+  /** HTTP server port (default: 5200) */
   port: number;
   /** HTTP server host (default: 'localhost') */
   host: string;

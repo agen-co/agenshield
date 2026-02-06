@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type {
   SkillMetadata,
+  SkillExtractedInfo,
   DiscoveredSkill,
   SkillCommandRequirement,
   DiscoveredBinary,
@@ -42,6 +43,26 @@ const IGNORE_WORDS = new Set([
   'the', 'and', 'or', 'not', 'is', 'are', 'was', 'were', 'be',
   'to', 'in', 'on', 'at', 'by', 'with', 'as', 'this', 'that',
 ]);
+
+/** Deduplicate an array of strings */
+function unique(value: string, index: number, self: string[]): boolean {
+  return self.indexOf(value) === index;
+}
+
+/**
+ * Extract structured info (API keys, bins, config options, install steps) from skill metadata
+ */
+export function extractSkillInfo(metadata: SkillMetadata | null): SkillExtractedInfo {
+  const topReq = metadata?.requires;
+  const oclReq = metadata?.metadata?.openclaw?.requires;
+  return {
+    apiKeys: [...(topReq?.env ?? []), ...(oclReq?.env ?? [])].filter(unique),
+    bins: [...(topReq?.bins ?? []), ...(oclReq?.bins ?? [])].filter(unique),
+    anyBins: [...(topReq?.anyBins ?? []), ...(oclReq?.anyBins ?? [])].filter(unique),
+    configOptions: [...(topReq?.config ?? []), ...(oclReq?.config ?? [])].filter(unique),
+    installSteps: metadata?.metadata?.openclaw?.install,
+  };
+}
 
 /**
  * Parse SKILL.md content, extracting YAML frontmatter and body
@@ -220,6 +241,7 @@ export function scanSkills(
           metadata,
           requiredCommands,
           approval: getApprovalStatus(entry.name),
+          extractedInfo: extractSkillInfo(metadata),
         });
       }
     } catch {
@@ -265,6 +287,7 @@ export function scanSkills(
           metadata,
           requiredCommands,
           approval: 'quarantined',
+          extractedInfo: extractSkillInfo(metadata),
         });
       }
     } catch {

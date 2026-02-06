@@ -116,6 +116,22 @@ export function Overview() {
                     )}
                   </Box>
                 </Box>
+                {daemonStatus?.agentUsername && (
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Agent User</Typography>
+                    <Typography variant="body1" fontFamily="'IBM Plex Mono', monospace">
+                      {daemonStatus.agentUsername}
+                    </Typography>
+                  </Box>
+                )}
+                {daemonStatus?.workspaceGroup && (
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Workspace Group</Typography>
+                    <Typography variant="body1" fontFamily="'IBM Plex Mono', monospace">
+                      {daemonStatus.workspaceGroup}
+                    </Typography>
+                  </Box>
+                )}
               </Box>
             </CardContent>
           </Card>

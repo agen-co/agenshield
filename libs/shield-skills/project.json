@@ -39,11 +39,11 @@
         "command": "node scripts/strip-dist-from-pkg.js libs/shield-skills/dist/package.json"
       }
     },
-    "nx-release-publish": {
-      "executor": "@nx/js:release-publish",
+    "publish": {
+      "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
-        "packageRoot": "libs/shield-skills/dist"
+        "command": "npm publish libs/shield-skills/dist --access public --registry=https://registry.npmjs.org/"
       }
     }
   }

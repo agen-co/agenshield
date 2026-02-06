@@ -111,13 +111,13 @@ launchctl list | grep agenshield
 # (The first column is PID, 0 means not running, number means running)
 
 # Check daemon status
-curl -s http://localhost:6969/api/health
+curl -s http://localhost:5200/api/health
 
 # Expected:
 # {"status":"ok","version":"0.1.0"}
 
 # Check detailed status
-curl -s http://localhost:6969/api/status
+curl -s http://localhost:5200/api/status
 
 # Expected: JSON with daemon status information
 ```
@@ -178,7 +178,7 @@ sudo -u clawagent cat /etc/passwd
 # Expected: Permission denied or blocked
 
 # Check policy list
-curl -s http://localhost:6969/api/policies
+curl -s http://localhost:5200/api/policies
 
 # Expected: JSON list of active policies
 ```
@@ -350,7 +350,7 @@ fi
 
 # Check daemon
 echo -n "Daemon: "
-if curl -s http://localhost:6969/api/health | grep -q '"status":"ok"'; then
+if curl -s http://localhost:5200/api/health | grep -q '"status":"ok"'; then
   echo "OK"
 else
   echo "FAIL"

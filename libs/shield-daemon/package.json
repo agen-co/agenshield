@@ -17,16 +17,24 @@
       "default": "./dist/index.js"
     }
   },
+  "files": [
+    "**/*.js",
+    "**/*.d.ts",
+    "**/*.d.ts.map",
+    "ui-assets"
+  ],
   "license": "MIT",
   "dependencies": {
     "@agenshield/ipc": "0.1.0",
+    "@agenshield/broker": "0.1.0",
     "@agenshield/sandbox": "0.1.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "fastify": "^5.7.0",
     "zod": "^4.3.6",
     "@frontmcp/sdk": "^0.8.1",
     "@fastify/static": "^8.3.0",
-    "@fastify/cors": "^11.0.0"
+    "@fastify/cors": "^11.0.0",
+    "jszip": "^3.10.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

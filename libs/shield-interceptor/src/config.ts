@@ -37,9 +37,6 @@ export interface InterceptorConfig {
 
   /** Request timeout in milliseconds */
   timeout: number;
-
-  /** Policy cache TTL in milliseconds */
-  policyCacheTtl: number;
 }
 
 /**
@@ -49,9 +46,9 @@ export function createConfig(overrides?: Partial<InterceptorConfig>): Intercepto
   const env = process.env;
 
   return {
-    socketPath: env['AGENSHIELD_SOCKET'] || '/var/run/agenshield.sock',
+    socketPath: env['AGENSHIELD_SOCKET'] || '/var/run/agenshield/agenshield.sock',
     httpHost: env['AGENSHIELD_HOST'] || 'localhost',
-    httpPort: parseInt(env['AGENSHIELD_PORT'] || '6969', 10),
+    httpPort: parseInt(env['AGENSHIELD_PORT'] || '5201', 10),
     failOpen: env['AGENSHIELD_FAIL_OPEN'] === 'true',
     logLevel: (env['AGENSHIELD_LOG_LEVEL'] as InterceptorConfig['logLevel']) || 'warn',
     interceptFetch: env['AGENSHIELD_INTERCEPT_FETCH'] !== 'false',
@@ -60,7 +57,6 @@ export function createConfig(overrides?: Partial<InterceptorConfig>): Intercepto
     interceptFs: env['AGENSHIELD_INTERCEPT_FS'] !== 'false',
     interceptExec: env['AGENSHIELD_INTERCEPT_EXEC'] !== 'false',
     timeout: parseInt(env['AGENSHIELD_TIMEOUT'] || '30000', 10),
-    policyCacheTtl: parseInt(env['AGENSHIELD_POLICY_CACHE_TTL'] || '60000', 10),
     ...overrides,
   };
 }

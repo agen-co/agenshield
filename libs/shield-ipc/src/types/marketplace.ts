@@ -12,6 +12,9 @@ export interface MarketplaceSkill {
   tags: string[];
   readme?: string;
   files?: MarketplaceSkillFile[];
+  installed?: boolean;
+  /** Pre-computed analysis returned from GET /marketplace/skills/:slug */
+  analysis?: AnalyzeSkillResponse['analysis'];
 }
 
 export interface MarketplaceSkillFile {
@@ -26,6 +29,17 @@ export interface AnalyzeSkillRequest {
   publisher: string;
   files: MarketplaceSkillFile[];
 }
+
+export type SkillSource = 'clawhub';
+
+export interface AnalyzeSkillFromSourceRequest {
+  slug: string;
+  source: SkillSource;
+  skillName?: string;
+  publisher?: string;
+}
+
+export type AnalyzeSkillRequestUnion = AnalyzeSkillRequest | AnalyzeSkillFromSourceRequest;
 
 /* ------------------------------------------------------------------ */
 /*  Deep analysis sub-types (optional, backward compatible)            */
@@ -113,7 +127,5 @@ export interface AnalyzeSkillResponse {
 
 export interface InstallSkillRequest {
   slug: string;
-  files: MarketplaceSkillFile[];
-  analysis: AnalyzeSkillResponse['analysis'];
-  publisher?: string;
+  type?: string;
 }

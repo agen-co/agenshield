@@ -370,7 +370,12 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
                 ? 'my-skill\nworkspace-tool'
                 : formData.target === 'filesystem'
                   ? '/Users/me/projects/**\n/tmp/*'
-                  : 'https://api.example.com/*\nhttps://*.internal.io/**'
+                  : 'example.com\n*.internal.io\nhttps://api.example.com/**'
+          }
+          helperText={
+            formData.target === 'url'
+              ? 'Plain HTTP is blocked by default. Use * for single path segment, ** for any path. Bare domains assume HTTPS.'
+              : undefined
           }
         />
 
@@ -510,7 +515,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
         )}
 
         {/* Linked Secrets */}
-        {!hideSecrets && <Box>
+        {!hideSecrets && formData.target !== 'filesystem' && <Box>
           <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
             Linked Secrets
           </Typography>

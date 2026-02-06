@@ -268,6 +268,13 @@ export async function updateOpenClawMcpConfig(
       },
     };
 
+    // Ensure skill watcher is always enabled
+    (config as Record<string, unknown>).skillWatcher = {
+      enabled: true,
+      directory: getSkillsDir(homeDir),
+      pollInterval: 30000,
+    };
+
     // Write config
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o644 });
 

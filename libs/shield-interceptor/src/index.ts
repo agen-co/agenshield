@@ -22,7 +22,6 @@ export { SyncClient } from './client/sync-client.js';
 
 // Policy exports
 export { PolicyEvaluator } from './policy/evaluator.js';
-export { PolicyCache } from './policy/cache.js';
 
 // Event exports
 export { EventReporter } from './events/reporter.js';

@@ -51,7 +51,6 @@ export function installInterceptors(
 
   policyEvaluator = new PolicyEvaluator({
     client,
-    cacheTtl: config.policyCacheTtl,
   });
 
   eventReporter = new EventReporter({

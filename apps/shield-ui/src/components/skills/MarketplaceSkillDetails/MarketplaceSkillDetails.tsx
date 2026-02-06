@@ -1,15 +1,14 @@
-import { useState, useEffect } from 'react';
-import { Typography, Button, Skeleton, Box, Chip, CircularProgress, Divider } from '@mui/material';
-import { ShieldCheck, Download, RefreshCw, User, Tag, ExternalLink, CheckCircle, XCircle, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { useState } from 'react';
+import { Typography, Button, Skeleton, Box, Chip, CircularProgress, Divider, Alert, Accordion, AccordionSummary, AccordionDetails } from '@mui/material';
+import { Download, RefreshCw, User, Tag, ExternalLink, CheckCircle, XCircle, ShieldAlert, AlertTriangle, ShieldCheck, Ban, Trash2, ChevronDown } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
-import { useMarketplaceSkill, useAnalyzeMarketplaceSkill, useInstallMarketplaceSkill, useCachedAnalysis, queryKeys } from '../../../api/hooks';
+import { useMarketplaceSkill, useInstallMarketplaceSkill, useSkills, useToggleSkill } from '../../../api/hooks';
 import type { AnalyzeSkillResponse } from '../../../api/marketplace.types';
 import { MarkdownViewer } from '../../shared/MarkdownViewer';
 import { parseSkillReadme } from '../../../utils/parseSkillReadme';
 import { Root, ContentGrid, ReadmeCard, Sidebar, SidebarSection } from '../SkillDetails/SkillDetails.styles';
 
-type InstallPhase = 'idle' | 'analyzing' | 'analyzed' | 'analysis_failed' | 'installing' | 'installed';
+type InstallPhase = 'idle' | 'installing' | 'installed' | 'error';
 
 interface MarketplaceSkillDetailsProps {
   slug: string;
@@ -40,70 +39,158 @@ function MetaItem({ icon: Icon, label, href }: { icon: LucideIcon; label: string
   return content;
 }
 
-function AnalysisResultCard({
+function AnalysisAccordion({
   analysis,
-  phase,
-  onInstall,
+  isAnalysisPending,
 }: {
-  analysis: AnalyzeSkillResponse['analysis'];
-  phase: InstallPhase;
-  onInstall: () => void;
+  analysis: AnalyzeSkillResponse['analysis'] | null | undefined;
+  isAnalysisPending: boolean;
 }) {
-  const config = severityConfig[analysis.vulnerability.level] ?? severityConfig.safe;
+  const config = analysis?.vulnerability?.level
+    ? severityConfig[analysis.vulnerability.level] ?? severityConfig.safe
+    : severityConfig.safe;
   const SeverityIcon = config.icon;
-  const isCritical = analysis.vulnerability.level === 'critical';
-  const isInstalling = phase === 'installing';
 
+  // Pending state
+  if (isAnalysisPending) {
+    return (
+      <Accordion
+        defaultExpanded
+        sx={{
+          mb: 2,
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 2,
+          '&:before': { display: 'none' },
+          boxShadow: 'none',
+        }}
+      >
+        <AccordionSummary
+          expandIcon={<ChevronDown size={18} />}
+          sx={{
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+            borderRadius: 2,
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <CircularProgress size={18} />
+            <Box>
+              <Typography variant="subtitle2" fontWeight={700}>
+                Security Analysis
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Analyzing skill...
+              </Typography>
+            </Box>
+          </Box>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body2" color="text.secondary">
+            Please wait while we analyze this skill for security vulnerabilities.
+          </Typography>
+        </AccordionDetails>
+      </Accordion>
+    );
+  }
+
+  // No analysis yet
+  if (!analysis) return null;
+
+  // Error state
+  if (analysis.status === 'error') {
+    return (
+      <Accordion
+        defaultExpanded
+        sx={{
+          mb: 2,
+          border: 1,
+          borderColor: 'error.main',
+          borderRadius: 2,
+          '&:before': { display: 'none' },
+          boxShadow: 'none',
+        }}
+      >
+        <AccordionSummary
+          expandIcon={<ChevronDown size={18} />}
+          sx={{
+            bgcolor: (theme) =>
+              theme.palette.mode === 'dark'
+                ? `${theme.palette.error.main}1A`
+                : `${theme.palette.error.main}0F`,
+            borderRadius: 2,
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <AlertTriangle size={18} />
+            <Typography variant="subtitle2" fontWeight={700}>
+              Analysis Failed
+            </Typography>
+          </Box>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Typography variant="body2" color="text.secondary">
+            {analysis.vulnerability?.details?.[0] ?? 'Unable to analyze this skill. You may proceed with caution.'}
+          </Typography>
+        </AccordionDetails>
+      </Accordion>
+    );
+  }
+
+  // Complete analysis
   return (
-    <Box
+    <Accordion
+      defaultExpanded
       sx={{
-        borderRadius: 2,
-        overflow: 'hidden',
+        mb: 2,
         border: 1,
         borderColor: (theme) => theme.palette[config.color].main,
+        borderRadius: 2,
+        '&:before': { display: 'none' },
+        boxShadow: 'none',
       }}
     >
-      {/* Header */}
-      <Box
+      <AccordionSummary
+        expandIcon={<ChevronDown size={18} />}
         sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          px: 2,
-          py: 1.5,
           bgcolor: (theme) =>
             theme.palette.mode === 'dark'
               ? `${theme.palette[config.color].main}1A`
               : `${theme.palette[config.color].main}0F`,
+          borderRadius: 2,
         }}
       >
-        <SeverityIcon size={18} />
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="subtitle2" fontWeight={700}>
-            {config.label}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Security Analysis
-          </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
+          <SeverityIcon size={18} />
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700}>
+              Security Analysis
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {config.label}
+            </Typography>
+          </Box>
+          <Chip
+            label={analysis.vulnerability.level.toUpperCase()}
+            color={config.color}
+            size="small"
+            sx={{ fontWeight: 700, fontSize: '0.6875rem', mr: 1 }}
+          />
         </Box>
-        <Chip
-          label={analysis.vulnerability.level.toUpperCase()}
-          color={config.color}
-          size="small"
-          sx={{ fontWeight: 700, fontSize: '0.6875rem' }}
-        />
-      </Box>
-
-      {/* Details */}
-      <Box sx={{ px: 2, py: 1.5 }}>
+      </AccordionSummary>
+      <AccordionDetails>
+        {/* Vulnerability details */}
         {analysis.vulnerability.details.map((detail, i) => (
           <Typography key={i} variant="body2" color="text.secondary" sx={{ fontSize: '0.8125rem', mb: 0.25 }}>
             {detail}
           </Typography>
         ))}
 
+        {/* Suggestions */}
         {analysis.vulnerability.suggestions && analysis.vulnerability.suggestions.length > 0 && (
-          <Box sx={{ mt: 1 }}>
+          <Box sx={{ mt: 1.5 }}>
+            <Typography variant="caption" fontWeight={600} color="text.secondary" sx={{ display: 'block', mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Suggestions
+            </Typography>
             {analysis.vulnerability.suggestions.map((s, i) => (
               <Typography key={i} variant="body2" color="info.main" sx={{ fontSize: '0.8125rem' }}>
                 {s}
@@ -114,64 +201,57 @@ function AnalysisResultCard({
 
         {/* Commands */}
         {analysis.commands.length > 0 && (
-          <>
-            <Divider sx={{ my: 1.5 }} />
+          <Box sx={{ mt: 1.5 }}>
             <Typography variant="caption" fontWeight={600} color="text.secondary" sx={{ display: 'block', mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Commands ({analysis.commands.length})
             </Typography>
-            {analysis.commands.map((cmd) => (
-              <Box
-                key={cmd.name}
-                sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}
-              >
-                {cmd.available ? (
-                  <CheckCircle size={12} color="var(--mui-palette-success-main, #6CB685)" />
-                ) : (
-                  <XCircle size={12} color="var(--mui-palette-error-main, #E1583E)" />
-                )}
-                <Typography variant="caption">{cmd.name}</Typography>
-              </Box>
-            ))}
-          </>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {analysis.commands.map((cmd) => (
+                <Box
+                  key={cmd.name}
+                  sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+                >
+                  {cmd.available ? (
+                    <CheckCircle size={12} color="var(--mui-palette-success-main, #6CB685)" />
+                  ) : (
+                    <XCircle size={12} color="var(--mui-palette-error-main, #E1583E)" />
+                  )}
+                  <Typography variant="caption">{cmd.name}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </Box>
         )}
-
-        {/* Install button inside the card */}
-        <Divider sx={{ my: 1.5 }} />
-        <Button
-          fullWidth
-          variant="contained"
-          color={isCritical ? 'error' : 'primary'}
-          startIcon={isInstalling ? <CircularProgress size={14} /> : <Download size={16} />}
-          onClick={onInstall}
-          disabled={isCritical || isInstalling}
-          sx={{ fontWeight: 600 }}
-        >
-          {isCritical ? 'Cannot Install (Critical)' : isInstalling ? 'Installing...' : 'Install Skill'}
-        </Button>
-      </Box>
-    </Box>
+      </AccordionDetails>
+    </Accordion>
   );
 }
 
 export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) {
   const { data, isLoading } = useMarketplaceSkill(slug);
-  const analyzeMutation = useAnalyzeMarketplaceSkill();
   const installMutation = useInstallMarketplaceSkill();
-  const queryClient = useQueryClient();
+  const toggleMutation = useToggleSkill();
+  const { data: skillsData } = useSkills();
 
   const [phase, setPhase] = useState<InstallPhase>('idle');
-  const [analysis, setAnalysis] = useState<AnalyzeSkillResponse['analysis'] | null>(null);
+  const [installResult, setInstallResult] = useState<{
+    analysis?: AnalyzeSkillResponse['analysis'];
+    logs?: string[];
+    error?: string;
+  } | null>(null);
 
   const skill = data?.data;
-  const cachedAnalysisQuery = useCachedAnalysis(skill?.name ?? null, skill?.author ?? null);
 
-  // Pre-populate from cached marketplace analysis
-  useEffect(() => {
-    if (phase === 'idle' && cachedAnalysisQuery.data?.data?.analysis) {
-      setAnalysis(cachedAnalysisQuery.data.data.analysis);
-      setPhase('analyzed');
-    }
-  }, [cachedAnalysisQuery.data, phase]);
+  // Pre-computed analysis from backend (auto-triggered on view)
+  const preAnalysis = skill?.analysis;
+  const analysisStatus = skill?.analysisStatus;
+  const isAnalysisPending = analysisStatus === 'pending';
+  const isCritical = preAnalysis?.vulnerability?.level === 'critical';
+
+  // Check if skill is already installed (active in skills list)
+  const isInstalled = skillsData?.data?.some(
+    (s) => s.name === slug && s.status === 'active'
+  ) ?? skill?.installed;
 
   if (isLoading) {
     return (
@@ -193,40 +273,16 @@ export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) 
   const { body: cleanReadme, meta: readmeMeta } = parseSkillReadme(skill.readme ?? '');
   const homepage = readmeMeta.homepage;
 
-  const handleAnalyze = async () => {
-    if (!skill.files?.length) return;
-    setPhase('analyzing');
-    try {
-      const result = await analyzeMutation.mutateAsync({
-        skillName: skill.name,
-        publisher: skill.author,
-        files: skill.files,
-      });
-      setAnalysis(result.data.analysis);
-      setPhase('analyzed');
-      // Update cached analysis query
-      queryClient.setQueryData(
-        queryKeys.marketplaceCachedAnalysis(skill.name, skill.author),
-        result
-      );
-    } catch {
-      setPhase('analysis_failed');
-    }
-  };
-
   const handleInstall = async () => {
-    if (!skill.files?.length || !analysis) return;
     setPhase('installing');
+    setInstallResult(null);
     try {
-      await installMutation.mutateAsync({
-        slug: skill.slug,
-        files: skill.files,
-        analysis,
-        publisher: skill.author,
-      });
+      const result = await installMutation.mutateAsync({ slug: skill.slug });
+      setInstallResult({ analysis: result.data.analysis, logs: result.data.logs });
       setPhase('installed');
-    } catch {
-      setPhase('analyzed');
+    } catch (err) {
+      setInstallResult({ error: (err as Error).message });
+      setPhase('error');
     }
   };
 
@@ -244,8 +300,11 @@ export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) 
       </Box>
 
       <ContentGrid>
-        {/* Left: Readme */}
+        {/* Left: Readme with Analysis Accordion */}
         <ReadmeCard>
+          {/* Analysis accordion at the top */}
+          <AnalysisAccordion analysis={preAnalysis} isAnalysisPending={isAnalysisPending} />
+
           {cleanReadme ? (
             <MarkdownViewer content={cleanReadme} />
           ) : (
@@ -257,67 +316,115 @@ export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) 
 
         {/* Right: Sidebar */}
         <Sidebar>
-          {/* Analyze button — shown before analysis */}
-          {(phase === 'idle' || phase === 'analyzing') && (
+          {/* Critical vulnerability block - cannot install */}
+          {isCritical && phase === 'idle' && (
+            <Alert
+              severity="error"
+              icon={<Ban size={18} />}
+              sx={{ mb: 2, borderRadius: 2 }}
+            >
+              <Typography variant="body2" fontWeight={600}>
+                Installation Blocked
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                This skill has critical security vulnerabilities and cannot be installed.
+              </Typography>
+            </Alert>
+          )}
+
+          {/* Uninstall button — when skill is already installed */}
+          {phase === 'idle' && isInstalled && (
             <Button
               fullWidth
-              variant="contained"
-              startIcon={
-                phase === 'idle'
-                  ? <ShieldCheck size={16} />
-                  : <CircularProgress size={14} />
-              }
-              onClick={handleAnalyze}
-              disabled={phase !== 'idle' || !skill.files?.length}
-              sx={{ fontWeight: 600 }}
+              variant="outlined"
+              color="secondary"
+              startIcon={toggleMutation.isPending ? <CircularProgress size={14} /> : <Trash2 size={16} />}
+              onClick={() => toggleMutation.mutate(slug)}
+              disabled={toggleMutation.isPending}
+              sx={{ fontWeight: 600, mb: 1 }}
             >
-              {phase === 'idle' ? 'Analyze & Install' : 'Analyzing...'}
+              {toggleMutation.isPending ? 'Uninstalling...' : 'Uninstall'}
             </Button>
           )}
 
-          {/* Analysis result card with Install button inside */}
-          {(phase === 'analyzed' || phase === 'installing') && analysis && (
-            <AnalysisResultCard analysis={analysis} phase={phase} onInstall={handleInstall} />
+          {/* Install button — idle state (disabled for critical or already installed) */}
+          {phase === 'idle' && !isInstalled && (
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={isCritical ? <Ban size={16} /> : <Download size={16} />}
+              onClick={handleInstall}
+              disabled={isCritical || isAnalysisPending}
+              sx={{ fontWeight: 600 }}
+            >
+              {isCritical ? 'Cannot Install' : isAnalysisPending ? 'Waiting for analysis...' : 'Install'}
+            </Button>
+          )}
+
+          {/* Installing state */}
+          {phase === 'installing' && (
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={<CircularProgress size={14} />}
+              disabled
+              sx={{ fontWeight: 600 }}
+            >
+              Installing...
+            </Button>
           )}
 
           {/* Installed success */}
           {phase === 'installed' && (
-            <Box
-              sx={{
-                borderRadius: 2,
-                overflow: 'hidden',
-                border: 1,
-                borderColor: (theme) => theme.palette.success.main,
-              }}
-            >
+            <>
               <Box
                 sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  px: 2,
-                  py: 1.5,
-                  bgcolor: (theme) =>
-                    theme.palette.mode === 'dark'
-                      ? `${theme.palette.success.main}1A`
-                      : `${theme.palette.success.main}0F`,
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  border: 1,
+                  borderColor: (theme) => theme.palette.success.main,
                 }}
               >
-                <CheckCircle size={18} />
-                <Box>
-                  <Typography variant="subtitle2" fontWeight={700}>
-                    Installed
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Skill will appear in the Active tab once approved.
-                  </Typography>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    px: 2,
+                    py: 1.5,
+                    bgcolor: (theme) =>
+                      theme.palette.mode === 'dark'
+                        ? `${theme.palette.success.main}1A`
+                        : `${theme.palette.success.main}0F`,
+                  }}
+                >
+                  <CheckCircle size={18} />
+                  <Box>
+                    <Typography variant="subtitle2" fontWeight={700}>
+                      Installed
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Skill is now active.
+                    </Typography>
+                  </Box>
                 </Box>
+
+                {/* Logs */}
+                {installResult?.logs && installResult.logs.length > 0 && (
+                  <Box sx={{ px: 2, py: 1.5 }}>
+                    {installResult.logs.map((log, i) => (
+                      <Typography key={i} variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.75rem' }}>
+                        {log}
+                      </Typography>
+                    ))}
+                  </Box>
+                )}
               </Box>
-            </Box>
+            </>
           )}
 
-          {/* Analysis failed */}
-          {phase === 'analysis_failed' && (
+          {/* Error state */}
+          {phase === 'error' && (
             <Box
               sx={{
                 borderRadius: 2,
@@ -341,22 +448,22 @@ export function MarketplaceSkillDetails({ slug }: MarketplaceSkillDetailsProps) 
               >
                 <ShieldAlert size={18} />
                 <Typography variant="subtitle2" fontWeight={700}>
-                  Analysis Failed
+                  Installation Failed
                 </Typography>
               </Box>
               <Box sx={{ px: 2, py: 1.5 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontSize: '0.8125rem' }}>
-                  The skill could not be analyzed at this time.
+                  {installResult?.error ?? 'An unexpected error occurred.'}
                 </Typography>
                 <Button
                   fullWidth
                   variant="outlined"
                   color="secondary"
                   startIcon={<RefreshCw size={14} />}
-                  onClick={handleAnalyze}
+                  onClick={handleInstall}
                   sx={{ fontWeight: 600 }}
                 >
-                  Retry Analysis
+                  Retry Install
                 </Button>
               </Box>
             </Box>

@@ -2,6 +2,7 @@
  * Fastify server setup for AgenShield daemon
  */
 
+import * as fs from 'node:fs';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
@@ -13,6 +14,7 @@ import { startSkillsWatcher, stopSkillsWatcher } from './watchers/skills';
 import { emitSkillQuarantined, emitSkillApproved } from './events/emitter';
 import { getVault } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
+import { ActivityLog } from './services/activity-log';
 
 /**
  * Create and configure the Fastify server
@@ -43,7 +45,7 @@ export async function createServer(config: DaemonConfig): Promise<FastifyInstanc
 
     // Fallback to index.html for SPA routing
     app.setNotFoundHandler(async (request, reply) => {
-      if (request.url.startsWith('/api') || request.url.startsWith('/sse')) {
+      if (request.url.startsWith('/api') || request.url.startsWith('/sse') || request.url.startsWith('/rpc')) {
         return reply.code(404).send({ error: 'Not found' });
       }
       return reply.sendFile('index.html');
@@ -68,10 +70,21 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // Default skills dir: agent home is derived from config or uses fallback
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
   const skillsDir = `${agentHome}/.openclaw/skills`;
+
+  // Ensure skills directory exists with proper permissions before starting watcher
+  if (!fs.existsSync(skillsDir)) {
+    fs.mkdirSync(skillsDir, { recursive: true, mode: 0o755 });
+    console.log(`[Daemon] Created skills directory: ${skillsDir}`);
+  }
+
   startSkillsWatcher(skillsDir, {
     onQuarantined: (info) => emitSkillQuarantined(info.name, info.reason),
     onApproved: (name) => emitSkillApproved(name),
   }, 30000); // Check every 30 seconds
+
+  // Start persistent activity log
+  const activityLog = new ActivityLog();
+  activityLog.start();
 
   // Auto-activate MCP if valid tokens exist
   try {
@@ -88,12 +101,17 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   app.addHook('onClose', async () => {
     stopSecurityWatcher();
     stopSkillsWatcher();
+    activityLog.stop();
     await deactivateMCP();
   });
 
+  // Normalize localhost to 127.0.0.1 to avoid IPv6 binding issues on macOS
+  // (localhost resolves to ::1 on macOS, but clients often connect via 127.0.0.1)
+  const listenHost = config.host === 'localhost' ? '127.0.0.1' : config.host;
+
   await app.listen({
     port: config.port,
-    host: config.host,
+    host: listenHost,
   });
 
   return app;

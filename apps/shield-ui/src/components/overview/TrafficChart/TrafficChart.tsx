@@ -13,6 +13,7 @@ import { format, subHours, subDays, isAfter } from 'date-fns';
 import { useSnapshot } from 'valtio';
 import { eventStore } from '../../../state/events';
 import { useHealthGate } from '../../../api/hooks';
+import { BLOCKED_EVENT_TYPES } from '../../../utils/eventDisplay';
 import { TimeRangeGroup } from './TrafficChart.styles';
 
 type TimeRange = '1h' | '6h' | '24h' | '7d';
@@ -119,7 +120,8 @@ export function TrafficChart() {
       const key = floored.getTime();
       const bucket = buckets.get(key) ?? { requests: 0, blocked: 0 };
       bucket.requests++;
-      if (event.type === 'security:alert') bucket.blocked++;
+      if (BLOCKED_EVENT_TYPES.has(event.type)) bucket.blocked++;
+      if (event.type === 'interceptor:event' && (event.data as Record<string, unknown>)?.type === 'denied') bucket.blocked++;
       buckets.set(key, bucket);
     }
 
@@ -132,6 +134,14 @@ export function TrafficChart() {
   const isEmpty = !healthy || chartData.length === 0;
   const placeholderData = usePlaceholderData(isEmpty);
   const greyColor = theme.palette.mode =='dark' ? theme.palette.grey[600] : theme.palette.grey[400];
+
+  // Calculate Y-axis max from actual data
+  const yMax = useMemo(() => {
+    if (isEmpty) return PLACEHOLDER_Y_MAX;
+    const maxRequests = Math.max(...chartData.map((d) => d.requests), 0);
+    // Add 10% padding, minimum of 5
+    return Math.max(Math.ceil(maxRequests * 1.1), 5);
+  }, [isEmpty, chartData]);
 
   return (
     <Card>
@@ -190,7 +200,7 @@ export function TrafficChart() {
                 <YAxis
                   tick={{ fontSize: 12, fill: isEmpty ? 'transparent' : theme.palette.text.secondary }}
                   axisLine={{ stroke: theme.palette.divider }}
-                  domain={isEmpty ? [PLACEHOLDER_Y_MIN, PLACEHOLDER_Y_MAX] : undefined}
+                  domain={[0, yMax]}
                 />
                 {!isEmpty && (
                   <Tooltip

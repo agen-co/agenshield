@@ -292,3 +292,59 @@ export interface PingResult {
   timestamp: string;
   version: string;
 }
+
+/**
+ * Skill installation file
+ */
+export interface SkillInstallFile {
+  /** Relative file name (e.g., "skill.md", "lib/utils.js") */
+  name: string;
+  /** File content (base64 encoded for binary, raw string for text) */
+  content: string;
+  /** Optional file mode (e.g., 0o755 for executable) */
+  mode?: number;
+  /** Whether content is base64 encoded */
+  base64?: boolean;
+}
+
+export interface SkillInstallParams {
+  /** Skill slug (used as directory name) */
+  slug: string;
+  /** Files to install */
+  files: SkillInstallFile[];
+  /** Whether to create a wrapper script in bin directory */
+  createWrapper?: boolean;
+  /** Agent home directory (defaults to env AGENSHIELD_AGENT_HOME) */
+  agentHome?: string;
+  /** Socket group name (defaults to env AGENSHIELD_SOCKET_GROUP) */
+  socketGroup?: string;
+}
+
+export interface SkillInstallResult {
+  /** Whether installation succeeded */
+  installed: boolean;
+  /** Path to installed skill directory */
+  skillDir: string;
+  /** Path to wrapper script (if created) */
+  wrapperPath?: string;
+  /** Number of files written */
+  filesWritten: number;
+}
+
+export interface SkillUninstallParams {
+  /** Skill slug to uninstall */
+  slug: string;
+  /** Agent home directory (defaults to env AGENSHIELD_AGENT_HOME) */
+  agentHome?: string;
+  /** Whether to remove wrapper script */
+  removeWrapper?: boolean;
+}
+
+export interface SkillUninstallResult {
+  /** Whether uninstallation succeeded */
+  uninstalled: boolean;
+  /** Path to removed skill directory */
+  skillDir: string;
+  /** Whether wrapper was removed */
+  wrapperRemoved: boolean;
+}

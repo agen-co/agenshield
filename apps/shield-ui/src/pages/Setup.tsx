@@ -130,6 +130,11 @@ export function SetupWizard() {
     }
   };
 
+  // Complete step renders full-screen (no wizard chrome)
+  if (currentUIStep === 6) {
+    return <CompleteStep />;
+  }
+
   return (
     <SetupLayout>
       {renderStep()}

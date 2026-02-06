@@ -10,6 +10,15 @@ import * as net from 'node:net';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
+// Capture original function references BEFORE any interceptor can patch them.
+// These run at module load time (during require()), before installInterceptors().
+// Stored in module closure — unreachable by external code.
+const _existsSync = fs.existsSync.bind(fs);
+const _readFileSync = fs.readFileSync.bind(fs);
+const _unlinkSync = fs.unlinkSync.bind(fs);
+const _spawnSync = spawnSync;
+const _execSync = nodeExecSync;
+
 export interface SyncClientOptions {
   socketPath: string;
   httpHost: string;
@@ -94,16 +103,16 @@ export class SyncClient {
     `;
 
     try {
-      // Run the script synchronously
-      spawnSync('node', ['-e', script], {
+      // Run the script synchronously (use captured original to avoid interception)
+      _spawnSync('node', ['-e', script], {
         timeout: this.timeout + 1000,
         stdio: 'ignore',
       });
 
-      // Read the response
-      if (fs.existsSync(tmpFile)) {
-        const response = JSON.parse(fs.readFileSync(tmpFile, 'utf-8'));
-        fs.unlinkSync(tmpFile);
+      // Read the response (use captured originals to avoid interception)
+      if (_existsSync(tmpFile)) {
+        const response = JSON.parse(_readFileSync(tmpFile, 'utf-8'));
+        _unlinkSync(tmpFile);
 
         if (response.error) {
           throw new Error(response.error);
@@ -114,10 +123,10 @@ export class SyncClient {
 
       throw new Error('No response from broker');
     } finally {
-      // Clean up
+      // Clean up (use captured originals to avoid interception)
       try {
-        if (fs.existsSync(tmpFile)) {
-          fs.unlinkSync(tmpFile);
+        if (_existsSync(tmpFile)) {
+          _unlinkSync(tmpFile);
         }
       } catch {
         // Ignore cleanup errors
@@ -143,8 +152,8 @@ export class SyncClient {
     });
 
     try {
-      // Use curl for synchronous HTTP request
-      const result = nodeExecSync(
+      // Use curl for synchronous HTTP request (use captured original to avoid interception)
+      const result = _execSync(
         `curl -s -X POST -H "Content-Type: application/json" -d '${request.replace(/'/g, "\\'")}' "${url}"`,
         {
           timeout: this.timeout,

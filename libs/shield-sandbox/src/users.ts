@@ -154,22 +154,40 @@ export async function userExists(username: string): Promise<boolean> {
 }
 
 /**
+ * Verbose logging options
+ */
+export interface VerboseOptions {
+  verbose?: boolean;
+}
+
+/**
  * Create a group
  */
 export async function createGroup(
   name: string,
   gid: number,
-  description?: string
+  description?: string,
+  options?: VerboseOptions
 ): Promise<CreateResult> {
+  const log = (msg: string) => options?.verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+
   try {
     if (await groupExists(name)) {
+      log(`Group ${name} already exists`);
       return { success: true, message: `Group ${name} already exists` };
     }
 
     // Create group
+    log(`Running: sudo dscl . -create /Groups/${name}`);
     await execAsync(`sudo dscl . -create /Groups/${name}`);
+
+    log(`Running: sudo dscl . -create /Groups/${name} PrimaryGroupID ${gid}`);
     await execAsync(`sudo dscl . -create /Groups/${name} PrimaryGroupID ${gid}`);
+
+    log(`Running: sudo dscl . -create /Groups/${name} RealName "${description || name}"`);
     await execAsync(`sudo dscl . -create /Groups/${name} RealName "${description || name}"`);
+
+    log(`Running: sudo dscl . -create /Groups/${name} Password "*"`);
     await execAsync(`sudo dscl . -create /Groups/${name} Password "*"`);
 
     return { success: true, message: `Created group ${name} (GID: ${gid})` };
@@ -186,8 +204,9 @@ export async function createGroup(
  * Create all required groups from config
  *
  * @param config - Optional UserConfig, uses defaults if not provided
+ * @param options - Optional verbose options
  */
-export async function createGroups(config?: UserConfig): Promise<CreateResult[]> {
+export async function createGroups(config?: UserConfig, options?: VerboseOptions): Promise<CreateResult[]> {
   const cfg = config || DEFAULT_CONFIG;
   const results: CreateResult[] = [];
 
@@ -195,7 +214,8 @@ export async function createGroups(config?: UserConfig): Promise<CreateResult[]>
   const socketResult = await createGroup(
     cfg.groups.socket.name,
     cfg.groups.socket.gid,
-    cfg.groups.socket.description
+    cfg.groups.socket.description,
+    options
   );
   results.push(socketResult);
 
@@ -203,7 +223,8 @@ export async function createGroups(config?: UserConfig): Promise<CreateResult[]>
   const workspaceResult = await createGroup(
     cfg.groups.workspace.name,
     cfg.groups.workspace.gid,
-    cfg.groups.workspace.description
+    cfg.groups.workspace.description,
+    options
   );
   results.push(workspaceResult);
 
@@ -213,24 +234,41 @@ export async function createGroups(config?: UserConfig): Promise<CreateResult[]>
 /**
  * Create a user from UserDefinition
  */
-export async function createUser(userDef: UserDefinition): Promise<CreateResult> {
+export async function createUser(userDef: UserDefinition, options?: VerboseOptions): Promise<CreateResult> {
+  const log = (msg: string) => options?.verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+
   try {
     if (await userExists(userDef.username)) {
+      log(`User ${userDef.username} already exists`);
       return { success: true, message: `User ${userDef.username} already exists` };
     }
 
     // Create user
+    log(`Running: sudo dscl . -create /Users/${userDef.username}`);
     await execAsync(`sudo dscl . -create /Users/${userDef.username}`);
+
+    log(`Running: sudo dscl . -create /Users/${userDef.username} UniqueID ${userDef.uid}`);
     await execAsync(`sudo dscl . -create /Users/${userDef.username} UniqueID ${userDef.uid}`);
+
+    log(`Running: sudo dscl . -create /Users/${userDef.username} PrimaryGroupID ${userDef.gid}`);
     await execAsync(`sudo dscl . -create /Users/${userDef.username} PrimaryGroupID ${userDef.gid}`);
+
+    log(`Running: sudo dscl . -create /Users/${userDef.username} UserShell ${userDef.shell}`);
     await execAsync(`sudo dscl . -create /Users/${userDef.username} UserShell ${userDef.shell}`);
+
+    log(`Running: sudo dscl . -create /Users/${userDef.username} NFSHomeDirectory ${userDef.home}`);
     await execAsync(`sudo dscl . -create /Users/${userDef.username} NFSHomeDirectory ${userDef.home}`);
+
+    log(`Running: sudo dscl . -create /Users/${userDef.username} RealName "${userDef.realname}"`);
     await execAsync(`sudo dscl . -create /Users/${userDef.username} RealName "${userDef.realname}"`);
+
+    log(`Running: sudo dscl . -create /Users/${userDef.username} Password "*"`);
     await execAsync(`sudo dscl . -create /Users/${userDef.username} Password "*"`);
 
     // Add to additional groups
     for (const group of userDef.groups) {
       try {
+        log(`Running: sudo dseditgroup -o edit -a ${userDef.username} -t user ${group}`);
         await execAsync(`sudo dseditgroup -o edit -a ${userDef.username} -t user ${group}`);
       } catch {
         // Group might not exist yet, ignore
@@ -239,8 +277,13 @@ export async function createUser(userDef: UserDefinition): Promise<CreateResult>
 
     // Create home directory if specified and not /var/empty
     if (userDef.home !== '/var/empty') {
+      log(`Running: sudo mkdir -p ${userDef.home}`);
       await execAsync(`sudo mkdir -p ${userDef.home}`);
+
+      log(`Running: sudo chown ${userDef.username}:${userDef.gid} ${userDef.home}`);
       await execAsync(`sudo chown ${userDef.username}:${userDef.gid} ${userDef.home}`);
+
+      log(`Running: sudo chmod 755 ${userDef.home}`);
       await execAsync(`sudo chmod 755 ${userDef.home}`);
     }
 
@@ -258,20 +301,22 @@ export async function createUser(userDef: UserDefinition): Promise<CreateResult>
  * Create the agent user
  *
  * @param config - Optional UserConfig, uses defaults if not provided
+ * @param options - Optional verbose options
  */
-export async function createAgentUser(config?: UserConfig): Promise<CreateResult> {
+export async function createAgentUser(config?: UserConfig, options?: VerboseOptions): Promise<CreateResult> {
   const cfg = config || DEFAULT_CONFIG;
-  return createUser(cfg.agentUser);
+  return createUser(cfg.agentUser, options);
 }
 
 /**
  * Create the broker user
  *
  * @param config - Optional UserConfig, uses defaults if not provided
+ * @param options - Optional verbose options
  */
-export async function createBrokerUser(config?: UserConfig): Promise<CreateResult> {
+export async function createBrokerUser(config?: UserConfig, options?: VerboseOptions): Promise<CreateResult> {
   const cfg = config || DEFAULT_CONFIG;
-  return createUser(cfg.brokerUser);
+  return createUser(cfg.brokerUser, options);
 }
 
 /**

@@ -24,6 +24,10 @@ import type {
   SecretInjectParams,
   SecretInjectResult,
   PingResult,
+  SkillInstallParams,
+  SkillInstallResult,
+  SkillUninstallParams,
+  SkillUninstallResult,
 } from '../types.js';
 
 export interface BrokerClientOptions {
@@ -59,9 +63,9 @@ export class BrokerClient {
   private preferSocket: boolean;
 
   constructor(options: BrokerClientOptions = {}) {
-    this.socketPath = options.socketPath || '/var/run/agenshield.sock';
+    this.socketPath = options.socketPath || '/var/run/agenshield/agenshield.sock';
     this.httpHost = options.httpHost || 'localhost';
-    this.httpPort = options.httpPort || 6969;
+    this.httpPort = options.httpPort || 5201;
     this.timeout = options.timeout || 30000;
     this.preferSocket = options.preferSocket ?? true;
   }
@@ -147,6 +151,34 @@ export class BrokerClient {
    */
   async ping(echo?: string, options?: RequestOptions): Promise<PingResult> {
     return this.request<PingResult>('ping', { echo }, options);
+  }
+
+  /**
+   * Install a skill through the broker
+   * Socket-only operation due to privileged file operations
+   */
+  async skillInstall(
+    params: SkillInstallParams,
+    options?: RequestOptions
+  ): Promise<SkillInstallResult> {
+    return this.request<SkillInstallResult>('skill_install', params as unknown as Record<string, unknown>, {
+      ...options,
+      channel: 'socket', // skill_install only allowed via socket
+    });
+  }
+
+  /**
+   * Uninstall a skill through the broker
+   * Socket-only operation due to privileged file operations
+   */
+  async skillUninstall(
+    params: SkillUninstallParams,
+    options?: RequestOptions
+  ): Promise<SkillUninstallResult> {
+    return this.request<SkillUninstallResult>('skill_uninstall', params as unknown as Record<string, unknown>, {
+      ...options,
+      channel: 'socket', // skill_uninstall only allowed via socket
+    });
   }
 
   /**

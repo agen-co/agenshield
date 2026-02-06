@@ -33,7 +33,12 @@ export type EventType =
   | 'agenco:auth_required'
   | 'agenco:auth_completed'
   | 'agenco:tool_executed'
-  | 'agenco:error';
+  | 'agenco:error'
+  | 'skills:install_started'
+  | 'skills:install_progress'
+  | 'skills:installed'
+  | 'skills:install_failed'
+  | 'interceptor:event';
 
 export interface DaemonEvent {
   type: EventType;
@@ -221,6 +226,28 @@ export function emitAgenCoDisconnected(): void {
  */
 export function emitAgenCoError(code: string, message: string): void {
   daemonEvents.broadcast('agenco:error', { code, message });
+}
+
+/**
+ * Helper to emit skill install progress
+ */
+export function emitSkillInstallProgress(skillName: string, step: string, message: string): void {
+  daemonEvents.broadcast('skills:install_progress', { name: skillName, step, message });
+}
+
+/**
+ * Helper to emit interceptor events (from events_batch RPC)
+ */
+export function emitInterceptorEvent(event: {
+  type: string;
+  operation: string;
+  target: string;
+  timestamp: string;
+  duration?: number;
+  policyId?: string;
+  error?: string;
+}): void {
+  daemonEvents.broadcast('interceptor:event', event);
 }
 
 /**

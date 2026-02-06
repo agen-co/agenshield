@@ -259,6 +259,8 @@ export class UnixSocketServer {
       open_url: handlers.handleOpenUrl,
       secret_inject: handlers.handleSecretInject,
       ping: handlers.handlePing,
+      skill_install: handlers.handleSkillInstall,
+      skill_uninstall: handlers.handleSkillUninstall,
     };
 
     return handlerMap[method];

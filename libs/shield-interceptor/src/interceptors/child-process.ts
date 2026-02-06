@@ -25,9 +25,9 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   constructor(options: BaseInterceptorOptions) {
     super(options);
     this.syncClient = new SyncClient({
-      socketPath: '/var/run/agenshield.sock',
+      socketPath: '/var/run/agenshield/agenshield.sock',
       httpHost: 'localhost',
-      httpPort: 6969,
+      httpPort: 5201, // Broker uses 5201
       timeout: 30000,
     });
   }

@@ -5,7 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { UpdateConfigRequest } from '@agenshield/ipc';
 import { api, type CreateSecretRequest } from './client';
-import type { AnalyzeSkillRequest, InstallSkillRequest } from './marketplace.types';
+import type { AnalyzeSkillRequestUnion, InstallSkillRequest } from './marketplace.types';
 
 // Query keys
 export const queryKeys = {
@@ -338,6 +338,8 @@ export function useMarketplaceSearch(query: string) {
     queryFn: () => api.marketplace.search(query),
     enabled: query.length >= 2,
     staleTime: 300_000,
+    refetchOnWindowFocus: false,
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -347,12 +349,20 @@ export function useMarketplaceSkill(slug: string | null) {
     queryFn: () => api.marketplace.getSkill(slug!),
     enabled: !!slug,
     staleTime: 300_000,
+    refetchOnWindowFocus: false,
+    placeholderData: (prev) => prev, // Keep previous data while refetching
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // Poll every 3 seconds while analysis is pending
+      if (data?.data?.analysisStatus === 'pending') return 3000;
+      return false;
+    },
   });
 }
 
 export function useAnalyzeMarketplaceSkill() {
   return useMutation({
-    mutationFn: (data: AnalyzeSkillRequest) => api.marketplace.analyzeSkill(data),
+    mutationFn: (data: AnalyzeSkillRequestUnion) => api.marketplace.analyzeSkill(data),
   });
 }
 
@@ -373,6 +383,7 @@ export function useInstallMarketplaceSkill() {
     mutationFn: (data: InstallSkillRequest) => api.marketplace.installSkill(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.skills });
+      queryClient.invalidateQueries({ queryKey: ['marketplace', 'search'] });
     },
   });
 }

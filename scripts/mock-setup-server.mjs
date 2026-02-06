@@ -1,7 +1,7 @@
 /**
  * Mock setup server for UI development
  *
- * Serves dummy data on port 6969 so the Vite dev server (port 4200)
+ * Serves dummy data on port 5200 so the Vite dev server (port 4200)
  * can proxy /api and /sse to it and render the setup wizard.
  *
  * Usage: node scripts/mock-setup-server.mjs
@@ -9,7 +9,7 @@
 
 import http from 'node:http';
 
-const PORT = 6969;
+const PORT = 5200;
 
 // --- Dummy data ---
 

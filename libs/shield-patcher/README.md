@@ -22,7 +22,7 @@ import { PythonPatcher } from '@agenshield/patcher';
 const patcher = new PythonPatcher({
   pythonPath: '/usr/bin/python3',
   brokerHost: 'localhost',
-  brokerPort: 6969,
+  brokerPort: 5200,
   useSandbox: true,
   workspacePath: '/Users/clawagent/workspace',
   socketPath: '/var/run/agenshield.sock',
@@ -46,7 +46,7 @@ import { generateSitecustomize, generatePythonWrapper, generateSandboxProfile } 
 
 const sitecustomize = generateSitecustomize({
   brokerHost: 'localhost',
-  brokerPort: 6969,
+  brokerPort: 5200,
   logLevel: 'warn',
   enabled: true,
 });
@@ -62,7 +62,7 @@ const profile = generateSandboxProfile({
   workspacePath: '/Users/clawagent/workspace',
   pythonPath: '/usr/bin/python3',
   brokerHost: 'localhost',
-  brokerPort: 6969,
+  brokerPort: 5200,
 });
 ```
 

@@ -11,6 +11,7 @@ const statusConfig = {
   workspace: { label: 'Workspace', variant: 'info' as const },
   quarantined: { label: 'Quarantined', variant: 'warning' as const },
   disabled: { label: 'Disabled', variant: 'default' as const },
+  downloaded: { label: 'Downloaded', variant: 'info' as const },
 };
 
 const vulnDotColors: Record<string, string> = {
@@ -62,7 +63,7 @@ export function SkillCard({ skill, selected = false, onClick }: SkillCardProps) 
           )}
         </Box>
         {skill.description && (
-          <Typography variant="caption" color="text.secondary" noWrap>
+          <Typography variant="caption" color="text.secondary" noWrap display='block'>
             {skill.description}
           </Typography>
         )}

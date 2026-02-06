@@ -8,9 +8,9 @@
 import { BrokerClient } from './broker-client.js';
 
 const client = new BrokerClient({
-  socketPath: process.env['AGENSHIELD_SOCKET'] || '/var/run/agenshield.sock',
+  socketPath: process.env['AGENSHIELD_SOCKET'] || '/var/run/agenshield/agenshield.sock',
   httpHost: process.env['AGENSHIELD_HTTP_HOST'] || 'localhost',
-  httpPort: parseInt(process.env['AGENSHIELD_HTTP_PORT'] || '6969', 10),
+  httpPort: parseInt(process.env['AGENSHIELD_HTTP_PORT'] || '5201', 10),
 });
 
 async function main(): Promise<void> {
@@ -76,9 +76,9 @@ Commands:
   secret get <name>                  Get a secret value
 
 Environment:
-  AGENSHIELD_SOCKET      Unix socket path (default: /var/run/agenshield.sock)
+  AGENSHIELD_SOCKET      Unix socket path (default: /var/run/agenshield/agenshield.sock)
   AGENSHIELD_HTTP_HOST   HTTP fallback host (default: localhost)
-  AGENSHIELD_HTTP_PORT   HTTP fallback port (default: 6969)
+  AGENSHIELD_HTTP_PORT   HTTP fallback port (default: 5201)
 
 Examples:
   shield-client ping

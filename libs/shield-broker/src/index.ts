@@ -36,4 +36,9 @@ export type {
   HandlerResult,
   AuditEntry,
   VaultEntry,
+  SkillInstallParams,
+  SkillInstallResult,
+  SkillInstallFile,
+  SkillUninstallParams,
+  SkillUninstallResult,
 } from './types.js';

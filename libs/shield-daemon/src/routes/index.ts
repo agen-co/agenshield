@@ -18,6 +18,7 @@ import { authRoutes } from './auth';
 import { secretsRoutes } from './secrets';
 import { marketplaceRoutes } from './marketplace';
 import { fsRoutes } from './fs';
+import { rpcRoutes } from './rpc';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 
@@ -27,6 +28,9 @@ import { createAuthHook } from '../auth/middleware';
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Register SSE routes at root level (not under /api)
   await app.register(sseRoutes);
+
+  // Register RPC routes at root level (interceptor calls, no auth)
+  await app.register(rpcRoutes);
 
   // Capture response payload on the request for logging
   app.addHook('onSend', (request, _reply, payload, done) => {
@@ -39,8 +43,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   // Add request logging hook for API traffic events
   app.addHook('onResponse', (request, reply, done) => {
-    // Skip SSE, static file requests, and noisy health polls
-    if (!request.url.startsWith('/sse') && !request.url.includes('.') && !request.url.endsWith('/health')) {
+    // Skip SSE, RPC, static file requests, and noisy health polls
+    if (!request.url.startsWith('/sse') && !request.url.startsWith('/rpc') && !request.url.includes('.') && !request.url.endsWith('/health')) {
+      // Skip successful status polls — too noisy
+      if (request.method === 'GET' && request.url.startsWith('/api/status') && reply.statusCode === 200) {
+        done();
+        return;
+      }
+
       const duration = reply.elapsedTime;
       const ms = Math.round(duration);
       const status = reply.statusCode;

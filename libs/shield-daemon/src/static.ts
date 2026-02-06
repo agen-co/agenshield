@@ -14,13 +14,13 @@ const __dirname = path.dirname(__filename);
  * @returns Path to UI assets or null if not found
  */
 export function getUiAssetsPath(): string | null {
-  // Check for bundled UI assets (production)
-  const bundledPath = path.join(__dirname, '..', 'ui-assets');
+  // Check for bundled UI assets (production - same directory as main.js)
+  const bundledPath = path.join(__dirname, 'ui-assets');
   if (fs.existsSync(bundledPath)) {
     return bundledPath;
   }
 
-  // Check for development build (3 levels up from libs/shield-daemon/dist/ → repo root)
+  // Check for development build (from libs/shield-daemon/dist/ → repo root → dist/apps/shield-ui)
   const devPath = path.join(__dirname, '..', '..', '..', 'dist', 'apps', 'shield-ui');
   if (fs.existsSync(devPath)) {
     return devPath;

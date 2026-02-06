@@ -39,7 +39,7 @@ const tabEmptyMessages: Record<Exclude<SkillsTab, 'marketplace'>, { title: strin
 
 const tabStatusFilters: Record<Exclude<SkillsTab, 'marketplace'>, (status: string) => boolean> = {
   active: (status) => status === 'active',
-  available: (status) => status === 'disabled' || status === 'workspace',
+  available: (status) => status === 'disabled' || status === 'workspace' || status === 'downloaded',
   blocked: (status) => status === 'quarantined',
 };
 

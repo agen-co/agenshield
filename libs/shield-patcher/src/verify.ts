@@ -20,7 +20,7 @@ export class PythonVerifier {
   }) {
     this.pythonPath = options.pythonPath;
     this.brokerHost = options.brokerHost || 'localhost';
-    this.brokerPort = options.brokerPort || 6969;
+    this.brokerPort = options.brokerPort || 5200;
   }
 
   /**

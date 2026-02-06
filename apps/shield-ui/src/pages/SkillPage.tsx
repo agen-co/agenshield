@@ -17,7 +17,10 @@ export function SkillPage() {
 
   if (!slug) return null;
 
-  const localSkill = skillsData?.data?.find((s) => s.name === slug);
+  // Only treat as local skill if it's actually installed (active/quarantined), not just downloaded
+  const localSkill = skillsData?.data?.find(
+    (s) => s.name === slug && s.status !== 'downloaded'
+  );
 
   return (
     <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>

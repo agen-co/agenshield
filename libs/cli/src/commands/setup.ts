@@ -58,9 +58,9 @@ async function runSetupWebUI(wizardOptions: WizardOptions): Promise<void> {
     ensureSudoAccess();
   }
 
-  // Create and start the setup server
+  // Create and start the setup server on a different port than daemon (5200)
   const server = createSetupServer(engine);
-  const port = 6969;
+  const port = 5200; // Setup wizard uses 5200, daemon uses 5200
   const url = await server.start(port);
 
   console.log(`  Setup wizard is running at: ${url}`);
@@ -90,18 +90,30 @@ async function runSetupWebUI(wizardOptions: WizardOptions): Promise<void> {
   console.log('  Setup complete! Shutting down server...');
   await server.stop();
 
-  // Start the daemon now that port 6969 is free
+  // Stop any existing daemon first
+  console.log('  Stopping any existing daemon...');
+  const { startDaemon, stopDaemon } = await import('../utils/daemon.js');
+  await stopDaemon();
+
+  // Kill any process on port 5200 (daemon port)
+  try {
+    const { execSync } = await import('node:child_process');
+    execSync('lsof -i :5200 -t 2>/dev/null | xargs kill -9 2>/dev/null || true', { encoding: 'utf-8' });
+    await new Promise(r => setTimeout(r, 500));
+  } catch { /* ignore */ }
+
+  // Start the daemon on port 5200
   console.log('  Starting daemon...');
-  const { startDaemon } = await import('../utils/daemon.js');
   const daemonResult = await startDaemon();
   if (daemonResult.success) {
     console.log(`  Daemon started (PID: ${daemonResult.pid})`);
+    console.log(`  Dashboard available at: http://localhost:5200`);
   } else {
     console.warn(`  Warning: ${daemonResult.message}`);
   }
 
-  // Force exit after grace period (like dev mode)
-  setTimeout(() => process.exit(0), 1000).unref();
+  // Force exit after grace period
+  setTimeout(() => process.exit(0), 500).unref();
 }
 
 /**

@@ -15,4 +15,8 @@ export interface DaemonStatus {
   port: number;
   /** ISO timestamp when the daemon started */
   startedAt?: string;
+  /** Agent username from state (type='agent') */
+  agentUsername?: string;
+  /** Workspace group name from state (type='workspace') */
+  workspaceGroup?: string;
 }

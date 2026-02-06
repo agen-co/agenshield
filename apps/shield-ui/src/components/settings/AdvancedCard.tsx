@@ -63,7 +63,7 @@ export function AdvancedCard() {
         sx={{ ml: 0, gap: 1.5 }}
       />
       <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-        Allows accessing the dashboard at http://agen.shield:6969
+        Allows accessing the dashboard at http://agen.shield:5200
       </Typography>
     </SettingsCard>
   );

@@ -21,8 +21,9 @@ const __dirname = path.dirname(__filename);
  */
 export const DAEMON_CONFIG = {
   PID_FILE: '/var/run/agenshield/agenshield.pid',
-  PORT: 6969,
-  HOST: 'localhost',
+  PORT: 5200,
+  HOST: '127.0.0.1', // Use IPv4 for actual connections (avoids IPv6 issues)
+  DISPLAY_HOST: 'localhost', // Use localhost for user-facing URLs
   LOG_DIR: '/var/log/agenshield',
   SOCKET_DIR: '/var/run/agenshield',
 };

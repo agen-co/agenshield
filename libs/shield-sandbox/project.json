@@ -32,11 +32,11 @@
         "command": "node scripts/strip-dist-from-pkg.js libs/shield-sandbox/dist/package.json"
       }
     },
-    "nx-release-publish": {
-      "executor": "@nx/js:release-publish",
+    "publish": {
+      "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
-        "packageRoot": "libs/shield-sandbox/dist"
+        "command": "npm publish libs/shield-sandbox/dist --access public --registry=https://registry.npmjs.org/"
       }
     }
   }

@@ -40,7 +40,7 @@ export interface ShieldConfig {
 }
 
 export interface DaemonConfig {
-  port: number;           // Default: 6969
+  port: number;           // Default: 5200
   host: string;           // Default: 'localhost'
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   enableHostsEntry: boolean;
@@ -101,7 +101,7 @@ export type UpdateConfigRequest = Partial<ShieldConfig>;
 #### Task 1.5: Define constants
 **File:** `libs/shield-ipc/src/constants.ts`
 ```typescript
-export const DEFAULT_PORT = 6969;
+export const DEFAULT_PORT = 5200;
 export const DEFAULT_HOST = 'localhost';
 export const CUSTOM_HOSTNAME = 'agen.shield';
 
@@ -127,7 +127,7 @@ export const ENDPOINTS = {
 import { z } from 'zod';
 
 export const DaemonConfigSchema = z.object({
-  port: z.number().min(1).max(65535).default(6969),
+  port: z.number().min(1).max(65535).default(5200),
   host: z.string().default('localhost'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   enableHostsEntry: z.boolean().default(false),
@@ -404,7 +404,7 @@ Ensure `apps/shield-ui/vite.config.ts` outputs to correct location.
 - [ ] `npx nx build shield-ipc` compiles successfully
 - [ ] `npx nx build shield-ui` builds React app
 - [ ] `npx nx build shield` produces dist with embedded UI
-- [ ] Starting daemon serves UI at http://localhost:6969
+- [ ] Starting daemon serves UI at http://localhost:5200
 - [ ] API endpoints return expected responses:
   - [ ] `GET /api/health` → `{ success: true, data: { ok: true } }`
   - [ ] `GET /api/status` → Daemon status

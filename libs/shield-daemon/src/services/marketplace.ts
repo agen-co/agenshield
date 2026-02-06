@@ -5,6 +5,10 @@
  * Includes in-memory TTL cache for search and detail results.
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { CONFIG_DIR, MARKETPLACE_DIR } from '@agenshield/ipc';
 import type {
   MarketplaceSkill,
   MarketplaceSkillFile,
@@ -43,6 +47,10 @@ function setCache(key: string, data: unknown, ttlMs: number): void {
 const CONVEX_BASE = 'https://wry-manatee-359.convex.cloud';
 const SKILL_ANALYZER_URL = process.env.SKILL_ANALYZER_URL || 'https://skills.agentfront.dev/api/analyze';
 const SKILL_ANALYSIS_URL = SKILL_ANALYZER_URL.replace('/analyze', '/analysis');
+
+const CLAWHUB_DOWNLOAD_BASE = process.env.CLAWHUB_DOWNLOAD_BASE || 'https://auth.clawdhub.com/api/v1';
+const ZIP_TIMEOUT = 30_000;            // 30 seconds for zip download
+const ANALYSIS_TIMEOUT = 4 * 60_000;   // 4 minutes for AI analysis
 
 const SEARCH_CACHE_TTL = 60_000;       // 60 seconds
 const DETAIL_CACHE_TTL = 5 * 60_000;   // 5 minutes
@@ -163,11 +171,19 @@ const CONTENT_TYPE_MAP: Record<string, string> = {
   '.json': 'application/json',
   '.yaml': 'text/yaml',
   '.yml': 'text/yaml',
+  '.toml': 'text/toml',
   '.ts': 'text/typescript',
+  '.tsx': 'text/typescript',
   '.js': 'text/javascript',
+  '.jsx': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.cjs': 'text/javascript',
   '.py': 'text/x-python',
   '.sh': 'text/x-shellscript',
+  '.bash': 'text/x-shellscript',
   '.txt': 'text/plain',
+  '.env': 'text/plain',
+  '.ini': 'text/plain',
 };
 
 function guessContentType(filePath: string): string {
@@ -191,6 +207,196 @@ function mapSearchResult(result: ConvexSearchResult): MarketplaceSkill {
     installs: result.skill.stats?.downloads ?? 0,
     tags: tags.length > 0 ? tags : (result.version.parsed?.frontmatter?.tags ?? []),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Zip Download & Local Storage                                       */
+/* ------------------------------------------------------------------ */
+
+function isTextMime(mime: string): boolean {
+  return mime.startsWith('text/') || mime === 'application/json' || mime === 'text/yaml' || mime === 'text/toml';
+}
+
+function getMarketplaceDir(): string {
+  return path.join(os.homedir(), CONFIG_DIR, MARKETPLACE_DIR);
+}
+
+/**
+ * Download and extract a skill zip bundle from ClawHub.
+ * Returns the extracted text files as MarketplaceSkillFile[].
+ */
+export async function downloadAndExtractZip(slug: string): Promise<MarketplaceSkillFile[]> {
+  const url = `${CLAWHUB_DOWNLOAD_BASE}/download?slug=${encodeURIComponent(slug)}`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    signal: AbortSignal.timeout(ZIP_TIMEOUT),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Zip download failed: ${response.status}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(buffer);
+
+  const files: MarketplaceSkillFile[] = [];
+
+  for (const [zipPath, zipEntry] of Object.entries(zip.files)) {
+    if (zipEntry.dir) continue;
+
+    const filename = zipPath.split('/').pop() || '';
+    if (filename.startsWith('.')) continue;
+
+    const mimeType = guessContentType(zipPath);
+    if (!isTextMime(mimeType)) continue;
+
+    const content = await zipEntry.async('text');
+    files.push({ name: zipPath, type: mimeType, content });
+  }
+
+  return files;
+}
+
+/** Metadata stored alongside downloaded skill files */
+export interface DownloadedSkillMeta {
+  name: string;
+  slug: string;
+  author: string;
+  version: string;
+  description: string;
+  tags: string[];
+  downloadedAt: string;
+  analysis?: AnalyzeSkillResponse['analysis'];
+}
+
+/**
+ * Persist a downloaded skill to ~/.agenshield/marketplace/<slug>/.
+ */
+export function storeDownloadedSkill(
+  slug: string,
+  meta: Omit<DownloadedSkillMeta, 'downloadedAt'>,
+  files: MarketplaceSkillFile[],
+): void {
+  const dir = path.join(getMarketplaceDir(), slug);
+  const filesDir = path.join(dir, 'files');
+
+  fs.mkdirSync(filesDir, { recursive: true });
+
+  // Write metadata
+  const fullMeta: DownloadedSkillMeta = { ...meta, downloadedAt: new Date().toISOString() };
+  fs.writeFileSync(path.join(dir, 'metadata.json'), JSON.stringify(fullMeta, null, 2), 'utf-8');
+
+  // Write each file
+  for (const file of files) {
+    const filePath = path.join(filesDir, file.name);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, file.content, 'utf-8');
+  }
+
+  console.log(`[Marketplace] Stored ${files.length} files for ${slug}`);
+}
+
+/**
+ * Update the analysis result in an already-stored download.
+ */
+export function updateDownloadedAnalysis(slug: string, analysis: AnalyzeSkillResponse['analysis']): void {
+  const metaPath = path.join(getMarketplaceDir(), slug, 'metadata.json');
+  try {
+    if (!fs.existsSync(metaPath)) return;
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as DownloadedSkillMeta;
+    meta.analysis = analysis;
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
+  } catch {
+    // Best-effort
+  }
+}
+
+/** Summary info for a downloaded skill */
+export interface DownloadedSkillInfo {
+  slug: string;
+  name: string;
+  author: string;
+  version: string;
+  description: string;
+  hasAnalysis: boolean;
+}
+
+/**
+ * List all downloaded marketplace skills from ~/.agenshield/marketplace/.
+ */
+export function listDownloadedSkills(): DownloadedSkillInfo[] {
+  const baseDir = getMarketplaceDir();
+  if (!fs.existsSync(baseDir)) return [];
+
+  const results: DownloadedSkillInfo[] = [];
+  try {
+    const entries = fs.readdirSync(baseDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const metaPath = path.join(baseDir, entry.name, 'metadata.json');
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as DownloadedSkillMeta;
+        results.push({
+          slug: meta.slug,
+          name: meta.name,
+          author: meta.author,
+          version: meta.version,
+          description: meta.description,
+          hasAnalysis: !!meta.analysis,
+        });
+      } catch {
+        // Skip malformed entries
+      }
+    }
+  } catch {
+    // Directory not readable
+  }
+  return results;
+}
+
+/**
+ * Read all files for a downloaded skill from the local cache.
+ */
+export function getDownloadedSkillFiles(slug: string): MarketplaceSkillFile[] {
+  const filesDir = path.join(getMarketplaceDir(), slug, 'files');
+  if (!fs.existsSync(filesDir)) return [];
+
+  const files: MarketplaceSkillFile[] = [];
+
+  function walk(dir: string, prefix: string): void {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(path.join(dir, entry.name), rel);
+      } else {
+        const content = fs.readFileSync(path.join(dir, entry.name), 'utf-8');
+        files.push({ name: rel, type: guessContentType(entry.name), content });
+      }
+    }
+  }
+
+  walk(filesDir, '');
+  return files;
+}
+
+/**
+ * Get the metadata for a downloaded skill, or null if not downloaded.
+ */
+export function getDownloadedSkillMeta(slug: string): DownloadedSkillMeta | null {
+  const metaPath = path.join(getMarketplaceDir(), slug, 'metadata.json');
+  try {
+    if (fs.existsSync(metaPath)) {
+      return JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as DownloadedSkillMeta;
+    }
+  } catch {
+    // Not found or malformed
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -239,41 +445,75 @@ export async function getMarketplaceSkill(slug: string): Promise<MarketplaceSkil
 
   const { skill, owner, latestVersion } = detail;
 
-  // Fetch all version files for analysis, fall back to readme-only
+  // Fetch all files with cascading fallback strategy
   let readme: string | undefined;
   const files: MarketplaceSkillFile[] = [];
 
+  // PRIMARY: Download zip bundle from ClawHub
   try {
-    const allFiles = await convexAction<Array<{ path: string; text: string }>>(
-      'skills:getVersionFiles',
-      { versionId: latestVersion._id },
-      SHORT_TIMEOUT,
-    );
-    for (const file of allFiles) {
-      const isReadme = /readme/i.test(file.path);
-      if (isReadme) readme = file.text;
-      files.push({
-        name: file.path,
-        type: isReadme ? 'text/markdown' : guessContentType(file.path),
-        content: file.text,
-      });
+    console.log(`[Marketplace] Downloading zip for ${slug}...`);
+    const zipFiles = await downloadAndExtractZip(slug);
+    for (const file of zipFiles) {
+      if (/readme|skill\.md/i.test(file.name) && !readme) readme = file.content;
+      files.push(file);
     }
-  } catch {
-    // getVersionFiles not available — fall back to readme only
+    console.log(`[Marketplace] Extracted ${files.length} files from zip`);
+  } catch (zipErr) {
+    console.warn(`[Marketplace] Zip download failed for ${slug}: ${(zipErr as Error).message}`);
+
+    // FALLBACK 1: Try Convex getVersionFiles
     try {
-      const readmeData = await convexAction<{ path: string; text: string }>(
-        'skills:getReadme',
+      console.log(`[Marketplace] Falling back to getVersionFiles for ${slug}...`);
+      const allFiles = await convexAction<Array<{ path: string; text: string }>>(
+        'skills:getVersionFiles',
         { versionId: latestVersion._id },
         SHORT_TIMEOUT,
       );
-      readme = readmeData.text;
-      files.push({
-        name: readmeData.path,
-        type: 'text/markdown',
-        content: readmeData.text,
-      });
-    } catch {
-      // Readme fetch also failed — degrade gracefully
+      for (const file of allFiles) {
+        const isReadme = /readme|skill\.md/i.test(file.path);
+        if (isReadme && !readme) readme = file.text;
+        files.push({
+          name: file.path,
+          type: isReadme ? 'text/markdown' : guessContentType(file.path),
+          content: file.text,
+        });
+      }
+      console.log(`[Marketplace] Got ${files.length} files from Convex action`);
+    } catch (convexErr) {
+      console.warn(`[Marketplace] getVersionFiles failed for ${slug}: ${(convexErr as Error).message}`);
+
+      // FALLBACK 2: Try readme only
+      try {
+        console.log(`[Marketplace] Falling back to getReadme for ${slug}...`);
+        const readmeData = await convexAction<{ path: string; text: string }>(
+          'skills:getReadme',
+          { versionId: latestVersion._id },
+          SHORT_TIMEOUT,
+        );
+        readme = readmeData.text;
+        files.push({ name: readmeData.path, type: 'text/markdown', content: readmeData.text });
+        console.log(`[Marketplace] Got readme only for ${slug}`);
+      } catch {
+        console.warn(`[Marketplace] All file fetch methods failed for ${slug}`);
+      }
+    }
+  }
+
+  // Persist to download cache for later install/re-enable
+  if (files.length > 0) {
+    try {
+      storeDownloadedSkill(slug, {
+        name: skill.displayName,
+        slug: skill.slug,
+        author: owner.handle,
+        version: latestVersion.version,
+        description: skill.summary || latestVersion.parsed?.frontmatter?.description || '',
+        tags: tagsFromRecord(skill.tags).length > 0
+          ? tagsFromRecord(skill.tags)
+          : (latestVersion.parsed?.frontmatter?.tags ?? []),
+      }, files);
+    } catch (storeErr) {
+      console.warn(`[Marketplace] Failed to store download for ${slug}: ${(storeErr as Error).message}`);
     }
   }
 
@@ -299,30 +539,22 @@ export async function getMarketplaceSkill(slug: string): Promise<MarketplaceSkil
 /*  Analyze                                                            */
 /* ------------------------------------------------------------------ */
 
+type AnalysisSummary = {
+  status: 'complete' | 'error';
+  vulnerability: { level: string; details: string[]; suggestions?: string[] };
+  commands: Array<{ name: string; source: string; available: boolean; required: boolean }>;
+  envVariables?: EnvVariableDetail[];
+  runtimeRequirements?: RuntimeRequirement[];
+  installationSteps?: InstallationStep[];
+  runCommands?: RunCommand[];
+  securityFindings?: SecurityFinding[];
+  mcpSpecificRisks?: MCPSpecificRisk[];
+};
+
 /**
- * Send skill files to the skills-analyzer edge function for AI-powered vulnerability analysis.
- * Consumes an NDJSON stream and returns the aggregated summary as AnalyzeSkillResponse.
+ * Parse an NDJSON response stream from the skills-analyzer, extracting the 'done' event.
  */
-export async function analyzeSkillBundle(
-  files: MarketplaceSkillFile[],
-  skillName?: string,
-  publisher?: string,
-): Promise<AnalyzeSkillResponse> {
-  const res = await fetch(SKILL_ANALYZER_URL, {
-    method: 'POST',
-    signal: AbortSignal.timeout(60_000),
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ files, skillName, publisher }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Upstream returned ${res.status}: ${text}`);
-  }
-
-  // Parse NDJSON stream to extract the 'done' event with aggregated summary
+async function parseAnalysisStream(res: Response): Promise<AnalyzeSkillResponse> {
   const reader = res.body?.getReader();
   if (!reader) {
     throw new Error('No response body from upstream');
@@ -330,17 +562,6 @@ export async function analyzeSkillBundle(
 
   const decoder = new TextDecoder();
   let buffer = '';
-  type AnalysisSummary = {
-    status: 'complete' | 'error';
-    vulnerability: { level: string; details: string[]; suggestions?: string[] };
-    commands: Array<{ name: string; source: string; available: boolean; required: boolean }>;
-    envVariables?: EnvVariableDetail[];
-    runtimeRequirements?: RuntimeRequirement[];
-    installationSteps?: InstallationStep[];
-    runCommands?: RunCommand[];
-    securityFindings?: SecurityFinding[];
-    mcpSpecificRisks?: MCPSpecificRisk[];
-  };
   let summary: AnalysisSummary | null = null;
 
   while (true) {
@@ -402,6 +623,56 @@ export async function analyzeSkillBundle(
       mcpSpecificRisks: summary.mcpSpecificRisks,
     },
   };
+}
+
+/**
+ * Send skill files to the skills-analyzer edge function for AI-powered vulnerability analysis.
+ * Consumes an NDJSON stream and returns the aggregated summary as AnalyzeSkillResponse.
+ */
+export async function analyzeSkillBundle(
+  files: MarketplaceSkillFile[],
+  skillName?: string,
+  publisher?: string,
+): Promise<AnalyzeSkillResponse> {
+  const res = await fetch(SKILL_ANALYZER_URL, {
+    method: 'POST',
+    signal: AbortSignal.timeout(ANALYSIS_TIMEOUT),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ files, skillName, publisher }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Upstream returned ${res.status}: ${text}`);
+  }
+
+  return parseAnalysisStream(res);
+}
+
+/**
+ * Forward a slug + source to the skills-analyzer for remote ZIP download and analysis.
+ * Vercel handles the ZIP download directly — no local files needed.
+ */
+export async function analyzeSkillBySlug(
+  slug: string,
+  skillName?: string,
+  publisher?: string,
+): Promise<AnalyzeSkillResponse> {
+  const res = await fetch(SKILL_ANALYZER_URL, {
+    method: 'POST',
+    signal: AbortSignal.timeout(ANALYSIS_TIMEOUT),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug, source: 'clawhub', skillName, publisher }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Upstream returned ${res.status}: ${text}`);
+  }
+
+  return parseAnalysisStream(res);
 }
 
 /* ------------------------------------------------------------------ */

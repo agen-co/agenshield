@@ -5,8 +5,8 @@ export const Root = styled('div', {
   slot: 'Root',
 })(({ theme }) => ({
   display: 'flex',
-  alignItems: 'center',
-  gap: theme.spacing(1.5),
+  flexDirection: 'column',
+  gap: theme.spacing(1),
   padding: theme.spacing(1.5, 2),
   borderRadius: theme.shape.borderRadius,
   cursor: 'pointer',
@@ -15,6 +15,16 @@ export const Root = styled('div', {
   '&:hover': {
     backgroundColor: theme.palette.action.hover,
   },
+}));
+
+export const Header = styled('div', {
+  name: 'MarketplaceSkillCard',
+  slot: 'Header',
+})(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: theme.spacing(1.5),
+  width: '100%',
 }));
 
 export const SkillIcon = styled('div', {
@@ -39,4 +49,7 @@ export const Info = styled('div', {
 })({
   flex: 1,
   minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
 });

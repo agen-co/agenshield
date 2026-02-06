@@ -64,7 +64,11 @@ export class HttpFallbackServer {
         reject(error);
       });
 
-      this.server.listen(this.config.httpPort, this.config.httpHost, () => {
+      // Normalize localhost to 127.0.0.1 to avoid IPv6 binding issues on macOS
+      // (localhost resolves to ::1 on macOS, causing conflicts with daemon)
+      const listenHost = this.config.httpHost === 'localhost' ? '127.0.0.1' : this.config.httpHost;
+
+      this.server.listen(this.config.httpPort, listenHost, () => {
         resolve();
       });
     });

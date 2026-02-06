@@ -8,6 +8,11 @@ export interface MarketplaceSkill {
   tags: string[];
   readme?: string;
   files?: MarketplaceSkillFile[];
+  installed?: boolean;
+  /** Pre-computed analysis returned from GET /marketplace/skills/:slug */
+  analysis?: AnalyzeSkillResponse['analysis'];
+  /** Status of analysis: pending (still running), complete, or error */
+  analysisStatus?: 'pending' | 'complete' | 'error';
 }
 
 export interface MarketplaceSkillFile {
@@ -22,6 +27,15 @@ export interface AnalyzeSkillRequest {
   publisher: string;
   files: MarketplaceSkillFile[];
 }
+
+export interface AnalyzeSkillFromSourceRequest {
+  slug: string;
+  source: 'clawhub';
+  skillName?: string;
+  publisher?: string;
+}
+
+export type AnalyzeSkillRequestUnion = AnalyzeSkillRequest | AnalyzeSkillFromSourceRequest;
 
 export interface AnalyzeSkillResponse {
   analysis: {
@@ -43,9 +57,7 @@ export interface AnalyzeSkillResponse {
 
 export interface InstallSkillRequest {
   slug: string;
-  files: MarketplaceSkillFile[];
-  analysis: AnalyzeSkillResponse['analysis'];
-  publisher?: string;
+  type?: string;
 }
 
 export type SkillsTab = 'active' | 'available' | 'blocked' | 'marketplace';

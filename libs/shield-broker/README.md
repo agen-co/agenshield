@@ -72,7 +72,7 @@ Environment variables:
 - `AGENSHIELD_SOCKET` - Unix socket path (default: `/var/run/agenshield.sock`).
 - `AGENSHIELD_HTTP_ENABLED` - `true`/`false` to enable HTTP fallback.
 - `AGENSHIELD_HTTP_HOST` - HTTP fallback host (default: `localhost`).
-- `AGENSHIELD_HTTP_PORT` - HTTP fallback port (default: `6969`).
+- `AGENSHIELD_HTTP_PORT` - HTTP fallback port (default: `5200`).
 - `AGENSHIELD_POLICIES` - Policies directory (default: `/opt/agenshield/policies`).
 - `AGENSHIELD_AUDIT_LOG` - Audit log path (default: `/var/log/agenshield/audit.log`).
 - `AGENSHIELD_LOG_LEVEL` - `debug|info|warn|error`.
@@ -84,7 +84,7 @@ Config file fields (subset):
   "socketPath": "/var/run/agenshield.sock",
   "httpEnabled": true,
   "httpHost": "localhost",
-  "httpPort": 6969,
+  "httpPort": 5200,
   "policiesPath": "/opt/agenshield/policies",
   "auditLogPath": "/var/log/agenshield/audit.log",
   "logLevel": "info",

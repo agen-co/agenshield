@@ -22,10 +22,10 @@ export class PythonPatcher {
     this.config = {
       pythonPath: config.pythonPath,
       brokerHost: config.brokerHost || 'localhost',
-      brokerPort: config.brokerPort || 6969,
+      brokerPort: config.brokerPort || 5200,
       useSandbox: config.useSandbox ?? true,
       workspacePath: config.workspacePath || '/Users/clawagent/workspace',
-      socketPath: config.socketPath || '/var/run/agenshield.sock',
+      socketPath: config.socketPath || '/var/run/agenshield/agenshield.sock',
       installDir: config.installDir,
     };
   }
