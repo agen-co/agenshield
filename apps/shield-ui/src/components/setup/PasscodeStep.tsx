@@ -16,7 +16,8 @@ export function PasscodeStep({ onSet, onSkip }: PasscodeStepProps) {
   const [passcode, setPasscode] = useState('');
   const [confirm, setConfirm] = useState('');
 
-  const isMatch = passcode.length > 0 && passcode === confirm;
+  const tooShort = passcode.length > 0 && passcode.length < 4;
+  const isMatch = passcode.length >= 4 && passcode === confirm;
   const showMismatch = confirm.length > 0 && passcode !== confirm;
 
   const handleSubmit = useCallback(() => {
@@ -44,6 +45,9 @@ export function PasscodeStep({ onSet, onSkip }: PasscodeStepProps) {
         value={passcode}
         onChange={e => setPasscode(e.target.value)}
         autoFocus
+        error={tooShort}
+        helperText={tooShort ? 'Passcode must be at least 4 characters' : undefined}
+        inputProps={{ minLength: 4 }}
         sx={{ mb: 2 }}
       />
 
@@ -57,6 +61,7 @@ export function PasscodeStep({ onSet, onSkip }: PasscodeStepProps) {
         onKeyDown={e => e.key === 'Enter' && isMatch && handleSubmit()}
         error={showMismatch}
         helperText={showMismatch ? 'Passcodes do not match' : undefined}
+        inputProps={{ minLength: 4 }}
         sx={{ mb: 3 }}
       />
 
