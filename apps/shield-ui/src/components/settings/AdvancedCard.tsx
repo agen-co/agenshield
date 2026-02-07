@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { FormControlLabel, Switch, Typography } from '@mui/material';
 import { useConfig, useUpdateConfig } from '../../api/hooks';
-import { useAuth } from '../../context/AuthContext';
+import { useGuardedAction } from '../../hooks/useGuardedAction';
 import { SettingsCard } from '../shared/SettingsCard';
 
 export function AdvancedCard() {
   const { data: config } = useConfig();
   const updateConfig = useUpdateConfig();
-  const { isReadOnly } = useAuth();
+  const guard = useGuardedAction();
 
   const [enableHostsEntry, setEnableHostsEntry] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -45,11 +45,11 @@ export function AdvancedCard() {
       title="Advanced"
       description="Advanced configuration options."
       footerInfo="Requires administrator privileges."
-      onSave={handleSave}
+      onSave={() => guard(handleSave, { description: 'Unlock to save advanced settings.', actionLabel: 'Save' })}
       saving={updateConfig.isPending}
       saved={saved}
       hasChanges={hasChanges}
-      disabled={isReadOnly || !config?.data?.daemon}
+      disabled={!config?.data?.daemon}
       error={updateConfig.error?.message}
     >
       <FormControlLabel

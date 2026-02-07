@@ -162,27 +162,16 @@ export function deleteBackup(): { success: boolean; error?: string } {
 }
 
 /**
- * Rename the original config directory to a backup path
- * Used during setup to preserve the original config
+ * @deprecated No longer used — migration is now non-destructive (read-only copy).
+ * The original config directory is never touched. Kept for backward compatibility.
  */
-export function backupOriginalConfig(configPath: string): {
+export function backupOriginalConfig(_configPath: string): {
   success: boolean;
   backupPath?: string;
   error?: string;
 } {
-  if (!fs.existsSync(configPath)) {
-    return { success: true }; // Nothing to backup
-  }
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupPath = `${configPath}.backup-${timestamp}`;
-
-  try {
-    fs.renameSync(configPath, backupPath);
-    return { success: true, backupPath };
-  } catch (err) {
-    return { success: false, error: `Failed to backup config: ${err}` };
-  }
+  // No-op: the new migration flow never modifies the original directory.
+  return { success: true };
 }
 
 /**

@@ -5,6 +5,7 @@
 import type { PolicyEnforcer } from '../policies/enforcer.js';
 import type { AuditLogger } from '../audit/logger.js';
 import type { SecretVault } from '../secrets/vault.js';
+import type { SecretResolver } from '../secrets/resolver.js';
 import type { CommandAllowlist } from '../policies/command-allowlist.js';
 
 /**
@@ -18,12 +19,14 @@ export interface ExecMonitorEvent {
   allowed: boolean;
   duration: number;
   timestamp: string;
+  injectedSecretNames?: string[];
 }
 
 export interface HandlerDependencies {
   policyEnforcer: PolicyEnforcer;
   auditLogger: AuditLogger;
   secretVault: SecretVault;
+  secretResolver?: SecretResolver;
   commandAllowlist: CommandAllowlist;
   onExecMonitor?: (event: ExecMonitorEvent) => void;
   onExecDenied?: (command: string, reason: string) => void;

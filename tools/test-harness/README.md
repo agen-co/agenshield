@@ -23,6 +23,23 @@ openclaw --version
 # Output: 1.0.0-dummy
 ```
 
+### As real `openclaw` package (for detection testing)
+
+This installs the dummy at the exact npm global paths where `detect.ts` looks
+for a real OpenClaw (`{npm-root}/openclaw/`), and copies skills into `~/.openclaw/`.
+
+```bash
+./scripts/install-as-openclaw.sh
+
+# Verify detection
+openclaw --version          # → 1.0.0-dummy
+ls ~/.openclaw/skills/      # → geo-optimization  gog
+
+# Uninstall
+./scripts/uninstall-openclaw.sh               # keeps ~/.openclaw/
+./scripts/uninstall-openclaw.sh --clean-config # also removes ~/.openclaw/
+```
+
 ### As git clone (simulates `git clone`)
 
 ```bash
@@ -172,6 +189,8 @@ The test harness is intentionally simple JavaScript (no TypeScript compilation r
 
 Files:
 - `bin/dummy-openclaw.js` - Main CLI entry point
-- `scripts/install-as-npm.sh` - npm global installation
+- `scripts/install-as-npm.sh` - npm global installation (uses `npm link`, package name `dummy-openclaw`)
+- `scripts/install-as-openclaw.sh` - Installs as `openclaw` at npm global paths (for `detect.ts` testing)
 - `scripts/install-as-git.sh` - git clone simulation
-- `scripts/uninstall.sh` - Cleanup script
+- `scripts/uninstall.sh` - Cleanup for npm-link and git-clone installs
+- `scripts/uninstall-openclaw.sh` - Cleanup for `install-as-openclaw.sh`

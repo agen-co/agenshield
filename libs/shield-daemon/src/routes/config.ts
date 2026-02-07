@@ -16,7 +16,21 @@ import { getVault } from '../vault';
 import { getSessionManager } from '../auth/session';
 import { syncFilesystemPolicyAcls } from '../acl';
 import { syncCommandPoliciesAndWrappers } from '../command-sync';
+import { syncSecrets } from '../secret-sync';
+import { syncOpenClawFromPolicies } from '../services/openclaw-config';
 import { installShieldExec, createUserConfig } from '@agenshield/sandbox';
+import { generatePolicyMarkdown } from '../services/policy-markdown';
+import { listApproved, listUntrusted } from '../watchers/skills';
+import { listDownloadedSkills } from '../services/marketplace';
+
+/** Collect all known skill names (approved + untrusted + downloaded). */
+function getKnownSkillNames(): Set<string> {
+  const names = new Set<string>();
+  for (const s of listApproved()) names.add(s.name);
+  for (const s of listUntrusted()) names.add(s.name);
+  for (const s of listDownloadedSkills()) names.add(s.name);
+  return names;
+}
 
 export async function configRoutes(app: FastifyInstance): Promise<void> {
   // Get current configuration
@@ -48,6 +62,24 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
 
           // Command allowlist + wrappers
           syncCommandPoliciesAndWrappers(updated.policies, state, app.log);
+
+          // Sync secrets to broker (policy bindings may have changed)
+          syncSecrets(updated.policies, app.log).catch(() => { /* non-fatal */ });
+
+          // Sync openclaw.json (allowBundled, load.watch, strip env/install)
+          syncOpenClawFromPolicies(updated.policies);
+        }
+
+        // Auto-generate policy instructions Markdown for OpenClaw
+        try {
+          const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+          const instructionsPath = path.join(agentHome, '.openclaw', 'policy-instructions.md');
+          const markdown = generatePolicyMarkdown(updated.policies, getKnownSkillNames());
+          fs.mkdirSync(path.dirname(instructionsPath), { recursive: true });
+          fs.writeFileSync(instructionsPath, markdown, 'utf-8');
+          app.log.info(`[config] wrote policy instructions to ${instructionsPath}`);
+        } catch {
+          // Non-fatal: instructions file write failed (dev mode, permissions, etc.)
         }
 
         return {
@@ -66,6 +98,16 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
+  /**
+   * GET /config/policies/instructions — Generate semantic Markdown from active policies.
+   * Returns text/markdown that OpenClaw can use as instructions.
+   */
+  app.get('/config/policies/instructions', async (_request: FastifyRequest, reply: FastifyReply) => {
+    const config = loadConfig();
+    const markdown = generatePolicyMarkdown(config.policies, getKnownSkillNames());
+    return reply.type('text/markdown').send(markdown);
+  });
+
   // Factory reset — wipe all user data and restore defaults
   app.post('/config/factory-reset', async (): Promise<{ success: boolean; error?: { message: string } }> => {
     try {
@@ -78,6 +120,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       }
       // Clear command allowlist (empty policies = empty allowlist)
       syncCommandPoliciesAndWrappers([], state, app.log);
+
+      // Clear synced secrets
+      syncSecrets([], app.log).catch(() => { /* non-fatal */ });
 
       // 1. Reset config to defaults
       saveConfig(getDefaultConfig());

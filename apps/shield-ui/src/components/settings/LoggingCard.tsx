@@ -2,13 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import { FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import type { DaemonConfig } from '@agenshield/ipc';
 import { useConfig, useUpdateConfig } from '../../api/hooks';
-import { useAuth } from '../../context/AuthContext';
+import { useGuardedAction } from '../../hooks/useGuardedAction';
 import { SettingsCard } from '../shared/SettingsCard';
 
 export function LoggingCard() {
   const { data: config } = useConfig();
   const updateConfig = useUpdateConfig();
-  const { isReadOnly } = useAuth();
+  const guard = useGuardedAction();
 
   const [logLevel, setLogLevel] = useState<DaemonConfig['logLevel']>('info');
   const [saved, setSaved] = useState(false);
@@ -45,11 +45,11 @@ export function LoggingCard() {
     <SettingsCard
       title="Logging"
       description="Configure logging verbosity."
-      onSave={handleSave}
+      onSave={() => guard(handleSave, { description: 'Unlock to save logging settings.', actionLabel: 'Save' })}
       saving={updateConfig.isPending}
       saved={saved}
       hasChanges={hasChanges}
-      disabled={isReadOnly || !config?.data?.daemon}
+      disabled={!config?.data?.daemon}
       error={updateConfig.error?.message}
     >
       <FormControl sx={{ minWidth: 200 }}>

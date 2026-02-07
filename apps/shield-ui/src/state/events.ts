@@ -18,7 +18,7 @@ export const eventStore = proxy({
   connected: false,
 });
 
-const IGNORED_PATHS = ['/api/status', '/api/config'];
+const IGNORED_PATHS = ['/api/config'];
 
 export function addEvent(event: SSEEvent) {
   const url = event.data?.url as string | undefined;

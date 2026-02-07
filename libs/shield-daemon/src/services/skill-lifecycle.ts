@@ -29,7 +29,7 @@ exec /opt/agenshield/bin/shield-client skill run "${name}" "$@"
 
   fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
 
-  const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'clawshield';
+  const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
   try {
     execSync(`chown root:${socketGroup} "${wrapperPath}"`, { stdio: 'pipe' });
     execSync(`chmod 755 "${wrapperPath}"`, { stdio: 'pipe' });

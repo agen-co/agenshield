@@ -6,10 +6,11 @@
  */
 
 import { proxy } from 'valtio';
+import type { MigrationScanResult } from '@agenshield/ipc';
 
 // --- Types ---
 
-export type SetupPhase = 'detection' | 'configuration' | 'execution' | 'passcode' | 'complete';
+export type SetupPhase = 'detection' | 'configuration' | 'execution' | 'selection' | 'migration' | 'passcode' | 'complete';
 export type GraphPhase = 'vulnerable' | 'building' | 'securing' | 'secured';
 
 export type WizardStepId =
@@ -18,7 +19,6 @@ export type WizardStepId =
   | 'install-target'
   | 'configure'
   | 'confirm'
-  | 'backup'
   | 'create-groups'
   | 'create-agent-user'
   | 'create-broker-user'
@@ -30,6 +30,8 @@ export type WizardStepId =
   | 'install-daemon-config'
   | 'install-policies'
   | 'setup-launchdaemon'
+  | 'scan-source'
+  | 'select-items'
   | 'migrate'
   | 'verify'
   | 'setup-passcode'
@@ -69,7 +71,7 @@ export interface SetupStore {
   context: Record<string, unknown> | null;
 
   // UI state
-  currentUIStep: number; // 0-6 for the 7 wizard UI steps
+  currentUIStep: number; // 0-8 for the 9 wizard UI steps
   mode: 'quick' | 'advanced' | null;
   baseName: string;
 
@@ -80,6 +82,9 @@ export interface SetupStore {
   // Executables
   executables: ExecutableInfo[];
   executablesLoaded: boolean;
+
+  // Migration scan result (set when scan-source completes)
+  scanResult: MigrationScanResult | null;
 }
 
 export const setupStore = proxy<SetupStore>({
@@ -96,6 +101,8 @@ export const setupStore = proxy<SetupStore>({
 
   executables: [],
   executablesLoaded: false,
+
+  scanResult: null,
 });
 
 // --- Helpers ---
@@ -124,7 +131,9 @@ export const UI_STEPS = [
   { label: 'Mode', key: 'mode' },
   { label: 'Configuration', key: 'config' },
   { label: 'Confirm', key: 'confirm' },
-  { label: 'Installation', key: 'execute' },
+  { label: 'Infrastructure', key: 'execute' },
+  { label: 'Migration', key: 'selection' },
+  { label: 'Migrating', key: 'migration' },
   { label: 'Passcode', key: 'passcode' },
   { label: 'Complete', key: 'complete' },
 ] as const;

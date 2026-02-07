@@ -3,8 +3,9 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { daemonEvents, type DaemonEvent } from '../events/emitter';
+import { daemonEvents, emitDaemonStatus, type DaemonEvent } from '../events/emitter';
 import { isAuthenticated } from '../auth/middleware';
+import { buildDaemonStatus } from './status';
 
 /**
  * Format event for SSE protocol (full data)
@@ -53,11 +54,19 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
     };
     reply.raw.write(formatSSE(connectEvent));
 
+    // Send daemon status immediately so client has it without polling
+    const statusEvent: DaemonEvent = {
+      type: 'daemon:status',
+      timestamp: new Date().toISOString(),
+      data: buildDaemonStatus(),
+    };
+    reply.raw.write(authenticated ? formatSSE(statusEvent) : formatStrippedSSE(statusEvent));
+
     // Subscribe to events
     const unsubscribe = daemonEvents.subscribe((event) => {
       try {
-        // Heartbeat events always sent in full; others stripped for anonymous users
-        if (event.type === 'heartbeat' || authenticated) {
+        // Heartbeat, daemon:status, and skills events always sent in full; others stripped for anonymous users
+        if (event.type === 'heartbeat' || event.type === 'daemon:status' || event.type.startsWith('skills:') || authenticated) {
           reply.raw.write(formatSSE(event));
         } else {
           reply.raw.write(formatStrippedSSE(event));
@@ -68,7 +77,7 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
       }
     });
 
-    // Send heartbeat every 30 seconds to keep connection alive
+    // Send heartbeat every 30 seconds to keep connection alive + push status
     const heartbeatInterval = setInterval(() => {
       try {
         const heartbeat: DaemonEvent = {
@@ -77,6 +86,8 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
           data: { ping: true },
         };
         reply.raw.write(formatSSE(heartbeat));
+        // Broadcast status to all connected clients
+        emitDaemonStatus(buildDaemonStatus());
       } catch {
         clearInterval(heartbeatInterval);
         unsubscribe();
@@ -122,9 +133,9 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
     // Subscribe to filtered events
     const unsubscribe = daemonEvents.subscribe((event) => {
       // Filter events by prefix match
-      if (event.type.startsWith(filter) || event.type === 'heartbeat') {
+      if (event.type.startsWith(filter) || event.type === 'heartbeat' || event.type === 'daemon:status') {
         try {
-          if (event.type === 'heartbeat' || authenticated) {
+          if (event.type === 'heartbeat' || event.type === 'daemon:status' || authenticated) {
             reply.raw.write(formatSSE(event));
           } else {
             reply.raw.write(formatStrippedSSE(event));

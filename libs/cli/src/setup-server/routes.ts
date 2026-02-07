@@ -14,6 +14,7 @@ import {
   scanDiscovery,
   autoDetectPreset,
 } from '@agenshield/sandbox';
+import type { MigrationSelection } from '@agenshield/ipc';
 import type { WizardEngine } from '../wizard/engine.js';
 import type { WizardState, WizardContext, WizardStepId } from '../wizard/types.js';
 import { computeNames } from '../wizard/components/AdvancedConfig.js';
@@ -77,11 +78,23 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
     let phase: string = 'detection';
     const hasConfirm = engine.state.steps.find(s => s.id === 'confirm');
     const hasComplete = engine.state.steps.find(s => s.id === 'complete');
+    const scanSource = engine.state.steps.find(s => s.id === 'scan-source');
+    const selectItems = engine.state.steps.find(s => s.id === 'select-items');
+    const verifyStep = engine.state.steps.find(s => s.id === 'verify');
 
     if (engine.state.isComplete || hasComplete?.status === 'completed') {
       phase = 'complete';
     } else if (engine.state.steps.find(s => s.id === 'setup-passcode')?.status === 'running') {
       phase = 'passcode';
+    } else if (verifyStep?.status === 'completed') {
+      // Migration phase is done, waiting for passcode
+      phase = 'passcode';
+    } else if (selectItems?.status === 'running' || selectItems?.status === 'completed') {
+      // Running migration phase (select-items, migrate, verify)
+      phase = 'migration';
+    } else if (scanSource?.status === 'completed' && selectItems?.status === 'pending') {
+      // Scan done, waiting for user to select items
+      phase = 'selection';
     } else if (hasConfirm?.status === 'completed') {
       phase = 'execution';
     } else if (engine.context.presetDetection?.found) {
@@ -95,6 +108,7 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
         context: sanitizeContext(engine.context),
         phase,
         targetInstallable: engine.context.targetInstallable ?? false,
+        scanResult: engine.context.scanResult ?? null,
       },
     };
   });
@@ -232,12 +246,21 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
     isRunning = true;
 
     // Run setup phase asynchronously — progress streams via SSE
+    // Setup phase now stops after scan-source, broadcasting scan_complete
+    // so the UI can show the selection step.
     engine.runSetupPhase().then(() => {
       isRunning = false;
       if (engine.state.hasError) {
         broadcastSetupEvent('setup:error', {
           state: engine.state,
           context: sanitizeContext(engine.context),
+        });
+      } else {
+        // Setup phase completed (scan-source done) — broadcast scan result
+        broadcastSetupEvent('setup:scan_complete', {
+          state: engine.state,
+          context: sanitizeContext(engine.context),
+          scanResult: engine.context.scanResult ?? null,
         });
       }
     }).catch((err) => {
@@ -275,6 +298,67 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
           state: engine.state,
           context: sanitizeContext(engine.context),
         });
+      }).catch((err) => {
+        isRunning = false;
+        broadcastSetupEvent('setup:error', {
+          error: (err as Error).message,
+          state: engine.state,
+        });
+      });
+
+      return { success: true, data: { started: true } };
+    },
+  );
+
+  // --- Scan result (returns the scan from scan-source step) ---
+  app.get('/api/setup/scan-result', async () => {
+    if (!engine.context.scanResult) {
+      return {
+        success: false,
+        error: { code: 'NOT_READY', message: 'Scan has not completed yet' },
+      };
+    }
+
+    return {
+      success: true,
+      data: engine.context.scanResult,
+    };
+  });
+
+  // --- Select items and trigger migration phase ---
+  app.post<{ Body: MigrationSelection }>(
+    '/api/setup/select-items',
+    async (request) => {
+      if (isRunning) {
+        return { success: false, error: { code: 'ALREADY_RUNNING', message: 'An operation is already in progress' } };
+      }
+
+      const { selectedSkills, selectedEnvVars } = request.body;
+
+      // Store user's selection in context
+      engine.context.migrationSelection = {
+        selectedSkills: selectedSkills ?? [],
+        selectedEnvVars: selectedEnvVars ?? [],
+      };
+
+      isRunning = true;
+
+      // Run migration phase asynchronously (select-items + migrate + verify)
+      engine.runMigrationPhase().then(() => {
+        isRunning = false;
+        if (engine.state.hasError) {
+          broadcastSetupEvent('setup:error', {
+            state: engine.state,
+            context: sanitizeContext(engine.context),
+          });
+        } else {
+          // Migration complete — broadcast state change so UI advances to passcode
+          broadcastSetupEvent('setup:state_change', {
+            state: engine.state,
+            context: sanitizeContext(engine.context),
+            phase: 'passcode',
+          });
+        }
       }).catch((err) => {
         isRunning = false;
         broadcastSetupEvent('setup:error', {

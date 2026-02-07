@@ -1,1 +1,0 @@
-export { MarketplaceSkillDetails } from './MarketplaceSkillDetails';

@@ -12,8 +12,10 @@ const HEARTBEAT_INTERVAL = 15_000; // 15 seconds
 
 export type SetupSSEEventType =
   | 'setup:state_change'
+  | 'setup:scan_complete'
   | 'setup:complete'
   | 'setup:error'
+  | 'setup:log'
   | 'heartbeat';
 
 export interface SetupSSEEvent {

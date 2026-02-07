@@ -6,8 +6,11 @@ import type { FastifyInstance } from 'fastify';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SystemBinary } from '@agenshield/ipc';
+import { getSystemConfigDir } from '../config/paths';
 
-const ALLOWED_COMMANDS_PATH = '/opt/agenshield/config/allowed-commands.json';
+function getAllowedCommandsPath(): string {
+  return path.join(getSystemConfigDir(), 'allowed-commands.json');
+}
 
 /** Directories to scan for system binaries */
 const BIN_DIRS = [
@@ -39,11 +42,11 @@ interface AllowedCommandsConfig {
 }
 
 function loadConfig(): AllowedCommandsConfig {
-  if (!fs.existsSync(ALLOWED_COMMANDS_PATH)) {
+  if (!fs.existsSync(getAllowedCommandsPath())) {
     return { version: '1.0.0', commands: [] };
   }
   try {
-    const content = fs.readFileSync(ALLOWED_COMMANDS_PATH, 'utf-8');
+    const content = fs.readFileSync(getAllowedCommandsPath(), 'utf-8');
     return JSON.parse(content) as AllowedCommandsConfig;
   } catch {
     return { version: '1.0.0', commands: [] };
@@ -51,11 +54,11 @@ function loadConfig(): AllowedCommandsConfig {
 }
 
 function saveConfig(config: AllowedCommandsConfig): void {
-  const dir = path.dirname(ALLOWED_COMMANDS_PATH);
+  const dir = path.dirname(getAllowedCommandsPath());
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(ALLOWED_COMMANDS_PATH, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  fs.writeFileSync(getAllowedCommandsPath(), JSON.stringify(config, null, 2) + '\n', 'utf-8');
 }
 
 function scanSystemBins(): SystemBinary[] {

@@ -3,28 +3,24 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSnapshot } from 'valtio';
 import type { UpdateConfigRequest } from '@agenshield/ipc';
 import { api, type CreateSecretRequest } from './client';
-import type { AnalyzeSkillRequestUnion, InstallSkillRequest } from './marketplace.types';
+import { daemonStatusStore } from '../state/daemon-status';
 
 // Query keys
 export const queryKeys = {
   health: ['health'] as const,
-  status: ['status'] as const,
   config: ['config'] as const,
   skills: ['skills'] as const,
-  skill: (name: string) => ['skills', name] as const,
   secrets: ['secrets'] as const,
   availableEnvSecrets: ['secrets', 'env'] as const,
+  skillEnvRequirements: ['secrets', 'skill-env'] as const,
   security: ['security'] as const,
   agencoStatus: ['agenco', 'status'] as const,
   agencoMCPStatus: ['agenco', 'mcp-status'] as const,
   agencoIntegrations: ['agenco', 'integrations'] as const,
   agencoConnected: ['agenco', 'connected'] as const,
-  marketplaceSearch: (query: string) => ['marketplace', 'search', query] as const,
-  marketplaceSkill: (slug: string) => ['marketplace', 'skill', slug] as const,
-  marketplaceCachedAnalysis: (skillName: string, publisher: string) =>
-    ['marketplace', 'cachedAnalysis', skillName, publisher] as const,
   fsBrowse: (dirPath: string) => ['fs', 'browse', dirPath] as const,
 };
 
@@ -64,16 +60,14 @@ export function useHealthGate() {
 }
 
 /**
- * Hook to fetch daemon status
+ * Hook to get daemon status (pushed via SSE, no polling)
  */
 export function useStatus() {
-  const healthy = useHealthGate();
-  return useQuery({
-    queryKey: queryKeys.status,
-    queryFn: api.getStatus,
-    enabled: healthy,
-    refetchInterval: healthy ? 5000 : false,
-  });
+  const { status } = useSnapshot(daemonStatusStore);
+  return {
+    data: status ? { data: status } : undefined,
+    isLoading: !status,
+  };
 }
 
 /**
@@ -110,62 +104,6 @@ export function useSkills() {
     queryKey: queryKeys.skills,
     queryFn: api.getSkills,
     enabled: healthy,
-  });
-}
-
-export function useSkill(name: string | null) {
-  const healthy = useHealthGate();
-  return useQuery({
-    queryKey: queryKeys.skill(name ?? ''),
-    queryFn: () => api.getSkill(name!),
-    enabled: healthy && !!name,
-  });
-}
-
-export function useToggleSkill() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (name: string) => api.toggleSkill(name),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.skills });
-    },
-  });
-}
-
-export function useActivateSkill() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (name: string) => api.activateSkill(name),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.skills });
-    },
-  });
-}
-
-export function useQuarantineSkill() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (name: string) => api.quarantineSkill(name),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.skills });
-    },
-  });
-}
-
-// --- Skill analysis hooks ---
-
-export function useReanalyzeSkill() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ name, content, metadata }: { name: string; content?: string; metadata?: Record<string, unknown> }) =>
-      api.reanalyzeSkill(name, content, metadata),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.skill(variables.name) });
-    },
   });
 }
 
@@ -221,6 +159,16 @@ export function useAvailableEnvSecrets() {
   });
 }
 
+export function useSkillEnvRequirements() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.skillEnvRequirements,
+    queryFn: api.getSkillEnvRequirements,
+    enabled: healthy,
+    staleTime: 30_000,
+  });
+}
+
 export function useCreateSecret() {
   const queryClient = useQueryClient();
 
@@ -228,6 +176,7 @@ export function useCreateSecret() {
     mutationFn: (data: CreateSecretRequest) => api.createSecret(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.secrets });
+      queryClient.invalidateQueries({ queryKey: queryKeys.skillEnvRequirements });
     },
   });
 }
@@ -239,6 +188,7 @@ export function useDeleteSecret() {
     mutationFn: (id: string) => api.deleteSecret(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.secrets });
+      queryClient.invalidateQueries({ queryKey: queryKeys.skillEnvRequirements });
     },
   });
 }
@@ -330,64 +280,6 @@ export function useAgenCoConnectIntegration() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.agencoConnected });
       queryClient.invalidateQueries({ queryKey: queryKeys.agencoIntegrations });
-    },
-  });
-}
-
-// --- Marketplace hooks ---
-
-export function useMarketplaceSearch(query: string) {
-  return useQuery({
-    queryKey: queryKeys.marketplaceSearch(query),
-    queryFn: () => api.marketplace.search(query),
-    enabled: query.length >= 2,
-    staleTime: 300_000,
-    refetchOnWindowFocus: false,
-    placeholderData: (prev) => prev,
-  });
-}
-
-export function useMarketplaceSkill(slug: string | null) {
-  return useQuery({
-    queryKey: queryKeys.marketplaceSkill(slug ?? ''),
-    queryFn: () => api.marketplace.getSkill(slug!),
-    enabled: !!slug,
-    staleTime: 300_000,
-    refetchOnWindowFocus: false,
-    placeholderData: (prev) => prev, // Keep previous data while refetching
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      // Poll every 3 seconds while analysis is pending
-      if (data?.data?.analysisStatus === 'pending') return 3000;
-      return false;
-    },
-  });
-}
-
-export function useAnalyzeMarketplaceSkill() {
-  return useMutation({
-    mutationFn: (data: AnalyzeSkillRequestUnion) => api.marketplace.analyzeSkill(data),
-  });
-}
-
-export function useCachedAnalysis(skillName: string | null, publisher: string | null) {
-  return useQuery({
-    queryKey: queryKeys.marketplaceCachedAnalysis(skillName ?? '', publisher ?? ''),
-    queryFn: () => api.marketplace.getCachedAnalysis(skillName!, publisher!),
-    enabled: !!skillName && !!publisher,
-    staleTime: 300_000,
-    retry: false,
-  });
-}
-
-export function useInstallMarketplaceSkill() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data: InstallSkillRequest) => api.marketplace.installSkill(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.skills });
-      queryClient.invalidateQueries({ queryKey: ['marketplace', 'search'] });
     },
   });
 }

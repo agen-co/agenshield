@@ -93,6 +93,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Listen for 401 responses from the API client to reset auth state
+  useEffect(() => {
+    const handleExpired = () => {
+      setState((prev) => ({
+        ...prev,
+        authenticated: false,
+        token: null,
+        expiresAt: null,
+      }));
+    };
+    window.addEventListener('agenshield:auth-expired', handleExpired);
+    return () => window.removeEventListener('agenshield:auth-expired', handleExpired);
+  }, []);
+
   // Fetch auth status from server
   const refreshStatus = useCallback(async () => {
     try {
@@ -263,8 +277,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const requiresAuth = state.protectionEnabled && state.passcodeSet && !state.authenticated;
   // Full auth required: protection enabled, no anonymous read-only, and not authenticated
   const requiresFullAuth = requiresAuth && !state.allowAnonymousReadOnly;
-  // Read-only: protection enabled, authenticated is false, but anonymous read-only is allowed
-  const isReadOnly = state.protectionEnabled && state.passcodeSet && !state.authenticated && state.allowAnonymousReadOnly;
+  // Read-only: protection enabled, authenticated is false, but anonymous read-only is allowed.
+  // Fail-closed: default to read-only until auth status is loaded to prevent button flicker.
+  const isReadOnly = !state.loaded || (state.protectionEnabled && state.passcodeSet && !state.authenticated && state.allowAnonymousReadOnly);
 
   const contextValue: AuthContextValue = {
     ...state,

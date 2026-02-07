@@ -2,19 +2,31 @@
  * Skills Watcher
  *
  * Monitors the agent's skills directory for unapproved skills.
- * Unapproved skills are moved to a quarantine directory.
- * Follows the pattern of the existing security watcher.
+ * Unapproved skills are moved to the local marketplace cache for analysis.
+ * Also detects mismatches between openclaw.json entries and the approved list.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
+import * as crypto from 'node:crypto';
+import { parseSkillMd } from '@agenshield/sandbox';
+import {
+  storeDownloadedSkill,
+  listDownloadedSkills,
+  getDownloadedSkillMeta,
+  getDownloadedSkillFiles,
+  deleteDownloadedSkill,
+  analyzeSkillBundle,
+  updateDownloadedAnalysis,
+} from '../services/marketplace';
+import { setCachedAnalysis } from '../services/skill-analyzer';
+import { emitSkillAnalyzed, emitSkillAnalysisFailed } from '../events/emitter';
+import { getSystemConfigDir } from '../config/paths';
 
-/** Path to the approved skills configuration */
-const APPROVED_SKILLS_PATH = '/opt/agenshield/config/approved-skills.json';
-
-/** Quarantine directory for unapproved skills */
-const QUARANTINE_DIR = '/opt/agenshield/quarantine/skills';
+/** Path to the approved skills configuration (dev-aware) */
+function getApprovedSkillsPath(): string {
+  return path.join(getSystemConfigDir(), 'approved-skills.json');
+}
 
 /** Debounce interval for rapid filesystem events (ms) */
 const DEBOUNCE_MS = 500;
@@ -26,15 +38,15 @@ export interface ApprovedSkillEntry {
   publisher?: string;
 }
 
-export interface QuarantinedSkillInfo {
+export interface UntrustedSkillInfo {
   name: string;
-  quarantinedAt: string;
+  detectedAt: string;
   originalPath: string;
   reason: string;
 }
 
 interface SkillsWatcherCallbacks {
-  onQuarantined?: (info: QuarantinedSkillInfo) => void;
+  onUntrustedDetected?: (info: { name: string; reason: string }) => void;
   onApproved?: (name: string) => void;
 }
 
@@ -49,8 +61,9 @@ let callbacks: SkillsWatcherCallbacks = {};
  */
 function loadApprovedSkills(): ApprovedSkillEntry[] {
   try {
-    if (fs.existsSync(APPROVED_SKILLS_PATH)) {
-      const content = fs.readFileSync(APPROVED_SKILLS_PATH, 'utf-8');
+    const approvedPath = getApprovedSkillsPath();
+    if (fs.existsSync(approvedPath)) {
+      const content = fs.readFileSync(approvedPath, 'utf-8');
       return JSON.parse(content) as ApprovedSkillEntry[];
     }
   } catch {
@@ -64,10 +77,11 @@ function loadApprovedSkills(): ApprovedSkillEntry[] {
  */
 function saveApprovedSkills(skills: ApprovedSkillEntry[]): void {
   try {
-    const dir = path.dirname(APPROVED_SKILLS_PATH);
+    const approvedPath = getApprovedSkillsPath();
+    const dir = path.dirname(approvedPath);
     fs.mkdirSync(dir, { recursive: true });
     const content = JSON.stringify(skills, null, 2);
-    fs.writeFileSync(APPROVED_SKILLS_PATH, content, 'utf-8');
+    fs.writeFileSync(approvedPath, content, 'utf-8');
   } catch (err) {
     console.error('Failed to save approved skills:', (err as Error).message);
   }
@@ -82,44 +96,209 @@ function isApproved(skillName: string): boolean {
 }
 
 /**
- * Move an unapproved skill to quarantine
+ * Normalize a skill name into a slug for marketplace storage.
  */
-function quarantineSkill(skillName: string, skillPath: string): QuarantinedSkillInfo | null {
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+}
+
+/**
+ * Guess a basic MIME content type from file extension.
+ */
+function guessContentType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  const map: Record<string, string> = {
+    '.md': 'text/markdown', '.json': 'application/json',
+    '.yaml': 'text/yaml', '.yml': 'text/yaml', '.toml': 'text/toml',
+    '.ts': 'text/typescript', '.tsx': 'text/typescript',
+    '.js': 'text/javascript', '.jsx': 'text/javascript',
+    '.py': 'text/x-python', '.sh': 'text/x-shellscript',
+    '.txt': 'text/plain', '.env': 'text/plain', '.ini': 'text/plain',
+  };
+  return map[ext] ?? 'text/plain';
+}
+
+/**
+ * Recursively read all text files from a directory into memory.
+ */
+function readSkillFiles(dir: string, prefix = ''): Array<{ name: string; type: string; content: string }> {
+  const files: Array<{ name: string; type: string; content: string }> = [];
   try {
-    const quarantinePath = path.join(QUARANTINE_DIR, skillName);
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        files.push(...readSkillFiles(path.join(dir, entry.name), rel));
+      } else {
+        try {
+          const content = fs.readFileSync(path.join(dir, entry.name), 'utf-8');
+          files.push({ name: rel, type: guessContentType(entry.name), content });
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+  } catch {
+    // Directory unreadable
+  }
+  return files;
+}
 
-    // Ensure quarantine dir exists
-    if (!fs.existsSync(QUARANTINE_DIR)) {
-      fs.mkdirSync(QUARANTINE_DIR, { recursive: true, mode: 0o700 });
+/**
+ * Move an unapproved skill from the skills directory to the marketplace cache.
+ * Returns the slug on success, null on failure.
+ */
+function moveToMarketplace(skillName: string, skillPath: string): string | null {
+  try {
+    const files = readSkillFiles(skillPath);
+    if (files.length === 0) {
+      console.warn(`[SkillsWatcher] No files found in ${skillPath}, skipping`);
+      return null;
     }
 
-    // Remove existing quarantined version if present
-    if (fs.existsSync(quarantinePath)) {
-      fs.rmSync(quarantinePath, { recursive: true, force: true });
+    // Extract metadata from SKILL.md if present
+    const skillMd = files.find((f) => /skill\.md/i.test(f.name));
+    let description = '';
+    let version = '0.0.0';
+    let author = 'unknown';
+    if (skillMd) {
+      try {
+        const parsed = parseSkillMd(skillMd.content);
+        const meta = parsed?.metadata as Record<string, string> | undefined;
+        description = meta?.description ?? '';
+        version = meta?.version ?? '0.0.0';
+        author = meta?.author ?? 'unknown';
+      } catch { /* best-effort */ }
     }
 
-    // Move skill to quarantine
-    execSync(`mv "${skillPath}" "${quarantinePath}"`, { stdio: 'pipe' });
-    execSync(`chown -R root:wheel "${quarantinePath}"`, { stdio: 'pipe' });
-    execSync(`chmod -R 700 "${quarantinePath}"`, { stdio: 'pipe' });
+    const slug = slugify(skillName);
 
-    const info: QuarantinedSkillInfo = {
+    storeDownloadedSkill(slug, {
       name: skillName,
-      quarantinedAt: new Date().toISOString(),
-      originalPath: skillPath,
-      reason: 'Skill not in approved list',
-    };
+      slug,
+      author,
+      version,
+      description,
+      tags: [],
+      source: 'watcher',
+    }, files);
 
-    console.log(`[SkillsWatcher] Quarantined unapproved skill: ${skillName}`);
-    return info;
+    // Remove from active skills directory
+    fs.rmSync(skillPath, { recursive: true, force: true });
+
+    console.log(`[SkillsWatcher] Moved untrusted skill to marketplace cache: ${skillName}`);
+    return slug;
   } catch (err) {
-    console.error(`[SkillsWatcher] Failed to quarantine ${skillName}:`, (err as Error).message);
+    console.error(`[SkillsWatcher] Failed to move ${skillName} to marketplace:`, (err as Error).message);
     return null;
   }
 }
 
 /**
- * Scan the skills directory for unapproved skills
+ * Auto-analyze a skill that was moved to marketplace cache (runs in background).
+ */
+function autoAnalyze(skillName: string, slug: string): void {
+  setImmediate(async () => {
+    try {
+      const cachedFiles = getDownloadedSkillFiles(slug);
+      if (cachedFiles.length === 0) return;
+
+      const result = await analyzeSkillBundle(cachedFiles, skillName);
+      const a = result.analysis;
+
+      setCachedAnalysis(slug, {
+        status: a.status === 'complete' ? 'complete' : 'error',
+        analyzerId: 'agenshield',
+        commands: a.commands?.map((c) => ({
+          name: c.name,
+          source: c.source as 'metadata' | 'analysis',
+          available: c.available,
+          required: c.required,
+        })) ?? [],
+        vulnerability: a.vulnerability,
+        envVariables: a.envVariables,
+        runtimeRequirements: a.runtimeRequirements,
+        installationSteps: a.installationSteps,
+        runCommands: a.runCommands,
+        securityFindings: a.securityFindings,
+        mcpSpecificRisks: a.mcpSpecificRisks,
+        error: a.status === 'error' ? 'Analysis returned error' : undefined,
+      });
+
+      updateDownloadedAnalysis(slug, a);
+      emitSkillAnalyzed(slug, a);
+      console.log(`[SkillsWatcher] Auto-analysis complete for: ${skillName}`);
+    } catch (err) {
+      console.warn(`[SkillsWatcher] Auto-analysis failed for ${skillName}:`, (err as Error).message);
+      emitSkillAnalysisFailed(slug, (err as Error).message);
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Hash-based integrity checking                                      */
+/* ------------------------------------------------------------------ */
+
+/** Cache of the latest mtime per skill directory (performance optimization) */
+const mtimeCache = new Map<string, number>();
+
+/**
+ * Get the latest mtime of any file in a directory tree (recursive).
+ * Returns 0 if directory doesn't exist or is unreadable.
+ */
+function getDirMtime(dir: string): number {
+  let latest = 0;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        latest = Math.max(latest, getDirMtime(fullPath));
+      } else {
+        try {
+          const stat = fs.statSync(fullPath);
+          latest = Math.max(latest, stat.mtimeMs);
+        } catch { /* skip unreadable */ }
+      }
+    }
+  } catch { /* directory unreadable */ }
+  return latest;
+}
+
+/**
+ * Compute a SHA-256 hash of all files in a skill directory.
+ * Files are sorted by relative path so the hash is deterministic.
+ * Returns null if the directory doesn't exist or has no files.
+ */
+export function computeSkillHash(skillDir: string): string | null {
+  const files = readSkillFiles(skillDir);
+  if (files.length === 0) return null;
+
+  // Sort by name for deterministic hash
+  files.sort((a, b) => a.name.localeCompare(b.name));
+
+  const hash = crypto.createHash('sha256');
+  for (const file of files) {
+    hash.update(file.name);
+    hash.update(file.content);
+  }
+  return hash.digest('hex');
+}
+
+/**
+ * Update the hash for an approved skill in approved-skills.json.
+ */
+export function updateApprovedHash(skillName: string, hash: string): void {
+  const approved = loadApprovedSkills();
+  const entry = approved.find((s) => s.name === skillName);
+  if (entry) {
+    entry.hash = hash;
+    saveApprovedSkills(approved);
+  }
+}
+
+/**
+ * Scan the skills directory for unapproved skills and detect mismatches.
  */
 function scanSkills(): void {
   if (!skillsDir || !fs.existsSync(skillsDir)) {
@@ -128,20 +307,91 @@ function scanSkills(): void {
 
   try {
     const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+    const approved = loadApprovedSkills();
+    const approvedMap = new Map(approved.map((a) => [a.name, a]));
+
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
 
       const skillName = entry.name;
-      if (!isApproved(skillName)) {
+      const approvedEntry = approvedMap.get(skillName);
+
+      if (!approvedEntry) {
+        // Not approved → move to marketplace as untrusted
         const fullPath = path.join(skillsDir, skillName);
-        const info = quarantineSkill(skillName, fullPath);
-        if (info && callbacks.onQuarantined) {
-          callbacks.onQuarantined(info);
+        const slug = moveToMarketplace(skillName, fullPath);
+        if (slug) {
+          if (callbacks.onUntrustedDetected) {
+            callbacks.onUntrustedDetected({ name: skillName, reason: 'Skill not in approved list' });
+          }
+          autoAnalyze(skillName, slug);
+        }
+      } else if (approvedEntry.hash) {
+        // Approved WITH hash → integrity check (mtime-gated for performance)
+        const fullPath = path.join(skillsDir, skillName);
+        const currentMtime = getDirMtime(fullPath);
+        const cachedMtime = mtimeCache.get(skillName) ?? 0;
+
+        if (currentMtime !== cachedMtime) {
+          mtimeCache.set(skillName, currentMtime);
+          const currentHash = computeSkillHash(fullPath);
+          if (currentHash && currentHash !== approvedEntry.hash) {
+            console.warn(`[SkillsWatcher] Integrity mismatch for approved skill: ${skillName}`);
+            // Remove from approved list FIRST
+            removeFromApprovedList(skillName);
+            // Move to marketplace as untrusted
+            const slug = moveToMarketplace(skillName, fullPath);
+            if (slug) {
+              if (callbacks.onUntrustedDetected) {
+                callbacks.onUntrustedDetected({ name: skillName, reason: 'Skill files modified externally' });
+              }
+              autoAnalyze(skillName, slug);
+            }
+          }
         }
       }
+      // Approved WITHOUT hash → skip (legacy entry, no baseline)
     }
   } catch (err) {
     console.error('[SkillsWatcher] Scan error:', (err as Error).message);
+  }
+
+  // Mismatch detection: clean stale openclaw.json entries
+  detectOpenClawMismatches();
+}
+
+/**
+ * Detect mismatches between openclaw.json entries and approved skills.
+ * Remove entries from openclaw.json that are not in the approved list.
+ */
+function detectOpenClawMismatches(): void {
+  try {
+    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const configPath = path.join(agentHome, '.openclaw', 'openclaw.json');
+    if (!fs.existsSync(configPath)) return;
+
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(raw) as { skills?: { entries?: Record<string, unknown> } };
+    if (!config.skills?.entries) return;
+
+    const approved = loadApprovedSkills();
+    const approvedNames = new Set(approved.map((a) => a.name));
+    const entries = Object.keys(config.skills.entries);
+
+    let changed = false;
+    for (const name of entries) {
+      if (!approvedNames.has(name)) {
+        delete config.skills.entries[name];
+        changed = true;
+        console.log(`[SkillsWatcher] Removed stale openclaw.json entry: ${name}`);
+      }
+    }
+
+    if (changed) {
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    }
+  } catch {
+    // Best-effort; openclaw.json may not exist or be unreadable
   }
 }
 
@@ -170,7 +420,7 @@ function handleFsEvent(eventType: string, filename: string | null): void {
  * Start the skills watcher
  *
  * @param watchDir - The skills directory to watch (e.g., $HOME/.openclaw/skills)
- * @param cbs - Callbacks for quarantine/approve events
+ * @param cbs - Callbacks for untrusted/approve events
  * @param pollIntervalMs - Polling fallback interval (default: 30 seconds)
  */
 export function startSkillsWatcher(
@@ -235,15 +485,29 @@ export function stopSkillsWatcher(): void {
 }
 
 /**
- * Approve a skill (move from quarantine back to skills directory)
+ * Approve a skill — add to approved list.
+ * The actual file installation from marketplace cache is handled by the toggle/install routes.
  */
 export function approveSkill(skillName: string): { success: boolean; error?: string } {
   try {
-    const quarantinedPath = path.join(QUARANTINE_DIR, skillName);
-    const destPath = path.join(skillsDir, skillName);
+    const slug = slugify(skillName);
+    const meta = getDownloadedSkillMeta(slug);
+    if (!meta) {
+      return { success: false, error: `Skill "${skillName}" not found in marketplace cache` };
+    }
 
-    if (!fs.existsSync(quarantinedPath)) {
-      return { success: false, error: `Skill "${skillName}" not found in quarantine` };
+    // Compute hash from marketplace cache files for integrity baseline
+    const cachedFiles = getDownloadedSkillFiles(slug);
+    let hash: string | undefined;
+    if (cachedFiles.length > 0) {
+      // Create a temporary hash from the cached files
+      const h = crypto.createHash('sha256');
+      const sorted = [...cachedFiles].sort((a, b) => a.name.localeCompare(b.name));
+      for (const file of sorted) {
+        h.update(file.name);
+        h.update(file.content);
+      }
+      hash = h.digest('hex');
     }
 
     // Add to approved list
@@ -252,16 +516,11 @@ export function approveSkill(skillName: string): { success: boolean; error?: str
       approved.push({
         name: skillName,
         approvedAt: new Date().toISOString(),
+        publisher: meta.author,
+        ...(hash ? { hash } : {}),
       });
       saveApprovedSkills(approved);
     }
-
-    // Move from quarantine back to skills directory
-    execSync(`mv "${quarantinedPath}" "${destPath}"`, { stdio: 'pipe' });
-
-    // Set proper ownership (root-owned, group-readable)
-    execSync(`chown -R root:wheel "${destPath}"`, { stdio: 'pipe' });
-    execSync(`chmod -R a+rX,go-w "${destPath}"`, { stdio: 'pipe' });
 
     if (callbacks.onApproved) {
       callbacks.onApproved(skillName);
@@ -275,17 +534,12 @@ export function approveSkill(skillName: string): { success: boolean; error?: str
 }
 
 /**
- * Reject a quarantined skill (permanently delete)
+ * Reject an untrusted skill (permanently delete from marketplace cache)
  */
 export function rejectSkill(skillName: string): { success: boolean; error?: string } {
   try {
-    const quarantinedPath = path.join(QUARANTINE_DIR, skillName);
-
-    if (!fs.existsSync(quarantinedPath)) {
-      return { success: false, error: `Skill "${skillName}" not found in quarantine` };
-    }
-
-    fs.rmSync(quarantinedPath, { recursive: true, force: true });
+    const slug = slugify(skillName);
+    deleteDownloadedSkill(slug);
 
     console.log(`[SkillsWatcher] Rejected and deleted skill: ${skillName}`);
     return { success: true };
@@ -295,7 +549,7 @@ export function rejectSkill(skillName: string): { success: boolean; error?: stri
 }
 
 /**
- * Revoke an approved skill (remove from approved list and quarantine)
+ * Revoke an approved skill (remove from approved list and move to marketplace cache)
  */
 export function revokeSkill(skillName: string): { success: boolean; error?: string } {
   try {
@@ -304,10 +558,10 @@ export function revokeSkill(skillName: string): { success: boolean; error?: stri
     const filtered = approved.filter((s) => s.name !== skillName);
     saveApprovedSkills(filtered);
 
-    // If the skill is in the skills directory, quarantine it
+    // If the skill is in the skills directory, move it to marketplace cache
     const skillPath = path.join(skillsDir, skillName);
     if (fs.existsSync(skillPath)) {
-      quarantineSkill(skillName, skillPath);
+      moveToMarketplace(skillName, skillPath);
     }
 
     console.log(`[SkillsWatcher] Revoked approval for skill: ${skillName}`);
@@ -318,33 +572,23 @@ export function revokeSkill(skillName: string): { success: boolean; error?: stri
 }
 
 /**
- * List quarantined skills
+ * List untrusted skills: skills in the marketplace cache that are NOT approved.
  */
-export function listQuarantined(): QuarantinedSkillInfo[] {
-  const results: QuarantinedSkillInfo[] = [];
+export function listUntrusted(): UntrustedSkillInfo[] {
+  const approved = loadApprovedSkills();
+  const approvedNames = new Set(approved.map((a) => a.name));
 
-  try {
-    if (!fs.existsSync(QUARANTINE_DIR)) {
-      return results;
-    }
-
-    const entries = fs.readdirSync(QUARANTINE_DIR, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        const stat = fs.statSync(path.join(QUARANTINE_DIR, entry.name));
-        results.push({
-          name: entry.name,
-          quarantinedAt: stat.mtime.toISOString(),
-          originalPath: path.join(skillsDir, entry.name),
-          reason: 'Skill not in approved list',
-        });
-      }
-    }
-  } catch {
-    // Quarantine dir might not exist
-  }
-
-  return results;
+  const downloaded = listDownloadedSkills();
+  return downloaded
+    .filter((d) => !approvedNames.has(d.slug) && !approvedNames.has(d.name))
+    // Only show skills detected by the watcher — marketplace previews are not untrusted
+    .filter((d) => d.source === 'watcher')
+    .map((d) => ({
+      name: d.slug,
+      detectedAt: '',
+      originalPath: skillsDir ? path.join(skillsDir, d.slug) : '',
+      reason: 'Skill not in approved list',
+    }));
 }
 
 /**
@@ -373,13 +617,14 @@ export function getSkillsDir(): string {
  * Used by marketplace install to pre-approve before writing files,
  * preventing a race condition with the watcher quarantining new skills.
  */
-export function addToApprovedList(skillName: string, publisher?: string): void {
+export function addToApprovedList(skillName: string, publisher?: string, hash?: string): void {
   const approved = loadApprovedSkills();
   if (!approved.some((s) => s.name === skillName)) {
     approved.push({
       name: skillName,
       approvedAt: new Date().toISOString(),
       ...(publisher ? { publisher } : {}),
+      ...(hash ? { hash } : {}),
     });
     saveApprovedSkills(approved);
   }

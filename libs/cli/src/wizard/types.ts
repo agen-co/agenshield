@@ -2,7 +2,7 @@
  * Types for the setup wizard
  */
 
-import type { OriginalInstallation, UserConfig, PathsConfig } from '@agenshield/ipc';
+import type { OriginalInstallation, UserConfig, PathsConfig, MigrationScanResult, MigrationSelection } from '@agenshield/ipc';
 import type { TargetPreset, PresetDetectionResult } from '@agenshield/sandbox';
 
 export type WizardStepStatus = 'pending' | 'running' | 'completed' | 'error' | 'skipped';
@@ -16,7 +16,6 @@ export type WizardStepId =
   | 'install-target'
   | 'configure'
   | 'confirm'
-  | 'backup'
   | 'create-groups'
   | 'create-agent-user'
   | 'create-broker-user'
@@ -28,6 +27,8 @@ export type WizardStepId =
   | 'install-daemon-config'
   | 'install-policies'
   | 'setup-launchdaemon'
+  | 'scan-source'
+  | 'select-items'
   | 'migrate'
   | 'verify'
   | 'setup-passcode'
@@ -203,6 +204,12 @@ export interface WizardContext {
 
   /** Whether the user requested target installation */
   installTargetRequested?: boolean;
+
+  /** Migration scan result (from scan-source step) */
+  scanResult?: MigrationScanResult;
+
+  /** User's migration selection (from select-items step) */
+  migrationSelection?: MigrationSelection;
 }
 
 /**
@@ -262,19 +269,12 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
 
   // Setup phase
   {
-    id: 'backup',
-    name: 'Backup Installation',
-    description: 'Save backup for safe reversal',
-    phase: 'setup',
-    dependsOn: ['confirm'],
-  },
-  {
     id: 'create-groups',
     name: 'Create Groups',
     description: 'Create socket access and workspace groups',
     phase: 'setup',
     requiresSudo: true,
-    dependsOn: ['backup'],
+    dependsOn: ['confirm'],
   },
   {
     id: 'create-agent-user',
@@ -357,12 +357,26 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
     dependsOn: ['install-broker', 'install-daemon-config'],
   },
   {
+    id: 'scan-source',
+    name: 'Scan Source Application',
+    description: 'Read skills and environment variables from the source application',
+    phase: 'setup',
+    dependsOn: ['create-directories'],
+  },
+  {
+    id: 'select-items',
+    name: 'Select Migration Items',
+    description: 'Choose which skills and secrets to migrate',
+    phase: 'setup',
+    dependsOn: ['scan-source'],
+  },
+  {
     id: 'migrate',
     name: 'Migrate Installation',
-    description: 'Move target application to sandbox',
+    description: 'Copy target application to sandbox',
     phase: 'setup',
     requiresSudo: true,
-    dependsOn: ['install-wrappers', 'setup-launchdaemon'],
+    dependsOn: ['install-wrappers', 'setup-launchdaemon', 'select-items'],
   },
   {
     id: 'verify',

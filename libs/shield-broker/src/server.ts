@@ -17,6 +17,7 @@ import type {
 import type { PolicyEnforcer } from './policies/enforcer.js';
 import type { AuditLogger } from './audit/logger.js';
 import type { SecretVault } from './secrets/vault.js';
+import type { SecretResolver } from './secrets/resolver.js';
 import type { CommandAllowlist } from './policies/command-allowlist.js';
 import * as handlers from './handlers/index.js';
 import { forwardPolicyToDaemon } from './daemon-forward.js';
@@ -26,6 +27,7 @@ export interface UnixSocketServerOptions {
   policyEnforcer: PolicyEnforcer;
   auditLogger: AuditLogger;
   secretVault: SecretVault;
+  secretResolver?: SecretResolver;
   commandAllowlist: CommandAllowlist;
 }
 
@@ -35,6 +37,7 @@ export class UnixSocketServer {
   private policyEnforcer: PolicyEnforcer;
   private auditLogger: AuditLogger;
   private secretVault: SecretVault;
+  private secretResolver?: SecretResolver;
   private commandAllowlist: CommandAllowlist;
   private connections: Set<net.Socket> = new Set();
 
@@ -43,6 +46,7 @@ export class UnixSocketServer {
     this.policyEnforcer = options.policyEnforcer;
     this.auditLogger = options.auditLogger;
     this.secretVault = options.secretVault;
+    this.secretResolver = options.secretResolver;
     this.commandAllowlist = options.commandAllowlist;
   }
 
@@ -217,6 +221,7 @@ export class UnixSocketServer {
         policyEnforcer: this.policyEnforcer,
         auditLogger: this.auditLogger,
         secretVault: this.secretVault,
+        secretResolver: this.secretResolver,
         commandAllowlist: this.commandAllowlist,
         daemonUrl: this.config.daemonUrl,
       });

@@ -33,6 +33,14 @@ export interface PasscodeData {
 }
 
 /**
+ * Secret scope determines how a secret is injected at runtime.
+ * - 'global'    — injected into every exec (policyIds=[])
+ * - 'policed'   — injected only when linked policies match
+ * - 'standalone' — stored encrypted but never synced/injected
+ */
+export type SecretScope = 'global' | 'policed' | 'standalone';
+
+/**
  * A secret stored in the vault with policy links
  */
 export interface VaultSecret {
@@ -46,6 +54,64 @@ export interface VaultSecret {
   policyIds: string[];
   /** ISO timestamp when created */
   createdAt: string;
+  /**
+   * Secret scope. When absent, inferred from policyIds for backward compat:
+   *   policyIds.length === 0 => 'global', else => 'policed'
+   */
+  scope?: SecretScope;
+}
+
+/**
+ * Aggregated env variable requirement across installed skills.
+ * Returned by GET /secrets/skill-env.
+ */
+export interface SkillEnvRequirement {
+  /** Env variable name (e.g. OPENAI_API_KEY) */
+  name: string;
+  /** True if any skill marks it required */
+  required: boolean;
+  /** True if any skill marks it sensitive */
+  sensitive: boolean;
+  /** Human-readable purpose from skill analysis */
+  purpose: string;
+  /** Skills that require this variable */
+  requiredBy: Array<{ skillName: string }>;
+  /** Whether a vault secret with this name already exists */
+  fulfilled: boolean;
+  /** Scope of the existing secret, if fulfilled */
+  existingSecretScope?: SecretScope;
+  /** ID of the existing secret, if fulfilled */
+  existingSecretId?: string;
+}
+
+/**
+ * A policy binding that carries secrets for sync to the broker.
+ * Written by the daemon to synced-secrets.json, read by the broker.
+ */
+export interface SecretPolicyBinding {
+  /** The daemon policy ID */
+  policyId: string;
+  /** Policy target type (url or command) */
+  target: 'url' | 'command';
+  /** Policy patterns for matching (glob/URL patterns) */
+  patterns: string[];
+  /** Secrets to inject when this policy matches: envVarName -> plaintext value */
+  secrets: Record<string, string>;
+}
+
+/**
+ * Format of the synced-secrets.json file written by the daemon, read by the broker.
+ * Contains decrypted secrets grouped by policy bindings for automatic injection.
+ */
+export interface SyncedSecrets {
+  /** Schema version */
+  version: string;
+  /** ISO timestamp of last sync */
+  syncedAt: string;
+  /** Global secrets (policyIds=[]) injected into every exec: envVarName -> value */
+  globalSecrets: Record<string, string>;
+  /** Policy-linked secrets, injected only when the policy's patterns match */
+  policyBindings: SecretPolicyBinding[];
 }
 
 /**

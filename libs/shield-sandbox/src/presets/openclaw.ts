@@ -5,13 +5,16 @@
  * Supports both npm global and git clone installations.
  */
 
+import * as path from 'node:path';
 import type {
   TargetPreset,
   PresetDetectionResult,
   MigrationContext,
   PresetMigrationResult,
 } from './types.js';
+import type { MigrationScanResult } from '@agenshield/ipc';
 import { detectOpenClaw } from '../detect.js';
+import { scanHost } from '../host-scanner.js';
 import { migrateOpenClaw, type MigrationSource } from '../migration.js';
 import type { SandboxUser, DirectoryStructure as LegacyDirectoryStructure } from '../types.js';
 
@@ -23,13 +26,17 @@ export const openclawPreset: TargetPreset = {
   name: 'OpenClaw',
   description: 'AI coding agent (auto-detected via npm or git)',
 
-  requiredBins: ['node', 'npm', 'npx', 'git', 'curl', 'shieldctl'],
+  requiredBins: ['node', 'npm', 'npx', 'git', 'curl', 'bash', 'shieldctl'],
   optionalBins: ['wget', 'ssh', 'scp', 'python3', 'pip', 'brew'],
 
   async detect(): Promise<PresetDetectionResult | null> {
     const result = detectOpenClaw();
 
     if (!result.installation.found) {
+      // Binary not found, but config dir may exist (e.g. skills on disk without openclaw installed)
+      if (result.installation.configPath) {
+        return { found: false, configPath: result.installation.configPath };
+      }
       return null;
     }
 
@@ -43,6 +50,15 @@ export const openclawPreset: TargetPreset = {
     };
   },
 
+  async scan(detection: PresetDetectionResult): Promise<MigrationScanResult | null> {
+    // Build the config JSON path from the detection config directory
+    const configJsonPath = detection.configPath
+      ? path.join(detection.configPath, 'openclaw.json')
+      : undefined;
+
+    return scanHost({ configPath: configJsonPath });
+  },
+
   async migrate(context: MigrationContext): Promise<PresetMigrationResult> {
     if (!context.detection?.packagePath) {
       return { success: false, error: 'OpenClaw package path not detected' };
@@ -54,6 +70,7 @@ export const openclawPreset: TargetPreset = {
       packagePath: context.detection.packagePath,
       binaryPath: context.detection.binaryPath,
       configPath: context.detection.configPath,
+      selection: context.selection,
     };
 
     const user: SandboxUser = {

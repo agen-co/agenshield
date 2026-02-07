@@ -153,17 +153,24 @@ async function runSetupWebUI(wizardOptions: WizardOptions): Promise<void> {
   }
 
   // Wait for setup to complete or be cancelled (SIGINT/SIGTERM)
+  let interrupted = false;
   const completionOrSignal = Promise.race([
     server.waitForCompletion(),
     new Promise<void>((resolve) => {
-      process.on('SIGINT', resolve);
-      process.on('SIGTERM', resolve);
+      process.on('SIGINT', () => { interrupted = true; resolve(); });
+      process.on('SIGTERM', () => { interrupted = true; resolve(); });
     }),
   ]);
 
   await completionOrSignal;
-  console.log('  Setup complete! Shutting down server...');
   await server.stop();
+
+  if (interrupted) {
+    console.log('\n  Setup cancelled.');
+    process.exit(130);
+  }
+
+  console.log('  Setup complete! Shutting down server...');
 
   // Stop any existing daemon first
   console.log('  Stopping any existing daemon...');

@@ -5,7 +5,7 @@
  * The sandboxing (users, groups, seatbelt, wrappers) is universal for all targets.
  */
 
-import type { UserDefinition } from '@agenshield/ipc';
+import type { UserDefinition, MigrationScanResult, MigrationSelection } from '@agenshield/ipc';
 
 /**
  * Result of detecting a target application
@@ -53,6 +53,8 @@ export interface MigrationContext {
   entryPoint?: string;
   /** Detection result from the detect phase */
   detection?: PresetDetectionResult;
+  /** User's selection of items to migrate (from scan step) */
+  selection?: MigrationSelection;
 }
 
 /**
@@ -105,8 +107,17 @@ export interface TargetPreset {
   detect(): Promise<PresetDetectionResult | null>;
 
   /**
+   * Scan the source application for migratable items (skills, env vars).
+   * Called AFTER the AgenShield environment is initialized but BEFORE migration.
+   * Returns discovered items for user selection.
+   * Optional — presets that don't support scanning return null.
+   */
+  scan?(detection: PresetDetectionResult): Promise<MigrationScanResult | null>;
+
+  /**
    * Migrate the target to the sandbox user.
    * Copies files, sets permissions, creates entry wrapper.
+   * When context.selection is provided, only selected items are migrated.
    */
   migrate(context: MigrationContext): Promise<PresetMigrationResult>;
 

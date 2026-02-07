@@ -13,7 +13,7 @@ import {
   FormControlLabel,
   FormGroup,
 } from '@mui/material';
-import { X, Terminal, Zap, Globe, FolderOpen, CircleCheck, Ban, Clock } from 'lucide-react';
+import { X, Terminal, Zap, Globe, FolderOpen, CircleCheck, Ban, Clock, Package } from 'lucide-react';
 import type { PolicyConfig, SecurityRisk, CatalogEntry } from '@agenshield/ipc';
 import { COMMAND_CATALOG } from '@agenshield/ipc';
 import { useDiscovery, useSkills, useSecrets } from '../../../api/hooks';
@@ -36,6 +36,8 @@ interface PolicyEditorProps {
   saveLabel?: string;
   /** Show a loading spinner on save button */
   saving?: boolean;
+  /** Lock the target type (hides the target selector). Used when embedded in a tab. */
+  defaultTarget?: 'skill' | 'command' | 'url' | 'filesystem';
 }
 
 interface CommandOption {
@@ -107,11 +109,12 @@ function scoreCommandOption(option: CommandOption, query: string): number {
   return totalScore;
 }
 
-export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusChange, error, hideSecrets, title, saveLabel, saving }: PolicyEditorProps) {
+export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusChange, error, hideSecrets, title, saveLabel, saving, defaultTarget }: PolicyEditorProps) {
+  const resolvedTarget = policy?.target ?? defaultTarget ?? 'command';
   const initial = {
     name: policy?.name ?? '',
     action: (policy?.action ?? null) as 'allow' | 'deny' | 'approval' | null,
-    target: (policy?.target ?? 'command') as 'skill' | 'command' | 'url' | 'filesystem',
+    target: resolvedTarget as 'skill' | 'command' | 'url' | 'filesystem',
     patterns: policy?.patterns.join('\n') ?? '',
     enabled: policy?.enabled ?? true,
     operations: policy?.operations ?? [] as string[],
@@ -144,12 +147,12 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
     setFormData({
       name: policy?.name ?? '',
       action: (policy?.action ?? null) as 'allow' | 'deny' | 'approval' | null,
-      target: (policy?.target ?? 'command') as 'skill' | 'command' | 'url' | 'filesystem',
+      target: (policy?.target ?? defaultTarget ?? 'command') as 'skill' | 'command' | 'url' | 'filesystem',
       patterns: policy?.patterns.join('\n') ?? '',
       enabled: policy?.enabled ?? true,
       operations: policy?.operations ?? [],
     });
-  }, [policy]);
+  }, [policy, defaultTarget]);
 
   // Track dirty state
   const dirty =
@@ -241,14 +244,16 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
       patterns: formData.patterns.split('\n').filter((p) => p.trim()),
       enabled: formData.enabled,
       ...(formData.target === 'filesystem' ? { operations: formData.operations } : {}),
+      ...(policy?.preset ? { preset: policy.preset } : {}),
     };
     onSave(newPolicy, secretIds);
   }, [policy, formData, secretIds, onSave]);
 
   const handleAddCommand = (_event: unknown, value: CommandOption | null) => {
     if (!value) return;
+    const entry = `${value.label}:*`;
     const current = formData.patterns.trim();
-    const newPattern = current ? `${current}\n${value.label}` : value.label;
+    const newPattern = current ? `${current}\n${entry}` : entry;
     setFormData({ ...formData, patterns: newPattern });
   };
 
@@ -279,6 +284,17 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
           placeholder="e.g. Allow internal APIs"
         />
 
+        {policy?.preset?.startsWith('skill:') && (
+          <Chip
+            icon={<Package size={14} />}
+            label={policy.preset.slice(6)}
+            color="info"
+            variant="outlined"
+            size="small"
+            sx={{ alignSelf: 'flex-start' }}
+          />
+        )}
+
         {/* Action selector */}
         <Box>
           <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
@@ -291,7 +307,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
               if (val) setFormData({ ...formData, action: val });
             }}
             size="small"
-            fullWidth
+            sx={{ width: 'fit-content' }}
           >
             <ToggleButton value="allow" color="success" sx={{ flexDirection: 'column', gap: 0.25, py: 1 }}>
               <CircleCheck size={16} />
@@ -302,8 +318,8 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
               <Typography variant="caption" fontSize={11}>Deny</Typography>
             </ToggleButton>
             <Tooltip title="Coming soon — requires AgenCo" arrow>
-              <span style={{ flex: 1, display: 'flex' }}>
-                <ToggleButton value="approval" disabled sx={{ flex: 1, flexDirection: 'column', gap: 0.25, py: 1 }}>
+              <span style={{ display: 'flex' }}>
+                <ToggleButton value="approval" disabled sx={{ flexDirection: 'column', gap: 0.25, py: 1 }}>
                   <Clock size={16} />
                   <Typography variant="caption" fontSize={11}>Approval</Typography>
                 </ToggleButton>
@@ -322,7 +338,8 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
           gap: 2.5,
         }}>
 
-        {/* Target selector */}
+        {/* Target selector — hidden when defaultTarget is locked by tab */}
+        {!defaultTarget && (
         <Box>
           <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
             Target
@@ -354,6 +371,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
             </ToggleButton>
           </ToggleButtonGroup>
         </Box>
+        )}
 
         {/* Patterns */}
         <TextField
@@ -365,7 +383,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
           fullWidth
           placeholder={
             formData.target === 'command'
-              ? 'git push\ngit commit\nnpm *'
+              ? 'git:*\ngit push:*\nnpm install\ncurl:*'
               : formData.target === 'skill'
                 ? 'my-skill\nworkspace-tool'
                 : formData.target === 'filesystem'
@@ -373,9 +391,13 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
                   : 'example.com\n*.internal.io\nhttps://api.example.com/**'
           }
           helperText={
-            formData.target === 'url'
-              ? 'Plain HTTP is blocked by default. Use * for single path segment, ** for any path. Bare domains assume HTTPS.'
-              : undefined
+            formData.target === 'command'
+              ? 'Exact match by default. Use :* for any arguments (e.g. git push:* matches git push with any args). Use * to match all commands.'
+              : formData.target === 'url'
+                ? 'Plain HTTP is blocked by default. Bare domains assume HTTPS. Use * for single path segment, ** for any nested path.'
+                : formData.target === 'filesystem'
+                  ? 'Use * for single path segment, ** for any nested path (e.g. /tmp/*).'
+                  : undefined
           }
         />
 

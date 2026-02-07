@@ -69,7 +69,7 @@ export async function autoDetectPreset(): Promise<{
 } | null> {
   for (const preset of listAutoDetectablePresets()) {
     const detection = await preset.detect();
-    if (detection?.found) {
+    if (detection?.found || detection?.configPath) {
       return { preset, detection };
     }
   }

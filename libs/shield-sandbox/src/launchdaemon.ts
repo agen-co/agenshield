@@ -116,10 +116,10 @@ export function generateBrokerPlistLegacy(options?: {
     </array>
 
     <key>UserName</key>
-    <string>clawbroker</string>
+    <string>ash_default_broker</string>
 
     <key>GroupName</key>
-    <string>clawshield</string>
+    <string>ash_default</string>
 
     <key>RunAtLoad</key>
     <true/>

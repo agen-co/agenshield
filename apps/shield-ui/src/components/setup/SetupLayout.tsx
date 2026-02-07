@@ -1,7 +1,7 @@
 /**
  * Full-screen split-panel layout for the setup wizard
  *
- * Left panel (1/3): Branding → step bar → step content → executables
+ * Left panel (1/3): Branding → step bar → step content
  * Right panel (2/3): Security graph (full height)
  */
 
@@ -12,7 +12,6 @@ import { styled, useTheme } from '@mui/material/styles';
 import { Shield, Check } from 'lucide-react';
 import { setupStore, UI_STEPS } from '../../state/setup';
 import { SecurityGraph } from './graph/SecurityGraph';
-import { ExecutablesPanel } from './graph/ExecutablesPanel';
 
 // --- Styled components ---
 
@@ -161,11 +160,6 @@ export function SetupLayout({ children }: SetupLayoutProps) {
         {/* Scrollable content area */}
         <Box sx={{ flex: '1 1 0%', overflowY: 'auto', p: '0 24px 8px' }}>
           {children}
-        </Box>
-
-        {/* Bottom section: executables panel (fixed height) */}
-        <Box sx={{ height: '33vh', flexShrink: 0, borderTop: 1, borderColor: 'divider' }}>
-          <ExecutablesPanel />
         </Box>
       </LeftPanel>
 

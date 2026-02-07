@@ -13,12 +13,23 @@ export const ContentGrid = styled('div', {
   slot: 'ContentGrid',
 })(({ theme }) => ({
   display: 'grid',
-  gridTemplateColumns: '1fr 280px',
+  gridTemplateColumns: '400px 1fr',
   gap: theme.spacing(3),
   alignItems: 'start',
   [theme.breakpoints.down('md')]: {
     gridTemplateColumns: '1fr',
   },
+}));
+
+export const MetadataColumn = styled('div', {
+  name: 'SkillDetails',
+  slot: 'MetadataColumn',
+})(({ theme }) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: theme.spacing(2),
+  position: 'sticky',
+  top: theme.spacing(2),
 }));
 
 export const ReadmeCard = styled('div', {
@@ -33,20 +44,9 @@ export const ReadmeCard = styled('div', {
   overflow: 'hidden',
 }));
 
-export const Sidebar = styled('div', {
+export const MetadataSection = styled('div', {
   name: 'SkillDetails',
-  slot: 'Sidebar',
-})(({ theme }) => ({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: theme.spacing(3),
-  position: 'sticky',
-  top: theme.spacing(2),
-}));
-
-export const SidebarSection = styled('div', {
-  name: 'SkillDetails',
-  slot: 'SidebarSection',
+  slot: 'MetadataSection',
 })(({ theme }) => ({
   display: 'flex',
   flexDirection: 'column',

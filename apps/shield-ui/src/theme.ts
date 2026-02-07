@@ -355,15 +355,15 @@ const components: ThemeOptions['components'] = {
   MuiSwitch: {
     styleOverrides: {
       root: ({ theme }) => ({
-        width: 42,
-        height: 26,
+        width: 34,
+        height: 20,
         padding: 0,
         '& .MuiSwitch-switchBase': {
           padding: 0,
           margin: 2,
           transitionDuration: '200ms',
           '&.Mui-checked': {
-            transform: 'translateX(16px)',
+            transform: 'translateX(14px)',
             color: '#fff',
             '& + .MuiSwitch-track': {
               backgroundColor: theme.palette.primary.main,
@@ -377,11 +377,11 @@ const components: ThemeOptions['components'] = {
         },
         '& .MuiSwitch-thumb': {
           boxSizing: 'border-box',
-          width: 22,
-          height: 22,
+          width: 16,
+          height: 16,
         },
         '& .MuiSwitch-track': {
-          borderRadius: 13,
+          borderRadius: 10,
           backgroundColor: theme.palette.grey[300],
           opacity: 1,
           transition: theme.transitions.create(['background-color'], { duration: 200 }),

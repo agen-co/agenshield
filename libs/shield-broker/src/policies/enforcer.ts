@@ -176,7 +176,7 @@ export class PolicyEnforcer {
           continue;
         }
 
-        const matches = this.matchesPatterns(target, rule.patterns);
+        const matches = this.matchesPatterns(target, rule.patterns, operation);
 
         if (matches) {
           if (rule.action === 'deny' || rule.action === 'approval') {
@@ -249,11 +249,28 @@ export class PolicyEnforcer {
   }
 
   /**
+   * Match a command target against a Claude Code-style command pattern.
+   * See matchCommandPattern in daemon rpc.ts for full semantics.
+   */
+  private matchCommandPattern(pattern: string, target: string): boolean {
+    const trimmed = pattern.trim();
+    if (trimmed === '*') return true;
+    if (trimmed.endsWith(':*')) {
+      const prefix = trimmed.slice(0, -2);
+      const lowerTarget = target.toLowerCase();
+      const lowerPrefix = prefix.toLowerCase();
+      return lowerTarget === lowerPrefix || lowerTarget.startsWith(lowerPrefix + ' ');
+    }
+    return target.toLowerCase() === trimmed.toLowerCase();
+  }
+
+  /**
    * Check if target matches any patterns
    */
-  private matchesPatterns(target: string, patterns: string[]): boolean {
+  private matchesPatterns(target: string, patterns: string[], operation?: string): boolean {
     for (const pattern of patterns) {
-      if (this.matchPattern(target, pattern)) {
+      const isExec = operation === 'exec' || operation === '*';
+      if (isExec ? this.matchCommandPattern(pattern, target) : this.matchPattern(target, pattern)) {
         return true;
       }
     }

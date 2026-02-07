@@ -12,6 +12,7 @@ import { getDefaultPolicies } from './policies/builtin.js';
 import { CommandAllowlist } from './policies/command-allowlist.js';
 import { AuditLogger } from './audit/logger.js';
 import { SecretVault } from './secrets/vault.js';
+import { SecretResolver } from './secrets/resolver.js';
 import type { BrokerConfig } from './types.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -21,7 +22,7 @@ import * as path from 'node:path';
  * Must stay in sync with PROXIED_COMMANDS in shield-sandbox/shield-exec.ts.
  */
 const PROXIED_COMMANDS = [
-  'curl', 'wget', 'git', 'ssh', 'scp', 'rsync',
+  'bash', 'curl', 'wget', 'git', 'ssh', 'scp', 'rsync',
   'brew', 'npm', 'npx', 'pip', 'pip3',
   'open-url', 'shieldctl', 'agenco',
 ] as const;
@@ -74,8 +75,8 @@ function loadConfig(): BrokerConfig {
       process.env['AGENSHIELD_FAIL_OPEN'] === 'true' ||
       (fileConfig.failOpen ?? false),
     socketMode: fileConfig.socketMode || 0o666,
-    socketOwner: fileConfig.socketOwner || 'clawbroker',
-    socketGroup: fileConfig.socketGroup || 'clawshield',
+    socketOwner: fileConfig.socketOwner || 'ash_default_broker',
+    socketGroup: fileConfig.socketGroup || 'ash_default',
     agentHome:
       process.env['AGENSHIELD_AGENT_HOME'] ||
       (fileConfig as Record<string, unknown>).agentHome as string | undefined,
@@ -214,6 +215,13 @@ async function main(): Promise<void> {
     '/opt/agenshield/config/allowed-commands.json'
   );
 
+  const secretResolver = new SecretResolver(
+    path.join(
+      path.dirname(config.configPath || '/opt/agenshield/config/shield.json'),
+      'synced-secrets.json'
+    )
+  );
+
   // Ensure proxied command wrappers exist in agent's bin directory
   if (config.agentHome) {
     ensureProxiedCommandWrappers(path.join(config.agentHome, 'bin'));
@@ -225,6 +233,7 @@ async function main(): Promise<void> {
     policyEnforcer,
     auditLogger,
     secretVault,
+    secretResolver,
     commandAllowlist,
   });
 

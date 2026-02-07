@@ -1,1 +1,0 @@
-export { MarketplaceList } from './MarketplaceList';

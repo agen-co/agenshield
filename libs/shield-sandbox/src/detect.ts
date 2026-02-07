@@ -290,6 +290,7 @@ export function detectOpenClaw(): DetectionResult {
     installation = {
       found: false,
       method: 'unknown',
+      configPath: detectConfigDir(),
     };
   }
 

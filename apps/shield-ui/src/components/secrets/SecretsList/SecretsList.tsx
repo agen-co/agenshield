@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Typography, IconButton, Box, Chip } from '@mui/material';
-import { Trash2, Globe } from 'lucide-react';
+import { Trash2, Globe, Archive } from 'lucide-react';
 import type { PolicyConfig } from '@agenshield/ipc';
 import type { Secret } from '../../../api/client';
 import { useConfig } from '../../../api/hooks';
@@ -48,7 +48,15 @@ export function SecretsList({ secrets, search, onDelete, onEdit }: SecretsListPr
           </SecretName>
           <SecretValue>{secret.maskedValue}</SecretValue>
           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
-            {secret.policyIds.length === 0 ? (
+            {secret.scope === 'standalone' ? (
+              <Chip
+                size="small"
+                icon={<Archive size={12} />}
+                label="Standalone"
+                variant="outlined"
+                sx={{ fontSize: 11, height: 22 }}
+              />
+            ) : secret.policyIds.length === 0 ? (
               <Chip
                 size="small"
                 icon={<Globe size={12} />}

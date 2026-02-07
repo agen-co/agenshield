@@ -9,8 +9,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { SkillAnalysis, ExtractedCommand } from '@agenshield/ipc';
+import { getSystemConfigDir } from '../config/paths';
 
-const ANALYSIS_CACHE_PATH = '/opt/agenshield/config/skill-analyses.json';
+function getAnalysisCachePath(): string {
+  return path.join(getSystemConfigDir(), 'skill-analyses.json');
+}
 
 /** Regex patterns to detect command usage in skill content */
 const COMMAND_PATTERNS = [
@@ -38,8 +41,8 @@ interface AnalysisCache {
 
 function loadCache(): AnalysisCache {
   try {
-    if (fs.existsSync(ANALYSIS_CACHE_PATH)) {
-      return JSON.parse(fs.readFileSync(ANALYSIS_CACHE_PATH, 'utf-8'));
+    if (fs.existsSync(getAnalysisCachePath())) {
+      return JSON.parse(fs.readFileSync(getAnalysisCachePath(), 'utf-8'));
     }
   } catch {
     // Cache might be corrupted
@@ -49,11 +52,11 @@ function loadCache(): AnalysisCache {
 
 function saveCache(cache: AnalysisCache): void {
   try {
-    const dir = path.dirname(ANALYSIS_CACHE_PATH);
+    const dir = path.dirname(getAnalysisCachePath());
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(ANALYSIS_CACHE_PATH, JSON.stringify(cache, null, 2) + '\n', 'utf-8');
+    fs.writeFileSync(getAnalysisCachePath(), JSON.stringify(cache, null, 2) + '\n', 'utf-8');
   } catch (err) {
     console.error('[SkillAnalyzer] Failed to save cache:', (err as Error).message);
   }
@@ -227,6 +230,11 @@ export function analyzeSkill(
       error: (err as Error).message,
     };
 
+    // Persist error so stale "safe" results don't survive
+    const cache = loadCache();
+    cache[skillName] = errorAnalysis;
+    saveCache(cache);
+
     return errorAnalysis;
   }
 }
@@ -237,6 +245,15 @@ export function analyzeSkill(
 export function getCachedAnalysis(skillName: string): SkillAnalysis | undefined {
   const cache = loadCache();
   return cache[skillName];
+}
+
+/**
+ * Store / overwrite cached analysis for a skill (e.g. from external analyzer).
+ */
+export function setCachedAnalysis(skillName: string, analysis: SkillAnalysis): void {
+  const cache = loadCache();
+  cache[skillName] = analysis;
+  saveCache(cache);
 }
 
 /**

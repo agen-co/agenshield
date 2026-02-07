@@ -32,6 +32,7 @@ interface AllowedCommandsConfig {
  * Command name -> list of absolute paths to search (ordered by preference).
  */
 const BUILTIN_COMMANDS: Record<string, string[]> = {
+  bash: ['/bin/bash', '/usr/bin/bash', '/opt/homebrew/bin/bash'],
   git: ['/usr/bin/git', '/opt/homebrew/bin/git', '/usr/local/bin/git'],
   ssh: ['/usr/bin/ssh'],
   scp: ['/usr/bin/scp'],

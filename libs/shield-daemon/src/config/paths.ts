@@ -33,3 +33,27 @@ export function getPidPath(): string {
 export function getLogPath(): string {
   return path.join(getConfigDir(), LOG_FILE);
 }
+
+/**
+ * Get the system-level config directory.
+ * In dev mode (AGENSHIELD_AGENT_HOME set), uses ~/.agenshield (user-writable).
+ * In production, uses /opt/agenshield/config (root-owned).
+ */
+export function getSystemConfigDir(): string {
+  if (process.env['AGENSHIELD_AGENT_HOME']) {
+    return getConfigDir();
+  }
+  return '/opt/agenshield/config';
+}
+
+/**
+ * Get the quarantine directory for unapproved skills.
+ * In dev mode, uses ~/.agenshield/quarantine/skills.
+ * In production, uses /opt/agenshield/quarantine/skills.
+ */
+export function getQuarantineDir(): string {
+  if (process.env['AGENSHIELD_AGENT_HOME']) {
+    return path.join(getConfigDir(), 'quarantine', 'skills');
+  }
+  return '/opt/agenshield/quarantine/skills';
+}

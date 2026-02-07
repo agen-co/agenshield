@@ -146,6 +146,7 @@ export function PasscodeDialog({ open, onClose, mode: initialMode, fullScreen }:
             onChange={(e) => setPasscode(e.target.value)}
             fullWidth
             autoFocus
+            inputRef={(input: HTMLInputElement | null) => { if (input) setTimeout(() => input.focus(), 50); }}
             disabled={isLocked || loading}
             sx={{ mb: mode === 'setup' ? 2 : 0 }}
             inputProps={{ minLength: 4 }}

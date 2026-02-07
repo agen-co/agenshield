@@ -10,7 +10,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import type { WizardEngine } from '../wizard/engine.js';
+import { type WizardEngine, setEngineLogCallback } from '../wizard/engine.js';
 import { registerRoutes } from './routes.js';
 import { registerSSE, broadcastSetupEvent, getActiveConnections, closeAllSSEConnections } from './sse.js';
 import { getUiAssetsPath } from './static.js';
@@ -31,6 +31,11 @@ export function createSetupServer(engine: WizardEngine): SetupServer {
   let idleTimer: ReturnType<typeof setInterval> | null = null;
   let lastActivity = Date.now();
   let isComplete = false;
+
+  // Wire engine verbose logs to SSE broadcast
+  setEngineLogCallback((message) => {
+    broadcastSetupEvent('setup:log', { message, timestamp: new Date().toISOString() });
+  });
 
   // Wire engine state changes to SSE broadcast
   const originalOnStateChange = engine.onStateChange;
@@ -128,6 +133,7 @@ export function createSetupServer(engine: WizardEngine): SetupServer {
     },
 
     async stop(): Promise<void> {
+      setEngineLogCallback(undefined);
       if (idleTimer) {
         clearInterval(idleTimer);
         idleTimer = null;

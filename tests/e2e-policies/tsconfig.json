@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "types": ["jest", "node"],
+    "outDir": "../../dist/tests/e2e-policies"
+  },
+  "include": ["src/**/*.ts"]
+}

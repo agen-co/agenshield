@@ -6,7 +6,6 @@
  */
 
 import * as fs from 'node:fs/promises';
-import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import type {
@@ -70,6 +69,7 @@ export async function handleSkillInstall(
   deps: HandlerDependencies
 ): Promise<HandlerResult<SkillInstallResult>> {
   const startTime = Date.now();
+  const warnings: string[] = [];
 
   try {
     const {
@@ -77,7 +77,7 @@ export async function handleSkillInstall(
       files,
       createWrapper = true,
       agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent',
-      socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'clawshield',
+      socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default',
     } = params as unknown as SkillInstallParams;
 
     // Validate slug
@@ -144,32 +144,14 @@ export async function handleSkillInstall(
       execSync(`chown -R root:${socketGroup} "${skillDir}"`, { stdio: 'pipe' });
       execSync(`chmod -R a+rX,go-w "${skillDir}"`, { stdio: 'pipe' });
     } catch (err) {
-      // Log but don't fail - ownership setting may fail in dev environment
-      console.warn(`[SkillInstall] chown failed (may be expected in dev): ${(err as Error).message}`);
+      const msg = `chown on skill dir failed: ${(err as Error).message}`;
+      console.warn(`[SkillInstall] ${msg}`);
+      warnings.push(msg);
     }
 
-    // Update openclaw.json with skill entry (broker has write access to .openclaw)
-    const openclawConfigPath = path.join(agentHome, '.openclaw', 'openclaw.json');
-    try {
-      let openclawConfig: Record<string, unknown> = {};
-      try {
-        const raw = fsSync.readFileSync(openclawConfigPath, 'utf-8');
-        openclawConfig = JSON.parse(raw) as Record<string, unknown>;
-      } catch {
-        // File doesn't exist or is invalid — start fresh
-      }
-      if (!openclawConfig.skills) {
-        openclawConfig.skills = {};
-      }
-      const skills = openclawConfig.skills as Record<string, unknown>;
-      if (!skills.entries) {
-        skills.entries = {};
-      }
-      (skills.entries as Record<string, unknown>)[slug] = { enabled: true };
-      fsSync.writeFileSync(openclawConfigPath, JSON.stringify(openclawConfig, null, 2), 'utf-8');
-    } catch (err) {
-      console.warn(`[SkillInstall] openclaw.json update failed: ${(err as Error).message}`);
-    }
+    // Note: openclaw.json is managed by the daemon (running as root) via
+    // addSkillEntry() + syncOpenClawFromPolicies(). The broker only handles
+    // filesystem operations (skill files + wrapper).
 
     // Create wrapper script
     let wrapperPath: string | undefined;
@@ -188,7 +170,9 @@ export async function handleSkillInstall(
         execSync(`chown root:${socketGroup} "${wrapperPath}"`, { stdio: 'pipe' });
         execSync(`chmod 755 "${wrapperPath}"`, { stdio: 'pipe' });
       } catch (err) {
-        console.warn(`[SkillInstall] wrapper chown failed: ${(err as Error).message}`);
+        const msg = `chown on wrapper failed: ${(err as Error).message}`;
+        console.warn(`[SkillInstall] ${msg}`);
+        warnings.push(msg);
       }
     }
 
@@ -199,6 +183,7 @@ export async function handleSkillInstall(
         skillDir,
         wrapperPath,
         filesWritten,
+        warnings: warnings.length > 0 ? warnings : undefined,
       },
       audit: {
         duration: Date.now() - startTime,
@@ -257,20 +242,8 @@ export async function handleSkillUninstall(
       await fs.rm(skillDir, { recursive: true, force: true });
     }
 
-    // Remove skill entry from openclaw.json
-    const openclawConfigPath = path.join(agentHome, '.openclaw', 'openclaw.json');
-    try {
-      const raw = fsSync.readFileSync(openclawConfigPath, 'utf-8');
-      const openclawConfig = JSON.parse(raw) as Record<string, unknown>;
-      const skills = openclawConfig.skills as Record<string, unknown> | undefined;
-      const entries = skills?.entries as Record<string, unknown> | undefined;
-      if (entries?.[slug]) {
-        delete entries[slug];
-        fsSync.writeFileSync(openclawConfigPath, JSON.stringify(openclawConfig, null, 2), 'utf-8');
-      }
-    } catch {
-      // Best-effort removal
-    }
+    // Note: openclaw.json entry removal is handled by the daemon via
+    // removeSkillEntry() + syncOpenClawFromPolicies().
 
     // Remove wrapper if requested
     let wrapperRemoved = false;

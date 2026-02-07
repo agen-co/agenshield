@@ -107,6 +107,15 @@ export function PolicyList({
                   sx={{ fontSize: 10, height: 18 }}
                 />
               ))}
+              {policy.preset && (
+                <Chip
+                  size="small"
+                  label={policy.preset === 'openclaw' ? 'OpenClaw' : policy.preset}
+                  color="info"
+                  variant="outlined"
+                  sx={{ fontSize: 10, height: 18 }}
+                />
+              )}
             </PolicyMeta>
 
             <PolicySecrets>

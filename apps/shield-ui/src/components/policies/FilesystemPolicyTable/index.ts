@@ -1,0 +1,1 @@
+export { FilesystemPolicyTable } from './FilesystemPolicyTable';

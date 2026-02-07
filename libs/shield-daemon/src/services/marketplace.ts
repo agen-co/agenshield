@@ -301,6 +301,8 @@ export interface DownloadedSkillMeta {
   description: string;
   tags: string[];
   downloadedAt: string;
+  /** Where this entry came from: 'marketplace' (preview/install) or 'watcher' (untrusted detection) */
+  source?: 'marketplace' | 'watcher';
   analysis?: AnalyzeSkillResponse['analysis'];
 }
 
@@ -317,8 +319,20 @@ export function storeDownloadedSkill(
 
   fs.mkdirSync(filesDir, { recursive: true });
 
+  // Preserve existing source if not explicitly set (don't overwrite 'watcher' with undefined)
+  let source = meta.source;
+  if (!source) {
+    try {
+      const existingMetaPath = path.join(dir, 'metadata.json');
+      if (fs.existsSync(existingMetaPath)) {
+        const existing = JSON.parse(fs.readFileSync(existingMetaPath, 'utf-8')) as DownloadedSkillMeta;
+        source = existing.source;
+      }
+    } catch { /* best-effort */ }
+  }
+
   // Write metadata
-  const fullMeta: DownloadedSkillMeta = { ...meta, downloadedAt: new Date().toISOString() };
+  const fullMeta: DownloadedSkillMeta = { ...meta, source, downloadedAt: new Date().toISOString() };
   fs.writeFileSync(path.join(dir, 'metadata.json'), JSON.stringify(fullMeta, null, 2), 'utf-8');
 
   // Write each file
@@ -353,7 +367,11 @@ export interface DownloadedSkillInfo {
   author: string;
   version: string;
   description: string;
+  tags: string[];
   hasAnalysis: boolean;
+  /** Where this entry came from: 'marketplace' (preview/install) or 'watcher' (untrusted detection) */
+  source?: 'marketplace' | 'watcher';
+  analysis?: AnalyzeSkillResponse['analysis'];
 }
 
 /**
@@ -377,7 +395,10 @@ export function listDownloadedSkills(): DownloadedSkillInfo[] {
           author: meta.author,
           version: meta.version,
           description: meta.description,
+          tags: meta.tags ?? [],
           hasAnalysis: !!meta.analysis,
+          source: meta.source,
+          analysis: meta.analysis,
         });
       } catch {
         // Skip malformed entries
@@ -428,6 +449,16 @@ export function getDownloadedSkillMeta(slug: string): DownloadedSkillMeta | null
     // Not found or malformed
   }
   return null;
+}
+
+/**
+ * Delete a downloaded skill's marketplace cache folder.
+ */
+export function deleteDownloadedSkill(slug: string): void {
+  const dir = path.join(getMarketplaceDir(), slug);
+  if (fs.existsSync(dir)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -714,22 +745,27 @@ export async function analyzeSkillBundle(
   files: MarketplaceSkillFile[],
   skillName?: string,
   publisher?: string,
+  options?: { noCache?: boolean },
 ): Promise<AnalyzeSkillResponse> {
+  console.log(`[Marketplace] Vercel analyze request: POST ${SKILL_ANALYZER_URL} skillName=${skillName ?? '(none)'} files=${files.length} noCache=${options?.noCache ?? false}`);
   const res = await fetch(SKILL_ANALYZER_URL, {
     method: 'POST',
     signal: AbortSignal.timeout(ANALYSIS_TIMEOUT),
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ files, skillName, publisher }),
+    body: JSON.stringify({ files, skillName, publisher, ...(options?.noCache ? { noCache: true } : {}) }),
   });
 
+  console.log(`[Marketplace] Vercel analyze response: status=${res.status}`);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Upstream returned ${res.status}: ${text}`);
   }
 
-  return parseAnalysisStream(res);
+  const result = await parseAnalysisStream(res);
+  console.log(`[Marketplace] Vercel analyze result: vulnerability=${result.analysis.vulnerability?.level} commands=${result.analysis.commands?.length ?? 0} securityFindings=${result.analysis.securityFindings?.length ?? 0} envVars=${result.analysis.envVariables?.length ?? 0}`);
+  return result;
 }
 
 /**
@@ -740,20 +776,25 @@ export async function analyzeSkillBySlug(
   slug: string,
   skillName?: string,
   publisher?: string,
+  options?: { noCache?: boolean },
 ): Promise<AnalyzeSkillResponse> {
+  console.log(`[Marketplace] Vercel analyze request: POST ${SKILL_ANALYZER_URL} slug=${slug} noCache=${options?.noCache ?? false}`);
   const res = await fetch(SKILL_ANALYZER_URL, {
     method: 'POST',
     signal: AbortSignal.timeout(ANALYSIS_TIMEOUT),
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug, source: 'clawhub', skillName, publisher }),
+    body: JSON.stringify({ slug, source: 'clawhub', skillName, publisher, ...(options?.noCache ? { noCache: true } : {}) }),
   });
 
+  console.log(`[Marketplace] Vercel analyze response: status=${res.status}`);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Upstream returned ${res.status}: ${text}`);
   }
 
-  return parseAnalysisStream(res);
+  const result = await parseAnalysisStream(res);
+  console.log(`[Marketplace] Vercel analyze result: vulnerability=${result.analysis.vulnerability?.level} commands=${result.analysis.commands?.length ?? 0} securityFindings=${result.analysis.securityFindings?.length ?? 0} envVars=${result.analysis.envVariables?.length ?? 0}`);
+  return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -769,12 +810,14 @@ export async function getCachedAnalysis(
   publisher: string,
 ): Promise<AnalyzeSkillResponse | null> {
   const url = `${SKILL_ANALYSIS_URL}?skillName=${encodeURIComponent(skillName)}&publisher=${encodeURIComponent(publisher)}`;
+  console.log(`[Marketplace] Vercel analysis lookup: GET ${url}`);
 
   const res = await fetch(url, {
     method: 'GET',
     signal: AbortSignal.timeout(SHORT_TIMEOUT),
   });
 
+  console.log(`[Marketplace] Vercel analysis lookup: status=${res.status}`);
   if (res.status === 404) return null;
 
   if (!res.ok) {

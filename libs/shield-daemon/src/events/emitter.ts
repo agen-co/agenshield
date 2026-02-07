@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import type { DaemonStatus } from '@agenshield/ipc';
 
 export type EventType =
   | 'security:status'
@@ -25,6 +26,7 @@ export type EventType =
   | 'wrappers:synced'
   | 'wrappers:regenerated'
   | 'skills:quarantined'
+  | 'skills:untrusted_detected'
   | 'skills:approved'
   | 'exec:monitored'
   | 'exec:denied'
@@ -34,11 +36,15 @@ export type EventType =
   | 'agenco:auth_completed'
   | 'agenco:tool_executed'
   | 'agenco:error'
+  | 'skills:analyzed'
+  | 'skills:analysis_failed'
   | 'skills:install_started'
   | 'skills:install_progress'
   | 'skills:installed'
   | 'skills:install_failed'
-  | 'interceptor:event';
+  | 'skills:uninstalled'
+  | 'interceptor:event'
+  | 'daemon:status';
 
 export interface DaemonEvent {
   type: EventType;
@@ -164,6 +170,13 @@ export function emitSkillQuarantined(skillName: string, reason: string): void {
 }
 
 /**
+ * Helper to emit untrusted skill detection events
+ */
+export function emitSkillUntrustedDetected(name: string, reason: string): void {
+  daemonEvents.broadcast('skills:untrusted_detected', { name, reason });
+}
+
+/**
  * Helper to emit skill approved events
  */
 export function emitSkillApproved(skillName: string): void {
@@ -229,6 +242,27 @@ export function emitAgenCoError(code: string, message: string): void {
 }
 
 /**
+ * Helper to emit skill analysis complete
+ */
+export function emitSkillAnalyzed(name: string, analysis: unknown): void {
+  daemonEvents.broadcast('skills:analyzed', { name, analysis });
+}
+
+/**
+ * Helper to emit skill analysis failed
+ */
+export function emitSkillAnalysisFailed(name: string, error: string): void {
+  daemonEvents.broadcast('skills:analysis_failed', { name, error });
+}
+
+/**
+ * Helper to emit skill uninstalled/disabled
+ */
+export function emitSkillUninstalled(skillName: string): void {
+  daemonEvents.broadcast('skills:uninstalled', { name: skillName });
+}
+
+/**
  * Helper to emit skill install progress
  */
 export function emitSkillInstallProgress(skillName: string, step: string, message: string): void {
@@ -248,6 +282,13 @@ export function emitInterceptorEvent(event: {
   error?: string;
 }): void {
   daemonEvents.broadcast('interceptor:event', event);
+}
+
+/**
+ * Helper to emit daemon status over SSE
+ */
+export function emitDaemonStatus(status: DaemonStatus): void {
+  daemonEvents.broadcast('daemon:status', status);
 }
 
 /**

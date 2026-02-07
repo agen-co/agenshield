@@ -14,10 +14,10 @@ import {
 } from '@mui/material';
 import { Plus, KeyRound } from 'lucide-react';
 import { useSecrets, useCreateSecret, useDeleteSecret } from '../api/hooks';
-import { useAuth } from '../context/AuthContext';
+import { useGuardedAction } from '../hooks/useGuardedAction';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import { tokens } from '../styles/tokens';
-import type { CreateSecretRequest, Secret } from '../api/client';
+import type { CreateSecretRequest, Secret, SecretScope } from '../api/client';
 
 import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
@@ -25,12 +25,19 @@ import { EmptyState } from '../components/shared/EmptyState';
 import { ConfirmDialog } from '../components/shared/ConfirmDialog';
 import { SecretsList } from '../components/secrets/SecretsList';
 import { SecretForm } from '../components/secrets/SecretForm';
+import { SkillEnvSection } from '../components/secrets/SkillEnvSection';
+
+interface PrefillData {
+  name: string;
+  policyIds: string[];
+  scope?: SecretScope;
+}
 
 export function Secrets() {
   const { data, isLoading } = useSecrets();
   const createSecret = useCreateSecret();
   const deleteSecret = useDeleteSecret();
-  const { isReadOnly } = useAuth();
+  const guard = useGuardedAction();
 
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -39,6 +46,7 @@ export function Secrets() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [editingSecret, setEditingSecret] = useState<Secret | null>(null);
+  const [prefillData, setPrefillData] = useState<PrefillData | null>(null);
 
   const { guardOpen, guardConfirm, guardCancel } = useUnsavedChangesGuard(formDirty);
 
@@ -50,6 +58,7 @@ export function Secrets() {
         onSuccess: () => {
           setFormOpen(false);
           setEditingSecret(null);
+          setPrefillData(null);
           setFormDirty(false);
           setFormFocused(false);
         },
@@ -66,13 +75,23 @@ export function Secrets() {
   const handleCancel = useCallback(() => {
     setFormOpen(false);
     setEditingSecret(null);
+    setPrefillData(null);
     setFormDirty(false);
     setFormFocused(false);
   }, []);
 
   const handleEdit = (secret: Secret) => {
+    setPrefillData(null);
     setEditingSecret(secret);
     setFormOpen(true);
+  };
+
+  const handleAddFromSkillEnv = (envName: string) => {
+    guard(() => {
+      setEditingSecret(null);
+      setPrefillData({ name: envName, policyIds: [], scope: 'standalone' });
+      setFormOpen(true);
+    }, { description: 'Unlock to add a secret.', actionLabel: 'Add Secret' });
   };
 
   const confirmDelete = () => {
@@ -87,6 +106,11 @@ export function Secrets() {
     }
   };
 
+  // Compute initialData for the form
+  const formInitialData = editingSecret
+    ? { name: editingSecret.name, policyIds: editingSecret.policyIds, scope: editingSecret.scope }
+    : prefillData ?? undefined;
+
   return (
     <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       <PageHeader
@@ -94,7 +118,7 @@ export function Secrets() {
         description="Manage secrets and link them to policies for scoped injection."
         action={
           !formOpen ? (
-            <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setFormOpen(true)} disabled={isReadOnly}>
+            <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => guard(() => setFormOpen(true), { description: 'Unlock to add a secret.', actionLabel: 'Add Secret' })}>
               Add Secret
             </Button>
           ) : undefined
@@ -115,10 +139,12 @@ export function Secrets() {
             onDirtyChange={setFormDirty}
             onFocusChange={setFormFocused}
             saving={createSecret.isPending}
-            initialData={editingSecret ? { name: editingSecret.name, policyIds: editingSecret.policyIds } : undefined}
+            initialData={formInitialData}
           />
         </Box>
       </Collapse>
+
+      <SkillEnvSection onAddSecret={handleAddFromSkillEnv} disabled={formFocused} />
 
       <Box sx={{ mb: 3, opacity: formFocused ? 0.45 : 1, transition: 'opacity 0.2s ease', pointerEvents: formFocused ? 'none' : 'auto' }}>
         <SearchInput
@@ -143,7 +169,7 @@ export function Secrets() {
               description="Add secrets to inject environment variables, API keys, and credentials into operations."
               action={
                 !formOpen ? (
-                  <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setFormOpen(true)} disabled={isReadOnly}>
+                  <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => guard(() => setFormOpen(true), { description: 'Unlock to add a secret.', actionLabel: 'Add Secret' })}>
                     Add Secret
                   </Button>
                 ) : undefined
@@ -153,8 +179,8 @@ export function Secrets() {
             <SecretsList
               secrets={secrets}
               search={search}
-              onDelete={setDeleteTarget}
-              onEdit={handleEdit}
+              onDelete={(id) => guard(() => setDeleteTarget(id), { description: 'Unlock to delete this secret.', actionLabel: 'Delete Secret' })}
+              onEdit={(secret) => guard(() => handleEdit(secret), { description: 'Unlock to edit this secret.', actionLabel: 'Edit Secret' })}
             />
           )}
         </CardContent>

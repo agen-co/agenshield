@@ -3,9 +3,13 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import type { VaultSecret } from '@agenshield/ipc';
+import type { VaultSecret, SecretScope, SkillEnvRequirement } from '@agenshield/ipc';
 import { isSecretEnvVar } from '@agenshield/sandbox';
 import { getVault } from '../vault';
+import { loadConfig } from '../config/index';
+import { syncSecrets } from '../secret-sync';
+import { getCachedAnalysis } from '../services/skill-analyzer';
+import { listApproved } from '../watchers/skills';
 import crypto from 'node:crypto';
 
 interface MaskedSecret {
@@ -14,11 +18,17 @@ interface MaskedSecret {
   policyIds: string[];
   maskedValue: string;
   createdAt: string;
+  scope: SecretScope;
 }
 
 function maskValue(value: string): string {
   if (value.length <= 4) return '••••••••';
   return '••••••••' + value.slice(-4);
+}
+
+function resolveScope(secret: VaultSecret): SecretScope {
+  if (secret.scope) return secret.scope;
+  return secret.policyIds.length > 0 ? 'policed' : 'global';
 }
 
 function toMasked(secret: VaultSecret): MaskedSecret {
@@ -28,6 +38,7 @@ function toMasked(secret: VaultSecret): MaskedSecret {
     policyIds: secret.policyIds,
     maskedValue: maskValue(secret.value),
     createdAt: secret.createdAt,
+    scope: resolveScope(secret),
   };
 }
 
@@ -61,11 +72,67 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
     return { data: Array.from(names).sort((a, b) => a.localeCompare(b)) };
   });
 
+  // Aggregate env variables required by installed skills
+  app.get('/secrets/skill-env', async () => {
+    const approved = listApproved();
+    const vault = getVault();
+    const secrets = (await vault.get('secrets')) ?? [];
+
+    // Build vault lookup by name
+    const secretByName = new Map<string, VaultSecret>();
+    for (const s of secrets) {
+      secretByName.set(s.name, s);
+    }
+
+    // Aggregate env vars from cached analyses
+    const envMap = new Map<string, SkillEnvRequirement>();
+
+    for (const skill of approved) {
+      const analysis = getCachedAnalysis(skill.name);
+      if (!analysis || analysis.status !== 'complete' || !Array.isArray(analysis.envVariables)) {
+        continue;
+      }
+
+      for (const ev of analysis.envVariables) {
+        const existing = envMap.get(ev.name);
+        if (existing) {
+          // Merge: aggregate requiredBy, escalate required/sensitive
+          existing.requiredBy.push({ skillName: skill.name });
+          if (ev.required) existing.required = true;
+          if (ev.sensitive) existing.sensitive = true;
+          if (!existing.purpose && ev.purpose) existing.purpose = ev.purpose;
+        } else {
+          const vaultSecret = secretByName.get(ev.name);
+          envMap.set(ev.name, {
+            name: ev.name,
+            required: ev.required,
+            sensitive: ev.sensitive,
+            purpose: ev.purpose ?? '',
+            requiredBy: [{ skillName: skill.name }],
+            fulfilled: !!vaultSecret,
+            existingSecretScope: vaultSecret ? resolveScope(vaultSecret) : undefined,
+            existingSecretId: vaultSecret?.id,
+          });
+        }
+      }
+    }
+
+    // Sort: unfulfilled+required first, then unfulfilled, then fulfilled, then alpha
+    const result = Array.from(envMap.values()).sort((a, b) => {
+      const aScore = (a.fulfilled ? 2 : 0) + (a.required ? 0 : 1);
+      const bScore = (b.fulfilled ? 2 : 0) + (b.required ? 0 : 1);
+      if (aScore !== bScore) return aScore - bScore;
+      return a.name.localeCompare(b.name);
+    });
+
+    return { data: result };
+  });
+
   // Create a new secret
-  app.post<{ Body: { name: string; value: string; policyIds: string[] } }>(
+  app.post<{ Body: { name: string; value: string; policyIds: string[]; scope?: SecretScope } }>(
     '/secrets',
     async (request) => {
-      const { name, value, policyIds } = request.body;
+      const { name, value, policyIds, scope } = request.body;
 
       if (!name?.trim() || !value?.trim()) {
         return { success: false, error: 'Name and value are required' };
@@ -74,33 +141,55 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
       const vault = getVault();
       const secrets = (await vault.get('secrets')) ?? [];
 
+      const resolvedScope = scope ?? (policyIds?.length > 0 ? 'policed' : 'global');
+
       const newSecret: VaultSecret = {
         id: crypto.randomUUID(),
         name: name.trim(),
         value,
-        policyIds: policyIds ?? [],
+        policyIds: resolvedScope === 'standalone' ? [] : (policyIds ?? []),
         createdAt: new Date().toISOString(),
+        scope: resolvedScope,
       };
 
       secrets.push(newSecret);
       await vault.set('secrets', secrets);
 
+      // Sync secrets to broker (skip for standalone — not injected)
+      if (resolvedScope !== 'standalone') {
+        syncSecrets(loadConfig().policies).catch(() => { /* non-fatal */ });
+      }
+
       return { data: toMasked(newSecret) };
     }
   );
 
-  // Update a secret (e.g. policyIds)
-  app.patch<{ Params: { id: string }; Body: { policyIds: string[] } }>(
+  // Update a secret (e.g. policyIds, scope)
+  app.patch<{ Params: { id: string }; Body: { policyIds?: string[]; scope?: SecretScope } }>(
     '/secrets/:id',
     async (request) => {
       const { id } = request.params;
-      const { policyIds } = request.body;
+      const { policyIds, scope } = request.body;
       const vault = getVault();
       const secrets = (await vault.get('secrets')) ?? [];
       const idx = secrets.findIndex((s) => s.id === id);
       if (idx === -1) return { success: false, error: 'Secret not found' };
-      secrets[idx].policyIds = policyIds ?? [];
+
+      if (scope !== undefined) {
+        secrets[idx].scope = scope;
+        if (scope === 'standalone') {
+          secrets[idx].policyIds = [];
+        }
+      }
+      if (policyIds !== undefined && secrets[idx].scope !== 'standalone') {
+        secrets[idx].policyIds = policyIds;
+      }
+
       await vault.set('secrets', secrets);
+
+      // Always re-sync (scope changes may add/remove from synced-secrets.json)
+      syncSecrets(loadConfig().policies).catch(() => { /* non-fatal */ });
+
       return { data: toMasked(secrets[idx]) };
     }
   );
@@ -119,6 +208,10 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
       }
 
       await vault.set('secrets', filtered);
+
+      // Sync secrets to broker
+      syncSecrets(loadConfig().policies).catch(() => { /* non-fatal */ });
+
       return { deleted: true };
     }
   );

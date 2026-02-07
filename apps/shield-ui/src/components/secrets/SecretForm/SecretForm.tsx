@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import { Plus, X } from 'lucide-react';
 import type { PolicyConfig } from '@agenshield/ipc';
-import type { CreateSecretRequest } from '../../../api/client';
+import type { CreateSecretRequest, SecretScope } from '../../../api/client';
 import { useConfig, useUpdateConfig, useSecrets, useAvailableEnvSecrets } from '../../../api/hooks';
 import { FormCard } from '../../shared/FormCard';
 import { PolicyEditor } from '../../policies/PolicyEditor/PolicyEditor';
@@ -26,14 +26,14 @@ interface SecretFormProps {
   onDirtyChange?: (dirty: boolean) => void;
   onFocusChange?: (focused: boolean) => void;
   saving?: boolean;
-  initialData?: { name: string; policyIds: string[] };
+  initialData?: { name: string; policyIds: string[]; scope?: SecretScope };
 }
 
 export function SecretForm({ onSave, onCancel, onDirtyChange, onFocusChange, saving, initialData }: SecretFormProps) {
   const [name, setName] = useState(initialData?.name ?? '');
   const [value, setValue] = useState('');
-  const [availability, setAvailability] = useState<'global' | 'policed'>(
-    (initialData?.policyIds?.length ?? 0) > 0 ? 'policed' : 'global'
+  const [availability, setAvailability] = useState<SecretScope>(
+    initialData?.scope ?? ((initialData?.policyIds?.length ?? 0) > 0 ? 'policed' : 'global')
   );
   const [policyIds, setPolicyIds] = useState<string[]>(initialData?.policyIds ?? []);
   const [creatingPolicy, setCreatingPolicy] = useState(false);
@@ -96,7 +96,8 @@ export function SecretForm({ onSave, onCancel, onDirtyChange, onFocusChange, sav
     onSave({
       name: name.trim(),
       value,
-      policyIds: availability === 'global' ? [] : policyIds,
+      policyIds: availability === 'policed' ? policyIds : [],
+      scope: availability,
     });
   };
 
@@ -156,16 +157,24 @@ export function SecretForm({ onSave, onCancel, onDirtyChange, onFocusChange, sav
             row
             value={availability}
             onChange={(e) => {
-              setAvailability(e.target.value as 'global' | 'policed');
-              if (e.target.value === 'global') {
+              setAvailability(e.target.value as SecretScope);
+              if (e.target.value !== 'policed') {
                 setPolicyIds([]);
               }
             }}
           >
+            <FormControlLabel value="standalone" control={<Radio size="small" />} label="Standalone" />
             <FormControlLabel value="global" control={<Radio size="small" />} label="Global" />
             <FormControlLabel value="policed" control={<Radio size="small" />} label="Policy-linked" />
           </RadioGroup>
         </Box>
+
+        {/* Standalone info */}
+        {availability === 'standalone' && (
+          <Alert severity="info" variant="outlined" sx={{ py: 0.5 }}>
+            Stored securely but not injected into operations. Assign to global or a policy later.
+          </Alert>
+        )}
 
         {/* Global warning */}
         {availability === 'global' && (

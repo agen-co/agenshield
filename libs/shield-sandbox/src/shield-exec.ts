@@ -21,7 +21,7 @@ const DEFAULT_SOCKET_PATH = '/var/run/agenshield/agenshield.sock';
 
 /** Commands that shield-exec handles (all routed through broker as exec) */
 export const PROXIED_COMMANDS = [
-  'curl', 'wget', 'git', 'ssh', 'scp', 'rsync',
+  'bash', 'curl', 'wget', 'git', 'ssh', 'scp', 'rsync',
   'brew', 'npm', 'npx', 'pip', 'pip3',
   'open-url', 'shieldctl', 'agenco',
 ] as const;
@@ -135,6 +135,7 @@ async function main(): Promise<void> {
       command: commandName,
       args,
       cwd: process.cwd(),
+      env: process.env,
     },
   };
 
@@ -234,7 +235,7 @@ async function main() {
     jsonrpc: '2.0',
     id: 'shield-exec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
     method: 'exec',
-    params: { command: commandName, args: args, cwd: process.cwd() },
+    params: { command: commandName, args: args, cwd: process.cwd(), env: process.env },
   };
 
   try {

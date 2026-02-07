@@ -7,7 +7,6 @@ import * as crypto from 'node:crypto';
 import {
   checkPrerequisites,
   saveBackup,
-  backupOriginalConfig,
   createUserConfig,
   createGroups,
   createAgentUser,
@@ -48,12 +47,24 @@ import { createWizardSteps, getStepsByPhase, getAllStepIds } from './types.js';
 export type StepExecutor = (context: WizardContext) => Promise<{ success: boolean; error?: string }>;
 
 /**
- * Verbose logging helper - logs messages when verbose mode is enabled
- * Uses stderr to bypass Ink's stdout capture
+ * Module-level log callback — allows the setup server to receive verbose
+ * messages and broadcast them (e.g. via SSE) to the browser UI.
+ */
+let _logCallback: ((message: string) => void) | undefined;
+
+export function setEngineLogCallback(cb: ((message: string) => void) | undefined): void {
+  _logCallback = cb;
+}
+
+/**
+ * Verbose logging helper - logs messages when verbose mode is enabled.
+ * Writes to stderr (terminal) and also calls the optional log callback
+ * so the setup server can forward messages to the browser.
  */
 function logVerbose(message: string, context?: WizardContext): void {
   if (context?.options?.verbose || process.env['AGENSHIELD_VERBOSE'] === 'true') {
     process.stderr.write(`[SETUP] ${message}\n`);
+    _logCallback?.(message);
   }
 }
 
@@ -65,8 +76,10 @@ export interface WizardEngine {
   run(): Promise<void>;
   /** Run only detection phase (prerequisites + detect + configure) */
   runDetectionPhase(): Promise<{ success: boolean; error?: string }>;
-  /** Run setup phase (confirm through verify, excludes passcode and complete) */
+  /** Run setup phase (confirm through scan-source, stops for user selection) */
   runSetupPhase(): Promise<void>;
+  /** Run migration phase (select-items + migrate + verify) - called after user makes selection */
+  runMigrationPhase(): Promise<void>;
   /** Run final phase (setup-passcode and complete) - called after passcode UI */
   runFinalPhase(): Promise<void>;
 }
@@ -140,8 +153,9 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       const detection = await preset.detect();
       if (!detection?.found) {
         // Don't fail — let install-target step handle it
+        // Preserve partial detection (e.g. configPath) for scan-source
         context.preset = preset;
-        context.presetDetection = { found: false };
+        context.presetDetection = detection ?? { found: false };
         context.targetInstallable = true;
         return { success: true };
       }
@@ -155,10 +169,12 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     const result = await autoDetectPreset();
     if (!result) {
       // No target found — mark as installable so install-target step can offer installation
+      // Try to capture partial detection (e.g. configPath with skills on disk)
       const openclawPreset = getPreset('openclaw');
       if (openclawPreset) {
         context.preset = openclawPreset;
-        context.presetDetection = { found: false };
+        const partialDetection = await openclawPreset.detect();
+        context.presetDetection = partialDetection ?? { found: false };
         context.targetInstallable = true;
         return { success: true };
       }
@@ -196,11 +212,15 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     // Run npm install -g openclaw (no sudo — user handles npm config)
     try {
       const { execSync } = await import('node:child_process');
-      execSync('npm install -g openclaw', {
+      logVerbose('Running: npm install -g openclaw', context);
+      const output = execSync('npm install -g openclaw', {
         encoding: 'utf-8',
         timeout: 120_000,
         stdio: 'pipe',
       });
+      if (output?.trim()) {
+        logVerbose(output.trim(), context);
+      }
     } catch (err) {
       return {
         success: false,
@@ -243,13 +263,45 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     return { success: true };
   },
 
-  backup: async (context) => {
-    if (!context.presetDetection) {
-      return { success: false, error: 'No target detected' };
+  'scan-source': async (context) => {
+    if (!context.preset) {
+      return { success: false, error: 'No preset loaded' };
     }
 
-    // Skip actual backup in dry-run mode
+    // Dry-run: create empty scan result
     if (context.options?.dryRun) {
+      context.scanResult = {
+        skills: [],
+        envVars: [],
+        scannedProfiles: [],
+        scannedAt: new Date().toISOString(),
+        warnings: [],
+      };
+      return { success: true };
+    }
+
+    // Call preset.scan() if available
+    if (context.preset.scan && context.presetDetection) {
+      const result = await context.preset.scan(context.presetDetection);
+      context.scanResult = result ?? {
+        skills: [],
+        envVars: [],
+        scannedProfiles: [],
+        scannedAt: new Date().toISOString(),
+        warnings: [],
+      };
+    } else {
+      context.scanResult = {
+        skills: [],
+        envVars: [],
+        scannedProfiles: [],
+        scannedAt: new Date().toISOString(),
+        warnings: [],
+      };
+    }
+
+    // Store original installation info (read-only, no backup/rename)
+    if (context.presetDetection) {
       context.originalInstallation = {
         method: (context.presetDetection.method as 'npm' | 'git') || 'npm',
         packagePath: context.presetDetection.packagePath || '',
@@ -257,29 +309,29 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
         configPath: context.presetDetection.configPath,
         version: context.presetDetection.version,
       };
+    }
+
+    return { success: true };
+  },
+
+  'select-items': async (context) => {
+    // If selection was already provided (via API or CLI), just validate and succeed
+    if (context.migrationSelection) {
       return { success: true };
     }
 
-    // Backup original config if it exists
-    let configBackupPath: string | undefined;
-    if (context.presetDetection.configPath) {
-      const backupResult = backupOriginalConfig(context.presetDetection.configPath);
-      if (!backupResult.success) {
-        return { success: false, error: backupResult.error };
-      }
-      configBackupPath = backupResult.backupPath;
+    // Default: select everything (auto-mode or when there's nothing to select)
+    if (!context.scanResult ||
+        (context.scanResult.skills.length === 0 && context.scanResult.envVars.length === 0)) {
+      context.migrationSelection = { selectedSkills: [], selectedEnvVars: [] };
+      return { success: true };
     }
 
-    // Store backup info for later (will be saved after user creation)
-    context.originalInstallation = {
-      method: (context.presetDetection.method as 'npm' | 'git') || 'npm',
-      packagePath: context.presetDetection.packagePath || '',
-      binaryPath: context.presetDetection.binaryPath,
-      configPath: context.presetDetection.configPath,
-      configBackupPath,
-      version: context.presetDetection.version,
+    // Default to selecting all skills and all secret env vars
+    context.migrationSelection = {
+      selectedSkills: context.scanResult.skills.map(s => s.name),
+      selectedEnvVars: context.scanResult.envVars.filter(e => e.isSecret).map(e => e.name),
     };
-
     return { success: true };
   },
 
@@ -679,12 +731,15 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       logVerbose(`Writing daemon config to ${configPath}`, context);
 
       // Write config file via sudo tee
+      logVerbose(`Running: sudo tee "${configPath}"`, context);
       execSync(`sudo tee "${configPath}" > /dev/null << 'SHIELD_EOF'
 ${shieldConfig}
 SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
 
       // Set ownership and permissions
+      logVerbose(`Running: sudo chown ${brokerUsername}:${socketGroupName} "${configPath}"`, context);
       execSync(`sudo chown ${brokerUsername}:${socketGroupName} "${configPath}"`, { encoding: 'utf-8', stdio: 'pipe' });
+      logVerbose(`Running: sudo chmod 640 "${configPath}"`, context);
       execSync(`sudo chmod 640 "${configPath}"`, { encoding: 'utf-8', stdio: 'pipe' });
 
       context.daemonConfig = {
@@ -748,19 +803,24 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
 
       // Remove stale socket from previous installs (may be root-owned, causing EACCES)
       logVerbose('Removing stale socket file if present', context);
+      logVerbose('Running: sudo rm -f /var/run/agenshield/agenshield.sock', context);
       execSync(`sudo rm -f /var/run/agenshield/agenshield.sock`, { encoding: 'utf-8', stdio: 'pipe' });
 
       // Ensure log files exist with correct ownership BEFORE loading daemon.
       // launchd opens stdout/stderr files at process start; if they don't exist
       // or are root-owned, the broker's output may be lost.
       logVerbose('Ensuring log files have correct ownership', context);
+      logVerbose('Running: sudo mkdir -p /var/log/agenshield', context);
       execSync(`sudo mkdir -p /var/log/agenshield`, { encoding: 'utf-8', stdio: 'pipe' });
+      logVerbose('Running: sudo touch /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log', context);
       execSync(`sudo touch /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log`, { encoding: 'utf-8', stdio: 'pipe' });
+      logVerbose(`Running: sudo chown ${brokerUsername}:${socketGroupName} /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log`, context);
       execSync(`sudo chown ${brokerUsername}:${socketGroupName} /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log`, { encoding: 'utf-8', stdio: 'pipe' });
 
       // Bootout any stale broker daemon entry from a previous install.
       // Without this, `launchctl load` may no-op if the old entry is cached.
       logVerbose('Removing stale launchd entry if present', context);
+      logVerbose('Running: sudo launchctl bootout system/com.agenshield.broker', context);
       try {
         execSync(`sudo launchctl bootout system/com.agenshield.broker 2>/dev/null`, { encoding: 'utf-8', stdio: 'pipe' });
       } catch {
@@ -783,6 +843,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       // start the process if launchd throttles it (e.g. ThrottleInterval from a
       // prior crashed run). kickstart bypasses throttling.
       logVerbose('Kickstarting broker daemon', context);
+      logVerbose('Running: sudo launchctl kickstart system/com.agenshield.broker', context);
       try {
         execSync(`sudo launchctl kickstart system/com.agenshield.broker`, { encoding: 'utf-8', stdio: 'pipe' });
       } catch {
@@ -837,12 +898,13 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       return { success: true };
     }
 
-    // Use preset's migrate function
+    // Use preset's migrate function with user's selection
     const migrationContext: MigrationContext = {
       agentUser: context.userConfig.agentUser,
       directories: context.directories as MigrationDirectories,
       entryPoint: context.options?.entryPoint,
       detection: context.presetDetection,
+      selection: context.migrationSelection,
     };
 
     const result = await context.preset.migrate(migrationContext);
@@ -857,7 +919,9 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       const agentConfigDir = `${context.userConfig.agentUser.home}/.openclaw`;
       const brokerUser = context.userConfig.brokerUser.username;
       const socketGroup = context.userConfig.groups.socket.name;
+      logVerbose(`Running: sudo chown -R ${brokerUser}:${socketGroup} "${agentConfigDir}"`, context);
       execSync(`sudo chown -R ${brokerUser}:${socketGroup} "${agentConfigDir}"`, { encoding: 'utf-8', stdio: 'pipe' });
+      logVerbose(`Running: sudo chmod 2775 "${agentConfigDir}"`, context);
       execSync(`sudo chmod 2775 "${agentConfigDir}"`, { encoding: 'utf-8', stdio: 'pipe' });
     } catch (err) {
       logVerbose(`Warning: failed to fix .openclaw ownership: ${(err as Error).message}`, context);
@@ -1051,6 +1115,7 @@ async function runSteps(
 
     // Update step status to running
     step.status = 'running';
+    logVerbose(`▶ Starting step: ${step.name} (${step.id})`, context);
     onStateChange?.(state);
 
     // Execute the step
@@ -1059,6 +1124,7 @@ async function runSteps(
       step.status = 'error';
       step.error = `No executor for step: ${step.id}`;
       state.hasError = true;
+      logVerbose(`✗ Step ${step.id}: no executor found`, context);
       onStateChange?.(state);
       return { success: false, error: step.error };
     }
@@ -1067,10 +1133,12 @@ async function runSteps(
 
     if (result.success) {
       step.status = 'completed';
+      logVerbose(`✓ Completed step: ${step.name}`, context);
     } else {
       step.status = 'error';
       step.error = result.error;
       state.hasError = true;
+      logVerbose(`✗ Failed step: ${step.name} — ${result.error}`, context);
       onStateChange?.(state);
       return { success: false, error: result.error };
     }
@@ -1112,10 +1180,17 @@ export function createWizardEngine(options?: WizardOptions): WizardEngine {
     },
 
     /**
-     * Run setup phase (confirm through verify, excludes passcode and complete)
-     * Called after user confirms they want to proceed
+     * Run setup phase (confirm through scan-source, stops for user selection)
+     * Called after user confirms they want to proceed.
+     * Excludes: select-items, migrate, verify, setup-passcode, complete.
+     * The UI will show the scan result and let the user select items before
+     * calling runMigrationPhase().
      */
     async runSetupPhase() {
+      const excludeFromSetup: WizardStepId[] = [
+        'select-items', 'migrate', 'verify', 'setup-passcode', 'complete',
+      ];
+
       // Prompt for sudo credentials before privileged steps (skip in dry-run)
       if (!context.options?.dryRun) {
         const { ensureSudoAccess, startSudoKeepalive } = await import('../utils/privileges.js');
@@ -1123,17 +1198,38 @@ export function createWizardEngine(options?: WizardOptions): WizardEngine {
         const keepalive = startSudoKeepalive();
         try {
           const setupSteps: WizardStepId[] = ['confirm', ...getStepsByPhase('setup')
-            .filter((id) => id !== 'setup-passcode' && id !== 'complete')];
+            .filter((id) => !excludeFromSetup.includes(id))];
           await runSteps(state, context, setupSteps, engine.onStateChange);
         } finally {
           clearInterval(keepalive);
         }
         return;
       }
-      // dry-run path (unchanged)
+      // dry-run path
       const setupSteps: WizardStepId[] = ['confirm', ...getStepsByPhase('setup')
-        .filter((id) => id !== 'setup-passcode' && id !== 'complete')];
+        .filter((id) => !excludeFromSetup.includes(id))];
       await runSteps(state, context, setupSteps, engine.onStateChange);
+    },
+
+    /**
+     * Run migration phase (select-items + migrate + verify)
+     * Called after the user has selected which skills and secrets to migrate.
+     */
+    async runMigrationPhase() {
+      const migrationSteps: WizardStepId[] = ['select-items', 'migrate', 'verify'];
+
+      if (!context.options?.dryRun) {
+        const { ensureSudoAccess, startSudoKeepalive } = await import('../utils/privileges.js');
+        ensureSudoAccess();
+        const keepalive = startSudoKeepalive();
+        try {
+          await runSteps(state, context, migrationSteps, engine.onStateChange);
+        } finally {
+          clearInterval(keepalive);
+        }
+        return;
+      }
+      await runSteps(state, context, migrationSteps, engine.onStateChange);
     },
 
     /**

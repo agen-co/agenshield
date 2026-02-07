@@ -1,23 +1,48 @@
-import { Typography, Button, Skeleton, Box, Chip, CircularProgress, Alert } from '@mui/material';
-import { ShieldCheck, ShieldOff, Power, PowerOff, RefreshCw, CheckCircle, XCircle, FolderOpen, Globe } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import { useSkill, useToggleSkill, useActivateSkill, useQuarantineSkill, useReanalyzeSkill, useCachedAnalysis } from '../../../api/hooks';
-import { StatusBadge } from '../../shared/StatusBadge';
+/**
+ * Unified skill detail view.
+ * Two-column layout: LEFT = metadata, RIGHT = analysis accordion + readme markdown.
+ * Reads from the valtio skillsStore — skill is found via selectedSlug in the skills list.
+ */
+
+import {
+  Typography,
+  Chip,
+  Box,
+  Divider,
+  Alert,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+} from '@mui/material';
+import {
+  RefreshCw,
+  CheckCircle,
+  XCircle,
+  Terminal,
+  User,
+  Tag,
+  Download,
+  Search,
+  ChevronDown,
+} from 'lucide-react';
+import { useSnapshot } from 'valtio';
+import PrimaryButton from '../../../elements/buttons/PrimaryButton';
+import SecondaryButton from '../../../elements/buttons/SecondaryButton';
+import DangerButton from '../../../elements/buttons/DangerButton';
+import { CircularLoader } from '../../../elements/loaders/CircularLoader';
 import { MarkdownViewer } from '../../shared/MarkdownViewer';
-import { parseSkillReadme } from '../../../utils/parseSkillReadme';
-import { Root, ContentGrid, ReadmeCard, Sidebar, SidebarSection } from './SkillDetails.styles';
-import type { SkillAnalysis, ExtractedCommand } from '@agenshield/ipc';
-
-interface SkillDetailsProps {
-  skillName: string;
-}
-
-const statusConfig = {
-  active: { label: 'Active', variant: 'success' as const },
-  workspace: { label: 'Workspace', variant: 'info' as const },
-  quarantined: { label: 'Quarantined', variant: 'warning' as const },
-  disabled: { label: 'Disabled', variant: 'default' as const },
-};
+import {
+  skillsStore,
+  analyzeSkill,
+  installSkill,
+  uninstallSkill,
+  unblockSkill,
+  reinstallUntrustedSkill,
+  deleteUntrustedSkill,
+} from '../../../stores/skills';
+import { useGuardedAction } from '../../../hooks/useGuardedAction';
+import { VulnBadge } from '../../shared/VulnBadge';
+import { Root, ContentGrid, MetadataColumn, ReadmeCard, MetadataSection } from './SkillDetails.styles';
 
 const vulnColors: Record<string, 'success' | 'info' | 'warning' | 'error'> = {
   safe: 'success',
@@ -27,185 +52,20 @@ const vulnColors: Record<string, 'success' | 'info' | 'warning' | 'error'> = {
   critical: 'error',
 };
 
-function MetaItem({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-      <Icon size={14} />
-      <Typography variant="body2" sx={{ wordBreak: 'break-all' }}>{label}</Typography>
-    </Box>
-  );
-}
+const originChipConfig: Record<string, { label: string; color: 'warning' | 'default' }> = {
+  blocked: { label: 'Blocked', color: 'warning' },
+  local: { label: 'Local', color: 'default' },
+  search: { label: 'Marketplace', color: 'default' },
+  untrusted: { label: 'Untrusted', color: 'warning' },
+};
 
-function AnalysisCard({ analysis, onRetry, retrying }: { analysis: SkillAnalysis; onRetry: () => void; retrying: boolean }) {
-  if (analysis.status === 'pending' || analysis.status === 'analyzing') {
-    return (
-      <Box
-        sx={{
-          border: 1,
-          borderColor: 'divider',
-          borderRadius: 2,
-          px: 2,
-          py: 1.5,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-        }}
-      >
-        <CircularProgress size={14} />
-        <Typography variant="body2" color="text.secondary">
-          Analyzing skill...
-        </Typography>
-      </Box>
-    );
-  }
+export function SkillDetails() {
+  const snap = useSnapshot(skillsStore);
+  const guard = useGuardedAction();
 
-  if (analysis.status === 'error') {
-    return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <Alert severity="error" sx={{ '.MuiAlert-message': { width: '100%' } }}>
-          <Typography variant="body2" fontWeight={500} sx={{ mb: 0.5 }}>
-            Analysis Failed
-          </Typography>
-          <Typography variant="caption">{analysis.error}</Typography>
-        </Alert>
-        <Button
-          fullWidth
-          variant="outlined"
-          color="secondary"
-          startIcon={<RefreshCw size={14} />}
-          onClick={onRetry}
-          disabled={retrying}
-        >
-          Retry Analysis
-        </Button>
-      </Box>
-    );
-  }
-
-  const severity = vulnColors[analysis.vulnerability?.level ?? ''] ?? 'info';
-
-  return (
-    <Box
-      sx={{
-        border: 1,
-        borderColor: (theme) => theme.palette[severity].main,
-        borderRadius: 2,
-        overflow: 'hidden',
-      }}
-    >
-      {/* Header band */}
-      <Box
-        sx={{
-          px: 2,
-          py: 1.5,
-          bgcolor: (theme) =>
-            theme.palette.mode === 'dark'
-              ? `${theme.palette[severity].main}1A`
-              : `${theme.palette[severity].main}14`,
-        }}
-      >
-        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 0.5 }}>
-          Analysis
-        </Typography>
-        {analysis.vulnerability && (
-          <Chip
-            label={analysis.vulnerability.level.toUpperCase()}
-            color={severity}
-            size="small"
-            sx={{ fontWeight: 600 }}
-          />
-        )}
-      </Box>
-
-      {/* Body */}
-      <Box sx={{ px: 2, py: 1.5 }}>
-        {/* Vulnerability details */}
-        {analysis.vulnerability && (
-          <>
-            {analysis.vulnerability.details.map((detail, i) => (
-              <Typography key={i} variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>
-                {detail}
-              </Typography>
-            ))}
-            {analysis.vulnerability.suggestions?.map((suggestion, i) => (
-              <Typography key={i} variant="caption" color="info.main" sx={{ display: 'block', mt: 0.5 }}>
-                {suggestion}
-              </Typography>
-            ))}
-          </>
-        )}
-
-        {/* Commands */}
-        {analysis.commands.length > 0 && (
-          <Box sx={{ mt: 1.5 }}>
-            <Typography variant="caption" fontWeight={600} sx={{ display: 'block', mb: 0.5 }}>
-              Commands ({analysis.commands.length})
-            </Typography>
-            {analysis.commands.map((cmd: ExtractedCommand) => (
-              <Box
-                key={cmd.name}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.5,
-                  py: 0.25,
-                }}
-              >
-                {cmd.available ? (
-                  <CheckCircle size={12} color="var(--mui-palette-success-main, #6CB685)" />
-                ) : (
-                  <XCircle size={12} color="var(--mui-palette-error-main, #E1583E)" />
-                )}
-                <Typography variant="caption">{cmd.name}</Typography>
-                {cmd.resolvedPath && (
-                  <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto', fontSize: '0.625rem' }}>
-                    {cmd.resolvedPath}
-                  </Typography>
-                )}
-              </Box>
-            ))}
-          </Box>
-        )}
-
-        {/* Re-analyze */}
-        <Button
-          fullWidth
-          size="small"
-          variant="text"
-          color="secondary"
-          startIcon={<RefreshCw size={12} />}
-          onClick={onRetry}
-          disabled={retrying}
-          sx={{ mt: 1.5, fontSize: '0.75rem' }}
-        >
-          Re-analyze
-        </Button>
-      </Box>
-    </Box>
-  );
-}
-
-export function SkillDetails({ skillName }: SkillDetailsProps) {
-  const { data, isLoading } = useSkill(skillName);
-  const toggleSkill = useToggleSkill();
-  const activateSkill = useActivateSkill();
-  const quarantineSkill = useQuarantineSkill();
-  const reanalyzeSkill = useReanalyzeSkill();
-
-  const skill = data?.data;
-  const { data: cachedMarketplace } = useCachedAnalysis(
-    skill?.name ?? null,
-    skill?.publisher ?? null
-  );
-
-  if (isLoading) {
-    return (
-      <Root>
-        <Skeleton variant="text" width="60%" height={40} />
-        <Skeleton variant="rectangular" height={200} sx={{ mt: 2, borderRadius: 1 }} />
-      </Root>
-    );
-  }
+  // Read from the single list using selectedSlug
+  const skill = snap.skills.find((s) => s.slug === snap.selectedSlug || s.name === snap.selectedSlug);
+  const readme = skill?.readme;
 
   if (!skill) {
     return (
@@ -215,99 +75,340 @@ export function SkillDetails({ skillName }: SkillDetailsProps) {
     );
   }
 
-  const config = statusConfig[skill.status] ?? { label: skill.status, variant: 'default' as const };
-  const { body: cleanContent } = parseSkillReadme(skill.content);
+  const chipConfig = originChipConfig[skill.origin];
+  const vulnLevel = skill.analysis?.vulnerability?.level;
+
+  const isUntrustedAnalyzed = skill.origin === 'untrusted' && skill.actionState === 'analyzed';
+
+  const getActionLabel = (state: string) => {
+    if (isUntrustedAnalyzed) return 'Reinstall';
+    switch (state) {
+      case 'not_analyzed': case 'analysis_failed': return 'Analyze';
+      case 'analyzed': return 'Install';
+      case 'installed': return 'Uninstall';
+      case 'blocked': return 'Unblock';
+      default: return 'Manage';
+    }
+  };
+
+  const handleAction = () => {
+    const label = getActionLabel(skill.actionState);
+    guard(async () => {
+      if (isUntrustedAnalyzed) {
+        await reinstallUntrustedSkill(skill.name);
+        return;
+      }
+      switch (skill.actionState) {
+        case 'not_analyzed':
+        case 'analysis_failed':
+          await analyzeSkill(skill.slug);
+          break;
+        case 'analyzed':
+          await installSkill(skill.slug);
+          break;
+        case 'installed':
+          await uninstallSkill(skill.name);
+          break;
+        case 'blocked':
+          await analyzeSkill(skill.slug);
+          await unblockSkill(skill.name);
+          break;
+      }
+    }, { description: `Unlock to ${label.toLowerCase()} this skill.`, actionLabel: label });
+  };
 
   return (
     <Root>
-      {/* Header */}
-      <Box sx={{ mb: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="h5" fontWeight={600}>
-            {skill.name}
-          </Typography>
-          <StatusBadge label={config.label} variant={config.variant} size="medium" />
-        </Box>
-        {skill.description && (
-          <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', mt: 0.5 }}>
-            {skill.description}
-          </Typography>
-        )}
-      </Box>
-
       <ContentGrid>
-        {/* Left: Readme */}
-        <ReadmeCard>
-          {cleanContent ? (
-            <MarkdownViewer content={cleanContent} />
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              No readme available.
-            </Typography>
+        {/* LEFT COLUMN: Metadata */}
+        <MetadataColumn>
+          {/* Title + origin */}
+          <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <Typography variant="h5" fontWeight={600}>
+                {skill.name}
+              </Typography>
+              {skill.version && (
+                <Typography variant="body2" color="text.secondary">
+                  v{skill.version}
+                </Typography>
+              )}
+              {chipConfig && (
+                <Chip
+                  label={chipConfig.label}
+                  color={chipConfig.color}
+                  size="small"
+                  sx={{ fontWeight: 500 }}
+                />
+              )}
+            </Box>
+            {skill.description && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                {skill.description}
+              </Typography>
+            )}
+          </Box>
+
+          {/* Author */}
+          {skill.author && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <User size={14} />
+              <Typography variant="body2">{skill.author}</Typography>
+            </Box>
           )}
-        </ReadmeCard>
 
-        {/* Right: Sidebar */}
-        <Sidebar>
-          {/* Action buttons */}
-          <SidebarSection>
-            {(skill.status === 'quarantined' || skill.status === 'disabled') && (
-              <Button
-                fullWidth
-                variant="contained"
-                startIcon={<Power size={16} />}
-                onClick={() =>
-                  skill.status === 'quarantined'
-                    ? activateSkill.mutate(skill.name)
-                    : toggleSkill.mutate(skill.name)
-                }
-                disabled={activateSkill.isPending || toggleSkill.isPending}
-              >
-                Activate
-              </Button>
+          {/* Action button */}
+          <ActionButton actionState={skill.actionState} vulnLevel={vulnLevel} onClick={handleAction} />
+
+          {/* Delete button for untrusted skills */}
+          {skill.origin === 'untrusted' && (
+            <DangerButton
+              fullWidth
+              onClick={() => guard(() => deleteUntrustedSkill(skill.name), {
+                description: 'Unlock to delete this untrusted skill permanently.',
+                actionLabel: 'Delete',
+              })}
+            >
+              Delete from disk
+            </DangerButton>
+          )}
+
+          <Divider />
+
+          {/* Run Commands */}
+          {skill.analysis?.commands && skill.analysis.commands.length > 0 && (
+            <MetadataSection>
+              <Typography variant="subtitle2" fontWeight={600}>
+                <Terminal size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                Commands ({skill.analysis.commands.length})
+              </Typography>
+              {skill.analysis.commands.map((cmd) => (
+                <Box
+                  key={cmd.name}
+                  sx={{ display: 'flex', alignItems: 'center', gap: 0.5, py: 0.25 }}
+                >
+                  {cmd.available ? (
+                    <CheckCircle size={12} color="var(--mui-palette-success-main, #6CB685)" />
+                  ) : (
+                    <XCircle size={12} color="var(--mui-palette-error-main, #E1583E)" />
+                  )}
+                  <Typography variant="caption" fontFamily="'IBM Plex Mono', monospace">
+                    {cmd.name}
+                  </Typography>
+                </Box>
+              ))}
+            </MetadataSection>
+          )}
+
+          {/* Environment Variables */}
+          {skill.envVariables && skill.envVariables.length > 0 && (
+            <MetadataSection>
+              <Typography variant="subtitle2" fontWeight={600}>
+                Environment Variables
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {skill.envVariables!.map((ev, idx, arr) => (
+                  <Box key={ev.name}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="caption" fontFamily="'IBM Plex Mono', monospace">
+                        {ev.name}
+                      </Typography>
+                      {ev.required && <Chip label="required" size="small" color="warning" sx={{ height: 16, fontSize: '0.6rem' }} />}
+                      {ev.sensitive && <Chip label="sensitive" size="small" color="error" sx={{ height: 16, fontSize: '0.6rem' }} />}
+                    </Box>
+                    {ev.purpose && (
+                      <Typography variant="caption" color="text.secondary">
+                        {ev.purpose}
+                      </Typography>
+                    )}
+                    {idx !== arr.length - 1 && <Divider sx={{ mt: 1.5 }} />}
+                  </Box>
+                ))}
+              </Box>
+            </MetadataSection>
+          )}
+
+          {/* Tags */}
+          {skill.tags && skill.tags.length > 0 && (
+            <MetadataSection>
+              <Typography variant="subtitle2" fontWeight={600}>
+                <Tag size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                Tags
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                {skill.tags.map((tag) => (
+                  <Chip key={tag} label={tag} size="small" variant="outlined" />
+                ))}
+              </Box>
+            </MetadataSection>
+          )}
+        </MetadataColumn>
+
+        {/* RIGHT COLUMN: Analysis + Readme */}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+          {/* Analysis accordion */}
+          {skill.analysis && skill.actionState !== 'analysis_failed' && (
+            <Accordion
+              defaultExpanded={vulnLevel === 'medium' || vulnLevel === 'high' || vulnLevel === 'critical'}
+              disableGutters
+              elevation={0}
+              sx={{
+                border: 1,
+                borderColor: 'divider',
+                borderRadius: (theme) => (theme.shape.borderRadius as number) * 2,
+                '&:before': { display: 'none' },
+                overflow: 'hidden',
+              }}
+            >
+              <AccordionSummary expandIcon={<ChevronDown size={18} />}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  {vulnLevel && <VulnBadge level={vulnLevel} size="normal" />}
+                  <Typography variant="subtitle2" fontWeight={600}>Security Analysis</Typography>
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {skill.analysis.vulnerability?.details?.map((detail, i) => (
+                    <Typography key={i} variant="caption" color="text.secondary">
+                      {detail}
+                    </Typography>
+                  ))}
+                  {skill.analysis.vulnerability?.suggestions?.map((s, i) => (
+                    <Typography key={i} variant="caption" color="info.main">
+                      {s}
+                    </Typography>
+                  ))}
+
+                  {/* Security findings */}
+                  {skill.analysis.securityFindings && skill.analysis.securityFindings.length > 0 && (
+                    <Box sx={{ mt: 1 }}>
+                      {skill.analysis.securityFindings.map((f, i) => (
+                        <Alert key={i} severity={vulnColors[f.severity] ?? 'info'} sx={{ mb: 0.5, py: 0, '& .MuiAlert-message': { fontSize: '0.75rem' } }}>
+                          {f.cwe && <strong>{f.cwe}: </strong>}
+                          {f.description}
+                        </Alert>
+                      ))}
+                    </Box>
+                  )}
+
+                  {/* MCP risks */}
+                  {skill.analysis.mcpSpecificRisks && skill.analysis.mcpSpecificRisks.length > 0 && (
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="caption" fontWeight={600} display="block" sx={{ mb: 0.5 }}>
+                        MCP-Specific Risks
+                      </Typography>
+                      {skill.analysis.mcpSpecificRisks.map((r, i) => (
+                        <Typography key={i} variant="caption" color="text.secondary" display="block">
+                          <Chip label={r.riskType} size="small" sx={{ height: 16, fontSize: '0.6rem', mr: 0.5 }} />
+                          {r.description}
+                        </Typography>
+                      ))}
+                    </Box>
+                  )}
+
+                  {/* Re-analyze button */}
+                  <SecondaryButton
+                    size="small"
+                    onClick={() => guard(() => analyzeSkill(skill.slug), { description: 'Unlock to re-analyze this skill.', actionLabel: 'Re-analyze' })}
+                    sx={{ mt: 1 }}
+                  >
+                    <RefreshCw size={12} style={{ marginRight: 6 }} />
+                    Re-analyze
+                  </SecondaryButton>
+                </Box>
+              </AccordionDetails>
+            </Accordion>
+          )}
+
+          <ReadmeCard>
+            {snap.selectedLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularLoader size={24} />
+              </Box>
+            ) : readme ? (
+              <MarkdownViewer content={readme} />
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No readme available.
+              </Typography>
             )}
-            {(skill.status === 'active' || skill.status === 'workspace') && (
-              <Button
-                fullWidth
-                variant="outlined"
-                color="secondary"
-                startIcon={<PowerOff size={16} />}
-                onClick={() => toggleSkill.mutate(skill.name)}
-                disabled={toggleSkill.isPending}
-              >
-                Disable
-              </Button>
-            )}
-          </SidebarSection>
-
-          {/* About */}
-          <SidebarSection>
-            <Typography variant="subtitle2" color="text.secondary">About</Typography>
-            <MetaItem icon={Globe} label={skill.source} />
-            <MetaItem icon={FolderOpen} label={skill.path} />
-          </SidebarSection>
-
-          {/* Analysis — prefer local, fall back to cached marketplace */}
-          {skill.analysis ? (
-            <AnalysisCard
-              analysis={skill.analysis}
-              onRetry={() => reanalyzeSkill.mutate({ name: skill.name, content: skill.content, metadata: skill.metadata })}
-              retrying={reanalyzeSkill.isPending}
-            />
-          ) : cachedMarketplace?.data?.analysis ? (
-            <AnalysisCard
-              analysis={{
-                status: cachedMarketplace.data.analysis.status === 'complete' ? 'complete' : 'error',
-                analyzerId: 'marketplace',
-                vulnerability: cachedMarketplace.data.analysis.vulnerability,
-                commands: cachedMarketplace.data.analysis.commands,
-              } as SkillAnalysis}
-              onRetry={() => reanalyzeSkill.mutate({ name: skill.name, content: skill.content, metadata: skill.metadata })}
-              retrying={reanalyzeSkill.isPending}
-            />
-          ) : null}
-        </Sidebar>
+          </ReadmeCard>
+        </Box>
       </ContentGrid>
     </Root>
   );
+}
+
+function ActionButton({
+  actionState,
+  vulnLevel,
+  onClick,
+}: {
+  actionState: string;
+  vulnLevel?: string;
+  onClick: () => void;
+}) {
+  switch (actionState) {
+    case 'not_analyzed':
+      return (
+        <PrimaryButton fullWidth onClick={onClick}>
+          <Search size={14} style={{ marginRight: 6 }} />
+          Analyze
+        </PrimaryButton>
+      );
+    case 'analyzing':
+      return (
+        <SecondaryButton fullWidth disabled>
+          <CircularLoader size={14} sx={{ mr: 1 }} />
+          Analyzing...
+        </SecondaryButton>
+      );
+    case 'analysis_failed':
+      return (
+        <PrimaryButton fullWidth onClick={onClick}>
+          <Search size={14} style={{ marginRight: 6 }} />
+          Analyze
+        </PrimaryButton>
+      );
+    case 'analyzed':
+      if (vulnLevel === 'critical') {
+        return (
+          <Box>
+            <PrimaryButton fullWidth disabled>
+              <Download size={14} style={{ marginRight: 6 }} />
+              Install
+            </PrimaryButton>
+            <Alert severity="error" sx={{ mt: 1, py: 0 }}>
+              Critical vulnerability detected — installation blocked.
+            </Alert>
+          </Box>
+        );
+      }
+      return (
+        <PrimaryButton fullWidth onClick={onClick}>
+          <Download size={14} style={{ marginRight: 6 }} />
+          Install
+        </PrimaryButton>
+      );
+    case 'installing':
+      return (
+        <PrimaryButton fullWidth disabled>
+          <CircularLoader size={14} sx={{ mr: 1 }} />
+          Installing...
+        </PrimaryButton>
+      );
+    case 'installed':
+      return <DangerButton fullWidth onClick={onClick}>Uninstall</DangerButton>;
+    case 'blocked':
+      return <PrimaryButton fullWidth onClick={onClick}>Unblock</PrimaryButton>;
+    case 'untrusted':
+      return (
+        <SecondaryButton fullWidth disabled>
+          <CircularLoader size={14} sx={{ mr: 1 }} />
+          Pending Analysis...
+        </SecondaryButton>
+      );
+    default:
+      return null;
+  }
 }

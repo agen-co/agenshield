@@ -2,7 +2,7 @@
  * Default configuration for AgenShield daemon
  */
 
-import { DEFAULT_PORT, DEFAULT_HOST } from '@agenshield/ipc';
+import { DEFAULT_PORT, DEFAULT_HOST, OPENCLAW_PRESET } from '@agenshield/ipc';
 import type { ShieldConfig } from '@agenshield/ipc';
 
 export const VERSION = '0.1.0';
@@ -19,7 +19,7 @@ export function getDefaultConfig(): ShieldConfig {
       logLevel: 'info',
       enableHostsEntry: false,
     },
-    policies: [],
+    policies: [...OPENCLAW_PRESET.policies],
     vault: {
       enabled: false,
       provider: 'local',

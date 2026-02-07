@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { TextField, Grid2 as Grid } from '@mui/material';
 import { useConfig, useUpdateConfig } from '../../api/hooks';
-import { useAuth } from '../../context/AuthContext';
+import { useGuardedAction } from '../../hooks/useGuardedAction';
 import { SettingsCard } from '../shared/SettingsCard';
 
 export function ServerConfigCard() {
   const { data: config } = useConfig();
   const updateConfig = useUpdateConfig();
-  const { isReadOnly } = useAuth();
+  const guard = useGuardedAction();
 
   const [host, setHost] = useState('localhost');
   const [port, setPort] = useState(5200);
@@ -56,11 +56,11 @@ export function ServerConfigCard() {
       title="Server Configuration"
       description="Configure how the daemon server listens for connections."
       footerInfo="Changes require a daemon restart to take effect."
-      onSave={handleSave}
+      onSave={() => guard(handleSave, { description: 'Unlock to save server configuration.', actionLabel: 'Save' })}
       saving={updateConfig.isPending}
       saved={saved}
       hasChanges={hasChanges}
-      disabled={isReadOnly || !config?.data?.daemon}
+      disabled={!config?.data?.daemon}
       error={updateConfig.error?.message}
     >
       <Grid container spacing={3}>

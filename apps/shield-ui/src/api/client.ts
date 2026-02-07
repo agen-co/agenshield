@@ -4,7 +4,6 @@
 
 import type {
   HealthResponse,
-  GetStatusResponse,
   GetConfigResponse,
   UpdateConfigResponse,
   UpdateConfigRequest,
@@ -16,17 +15,16 @@ import type {
   AgenCoConnectIntegrationResponse,
   FsBrowseEntry,
   SecurityStatusData,
-} from '@agenshield/ipc';
-import type {
   MarketplaceSkill,
   AnalyzeSkillRequestUnion,
   AnalyzeSkillResponse,
   InstallSkillRequest,
-} from './marketplace.types';
+} from '@agenshield/ipc';
 
 const BASE_URL = '/api';
 
 const SESSION_TOKEN_KEY = 'agenshield_session_token';
+const SESSION_EXPIRES_KEY = 'agenshield_session_expires';
 
 /**
  * Get the current auth token from session storage
@@ -76,6 +74,13 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    // On 401, clear stale token and notify AuthContext to reset to read-only
+    if (res.status === 401) {
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      sessionStorage.removeItem(SESSION_EXPIRES_KEY);
+      window.dispatchEvent(new CustomEvent('agenshield:auth-expired'));
+    }
+
     const msg = typeof data.error === 'string' ? data.error : data.error?.message;
     const error = new Error(msg || `API Error: ${res.status} ${res.statusText}`);
     (error as Error & { status: number }).status = res.status;
@@ -102,18 +107,33 @@ export interface SkillDetail extends SkillSummary {
   analysis?: SkillAnalysis;
 }
 
+export type SecretScope = 'global' | 'policed' | 'standalone';
+
 export interface Secret {
   id: string;
   name: string;
   policyIds: string[];
   maskedValue: string;
   createdAt: string;
+  scope: SecretScope;
 }
 
 export interface CreateSecretRequest {
   name: string;
   value: string;
   policyIds: string[];
+  scope?: SecretScope;
+}
+
+export interface SkillEnvRequirement {
+  name: string;
+  required: boolean;
+  sensitive: boolean;
+  purpose: string;
+  requiredBy: Array<{ skillName: string }>;
+  fulfilled: boolean;
+  existingSecretScope?: SecretScope;
+  existingSecretId?: string;
 }
 
 export type SecurityStatus = SecurityStatusData;
@@ -127,8 +147,6 @@ export const api = {
 
   // Existing endpoints
   getHealth: () => request<HealthResponse>('/health'),
-
-  getStatus: () => request<GetStatusResponse>('/status'),
 
   getConfig: () => request<GetConfigResponse>('/config'),
 
@@ -156,6 +174,8 @@ export const api = {
   getSecrets: () => request<{ data: Secret[] }>('/secrets'),
 
   getAvailableEnvSecrets: () => request<{ data: string[] }>('/secrets/env'),
+
+  getSkillEnvRequirements: () => request<{ data: SkillEnvRequirement[] }>('/secrets/skill-env'),
 
   createSecret: (data: CreateSecretRequest) =>
     request<{ data: Secret }>('/secrets', {

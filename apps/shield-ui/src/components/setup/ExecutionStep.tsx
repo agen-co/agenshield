@@ -13,12 +13,12 @@ import { setupStore } from '../../state/setup';
 import { slideIn } from '../../styles/animations';
 import { slowSpin } from '../../styles/setup-animations';
 
-// Steps to show in the execution view (skip detection-phase steps)
+// Steps to show in the execution view (infrastructure only — migration steps shown separately)
 const EXECUTION_STEP_IDS = [
-  'backup', 'create-groups', 'create-agent-user', 'create-broker-user',
+  'create-groups', 'create-agent-user', 'create-broker-user',
   'create-directories', 'setup-socket', 'generate-seatbelt', 'install-wrappers',
   'install-broker', 'install-daemon-config', 'install-policies', 'setup-launchdaemon',
-  'migrate', 'verify',
+  'scan-source',
 ];
 
 export function ExecutionStep() {

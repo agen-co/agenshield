@@ -69,6 +69,17 @@ export {
 // Migration
 export * from './migration';
 
+// Host Scanner (read-only scanning of source application)
+export {
+  scanHost,
+  scanOpenClawConfig,
+  scanProcessEnv,
+  scanShellProfiles,
+  maskSecretValue,
+  resolveEnvVarValue,
+  type ScanHostOptions,
+} from './host-scanner';
+
 // Security
 export * from './security';
 

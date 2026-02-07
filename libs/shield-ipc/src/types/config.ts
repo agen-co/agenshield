@@ -45,7 +45,7 @@ export interface UserConfig {
   brokerUser: UserDefinition;
   /** Groups to create */
   groups: {
-    /** Socket access group (clawshield) */
+    /** Socket access group (ash_default) */
     socket: GroupDefinition;
     /** Workspace access group (clawworkspace) */
     workspace: GroupDefinition;
@@ -155,6 +155,8 @@ export interface PolicyConfig {
   priority?: number;
   /** Operations this policy applies to */
   operations?: string[];
+  /** Preset this policy belongs to (undefined = user-created) */
+  preset?: string;
 }
 
 export interface VaultConfig {
@@ -188,6 +190,15 @@ export interface SoulConfig {
 
 // --- Skill Analysis types ---
 
+import type {
+  EnvVariableDetail,
+  RuntimeRequirement,
+  InstallationStep,
+  RunCommand,
+  SecurityFinding,
+  MCPSpecificRisk,
+} from './marketplace';
+
 export interface SkillAnalysis {
   status: 'pending' | 'analyzing' | 'complete' | 'error';
   analyzedAt?: string;
@@ -199,6 +210,13 @@ export interface SkillAnalysis {
   };
   commands: ExtractedCommand[];
   error?: string;
+  // Rich analysis fields from Vercel analyzer
+  envVariables?: EnvVariableDetail[];
+  runtimeRequirements?: RuntimeRequirement[];
+  installationSteps?: InstallationStep[];
+  runCommands?: RunCommand[];
+  securityFindings?: SecurityFinding[];
+  mcpSpecificRisks?: MCPSpecificRisk[];
 }
 
 export interface ExtractedCommand {

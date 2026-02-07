@@ -24,9 +24,11 @@ export {
   approveSkill,
   rejectSkill,
   revokeSkill,
-  listQuarantined,
+  listUntrusted,
   listApproved,
   triggerSkillsScan,
+  computeSkillHash,
+  updateApprovedHash,
   type ApprovedSkillEntry,
-  type QuarantinedSkillInfo,
+  type UntrustedSkillInfo,
 } from './watchers/skills';

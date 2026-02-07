@@ -3,12 +3,15 @@
  *
  * Manages which wizard step is shown and transitions between them.
  * Wraps everything in SetupLayout (split-panel).
+ *
+ * Steps: 0 Detection, 1 Mode, 2 Config, 3 Confirm, 4 Infrastructure,
+ *        5 Migration Select, 6 Migrating, 7 Passcode, 8 Complete
  */
 
 import { useCallback, useEffect } from 'react';
 import { useSnapshot } from 'valtio';
 import { setupStore, deriveGraphPhase, type GraphPhase } from '../state/setup';
-import { useSetupSSE, useConfigure, useConfirmSetup, useSetPasscode } from '../api/setup';
+import { useSetupSSE, useConfigure, useConfirmSetup, useSetPasscode, useSelectItems } from '../api/setup';
 import {
   SetupLayout,
   DetectionStep,
@@ -16,6 +19,8 @@ import {
   AdvancedConfigStep,
   ConfirmStep,
   ExecutionStep,
+  MigrationSelectStep,
+  MigrationExecutionStep,
   PasscodeStep,
   CompleteStep,
 } from '../components/setup';
@@ -29,6 +34,7 @@ export function SetupWizard() {
   const configure = useConfigure();
   const confirmSetup = useConfirmSetup();
   const setPasscode = useSetPasscode();
+  const selectItems = useSelectItems();
 
   // Keep graphPhase in sync with completed steps (only advance forward, never regress)
   useEffect(() => {
@@ -43,17 +49,24 @@ export function SetupWizard() {
     }
   }, [completedEngineSteps]);
 
-  // Auto-advance to passcode step when execution completes
+  // Auto-advance based on phase changes
   useEffect(() => {
-    if (phase === 'execution' && currentUIStep === 4) {
-      // Check if verify step is completed
+    // When infrastructure + scan completes, go to migration selection (step 5)
+    if (phase === 'selection' && currentUIStep === 4) {
+      setupStore.currentUIStep = 5;
+    }
+    // When migration phase completes (verify done), go to passcode (step 7)
+    if (phase === 'migration' && currentUIStep === 5) {
+      setupStore.currentUIStep = 6;
+    }
+    if (phase === 'passcode' && currentUIStep < 7) {
       if (completedEngineSteps.includes('verify')) {
-        setupStore.currentUIStep = 5;
+        setupStore.currentUIStep = 7;
         setupStore.phase = 'passcode';
       }
     }
-    if (phase === 'complete' && currentUIStep < 6) {
-      setupStore.currentUIStep = 6;
+    if (phase === 'complete' && currentUIStep < 8) {
+      setupStore.currentUIStep = 8;
     }
   }, [phase, completedEngineSteps, currentUIStep]);
 
@@ -93,11 +106,17 @@ export function SetupWizard() {
   }, [configure, goToStep]);
 
   const handleConfirm = useCallback(() => {
-    goToStep(4); // Execution
+    goToStep(4); // Infrastructure execution
     setupStore.phase = 'execution';
     setupStore.graphPhase = 'securing';
     confirmSetup.mutate();
   }, [confirmSetup, goToStep]);
+
+  const handleMigrationSelect = useCallback((selectedSkills: string[], selectedEnvVars: string[]) => {
+    goToStep(6); // Migration execution
+    setupStore.phase = 'migration';
+    selectItems.mutate({ selectedSkills, selectedEnvVars });
+  }, [selectItems, goToStep]);
 
   const handlePasscodeSet = useCallback((passcode: string) => {
     setPasscode.mutate({ passcode });
@@ -122,8 +141,12 @@ export function SetupWizard() {
       case 4:
         return <ExecutionStep />;
       case 5:
-        return <PasscodeStep onSet={handlePasscodeSet} onSkip={handlePasscodeSkip} />;
+        return <MigrationSelectStep onConfirm={handleMigrationSelect} />;
       case 6:
+        return <MigrationExecutionStep />;
+      case 7:
+        return <PasscodeStep onSet={handlePasscodeSet} onSkip={handlePasscodeSkip} />;
+      case 8:
         return <CompleteStep />;
       default:
         return <DetectionStep onNext={handleDetectionNext} />;
@@ -131,7 +154,7 @@ export function SetupWizard() {
   };
 
   // Complete step renders full-screen (no wizard chrome)
-  if (currentUIStep === 6) {
+  if (currentUIStep === 8) {
     return <CompleteStep />;
   }
 

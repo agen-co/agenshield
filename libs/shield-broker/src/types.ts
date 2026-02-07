@@ -335,6 +335,8 @@ export interface SkillInstallResult {
   wrapperPath?: string;
   /** Number of files written */
   filesWritten: number;
+  /** Non-fatal warnings (e.g., chown failures in dev) */
+  warnings?: string[];
 }
 
 export interface SkillUninstallParams {

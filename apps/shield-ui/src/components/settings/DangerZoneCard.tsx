@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { Typography } from '@mui/material';
 import { useFactoryReset } from '../../api/hooks';
 import { useAuth } from '../../context/AuthContext';
+import { useGuardedAction } from '../../hooks/useGuardedAction';
 import { SettingsCard } from '../shared/SettingsCard';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 
 export function DangerZoneCard() {
-  const { isReadOnly, refreshStatus } = useAuth();
+  const { refreshStatus } = useAuth();
+  const guard = useGuardedAction();
   const factoryReset = useFactoryReset();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -30,8 +32,7 @@ export function DangerZoneCard() {
         danger
         saveLabel="Factory Reset"
         hasChanges
-        disabled={isReadOnly}
-        onSave={() => setConfirmOpen(true)}
+        onSave={() => guard(() => setConfirmOpen(true), { description: 'Unlock to perform a factory reset.', actionLabel: 'Factory Reset' })}
         saving={factoryReset.isPending}
         error={factoryReset.error?.message}
         footerInfo="This action cannot be undone."

@@ -1,58 +1,45 @@
 /**
- * Skills page - skill scanning and management
+ * Skills page - unified skill management, search, and analysis
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import {
-  Box,
-  Card,
-  CardContent,
-  Tabs,
-  Tab,
-  Skeleton,
-} from '@mui/material';
-import { Zap } from 'lucide-react';
-import { useSkills } from '../api/hooks';
-import type { SkillsTab } from '../api/marketplace.types';
+import { Box, Skeleton, Typography } from '@mui/material';
+import Grid from '@mui/material/Grid2';
+import { useSnapshot } from 'valtio';
 import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
-import { EmptyState } from '../components/shared/EmptyState';
-import { SkillsList } from '../components/skills/SkillsList';
-import { MarketplaceList } from '../components/skills/MarketplaceList';
-
-const tabEmptyMessages: Record<Exclude<SkillsTab, 'marketplace'>, { title: string; description: string }> = {
-  active: {
-    title: 'No active skills',
-    description: 'Activated skills will appear here.',
-  },
-  available: {
-    title: 'No available skills',
-    description: 'Downloaded and disabled skills will appear here.',
-  },
-  blocked: {
-    title: 'No blocked skills',
-    description: 'Quarantined skills will appear here.',
-  },
-};
-
-const tabStatusFilters: Record<Exclude<SkillsTab, 'marketplace'>, (status: string) => boolean> = {
-  active: (status) => status === 'active' || status === 'workspace',
-  available: (status) => status === 'downloaded' || status === 'disabled',
-  blocked: (status) => status === 'quarantined',
-};
-
-const validTabs: SkillsTab[] = ['active', 'available', 'blocked', 'marketplace'];
+import { SkillsEmptyState } from '../components/skills/SkillsEmptyState';
+import { UnifiedSkillCard } from '../components/skills/UnifiedSkillCard';
+import { SkillDropZone } from '../components/skills/SkillDropZone';
+import { X } from 'lucide-react';
+import {
+  skillsStore,
+  fetchInstalledSkills,
+  searchSkills,
+  clearSearch,
+  analyzeSkill,
+  installSkill,
+  uninstallSkill,
+  unblockSkill,
+  uploadSkillZip,
+  getTrustedSkills,
+  getUntrustedSkills,
+  reinstallUntrustedSkill,
+  deleteUntrustedSkill,
+  type UnifiedSkill,
+} from '../stores/skills';
+import { UntrustedSkillsSection } from '../components/skills/UntrustedSkillsSection';
+import { useGuardedAction } from '../hooks/useGuardedAction';
 
 export function Skills() {
-  const { data, isLoading } = useSkills();
+  const snap = useSnapshot(skillsStore);
+  const guard = useGuardedAction();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Read tab & search from URL
-  const tabParam = searchParams.get('tab') ?? 'active';
-  const tab: SkillsTab = validTabs.includes(tabParam as SkillsTab) ? (tabParam as SkillsTab) : 'active';
+  // Read search from URL
   const qParam = searchParams.get('q') ?? '';
 
   // Local search state for responsive input
@@ -73,90 +60,177 @@ export function Skills() {
     } else {
       next.delete('q');
     }
-    // Only update if actually changed
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
+  }, [debouncedSearch, searchParams, setSearchParams]);
+
+  // Fetch installed skills on mount
+  useEffect(() => {
+    fetchInstalledSkills();
+  }, []);
+
+  // Search when debounced value changes
+  useEffect(() => {
+    searchSkills(debouncedSearch);
   }, [debouncedSearch]);
 
-  const skills = data?.data ?? [];
+  const handleCardClick = useCallback(
+    (slug: string) => {
+      navigate(`/skills/${slug}`);
+    },
+    [navigate],
+  );
 
-  const filteredSkills = useMemo(() => {
-    if (tab === 'marketplace') return [];
-    const filterFn = tabStatusFilters[tab];
-    return skills.filter((s) => filterFn(s.status));
-  }, [skills, tab]);
+  const isSearching = debouncedSearch.length >= 2;
+  const trustedSkills = isSearching ? snap.skills : getTrustedSkills(snap.skills);
+  const untrustedSkills = isSearching ? [] : getUntrustedSkills(snap.skills);
 
-  const handleTabChange = (_: React.SyntheticEvent, val: string) => {
-    const nextTab = val as SkillsTab;
-    setSearch('');
-    setDebouncedSearch('');
-    const next = new URLSearchParams();
-    if (nextTab !== 'active') {
-      next.set('tab', nextTab);
+  const getSkillActionLabel = (skill: { actionState: string; origin: string }) => {
+    if (skill.origin === 'untrusted' && skill.actionState === 'analyzed') return 'Reinstall';
+    switch (skill.actionState) {
+      case 'not_analyzed': case 'analysis_failed': return 'Analyze';
+      case 'analyzed': return 'Install';
+      case 'installed': return 'Uninstall';
+      case 'blocked': return 'Unblock';
+      case 'untrusted': return 'Pending';
+      default: return 'Manage';
     }
-    setSearchParams(next, { replace: true });
   };
 
-  const isMarketplace = tab === 'marketplace';
+  const handleAction = useCallback(
+    (skill: (typeof snap.skills)[number]) => {
+      const label = getSkillActionLabel(skill);
+      guard(async () => {
+        if (skill.origin === 'untrusted' && skill.actionState === 'analyzed') {
+          await reinstallUntrustedSkill(skill.name);
+          return;
+        }
+        switch (skill.actionState) {
+          case 'not_analyzed':
+          case 'analysis_failed':
+            await analyzeSkill(skill.slug);
+            break;
+          case 'analyzed':
+            await installSkill(skill.slug);
+            break;
+          case 'installed':
+            await uninstallSkill(skill.name);
+            break;
+          case 'blocked':
+            await analyzeSkill(skill.slug);
+            await unblockSkill(skill.name);
+            break;
+        }
+      }, { description: `Unlock to ${label.toLowerCase()} this skill.`, actionLabel: label });
+    },
+    [guard],
+  );
+
+  const handleDelete = useCallback(
+    (skill: (typeof snap.skills)[number]) => {
+      guard(() => deleteUntrustedSkill(skill.name), {
+        description: `Unlock to permanently delete "${skill.name}".`,
+        actionLabel: 'Delete',
+      });
+    },
+    [guard],
+  );
+
+  const handleZipDrop = useCallback((file: File) => {
+    guard(() => uploadSkillZip(file), {
+      description: 'Unlock to upload a skill package.',
+      actionLabel: 'Upload Skill',
+    });
+  }, [guard]);
+
+  const hasSkills = trustedSkills.length > 0 || untrustedSkills.length > 0;
+  const showEmpty = !hasSkills && !snap.searchLoading && !snap.installedLoading;
 
   return (
     <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       <PageHeader
         title="Skills"
-        description="Manage and inspect skills loaded from various sources."
+        description="Manage, discover, and analyze agent skills."
       />
-
-      <Tabs
-        value={tab}
-        onChange={handleTabChange}
-        variant="scrollable"
-        scrollButtons={false}
-        sx={{ mt: -2, mb: 2, '& .MuiTab-root': { textTransform: 'none' } }}
-      >
-        <Tab label="Active" value="active" />
-        <Tab label="Available" value="available" />
-        <Tab label="Blocked" value="blocked" />
-        <Tab label="Marketplace" value="marketplace" />
-      </Tabs>
 
       <Box sx={{ mb: 3 }}>
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder={isMarketplace ? 'Search the global internet...' : 'Search skills...'}
+          placeholder="Search skills..."
+          loading={snap.searchLoading}
         />
+        {search.length > 0 && (
+          <Typography
+            variant="caption"
+            component="button"
+            onClick={() => { setSearch(''); clearSearch(); }}
+            sx={{
+              mt: 0.75,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 0.5,
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              color: 'text.secondary',
+              '&:hover': { color: 'text.primary' },
+            }}
+          >
+            <X size={12} />
+            Clear search
+          </Typography>
+        )}
       </Box>
 
-      <Card>
-        <CardContent sx={{ p: 1 }}>
-          {isMarketplace ? (
-            <MarketplaceList
-              search={debouncedSearch}
-              onSelect={(slug) => navigate(`/skills/${slug}`)}
-            />
-          ) : isLoading ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 2 }}>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} variant="rectangular" height={52} sx={{ borderRadius: 1 }} />
-              ))}
-            </Box>
-          ) : filteredSkills.length === 0 ? (
-            <EmptyState
-              icon={<Zap size={28} />}
-              title={tabEmptyMessages[tab as Exclude<SkillsTab, 'marketplace'>]?.title ?? 'No skills found'}
-              description={tabEmptyMessages[tab as Exclude<SkillsTab, 'marketplace'>]?.description ?? 'Skills will appear here once they are discovered.'}
-            />
-          ) : (
-            <SkillsList
-              skills={filteredSkills}
-              search={search}
-              statusFilter="all"
-              onSelect={(name) => navigate(`/skills/${name}`)}
-            />
-          )}
-        </CardContent>
-      </Card>
+      <SkillDropZone onDrop={handleZipDrop}>
+        {showEmpty ? (
+          <SkillsEmptyState />
+        ) : (
+          <>
+            <Grid
+              container
+              spacing={2}
+              sx={{
+                opacity: snap.searchLoading ? 0.45 : 1,
+                pointerEvents: snap.searchLoading ? 'none' : 'auto',
+                transition: 'opacity 200ms',
+              }}
+            >
+              {snap.searchLoading && !hasSkills
+                ? Array.from({ length: 4 }).map((_, i) => (
+                    <Grid key={i} size={{ xs: 12, md: 6 }}>
+                      <Skeleton
+                        variant="rectangular"
+                        height={160}
+                        sx={{ borderRadius: 2 }}
+                      />
+                    </Grid>
+                  ))
+                : trustedSkills.map((skill) => (
+                    <Grid key={skill.slug} size={{ xs: 12, md: 6 }}>
+                      <UnifiedSkillCard
+                        skill={skill as Parameters<typeof UnifiedSkillCard>[0]['skill']}
+                        onClick={() => handleCardClick(skill.slug)}
+                        onAction={() => handleAction(skill)}
+                      />
+                    </Grid>
+                  ))}
+            </Grid>
+
+            {!isSearching && (
+              <UntrustedSkillsSection
+                skills={untrustedSkills}
+                onCardClick={handleCardClick}
+                onAction={(skill) => handleAction(skill as (typeof snap.skills)[number])}
+                onDelete={(skill) => handleDelete(skill as (typeof snap.skills)[number])}
+              />
+            )}
+          </>
+        )}
+      </SkillDropZone>
     </Box>
   );
 }

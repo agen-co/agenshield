@@ -27,7 +27,7 @@ import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
 import { EmptyState } from '../components/shared/EmptyState';
-import { useAuth } from '../context/AuthContext';
+import { useGuardedAction } from '../hooks/useGuardedAction';
 import { getEventDisplay, resolveEventColor, EVENT_DISPLAY } from '../utils/eventDisplay';
 
 type TimeFilter = 'all' | '1h' | '6h' | '24h' | '7d';
@@ -94,7 +94,7 @@ const EXPANDED_HEIGHT = 352;
 
 export function Activity() {
   const theme = useTheme();
-  const { isReadOnly } = useAuth();
+  const guard = useGuardedAction();
   const { events } = useSnapshot(eventStore);
   const [search, setSearch] = useState('');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
@@ -158,13 +158,13 @@ export function Activity() {
         title="Activity"
         description="View real-time event history from the daemon."
         action={
-          !isReadOnly && events.length > 0 ? (
+          events.length > 0 ? (
             <Button
               size="small"
               variant="outlined"
               color="secondary"
               startIcon={<Trash2 size={14} />}
-              onClick={() => clearEvents()}
+              onClick={() => guard(() => clearEvents(), { description: 'Unlock to clear activity history.', actionLabel: 'Clear' })}
             >
               Clear
             </Button>

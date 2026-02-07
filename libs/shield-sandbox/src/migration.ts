@@ -1,13 +1,15 @@
 /**
  * File migration utilities for OpenClaw isolation
  *
- * Handles moving OpenClaw installation files from the original
- * user to the sandboxed user.
+ * Copies OpenClaw installation files from the original user to the
+ * sandboxed user. IMPORTANT: This module never modifies the original
+ * source directory — all operations are read + copy only.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
+import type { MigrationSelection } from '@agenshield/ipc';
 import type { SandboxUser, DirectoryStructure } from './types';
 
 export interface MigrationSource {
@@ -21,6 +23,8 @@ export interface MigrationSource {
   configPath?: string;
   /** Path to the git repo (for git installs) */
   gitRepoPath?: string;
+  /** User's selection of items to migrate */
+  selection?: MigrationSelection;
 }
 
 export interface MigrationResult {
@@ -116,7 +120,9 @@ exec "\${AGENT_BIN}/node" "${entryPath}" "$@"
 }
 
 /**
- * Migrate npm-based OpenClaw installation to sandbox user
+ * Migrate npm-based OpenClaw installation to sandbox user.
+ * Copies the package and builds a clean config from the user's selection.
+ * NEVER modifies the original source directory.
  */
 export function migrateNpmInstall(
   source: MigrationSource,
@@ -129,24 +135,8 @@ export function migrateNpmInstall(
     return { success: false, error: `Failed to copy package: ${result.error}` };
   }
 
-  // Copy config if exists (but without secrets)
-  if (source.configPath && fs.existsSync(source.configPath)) {
-    result = sudoCopyDir(source.configPath, dirs.configDir);
-    if (!result.success) {
-      return { success: false, error: `Failed to copy config: ${result.error}` };
-    }
-
-    // Remove any secrets files from the copied config
-    sudoExec(`rm -f "${dirs.configDir}/secrets.json" 2>/dev/null`);
-    sudoExec(`rm -f "${dirs.configDir}/.env" 2>/dev/null`);
-    sudoExec(`rm -f "${dirs.configDir}/credentials.json" 2>/dev/null`);
-
-    // Remove skills/ — skills must go through quarantine/approval system
-    sudoExec(`rm -rf "${dirs.configDir}/skills" 2>/dev/null`);
-
-    // Ensure skill watcher is always enabled in the migrated config
-    injectSkillWatcherSetting(dirs.configDir);
-  }
+  // Copy entire .openclaw dir and sanitize config (strip skill secrets)
+  copyConfigAndSanitize(source, dirs);
 
   // Set ownership of all copied files
   result = sudoExec(`chown -R ${user.username}:${user.gid} "${dirs.packageDir}"`);
@@ -178,7 +168,9 @@ export function migrateNpmInstall(
 }
 
 /**
- * Migrate git-based OpenClaw installation to sandbox user
+ * Migrate git-based OpenClaw installation to sandbox user.
+ * Copies the repo and builds a clean config from the user's selection.
+ * NEVER modifies the original source directory.
  */
 export function migrateGitInstall(
   source: MigrationSource,
@@ -193,24 +185,8 @@ export function migrateGitInstall(
     return { success: false, error: `Failed to copy repo: ${result.error}` };
   }
 
-  // Copy config if exists (but without secrets)
-  if (source.configPath && fs.existsSync(source.configPath)) {
-    result = sudoCopyDir(source.configPath, dirs.configDir);
-    if (!result.success) {
-      return { success: false, error: `Failed to copy config: ${result.error}` };
-    }
-
-    // Remove any secrets files from the copied config
-    sudoExec(`rm -f "${dirs.configDir}/secrets.json" 2>/dev/null`);
-    sudoExec(`rm -f "${dirs.configDir}/.env" 2>/dev/null`);
-    sudoExec(`rm -f "${dirs.configDir}/credentials.json" 2>/dev/null`);
-
-    // Remove skills/ — skills must go through quarantine/approval system
-    sudoExec(`rm -rf "${dirs.configDir}/skills" 2>/dev/null`);
-
-    // Ensure skill watcher is always enabled in the migrated config
-    injectSkillWatcherSetting(dirs.configDir);
-  }
+  // Copy entire .openclaw dir and sanitize config (strip skill secrets)
+  copyConfigAndSanitize(source, dirs);
 
   // Set ownership of all copied files
   result = sudoExec(`chown -R ${user.username}:${user.gid} "${dirs.packageDir}"`);
@@ -242,7 +218,8 @@ export function migrateGitInstall(
 }
 
 /**
- * Migrate OpenClaw installation to sandbox user
+ * Migrate OpenClaw installation to sandbox user.
+ * Source is a MigrationSource which may include a selection of items to migrate.
  */
 export function migrateOpenClaw(
   source: MigrationSource,
@@ -257,25 +234,66 @@ export function migrateOpenClaw(
 }
 
 /**
- * Inject skillWatcher setting into a migrated config directory.
- * Writes to settings.json inside the config dir.
+ * Sanitize an OpenClaw config by stripping skill-related secrets.
+ * Removes `env` and `apiKey` from each skill entry (those go to the vault).
+ * Enables the skill watcher. Returns a new object — does NOT mutate the input.
  */
-function injectSkillWatcherSetting(configDir: string): void {
-  const settingsPath = path.join(configDir, 'settings.json');
-  let settings: Record<string, unknown> = {};
-  try {
-    if (fs.existsSync(settingsPath)) {
-      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+export function sanitizeOpenClawConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = JSON.parse(JSON.stringify(config));
+
+  const skills = sanitized['skills'] as
+    | { entries?: Record<string, Record<string, unknown>>; [k: string]: unknown }
+    | undefined;
+
+  if (skills?.entries) {
+    for (const entry of Object.values(skills.entries)) {
+      delete entry['env'];
+      delete entry['apiKey'];
     }
-  } catch {
-    // Start fresh if unreadable
-    settings = {};
   }
-  settings.skillWatcher = { enabled: true };
+
+  const settings = (sanitized['settings'] ?? {}) as Record<string, unknown>;
+  sanitized['settings'] = { ...settings, skillWatcher: { enabled: true } };
+
+  return sanitized;
+}
+
+/**
+ * Copy the entire .openclaw directory to the sandbox, then sanitize the config
+ * to strip skill-related secrets (env vars and apiKeys go to the vault).
+ * Preserves everything else: workspace, credentials, extensions, agents, etc.
+ */
+function copyConfigAndSanitize(source: MigrationSource, dirs: DirectoryStructure): void {
+  sudoExec(`mkdir -p "${dirs.configDir}"`);
+
+  if (!source.configPath) {
+    sudoExec(`mkdir -p "${path.join(dirs.configDir, 'skills')}"`);
+    return;
+  }
+
+  // 1. Bulk-copy entire .openclaw directory
+  sudoCopyDir(source.configPath, dirs.configDir);
+
+  // 2. Read the ORIGINAL config (readable without sudo) and sanitize
+  const sourceConfigPath = path.join(source.configPath, 'openclaw.json');
+  if (!fs.existsSync(sourceConfigPath)) return;
+
+  let config: Record<string, unknown>;
   try {
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    config = JSON.parse(fs.readFileSync(sourceConfigPath, 'utf-8'));
   } catch {
-    // Best-effort — may fail if dir is not writable yet
+    return;
+  }
+
+  // 3. Sanitize and write back
+  const sanitized = sanitizeOpenClawConfig(config);
+  const destConfigPath = path.join(dirs.configDir, 'openclaw.json');
+  const tempPath = '/tmp/openclaw-clean-config.json';
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(sanitized, null, 2));
+    sudoExec(`mv "${tempPath}" "${destConfigPath}"`);
+  } catch {
+    // Best-effort
   }
 }
 

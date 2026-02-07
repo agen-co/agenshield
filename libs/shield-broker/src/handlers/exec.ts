@@ -186,12 +186,24 @@ export async function handleExec(
       ? Math.max(timeout, 300000)  // 5 min minimum for downloads
       : timeout;
 
+    // Resolve secrets to inject as environment variables
+    const secretEnv = deps.secretResolver?.getSecretsForExec(
+      commandBasename,
+      args as string[]
+    ) ?? {};
+    const injectedSecretNames = Object.keys(secretEnv);
+
+    // Merge: caller env as base + daemon secrets on top (secrets take priority)
+    const mergedEnv = injectedSecretNames.length > 0
+      ? { ...(env || {}), ...secretEnv }
+      : env;
+
     // Execute command with resolved absolute path and shell: false forced
     const result = await executeCommand({
       command: resolvedCommand,
       args,
       cwd: effectiveCwd,
-      env,
+      env: mergedEnv,
       timeout: effectiveTimeout,
       shell: false, // Always force shell: false to prevent injection
     });
@@ -207,6 +219,7 @@ export async function handleExec(
       allowed: true,
       duration,
       timestamp: new Date().toISOString(),
+      injectedSecretNames: injectedSecretNames.length > 0 ? injectedSecretNames : undefined,
     });
 
     return {

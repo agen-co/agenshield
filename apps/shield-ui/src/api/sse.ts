@@ -38,6 +38,8 @@ export function createSSEClient(
     'exec:denied',
     'skills:quarantined',
     'skills:approved',
+    'skills:analyzed',
+    'skills:analysis_failed',
     'skills:installed',
     'skills:install_failed',
     'skills:install_started',
@@ -58,6 +60,7 @@ export function createSSEClient(
     'process:started',
     'process:stopped',
     'interceptor:event',
+    'daemon:status',
   ];
 
   function connect() {

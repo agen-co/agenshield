@@ -112,7 +112,7 @@ export function Sidebar({
         {menuItems.map((item) => (
           <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
             <ListItemButton
-              selected={location.pathname === item.path}
+              selected={item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)}
               onClick={() => handleNavigation(item.path)}
               sx={{
                 px: 1,

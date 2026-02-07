@@ -16,3 +16,4 @@ export * from './auth';
 export * from './discovery';
 export * from './catalog';
 export * from './marketplace';
+export * from './migration';

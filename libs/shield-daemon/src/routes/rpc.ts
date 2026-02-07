@@ -38,6 +38,36 @@ function globToRegex(pattern: string): RegExp {
 }
 
 /**
+ * Match a command target against a Claude Code-style command pattern.
+ *
+ * Semantics:
+ * - `git`         → exact match only "git" (no args)
+ * - `git:*`       → matches "git" or "git <anything>"
+ * - `git push`    → exact match "git push" only
+ * - `git push:*`  → matches "git push" or "git push <anything>"
+ * - `*`           → wildcard, matches any command
+ *
+ * No ** or ? glob syntax for commands.
+ */
+function matchCommandPattern(pattern: string, target: string): boolean {
+  const trimmed = pattern.trim();
+
+  // Wildcard: matches everything
+  if (trimmed === '*') return true;
+
+  // Claude Code-style: ":*" suffix = prefix match with optional args
+  if (trimmed.endsWith(':*')) {
+    const prefix = trimmed.slice(0, -2);
+    const lowerTarget = target.toLowerCase();
+    const lowerPrefix = prefix.toLowerCase();
+    return lowerTarget === lowerPrefix || lowerTarget.startsWith(lowerPrefix + ' ');
+  }
+
+  // No ":*" = exact match (case-insensitive)
+  return target.toLowerCase() === trimmed.toLowerCase();
+}
+
+/**
  * Normalize a URL pattern base:
  * - Strip trailing slashes
  * - If pattern is a bare domain (no protocol), prefix with https:// (HTTP is blocked by default)
@@ -194,6 +224,8 @@ function evaluatePolicyCheck(
       let matches: boolean;
       if (targetType === 'url') {
         matches = matchUrlPattern(pattern, effectiveTarget);
+      } else if (targetType === 'command') {
+        matches = matchCommandPattern(pattern, effectiveTarget);
       } else {
         const regex = globToRegex(pattern);
         matches = regex.test(effectiveTarget);

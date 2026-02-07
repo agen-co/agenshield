@@ -11,7 +11,7 @@ import { registerRoutes } from './routes/index';
 import { getUiAssetsPath } from './static';
 import { startSecurityWatcher, stopSecurityWatcher } from './watchers/security';
 import { startSkillsWatcher, stopSkillsWatcher } from './watchers/skills';
-import { emitSkillQuarantined, emitSkillApproved } from './events/emitter';
+import { emitSkillUntrustedDetected, emitSkillApproved } from './events/emitter';
 import { getVault } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
 import { getActivityLog } from './services/activity-log';
@@ -78,7 +78,7 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   }
 
   startSkillsWatcher(skillsDir, {
-    onQuarantined: (info) => emitSkillQuarantined(info.name, info.reason),
+    onUntrustedDetected: (info) => emitSkillUntrustedDetected(info.name, info.reason),
     onApproved: (name) => emitSkillApproved(name),
   }, 30000); // Check every 30 seconds
 
@@ -95,6 +95,10 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     const st = loadState();
     syncCommandPoliciesAndWrappers(cfg.policies, st, app.log);
     app.log.info('[startup] boot-time command-sync completed');
+
+    const { syncSecrets } = await import('./secret-sync.js');
+    await syncSecrets(cfg.policies, app.log);
+    app.log.info('[startup] boot-time secret-sync completed');
   } catch (err) {
     app.log.warn(`[startup] boot-time command-sync failed: ${(err as Error).message}`);
   }

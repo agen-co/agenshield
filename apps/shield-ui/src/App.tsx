@@ -3,9 +3,9 @@
  */
 
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { useSnapshot } from 'valtio';
 import { lightTheme, darkTheme } from './theme';
 import { Layout } from './components/layout/Layout';
@@ -18,6 +18,7 @@ import { Settings } from './pages/Settings';
 import { Integrations } from './pages/Integrations';
 import { Activity } from './pages/Activity';
 import { AuthProvider } from './context/AuthContext';
+import { UnlockProvider } from './context/UnlockContext';
 import { LockBanner } from './components/LockBanner';
 import { PageTransition } from './components/layout/PageTransition';
 import { PasscodeDialog } from './components/PasscodeDialog';
@@ -27,15 +28,8 @@ import { useSSE } from './hooks/useSSE';
 import { setupStore } from './state/setup';
 import { SetupWizard } from './pages/Setup';
 import { NotFound } from './pages/NotFound';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      staleTime: 5000,
-    },
-  },
-});
+import { Notifications } from './components/shared/Notifications';
+import { queryClient } from './api/query-client';
 
 /**
  * Inner app that has access to auth context
@@ -119,7 +113,8 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
         <PageTransition>
           <Routes>
             <Route path="/" element={<Overview />} />
-            <Route path="/policies" element={<Policies />} />
+            <Route path="/policies" element={<Navigate to="/policies/commands" replace />} />
+            <Route path="/policies/:tab" element={<Policies />} />
             <Route path="/skills" element={<Skills />} />
             <Route path="/skills/:slug" element={<SkillPage />} />
             <Route path="/secrets" element={<Secrets />} />
@@ -151,8 +146,11 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
+        <Notifications />
         <AuthProvider>
-          <AppContent darkMode={darkMode} onToggleDarkMode={toggleDarkMode} />
+          <UnlockProvider>
+            <AppContent darkMode={darkMode} onToggleDarkMode={toggleDarkMode} />
+          </UnlockProvider>
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

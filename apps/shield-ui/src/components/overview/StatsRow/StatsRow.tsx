@@ -9,7 +9,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { StatCard } from '../../shared/Card';
 import { Root } from './StatsRow.styles';
-import type { GetStatusResponse, GetConfigResponse } from '@agenshield/ipc';
+import type { DaemonStatus, GetConfigResponse } from '@agenshield/ipc';
 import type { SecurityStatus } from '../../../api/client';
 
 function formatUptime(seconds: number): string {
@@ -26,7 +26,7 @@ function formatUptime(seconds: number): string {
 }
 
 interface StatsRowProps {
-  status?: GetStatusResponse;
+  status?: { data: DaemonStatus };
   config?: GetConfigResponse;
   security?: { data: SecurityStatus };
   statusLoading: boolean;

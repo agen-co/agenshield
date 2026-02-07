@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
+import type { MigrationScanResult, MigrationSelection } from '@agenshield/ipc';
 import { setupStore, type SetupPhase } from '../state/setup';
 import type { ExecutableInfo } from '../state/setup';
 
@@ -72,6 +73,15 @@ export const setupApi = {
       success: boolean;
       data: { installed: boolean; preset: string; version?: string };
     }>('/setup/install-target', { method: 'POST', body: JSON.stringify({}) }),
+
+  getScanResult: () =>
+    setupRequest<{ success: boolean; data: MigrationScanResult }>('/setup/scan-result'),
+
+  selectItems: (selection: MigrationSelection) =>
+    setupRequest<{ success: boolean; data: { started: boolean } }>('/setup/select-items', {
+      method: 'POST',
+      body: JSON.stringify(selection),
+    }),
 };
 
 // --- React Query hooks ---
@@ -113,6 +123,21 @@ export function useSetPasscode() {
 export function useInstallTarget() {
   return useMutation({
     mutationFn: () => setupApi.installTarget(),
+  });
+}
+
+export function useScanResult() {
+  return useQuery({
+    queryKey: ['setup', 'scan-result'],
+    queryFn: setupApi.getScanResult,
+    enabled: setupStore.phase === 'selection',
+    staleTime: Infinity,
+  });
+}
+
+export function useSelectItems() {
+  return useMutation({
+    mutationFn: (selection: MigrationSelection) => setupApi.selectItems(selection),
   });
 }
 
@@ -179,7 +204,31 @@ export function useSetupSSE() {
       }
     };
 
+    const handleScanComplete = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        setupStore.phase = 'selection';
+        if (data.scanResult) {
+          setupStore.scanResult = data.scanResult;
+        }
+        if (data.state) {
+          setupStore.wizardState = data.state;
+          if (data.state.steps) {
+            setupStore.completedEngineSteps = data.state.steps
+              .filter((s: { status: string }) => s.status === 'completed')
+              .map((s: { id: string }) => s.id);
+          }
+        }
+        if (data.context) {
+          setupStore.context = data.context;
+        }
+      } catch {
+        // ignore
+      }
+    };
+
     es.addEventListener('setup:state_change', handleStateChange);
+    es.addEventListener('setup:scan_complete', handleScanComplete);
     es.addEventListener('setup:complete', handleComplete);
     es.addEventListener('setup:error', handleError);
 

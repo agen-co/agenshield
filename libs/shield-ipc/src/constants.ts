@@ -30,6 +30,9 @@ export const STATE_FILE = 'state.json';
 /** Encrypted vault file name */
 export const VAULT_FILE = 'vault.enc';
 
+/** Synced secrets file name (daemon -> broker) */
+export const SYNCED_SECRETS_FILE = 'synced-secrets.json';
+
 /** AgenCo subdirectory */
 export const AGENCO_DIR = 'agenco';
 

@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { PolicyConfig, SystemState } from '@agenshield/ipc';
 import { PROXIED_COMMANDS, BASIC_SYSTEM_COMMANDS } from '@agenshield/sandbox';
+import { getSystemConfigDir } from './config/paths';
 
 interface Logger {
   warn(msg: string, ...args: unknown[]): void;
@@ -25,8 +26,10 @@ interface Logger {
 
 const noop: Logger = { warn() { /* no-op */ }, info() { /* no-op */ } };
 
-/** Broker's dynamic allowlist file */
-const ALLOWED_COMMANDS_PATH = '/opt/agenshield/config/allowed-commands.json';
+/** Broker's dynamic allowlist file (dev-aware) */
+function getAllowedCommandsPath(): string {
+  return path.join(getSystemConfigDir(), 'allowed-commands.json');
+}
 
 /** Standard directories to search for real binaries */
 const BIN_SEARCH_DIRS = [
@@ -110,7 +113,12 @@ function resolveCommandPaths(name: string): string[] {
  *   - "curl https://*" → "curl"
  */
 function extractCommandName(pattern: string): string {
-  return pattern.trim().split(/\s+/)[0];
+  let name = pattern.trim();
+  // Strip :* suffix before extracting base command
+  if (name.endsWith(':*')) {
+    name = name.slice(0, -2);
+  }
+  return name.split(/\s+/)[0];
 }
 
 /**
@@ -181,14 +189,14 @@ export function syncCommandPolicies(
   const json = JSON.stringify(config, null, 2) + '\n';
 
   try {
-    const dir = path.dirname(ALLOWED_COMMANDS_PATH);
+    const dir = path.dirname(getAllowedCommandsPath());
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(ALLOWED_COMMANDS_PATH, json, 'utf-8');
+    fs.writeFileSync(getAllowedCommandsPath(), json, 'utf-8');
     log.info(`[command-sync] wrote ${commands.length} commands to allowlist`);
   } catch {
-    log.warn(`[command-sync] cannot write to ${ALLOWED_COMMANDS_PATH} (broker forwards to daemon for policy checks)`);
+    log.warn(`[command-sync] cannot write to ${getAllowedCommandsPath()} (broker forwards to daemon for policy checks)`);
   }
 }
 
