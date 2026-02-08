@@ -51,111 +51,6 @@ function sudoExec(cmd: string): { success: boolean; output?: string; error?: str
   }
 }
 
-/**
- * Sanitize an OpenClaw config object — strip secrets and rewrite paths.
- *
- * - Strips env and apiKey from skill entries (AgenShield manages those via vault)
- * - Rewrites workspace paths from original user's home to agent user's workspace
- */
-function sanitizeOpenClawConfig(
-  config: Record<string, unknown>,
-  originalHome: string,
-  agentHome: string,
-): Record<string, unknown> {
-  const agentWorkspace = `${agentHome}/workspace`;
-
-  // Deep-clone and do string replacement of all path references
-  let configStr = JSON.stringify(config);
-  // Replace original user's .openclaw workspace references with agent workspace
-  configStr = configStr.replaceAll(`${originalHome}/.openclaw`, agentWorkspace);
-  // Replace any other references to original user's home with agent home
-  configStr = configStr.replaceAll(originalHome, agentHome);
-
-  const sanitized = JSON.parse(configStr) as Record<string, unknown>;
-
-  // Strip env and apiKey from all skill entries
-  // (AgenShield manages secrets via its own vault)
-  const skills = (sanitized['skills'] ?? {}) as Record<string, unknown>;
-  const entries = (skills['entries'] ?? {}) as Record<string, Record<string, unknown>>;
-  for (const entry of Object.values(entries)) {
-    if (entry && typeof entry === 'object') {
-      delete entry['env'];
-      delete entry['apiKey'];
-    }
-  }
-
-  return sanitized;
-}
-
-/** MIME type prefixes that indicate binary files — skip these during path rewriting */
-const BINARY_MIME_PREFIXES = [
-  'image/',
-  'audio/',
-  'video/',
-  'application/octet-stream',
-  'application/x-sqlite',
-  'application/gzip',
-  'application/zip',
-  'application/x-mach-binary',
-  'application/x-executable',
-];
-
-/**
- * Recursively rewrite path references in all text files inside a directory.
- *
- * Applies two replacements in order (more specific first):
- * 1. `{originalHome}/.openclaw/workspace` → `{agentHome}/workspace`
- * 2. `{originalHome}` → `{agentHome}`
- *
- * Skips binary files. Only writes back files that actually changed.
- * Returns count of files modified.
- */
-function rewritePathsInDirectory(
-  dir: string,
-  originalHome: string,
-  agentHome: string,
-  log: (msg: string) => void,
-): number {
-  if (!fs.existsSync(dir)) return 0;
-
-  // Get all files recursively
-  const findResult = sudoExec(`find "${dir}" -type f`);
-  if (!findResult.success || !findResult.output) return 0;
-
-  const files = findResult.output.split('\n').filter(Boolean);
-  let modified = 0;
-
-  for (const filePath of files) {
-    // Check MIME type to skip binaries
-    const mimeResult = sudoExec(`file --mime-type -b "${filePath}"`);
-    if (!mimeResult.success || !mimeResult.output) continue;
-    const mime = mimeResult.output.trim();
-    if (BINARY_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix))) continue;
-
-    // Read file content
-    const readResult = sudoExec(`cat "${filePath}"`);
-    if (!readResult.success || readResult.output === undefined) continue;
-    const content = readResult.output;
-
-    // Apply replacements (specific first, then general)
-    let updated = content;
-    updated = updated.replaceAll(`${originalHome}/.openclaw/workspace`, `${agentHome}/workspace`);
-    updated = updated.replaceAll(`${originalHome}/.openclaw`, `${agentHome}/.openclaw`);
-    updated = updated.replaceAll(originalHome, agentHome);
-
-    // Only write back if changed
-    if (updated !== content) {
-      const tmpFile = path.join(os.tmpdir(), `agenshield-rewrite-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-      fs.writeFileSync(tmpFile, updated);
-      sudoExec(`mv "${tmpFile}" "${filePath}"`);
-      modified++;
-      log(`Rewrote paths in ${filePath}`);
-    }
-  }
-
-  return modified;
-}
-
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -269,10 +164,9 @@ export async function installAgentOpenClaw(options: {
 /**
  * Copy the host user's .openclaw config directory to the agent user.
  *
- * - Bulk-copies the entire .openclaw directory
- * - Moves workspace from .openclaw/workspace to {agentHome}/workspace
- * - Sanitizes the config (strips secrets, rewrites paths)
- * - Sets correct ownership for agent user (agent runs the OpenClaw processes)
+ * Does a full faithful copy using `cp -a` (archive mode) so the entire
+ * directory tree is preserved exactly as-is. Then sets ownership to the
+ * agent user. The host user's original .openclaw is never modified.
  */
 export function copyOpenClawConfig(options: {
   /** Path to the host user's .openclaw directory (e.g., /Users/david/.openclaw) */
@@ -287,25 +181,14 @@ export function copyOpenClawConfig(options: {
 }): OpenClawConfigCopyResult {
   const { sourceConfigPath, agentHome, agentUsername, socketGroup, verbose } = options;
   const targetConfigDir = path.join(agentHome, '.openclaw');
-  const targetWorkspaceDir = path.join(agentHome, 'workspace');
   const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
 
-  // Derive original user's home from source config path (e.g., /Users/david from /Users/david/.openclaw)
-  const originalHome = path.dirname(sourceConfigPath);
-
   try {
-    // 1. Create target directories
-    log(`Creating target config directory: ${targetConfigDir}`);
-    sudoExec(`mkdir -p "${targetConfigDir}"`);
-    sudoExec(`mkdir -p "${targetWorkspaceDir}"`);
-
     if (!fs.existsSync(sourceConfigPath)) {
-      log('Source config path does not exist, creating empty config');
+      log('Source config path does not exist, creating empty .openclaw');
       sudoExec(`mkdir -p "${path.join(targetConfigDir, 'skills')}"`);
       sudoExec(`chown -R ${agentUsername}:${socketGroup} "${targetConfigDir}"`);
-      sudoExec(`chown -R ${agentUsername}:${socketGroup} "${targetWorkspaceDir}"`);
       sudoExec(`chmod 2775 "${targetConfigDir}"`);
-      sudoExec(`chmod 2775 "${targetWorkspaceDir}"`);
       return {
         success: true,
         configDir: targetConfigDir,
@@ -314,61 +197,51 @@ export function copyOpenClawConfig(options: {
       };
     }
 
-    // 2. Bulk-copy entire .openclaw directory
-    log(`Copying ${sourceConfigPath} to ${targetConfigDir}`);
-    sudoExec(`cp -R "${sourceConfigPath}/." "${targetConfigDir}/"`);
-
-    // 3. Move workspace from .openclaw/workspace to {agentHome}/workspace
-    const sourceWorkspaceDir = path.join(sourceConfigPath, 'workspace');
-    if (fs.existsSync(sourceWorkspaceDir)) {
-      log(`Moving workspace from ${sourceWorkspaceDir} to ${targetWorkspaceDir}`);
-      sudoExec(`cp -R "${sourceWorkspaceDir}/." "${targetWorkspaceDir}/"`);
-    }
-    // Also move the copied workspace out of .openclaw if it ended up there
-    const copiedWorkspaceInConfig = path.join(targetConfigDir, 'workspace');
-    if (fs.existsSync(copiedWorkspaceInConfig)) {
-      log(`Moving workspace out of .openclaw to ${targetWorkspaceDir}`);
-      sudoExec(`cp -R "${copiedWorkspaceInConfig}/." "${targetWorkspaceDir}/"`);
-      sudoExec(`rm -rf "${copiedWorkspaceInConfig}"`);
+    // Remove target if it already exists (e.g. created by create-directories step)
+    // so cp -a can do a clean archive copy
+    if (fs.existsSync(targetConfigDir)) {
+      sudoExec(`rm -rf "${targetConfigDir}"`);
     }
 
-    // 4. Read the ORIGINAL config and sanitize (rewrite paths + strip secrets)
-    let sanitized = false;
-    const sourceJsonPath = path.join(sourceConfigPath, 'openclaw.json');
-    if (fs.existsSync(sourceJsonPath)) {
-      log('Sanitizing openclaw.json (stripping secrets, rewriting paths)');
-      try {
-        const config = JSON.parse(fs.readFileSync(sourceJsonPath, 'utf-8'));
-        const sanitizedConfig = sanitizeOpenClawConfig(config, originalHome, agentHome);
-        const destJsonPath = path.join(targetConfigDir, 'openclaw.json');
-        const tempPath = '/tmp/openclaw-clean-config.json';
-        fs.writeFileSync(tempPath, JSON.stringify(sanitizedConfig, null, 2));
-        sudoExec(`mv "${tempPath}" "${destJsonPath}"`);
-        sanitized = true;
-      } catch (err) {
-        log(`Warning: failed to sanitize config: ${err}`);
-      }
+    // Full archive copy — preserves everything (symlinks, permissions, timestamps)
+    // The host's original directory is only read, never modified.
+    log(`Copying ${sourceConfigPath} → ${targetConfigDir}`);
+    const cpResult = sudoExec(`cp -a "${sourceConfigPath}" "${targetConfigDir}"`);
+    if (!cpResult.success) {
+      return {
+        success: false,
+        configDir: targetConfigDir,
+        sanitized: false,
+        message: `cp -a failed: ${cpResult.error}`,
+      };
     }
 
-    // 5. Rewrite paths in ALL text files inside .openclaw and workspace
-    //    Handles session files, scripts, and any other files with hardcoded paths
-    log('Rewriting paths in all text files inside .openclaw and workspace');
-    const configRewritten = rewritePathsInDirectory(targetConfigDir, originalHome, agentHome, log);
-    const workspaceRewritten = rewritePathsInDirectory(targetWorkspaceDir, originalHome, agentHome, log);
-    log(`Rewrote paths in ${configRewritten + workspaceRewritten} files`);
-
-    // 6. Set correct ownership — agent user owns both .openclaw and workspace
+    // Set ownership to agent user
     log(`Setting ownership: ${agentUsername}:${socketGroup}`);
     sudoExec(`chown -R ${agentUsername}:${socketGroup} "${targetConfigDir}"`);
-    sudoExec(`chown -R ${agentUsername}:${socketGroup} "${targetWorkspaceDir}"`);
+
+    // Rewrite paths in all text files: replace original user's home with agent home
+    // Derive original home from sourceConfigPath (e.g., /Users/david/.openclaw → /Users/david)
+    const originalHome = path.dirname(sourceConfigPath);
+    if (originalHome !== agentHome) {
+      log(`Rewriting paths: ${originalHome} → ${agentHome}`);
+      // Use find + sed to replace all occurrences in text files
+      // sed -i '' is macOS in-place edit; | delimiter avoids escaping /
+      sudoExec(
+        `find "${targetConfigDir}" -type f -exec sed -i '' "s|${originalHome}|${agentHome}|g" {} +`,
+      );
+    }
+
+    // Ensure skills/ subdirectory exists (source may not have had one)
+    sudoExec(`mkdir -p "${path.join(targetConfigDir, 'skills')}"`);
+
     sudoExec(`chmod 2775 "${targetConfigDir}"`);
-    sudoExec(`chmod 2775 "${targetWorkspaceDir}"`);
 
     return {
       success: true,
       configDir: targetConfigDir,
-      sanitized,
-      message: `Copied .openclaw config to ${targetConfigDir}, workspace to ${targetWorkspaceDir}`,
+      sanitized: originalHome !== agentHome,
+      message: `Copied .openclaw config to ${targetConfigDir}${originalHome !== agentHome ? ' (paths rewritten)' : ''}`,
     };
   } catch (error) {
     return {
@@ -591,9 +464,10 @@ export async function onboardAgentOpenClaw(options: {
 export async function startAgentOpenClawGateway(options: {
   agentHome: string;
   agentUsername: string;
+  socketGroupName: string;
   verbose?: boolean;
 }): Promise<{ success: boolean; pid?: number; message: string }> {
-  const { agentHome, agentUsername, verbose } = options;
+  const { agentHome, agentUsername, socketGroupName, verbose } = options;
   const nvmDir = `${agentHome}/.nvm`;
   const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
 
@@ -606,10 +480,11 @@ export async function startAgentOpenClawGateway(options: {
 
   log('Starting openclaw gateway run in background');
   try {
-    // Ensure log directory and files exist
+    // Ensure log directory and files exist with correct ownership + permissions
     sudoExec('mkdir -p /var/log/agenshield');
     sudoExec(`touch /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
-    sudoExec(`chown ${agentUsername} /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
+    sudoExec(`chown ${agentUsername}:${socketGroupName} /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
+    sudoExec(`chmod 666 /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
 
     const outLog = fs.openSync('/var/log/agenshield/openclaw-gateway.log', 'a');
     const errLog = fs.openSync('/var/log/agenshield/openclaw-gateway.error.log', 'a');
@@ -659,9 +534,10 @@ export async function startAgentOpenClawGateway(options: {
 export async function startAgentOpenClawDashboard(options: {
   agentHome: string;
   agentUsername: string;
+  socketGroupName: string;
   verbose?: boolean;
 }): Promise<{ success: boolean; pid?: number; message: string }> {
-  const { agentHome, agentUsername, verbose } = options;
+  const { agentHome, agentUsername, socketGroupName, verbose } = options;
   const nvmDir = `${agentHome}/.nvm`;
   const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
 
@@ -675,7 +551,8 @@ export async function startAgentOpenClawDashboard(options: {
   log('Starting openclaw dashboard in background');
   try {
     sudoExec(`touch /var/log/agenshield/openclaw-dashboard.log /var/log/agenshield/openclaw-dashboard.error.log`);
-    sudoExec(`chown ${agentUsername} /var/log/agenshield/openclaw-dashboard.log /var/log/agenshield/openclaw-dashboard.error.log`);
+    sudoExec(`chown ${agentUsername}:${socketGroupName} /var/log/agenshield/openclaw-dashboard.log /var/log/agenshield/openclaw-dashboard.error.log`);
+    sudoExec(`chmod 666 /var/log/agenshield/openclaw-dashboard.log /var/log/agenshield/openclaw-dashboard.error.log`);
 
     const outLog = fs.openSync('/var/log/agenshield/openclaw-dashboard.log', 'a');
     const errLog = fs.openSync('/var/log/agenshield/openclaw-dashboard.error.log', 'a');

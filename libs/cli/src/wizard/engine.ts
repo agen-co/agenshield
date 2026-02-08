@@ -6,7 +6,6 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import {
   checkPrerequisites,
-  saveBackup,
   createUserConfig,
   createGroups,
   createAgentUser,
@@ -39,6 +38,7 @@ import {
 import {
   // Homebrew
   installAgentHomebrew,
+  isAgentHomebrewInstalled,
   // OpenClaw install + config + lifecycle
   detectHostOpenClawVersion,
   installAgentOpenClaw,
@@ -285,8 +285,8 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
   // ── New setup steps ───────────────────────────────────────────────────
 
   'cleanup-previous': async (context) => {
-    const { forceUninstall } = await import('@agenshield/sandbox');
     const { execSync } = await import('node:child_process');
+    const fs = await import('node:fs');
 
     // Quick check: does the default agent user exist?
     let agentUserExists = false;
@@ -307,15 +307,92 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       return { success: true };
     }
 
-    const result = forceUninstall((progress) => {
-      logVerbose(`[cleanup] ${progress.step}: ${progress.message || progress.error || ''}`, context);
-    });
+    // NOTE: We cannot use forceUninstall() here because it calls stopDaemon()
+    // which kills the process on port 5200 — that's our own setup wizard.
+    // Instead we do the cleanup steps inline, skipping the daemon kill.
 
-    if (!result.success) {
-      // Non-fatal — log warning but continue
-      logVerbose('Previous installation cleanup had issues but continuing', context);
+    const sudo = (cmd: string) => {
+      try {
+        execSync(`sudo ${cmd}`, { encoding: 'utf-8', stdio: 'pipe' });
+        return true;
+      } catch { return false; }
+    };
+
+    // 1. Stop broker launchd service (but NOT the daemon on port 5200 — that's us)
+    const brokerPlist = '/Library/LaunchDaemons/com.agenshield.broker.plist';
+    if (fs.existsSync(brokerPlist)) {
+      logVerbose('[cleanup] Stopping broker LaunchDaemon', context);
+      sudo(`launchctl bootout system/com.agenshield.broker 2>/dev/null || true`);
+      sudo(`rm -f "${brokerPlist}"`);
     }
 
+    // 2. Remove OpenClaw LaunchDaemon plists if present
+    for (const plist of [
+      '/Library/LaunchDaemons/com.agenshield.openclaw.daemon.plist',
+      '/Library/LaunchDaemons/com.agenshield.openclaw.gateway.plist',
+    ]) {
+      if (fs.existsSync(plist)) {
+        const label = plist.replace('/Library/LaunchDaemons/', '').replace('.plist', '');
+        logVerbose(`[cleanup] Removing ${label}`, context);
+        sudo(`launchctl bootout system/${label} 2>/dev/null || true`);
+        sudo(`rm -f "${plist}"`);
+      }
+    }
+
+    // 3. Discover and kill processes for all ash_* users
+    let sandboxUsers: string[] = [];
+    try {
+      const output = execSync('dscl . -list /Users', { encoding: 'utf-8' });
+      sandboxUsers = output.split('\n').filter(u => u.startsWith('ash_'));
+    } catch { /* ignore */ }
+
+    for (const username of sandboxUsers) {
+      logVerbose(`[cleanup] Killing processes for ${username}`, context);
+      sudo(`pkill -u ${username} 2>/dev/null || true`);
+    }
+    if (sandboxUsers.length > 0) {
+      try { execSync('sleep 1', { encoding: 'utf-8' }); } catch { /* ignore */ }
+      for (const username of sandboxUsers) {
+        sudo(`pkill -9 -u ${username} 2>/dev/null || true`);
+      }
+    }
+
+    // 4. Delete sandbox users (with home dirs)
+    const { deleteSandboxUser } = await import('@agenshield/sandbox');
+    for (const username of sandboxUsers) {
+      logVerbose(`[cleanup] Deleting user ${username}`, context);
+      deleteSandboxUser(username, { removeHomeDir: true });
+    }
+
+    // 5. Delete ash_* groups
+    let ashGroups: string[] = [];
+    try {
+      const output = execSync('dscl . -list /Groups', { encoding: 'utf-8' });
+      ashGroups = output.split('\n').filter(g => g.startsWith('ash_'));
+    } catch { /* ignore */ }
+
+    for (const groupName of ashGroups) {
+      logVerbose(`[cleanup] Deleting group ${groupName}`, context);
+      sudo(`dscl . -delete /Groups/${groupName}`);
+    }
+
+    // 6. Remove guarded shell from /etc/shells and disk
+    const guardedShellPath = '/usr/local/bin/guarded-shell';
+    if (fs.existsSync(guardedShellPath)) {
+      logVerbose('[cleanup] Removing guarded shell', context);
+      sudo(`sed -i '' '\\|${guardedShellPath}|d' /etc/shells`);
+      sudo(`rm -f "${guardedShellPath}"`);
+    }
+
+    // 7. Clean up directories
+    for (const dir of ['/etc/agenshield', '/var/log/agenshield', '/var/run/agenshield', '/opt/agenshield']) {
+      if (fs.existsSync(dir)) {
+        logVerbose(`[cleanup] Removing ${dir}`, context);
+        sudo(`rm -rf "${dir}"`);
+      }
+    }
+
+    logVerbose('Previous installation cleaned up', context);
     return { success: true };
   },
 
@@ -329,6 +406,13 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
     if (context.options?.dryRun) {
       logVerbose(`[dry-run] Would install Homebrew to ${agentUser.home}/homebrew`, context);
+      context.homebrewInstalled = { brewPath: `${agentUser.home}/homebrew/bin/brew`, success: true };
+      return { success: true };
+    }
+
+    // Skip if already installed (e.g., retry after partial failure)
+    if (await isAgentHomebrewInstalled(agentUser.home)) {
+      logVerbose('Homebrew already installed, skipping', context);
       context.homebrewInstalled = { brewPath: `${agentUser.home}/homebrew/bin/brew`, success: true };
       return { success: true };
     }
@@ -367,6 +451,39 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
         success: true,
       };
       return { success: true };
+    }
+
+    // Skip if NVM + requested Node version already installed
+    const nvmDir = `${agentUser.home}/.nvm`;
+    const nvmSh = `${nvmDir}/nvm.sh`;
+    const fs = await import('node:fs');
+    if (fs.existsSync(nvmSh)) {
+      try {
+        const { exec: execCb } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const execAsync = promisify(execCb);
+        const { stdout } = await execAsync(
+          `sudo -H -u ${agentUser.username} /bin/bash --norc --noprofile -c 'source "${nvmSh}" && nvm which ${nodeVersion}'`,
+          { cwd: '/' },
+        );
+        if (stdout.trim()) {
+          logVerbose(`NVM + Node.js v${nodeVersion} already installed, skipping`, context);
+          // Still copy node binary to ensure it's up to date
+          const nodeResult = await copyNodeBinary(context.userConfig, stdout.trim());
+          if (!nodeResult.success) {
+            return { success: false, error: `Node binary copy failed: ${nodeResult.message}` };
+          }
+          context.nvmInstalled = {
+            nvmDir,
+            nodeVersion: `v${nodeVersion}`,
+            nodeBinaryPath: stdout.trim(),
+            success: true,
+          };
+          return { success: true };
+        }
+      } catch {
+        // Node version not installed, proceed with full install
+      }
     }
 
     logVerbose(`Installing NVM + Node.js v${nodeVersion} for ${agentUser.username}`, context);
@@ -478,7 +595,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       logVerbose(`[dry-run] Would copy .openclaw from ${sourceConfigPath || '(not found)'} to ${agentUser.home}/.openclaw`, context);
       context.openclawConfigCopied = {
         configDir: `${agentUser.home}/.openclaw`,
-        sanitized: true,
+        sanitized: false,
         success: true,
       };
       return { success: true };
@@ -568,6 +685,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     }
 
     const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
 
     if (context.options?.dryRun) {
       logVerbose(`[dry-run] Would start openclaw gateway run + dashboard`, context);
@@ -580,6 +698,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     const gatewayResult = await startAgentOpenClawGateway({
       agentHome: agentUser.home,
       agentUsername: agentUser.username,
+      socketGroupName,
       verbose: context.options?.verbose,
     });
 
@@ -598,6 +717,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     const dashResult = await startAgentOpenClawDashboard({
       agentHome: agentUser.home,
       agentUsername: agentUser.username,
+      socketGroupName,
       verbose: context.options?.verbose,
     });
 
