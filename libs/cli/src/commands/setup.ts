@@ -133,9 +133,22 @@ async function runSetupWebUI(wizardOptions: WizardOptions): Promise<void> {
     ensureSudoAccess();
   }
 
-  // Create and start the setup server on a different port than daemon (5200)
+  // Kill any existing process on port 5200 (previous daemon / setup server)
+  // so the setup server can bind successfully.
+  const port = 5200;
+  try {
+    const { execSync } = await import('node:child_process');
+    const pids = execSync(`lsof -ti :${port} 2>/dev/null || true`, { encoding: 'utf-8' }).trim();
+    if (pids) {
+      console.log(`  Stopping existing process on port ${port} (PID: ${pids.split('\n').join(', ')})...`);
+      execSync(`lsof -ti :${port} 2>/dev/null | xargs kill -9 2>/dev/null || true`, { encoding: 'utf-8' });
+      // Brief wait for port to be released
+      await new Promise(r => setTimeout(r, 500));
+    }
+  } catch { /* ignore — lsof/kill may fail if nothing is listening */ }
+
+  // Create and start the setup server
   const server = createSetupServer(engine);
-  const port = 5200; // Setup wizard uses 5200, daemon uses 5200
   const url = await server.start(port);
 
   console.log(`  Setup wizard is running at: ${url}`);

@@ -192,6 +192,13 @@ export class ChildProcessInterceptor extends BaseInterceptor {
     if (!this.profileManager || !sandbox || process.platform !== 'darwin') {
       return { command, args, options };
     }
+
+    // Skip seatbelt for node-bin — it's already intercepted and needs TTY access
+    if (command === '/opt/agenshield/bin/node-bin' || command.endsWith('/node-bin')) {
+      debugLog(`cp.wrapWithSeatbelt: SKIP node-bin (already intercepted) command=${command}`);
+      return { command, args, options };
+    }
+
     debugLog(`cp.wrapWithSeatbelt: wrapping command=${command}`);
 
     // Generate and cache the profile

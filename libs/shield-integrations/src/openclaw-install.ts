@@ -14,6 +14,78 @@ import { promisify } from 'node:util';
 
 const execAsync = promisify(exec);
 
+/** Filter out noisy subprocess output (curl progress meter, etc.) */
+function isNoiseLine(line: string): boolean {
+  if (/^\s*%\s+Total/.test(line)) return true;
+  if (/^\s*Dload\s+Upload/.test(line)) return true;
+  if (/^[\d\s.kMG:\-/|]+$/.test(line)) return true;
+  if (/^=>?\s*$/.test(line)) return true;
+  return false;
+}
+
+/**
+ * Execute a command with real-time progress logging via spawn.
+ * Streams stdout/stderr line-by-line through the log callback.
+ */
+async function execWithProgress(
+  command: string,
+  log: (msg: string) => void,
+  opts?: { timeout?: number; cwd?: string },
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('/bin/bash', ['-c', command], {
+      cwd: opts?.cwd || '/',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    if (opts?.timeout) {
+      timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error(`Command timed out after ${opts.timeout}ms`));
+      }, opts.timeout);
+    }
+
+    child.stdout?.on('data', (data: Buffer) => {
+      const text = data.toString();
+      stdout += text;
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed && !isNoiseLine(trimmed)) log(trimmed);
+      }
+    });
+
+    child.stderr?.on('data', (data: Buffer) => {
+      const text = data.toString();
+      stderr += text;
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed && !isNoiseLine(trimmed)) log(trimmed);
+      }
+    });
+
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer);
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        const err = new Error(`Command failed with exit code ${code}: ${stderr.slice(0, 500)}`);
+        (err as any).stdout = stdout;
+        (err as any).stderr = stderr;
+        reject(err);
+      }
+    });
+
+    child.on('error', (err) => {
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface OpenClawInstallResult {
@@ -81,11 +153,12 @@ export async function installAgentOpenClaw(options: {
   /** Version to install (from host), or 'latest' */
   targetVersion?: string;
   verbose?: boolean;
+  onLog?: (msg: string) => void;
 }): Promise<OpenClawInstallResult> {
-  const { agentHome, agentUsername, socketGroupName, verbose } = options;
+  const { agentHome, agentUsername, socketGroupName, verbose, onLog } = options;
   const targetVersion = options.targetVersion || 'latest';
   const nvmDir = `${agentHome}/.nvm`;
-  const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+  const log = onLog || ((msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`));
 
   const empty: OpenClawInstallResult = {
     success: false,
@@ -106,8 +179,9 @@ export async function installAgentOpenClaw(options: {
       `npm install -g ${versionSpec}`,
     ].join(' && ');
 
-    await execAsync(
+    await execWithProgress(
       `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${installCmd}'`,
+      log,
       { cwd: '/', timeout: 180_000 },
     );
 
@@ -178,15 +252,16 @@ export function copyOpenClawConfig(options: {
   /** Socket group name */
   socketGroup: string;
   verbose?: boolean;
+  onLog?: (msg: string) => void;
 }): OpenClawConfigCopyResult {
-  const { sourceConfigPath, agentHome, agentUsername, socketGroup, verbose } = options;
+  const { sourceConfigPath, agentHome, agentUsername, socketGroup, verbose, onLog } = options;
   const targetConfigDir = path.join(agentHome, '.openclaw');
-  const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+  const log = onLog || ((msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`));
 
   try {
     if (!fs.existsSync(sourceConfigPath)) {
       log('Source config path does not exist, creating empty .openclaw');
-      sudoExec(`mkdir -p "${path.join(targetConfigDir, 'skills')}"`);
+      sudoExec(`mkdir -p "${path.join(targetConfigDir, 'skills')}" "${path.join(targetConfigDir, 'canvas')}"`);
       sudoExec(`chown -R ${agentUsername}:${socketGroup} "${targetConfigDir}"`);
       sudoExec(`chmod 2775 "${targetConfigDir}"`);
       return {
@@ -232,9 +307,12 @@ export function copyOpenClawConfig(options: {
       );
     }
 
-    // Ensure skills/ subdirectory exists (source may not have had one)
+    // Ensure skills/ and canvas/ subdirectories exist (source may not have had them)
     sudoExec(`mkdir -p "${path.join(targetConfigDir, 'skills')}"`);
     sudoExec(`chmod 2775 "${path.join(targetConfigDir, 'skills')}"`);
+    sudoExec(`mkdir -p "${path.join(targetConfigDir, 'canvas')}"`);
+    sudoExec(`chmod 2775 "${path.join(targetConfigDir, 'canvas')}"`);
+    sudoExec(`chown ${agentUsername}:${socketGroup} "${path.join(targetConfigDir, 'canvas')}"`)
 
     sudoExec(`chmod 2775 "${targetConfigDir}"`);
 
@@ -300,9 +378,10 @@ export async function stopHostOpenClaw(options: {
   /** The original user running OpenClaw (e.g., 'david') */
   originalUser: string;
   verbose?: boolean;
+  onLog?: (msg: string) => void;
 }): Promise<StopHostOpenClawResult> {
-  const { originalUser, verbose } = options;
-  const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+  const { originalUser, verbose, onLog } = options;
+  const log = onLog || ((msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`));
 
   let daemonStopped = false;
   let gatewayStopped = false;
@@ -426,10 +505,11 @@ export async function onboardAgentOpenClaw(options: {
   agentHome: string;
   agentUsername: string;
   verbose?: boolean;
+  onLog?: (msg: string) => void;
 }): Promise<{ success: boolean; message: string }> {
-  const { agentHome, agentUsername, verbose } = options;
+  const { agentHome, agentUsername, verbose, onLog } = options;
   const nvmDir = `${agentHome}/.nvm`;
-  const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+  const log = onLog || ((msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`));
 
   const onboardCmd = [
     `export HOME="${agentHome}"`,
@@ -440,12 +520,11 @@ export async function onboardAgentOpenClaw(options: {
 
   log('Running openclaw onboard as agent user');
   try {
-    const { stdout, stderr } = await execAsync(
+    await execWithProgress(
       `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${onboardCmd}'`,
+      log,
       { cwd: '/', timeout: 120_000 },
     );
-    if (verbose && stdout.trim()) log(`onboard stdout: ${stdout.trim()}`);
-    if (verbose && stderr.trim()) log(`onboard stderr: ${stderr.trim()}`);
     log('OpenClaw onboard completed');
     return { success: true, message: 'OpenClaw onboard completed' };
   } catch (err) {

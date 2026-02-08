@@ -83,9 +83,10 @@ export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"
 # AgenShield environment
 export AGENSHIELD_SOCKET="${socketPath}"
 export AGENSHIELD_HTTP_PORT="${httpPort}"
-export AGENSHIELD_INTERCEPT_FETCH=true
-export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_EXEC=true
+export AGENSHIELD_INTERCEPT_HTTP=false
+export AGENSHIELD_INTERCEPT_FETCH=false
+export AGENSHIELD_INTERCEPT_WS=false
 export AGENSHIELD_CONTEXT_TYPE=agent
 
 exec openclaw "$@"

@@ -19,21 +19,28 @@ export type WizardStepId =
   | 'install-target'
   | 'configure'
   | 'confirm'
+  | 'cleanup-previous'
   | 'create-groups'
   | 'create-agent-user'
   | 'create-broker-user'
   | 'create-directories'
   | 'setup-socket'
+  | 'install-homebrew'
+  | 'install-nvm'
+  | 'configure-shell'
   | 'generate-seatbelt'
   | 'install-wrappers'
   | 'install-broker'
   | 'install-daemon-config'
   | 'install-policies'
   | 'setup-launchdaemon'
-  | 'scan-source'
-  | 'select-items'
-  | 'migrate'
+  | 'copy-openclaw-config'
+  | 'install-openclaw'
+  | 'stop-host-openclaw'
+  | 'onboard-openclaw'
   | 'verify'
+  | 'start-openclaw'
+  | 'open-dashboard'
   | 'setup-passcode'
   | 'complete';
 
@@ -83,6 +90,9 @@ export interface SetupStore {
   executables: ExecutableInfo[];
   executablesLoaded: boolean;
 
+  // Streaming log line per step (cleared on completion)
+  stepLogs: Record<string, string>;
+
   // Migration scan result (set when scan-source completes)
   scanResult: MigrationScanResult | null;
 }
@@ -101,6 +111,8 @@ export const setupStore = proxy<SetupStore>({
 
   executables: [],
   executablesLoaded: false,
+
+  stepLogs: {},
 
   scanResult: null,
 });

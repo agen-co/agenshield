@@ -61,6 +61,7 @@ export class PolicyEnforcer {
   private failOpen: boolean;
   private lastLoad: number = 0;
   private reloadInterval: number = 60000; // 1 minute
+  private verbose = process.env['AGENSHIELD_BROKER_VERBOSE'] === 'true';
 
   constructor(options: PolicyEnforcerOptions) {
     this.policiesPath = options.policiesPath;
@@ -169,6 +170,8 @@ export class PolicyEnforcer {
       // Extract target from params
       const target = this.extractTarget(operation, params);
 
+      if (this.verbose) console.error(`[broker:enforcer] op=${operation} target=${target}`);
+
       // Check rules in priority order
       for (const rule of this.policies.rules) {
         if (!rule.enabled) continue;
@@ -179,6 +182,9 @@ export class PolicyEnforcer {
         const matches = this.matchesPatterns(target, rule.patterns, operation);
 
         if (matches) {
+          if (this.verbose) {
+            console.error(`[broker:enforcer] MATCH rule=${rule.id} action=${rule.action} patterns=${rule.patterns.join(',')}`);
+          }
           if (rule.action === 'deny' || rule.action === 'approval') {
             return {
               allowed: false,
@@ -210,6 +216,9 @@ export class PolicyEnforcer {
       }
 
       // Default action (for unconstrained operations like exec)
+      if (this.verbose) {
+        console.error(`[broker:enforcer] DEFAULT action=${this.policies.defaultAction} (no rule matched)`);
+      }
       return {
         allowed: this.policies.defaultAction === 'allow',
         reason:
@@ -255,12 +264,31 @@ export class PolicyEnforcer {
   private matchCommandPattern(pattern: string, target: string): boolean {
     const trimmed = pattern.trim();
     if (trimmed === '*') return true;
+
     if (trimmed.endsWith(':*')) {
-      const prefix = trimmed.slice(0, -2);
+      const prefix = trimmed.slice(0, -2).toLowerCase();
       const lowerTarget = target.toLowerCase();
-      const lowerPrefix = prefix.toLowerCase();
-      return lowerTarget === lowerPrefix || lowerTarget.startsWith(lowerPrefix + ' ');
+
+      // Direct match: "node ..." or just "node"
+      if (lowerTarget === prefix || lowerTarget.startsWith(prefix + ' ')) {
+        return true;
+      }
+
+      // Full-path match: extract basename from target command
+      // e.g., "/opt/agenshield/bin/node-bin --args" → check "node-bin" starts with "node"
+      const firstSpace = lowerTarget.indexOf(' ');
+      const cmdPart = firstSpace >= 0 ? lowerTarget.slice(0, firstSpace) : lowerTarget;
+      const lastSlash = cmdPart.lastIndexOf('/');
+      if (lastSlash >= 0) {
+        const basename = cmdPart.slice(lastSlash + 1);
+        if (basename === prefix || basename.startsWith(prefix + '-') || basename.startsWith(prefix)) {
+          return true;
+        }
+      }
+
+      return false;
     }
+
     return target.toLowerCase() === trimmed.toLowerCase();
   }
 

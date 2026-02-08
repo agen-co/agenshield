@@ -58,7 +58,7 @@ export const OPENCLAW_PRESET: PolicyPreset = {
       action: 'allow',
       target: 'command',
       patterns: [
-        'node:*', 'npm:*', 'npx:*',
+        'node:*', 'node-bin:*', 'npm:*', 'npx:*', 'openclaw:*',
         'git:*', 'curl:*',
         'ls:*', 'cat:*', 'head:*', 'tail:*',
         'grep:*', 'find:*', 'which:*',

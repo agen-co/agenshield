@@ -163,11 +163,17 @@ export function useSetupSSE() {
         const data = JSON.parse(e.data);
         if (data.state) {
           setupStore.wizardState = data.state;
-          // Update completed steps
+          // Update completed steps and clear log lines for completed steps
           if (data.state.steps) {
             setupStore.completedEngineSteps = data.state.steps
               .filter((s: { status: string }) => s.status === 'completed')
               .map((s: { id: string }) => s.id);
+            // Clear stepLogs for steps that are no longer running
+            for (const step of data.state.steps as { id: string; status: string }[]) {
+              if (step.status === 'completed' || step.status === 'error') {
+                delete setupStore.stepLogs[step.id];
+              }
+            }
           }
         }
         if (data.context) {
@@ -227,10 +233,22 @@ export function useSetupSSE() {
       }
     };
 
+    const handleLog = (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.stepId && data.message) {
+          setupStore.stepLogs[data.stepId] = data.message;
+        }
+      } catch {
+        // ignore parse errors
+      }
+    };
+
     es.addEventListener('setup:state_change', handleStateChange);
     es.addEventListener('setup:scan_complete', handleScanComplete);
     es.addEventListener('setup:complete', handleComplete);
     es.addEventListener('setup:error', handleError);
+    es.addEventListener('setup:log', handleLog);
 
     es.onerror = () => {
       // Reconnection is handled automatically by EventSource

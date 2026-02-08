@@ -29,6 +29,7 @@ import {
   installGuardedShell,
   // NVM (existing)
   installAgentNvm,
+  patchNvmNode,
   // Preset system
   getPreset,
   autoDetectPreset,
@@ -69,22 +70,24 @@ export type StepExecutor = (context: WizardContext) => Promise<{ success: boolea
  * Module-level log callback — allows the setup server to receive verbose
  * messages and broadcast them (e.g. via SSE) to the browser UI.
  */
-let _logCallback: ((message: string) => void) | undefined;
+let _logCallback: ((message: string, stepId?: WizardStepId) => void) | undefined;
+let _currentStepId: WizardStepId | undefined;
 
-export function setEngineLogCallback(cb: ((message: string) => void) | undefined): void {
+export function setEngineLogCallback(cb: ((message: string, stepId?: WizardStepId) => void) | undefined): void {
   _logCallback = cb;
 }
 
 /**
  * Verbose logging helper - logs messages when verbose mode is enabled.
- * Writes to stderr (terminal) and also calls the optional log callback
- * so the setup server can forward messages to the browser.
+ * Writes to stderr (terminal) only in verbose mode, but ALWAYS calls
+ * the log callback so the setup server can forward messages to the browser.
  */
 function logVerbose(message: string, context?: WizardContext): void {
   if (context?.options?.verbose || process.env['AGENSHIELD_VERBOSE'] === 'true') {
     process.stderr.write(`[SETUP] ${message}\n`);
-    _logCallback?.(message);
   }
+  // Always broadcast to the UI regardless of verbose flag
+  _logCallback?.(message, _currentStepId);
 }
 
 export interface WizardEngine {
@@ -285,6 +288,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
   // ── New setup steps ───────────────────────────────────────────────────
 
   'cleanup-previous': async (context) => {
+    logVerbose('Checking for previous installations', context);
     const { execSync } = await import('node:child_process');
     const fs = await import('node:fs');
 
@@ -418,11 +422,13 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     }
 
     logVerbose(`Installing user-specific Homebrew for ${agentUser.username}`, context);
+    const onLog = (msg: string) => logVerbose(msg, context);
     const result = await installAgentHomebrew({
       agentHome: agentUser.home,
       agentUsername: agentUser.username,
       socketGroupName,
       verbose: context.options?.verbose,
+      onLog,
     });
 
     if (!result.success) {
@@ -473,6 +479,8 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
           if (!nodeResult.success) {
             return { success: false, error: `Node binary copy failed: ${nodeResult.message}` };
           }
+          // NOTE: Do NOT patch NVM node here — patching must happen after all
+          // npm installs (openclaw etc.) complete. See start-openclaw step.
           context.nvmInstalled = {
             nvmDir,
             nodeVersion: `v${nodeVersion}`,
@@ -487,12 +495,14 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     }
 
     logVerbose(`Installing NVM + Node.js v${nodeVersion} for ${agentUser.username}`, context);
+    const onLog = (msg: string) => logVerbose(msg, context);
     const result = await installAgentNvm({
       agentHome: agentUser.home,
       agentUsername: agentUser.username,
       socketGroupName,
       nodeVersion,
       verbose: context.options?.verbose,
+      onLog,
     });
 
     if (!result.success) {
@@ -505,6 +515,9 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     if (!nodeResult.success) {
       return { success: false, error: `Node binary copy failed: ${nodeResult.message}` };
     }
+
+    // NOTE: Do NOT patch NVM node here — patching must happen after all
+    // npm installs (openclaw etc.) complete. See start-openclaw step.
 
     context.nvmInstalled = {
       nvmDir: result.nvmDir,
@@ -559,12 +572,14 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     }
 
     logVerbose(`Installing openclaw@${hostVersion} for agent user`, context);
+    const onLog = (msg: string) => logVerbose(msg, context);
     const result = await installAgentOpenClaw({
       agentHome: agentUser.home,
       agentUsername: agentUser.username,
       socketGroupName,
       targetVersion: hostVersion,
       verbose: context.options?.verbose,
+      onLog,
     });
 
     if (!result.success) {
@@ -606,12 +621,14 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     }
 
     logVerbose(`Copying OpenClaw config to agent user`, context);
+    const onLog = (msg: string) => logVerbose(msg, context);
     const result = copyOpenClawConfig({
       sourceConfigPath: sourceConfigPath || '/nonexistent',
       agentHome: agentUser.home,
       agentUsername: agentUser.username,
       socketGroup: socketGroupName,
       verbose: context.options?.verbose,
+      onLog,
     });
 
     if (!result.success) {
@@ -636,9 +653,11 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     }
 
     logVerbose(`Stopping host OpenClaw processes for user: ${originalUser}`, context);
+    const onLog = (msg: string) => logVerbose(msg, context);
     const result = await stopHostOpenClaw({
       originalUser,
       verbose: context.options?.verbose,
+      onLog,
     });
 
     context.hostOpenclawStopped = {
@@ -664,10 +683,12 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     }
 
     logVerbose('Running openclaw onboard for agent user', context);
+    const onLog = (msg: string) => logVerbose(msg, context);
     const result = await onboardAgentOpenClaw({
       agentHome: agentUser.home,
       agentUsername: agentUser.username,
       verbose: context.options?.verbose,
+      onLog,
     });
 
     context.openclawOnboarded = { success: result.success };
@@ -697,7 +718,29 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       return { success: true };
     }
 
-    // 1. Install OpenClaw LaunchDaemons (gateway + daemon) — managed by launchd/broker
+    // 1. Patch NVM node in-place BEFORE starting OpenClaw services.
+    //    All npm installs (openclaw, onboard, etc.) are done by now, so it's safe
+    //    to replace NVM's node with the interceptor wrapper. From this point on,
+    //    every `node` invocation via NVM goes through the interceptor.
+    const onLog = (msg: string) => logVerbose(msg, context);
+    if (context.nvmInstalled?.success && context.nvmInstalled.nodeBinaryPath) {
+      logVerbose('Patching NVM node binary in-place with interceptor wrapper', context);
+      const patchResult = await patchNvmNode({
+        nodeBinaryPath: context.nvmInstalled.nodeBinaryPath,
+        agentUsername: agentUser.username,
+        socketGroupName,
+        interceptorPath: '/opt/agenshield/lib/interceptor/register.cjs',
+        socketPath: '/var/run/agenshield/agenshield.sock',
+        httpPort: 5201,
+        verbose: context.options?.verbose,
+        onLog,
+      });
+      if (!patchResult.success) {
+        return { success: false, error: `Failed to patch NVM node: ${patchResult.message}` };
+      }
+    }
+
+    // 2. Install OpenClaw LaunchDaemons (gateway + daemon) — managed by launchd/broker
     logVerbose('Installing OpenClaw LaunchDaemons (broker-managed)', context);
     const installResult = await installOpenClawLaunchDaemons({
       agentUsername: agentUser.username,
@@ -711,7 +754,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
     logVerbose('OpenClaw LaunchDaemons installed and loaded', context);
 
-    // 2. Start OpenClaw services via launchctl kickstart
+    // 3. Start OpenClaw services via launchctl kickstart
     logVerbose('Starting OpenClaw services via launchctl', context);
     const startResult = await startOpenClawServices();
 
@@ -730,19 +773,9 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     return { success: true };
   },
 
-  'open-dashboard': async (context) => {
-    if (context.options?.dryRun) {
-      logVerbose('[dry-run] Would open dashboard in browser', context);
-      return { success: true };
-    }
-
-    try {
-      const { exec: execCb } = await import('node:child_process');
-      execCb('open http://localhost:5200', () => {});
-      logVerbose('Opened dashboard at http://localhost:5200', context);
-    } catch {
-      logVerbose('Could not open browser automatically', context);
-    }
+  'open-dashboard': async (_context) => {
+    // No-op: the browser is already on the setup wizard page which
+    // transitions to CompleteStep and polls for daemon readiness.
     return { success: true };
   },
 
@@ -1020,6 +1053,13 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
           socketGroupName: context.userConfig.groups.socket.name,
           nodeVersion: context.options?.nodeVersion,
           verbose: context.options?.verbose,
+          nvmResult: context.nvmInstalled ? {
+            success: context.nvmInstalled.success,
+            nvmDir: context.nvmInstalled.nvmDir,
+            nodeVersion: context.nvmInstalled.nodeVersion,
+            nodeBinaryPath: context.nvmInstalled.nodeBinaryPath,
+            message: '',
+          } : undefined,
         });
         context.wrappersInstalled = result.installedWrappers;
         if (!result.success) {
@@ -1438,6 +1478,7 @@ async function runSteps(
 
     // Update step status to running
     step.status = 'running';
+    _currentStepId = stepId;
     logVerbose(`▶ Starting step: ${step.name} (${step.id})`, context);
     onStateChange?.(state);
 
@@ -1447,12 +1488,14 @@ async function runSteps(
       step.status = 'error';
       step.error = `No executor for step: ${step.id}`;
       state.hasError = true;
+      _currentStepId = undefined;
       logVerbose(`✗ Step ${step.id}: no executor found`, context);
       onStateChange?.(state);
       return { success: false, error: step.error };
     }
 
     const result = await executeStep(step, context, executor);
+    _currentStepId = undefined;
 
     if (result.success) {
       step.status = 'completed';

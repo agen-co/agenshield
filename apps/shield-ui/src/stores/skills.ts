@@ -389,19 +389,19 @@ export async function searchSkills(query: string): Promise<void> {
 
 export async function analyzeSkill(slugOrName: string): Promise<void> {
   const skill = findSkill(slugOrName);
-  const name = skill?.name ?? slugOrName;
+  const slug = skill?.slug ?? slugOrName;
 
   // Clear old analysis immediately so UI shows pending state
   updateSkill(slugOrName, { actionState: 'analyzing', analysis: null, analysisStatus: 'pending' });
   startAnalysisTimeout(slugOrName);
 
   try {
-    await analyzeSkillDaemon(name);
+    await analyzeSkillDaemon(slug);
     // SSE event (skills:analyzed / skills:analysis_failed) will update the store
   } catch (err) {
     clearAnalysisTimeout(slugOrName);
     updateSkill(slugOrName, { actionState: 'analysis_failed' });
-    notify.error(err instanceof Error ? err.message : `Analysis failed for "${name}"`);
+    notify.error(err instanceof Error ? err.message : `Analysis failed for "${slug}"`);
   }
 }
 

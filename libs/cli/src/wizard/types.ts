@@ -385,7 +385,7 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
   {
     id: 'install-homebrew',
     name: 'Install Homebrew',
-    description: 'Install user-specific Homebrew for agent user',
+    description: 'Install user-specific Homebrew for agent user (this may take up to 2 minutes)',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['create-directories'],
@@ -393,7 +393,7 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
   {
     id: 'install-nvm',
     name: 'Install NVM & Node.js',
-    description: 'Install NVM and Node.js for agent user (this may take up to a minute)',
+    description: 'Install NVM and Node.js for agent user (this may take up to 2 minutes)',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['install-homebrew'],
@@ -465,7 +465,7 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
   {
     id: 'install-openclaw',
     name: 'Install OpenClaw',
-    description: 'Install OpenClaw in agent sandbox via NVM npm',
+    description: 'Install OpenClaw in agent sandbox via NVM npm (this may take up to 3 minutes)',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['setup-launchdaemon', 'install-wrappers', 'copy-openclaw-config'],
@@ -480,7 +480,7 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
   {
     id: 'onboard-openclaw',
     name: 'Initialize OpenClaw',
-    description: 'Run openclaw onboard to initialize agent environment',
+    description: 'Run openclaw onboard to initialize agent environment (this may take up to 2 minutes)',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['stop-host-openclaw'],

@@ -36,7 +36,9 @@ export async function forwardPolicyToDaemon(
   daemonUrl: string,
   context?: PolicyExecutionContext
 ): Promise<DaemonPolicyResult | null> {
+  const verbose = process.env['AGENSHIELD_BROKER_VERBOSE'] === 'true';
   try {
+    if (verbose) console.error(`[broker:forward] op=${operation} target=${target} → daemon ${daemonUrl}`);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DAEMON_RPC_TIMEOUT);
 
@@ -74,6 +76,8 @@ export async function forwardPolicyToDaemon(
     }
 
     const result = json.result;
+
+    if (verbose) console.error(`[broker:forward] result: allowed=${result.allowed} policyId=${result.policyId}`);
 
     // Trust explicit user policy matches (must have policyId) — both allow and deny
     if (result.policyId) {

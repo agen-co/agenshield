@@ -71,7 +71,7 @@ export function createConfig(overrides?: Partial<InterceptorConfig>): Intercepto
     interceptWs: env['AGENSHIELD_INTERCEPT_WS'] !== 'false',
     interceptFs: false,
     interceptExec: env['AGENSHIELD_INTERCEPT_EXEC'] !== 'false',
-    timeout: parseInt(env['AGENSHIELD_TIMEOUT'] || '30000', 10),
+    timeout: parseInt(env['AGENSHIELD_TIMEOUT'] || '5000', 10),
     contextType: (env['AGENSHIELD_CONTEXT_TYPE'] as 'agent' | 'skill') || 'agent',
     contextSkillSlug: env['AGENSHIELD_SKILL_SLUG'],
     contextAgentId: env['AGENSHIELD_AGENT_ID'],

@@ -116,6 +116,8 @@ export {
   copyBrokerBinary,
   copyShieldClient,
   installAgentNvm,
+  patchNvmNode,
+  execWithProgress,
   type NvmInstallResult,
   installPresetBinaries,
   installBasicCommands,
