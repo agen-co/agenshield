@@ -29,11 +29,25 @@ interface OpenClawConfig {
   [key: string]: unknown;
 }
 
-function readConfig(): OpenClawConfig {
+export function readOpenClawConfig(): OpenClawConfig {
   const configPath = getOpenClawConfigPath();
   try {
     if (fs.existsSync(configPath)) {
-      return JSON.parse(fs.readFileSync(configPath, 'utf-8')) as OpenClawConfig;
+      try {
+        return JSON.parse(fs.readFileSync(configPath, 'utf-8')) as OpenClawConfig;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+          // File owned by agent user — read via sudo
+          const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+          const agentUsername = path.basename(agentHome);
+          const raw = execSync(
+            `sudo -H -u ${agentUsername} cat "${configPath}"`,
+            { encoding: 'utf-8', cwd: '/', stdio: ['pipe', 'pipe', 'pipe'] }
+          );
+          return JSON.parse(raw) as OpenClawConfig;
+        }
+        throw err;
+      }
     }
   } catch {
     console.warn('[OpenClawConfig] Failed to read openclaw.json, starting fresh');
@@ -54,7 +68,7 @@ function writeConfig(config: OpenClawConfig): void {
       const agentUsername = path.basename(agentHome);
       execSync(
         `sudo -H -u ${agentUsername} tee "${configPath}" > /dev/null`,
-        { input: JSON.stringify(config, null, 2), stdio: ['pipe', 'pipe', 'pipe'] }
+        { input: JSON.stringify(config, null, 2), stdio: ['pipe', 'pipe', 'pipe'], cwd: '/' }
       );
     } else {
       throw err;
@@ -67,7 +81,7 @@ function writeConfig(config: OpenClawConfig): void {
  * Never writes env — AgenShield handles secrets via vault/broker.
  */
 export function addSkillEntry(slug: string): void {
-  const config = readConfig();
+  const config = readOpenClawConfig();
 
   if (!config.skills) {
     config.skills = {};
@@ -76,7 +90,8 @@ export function addSkillEntry(slug: string): void {
     config.skills.entries = {};
   }
 
-  config.skills.entries[slug] = { enabled: true };
+  const existing = config.skills.entries[slug] ?? {};
+  config.skills.entries[slug] = { ...existing, enabled: true };
 
   writeConfig(config);
   console.log(`[OpenClawConfig] Added skill entry: ${slug}`);
@@ -86,12 +101,14 @@ export function addSkillEntry(slug: string): void {
  * Remove a skill entry from openclaw.json.
  */
 export function removeSkillEntry(slug: string): void {
-  const config = readConfig();
+  const config = readOpenClawConfig();
 
   if (config.skills?.entries?.[slug]) {
-    delete config.skills.entries[slug];
+    const existing = config.skills.entries[slug];
+    delete existing.env;
+    config.skills.entries[slug] = { ...existing, enabled: false };
     writeConfig(config);
-    console.log(`[OpenClawConfig] Removed skill entry: ${slug}`);
+    console.log(`[OpenClawConfig] Disabled skill entry: ${slug}`);
   }
 }
 
@@ -104,7 +121,7 @@ export function removeSkillEntry(slug: string): void {
  * - Strips `env` from all entries (AgenShield handles secrets)
  */
 export function syncOpenClawFromPolicies(policies: PolicyConfig[]): void {
-  const config = readConfig();
+  const config = readOpenClawConfig();
   if (!config.skills) config.skills = {};
 
   // 1. Sync allowBundled from enabled skill policies

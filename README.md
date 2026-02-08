@@ -47,6 +47,22 @@ AgenShield wraps AI agents in a defense-in-depth sandbox with six isolation laye
 | **Admin Access** | `sudo` required during setup |
 | **Xcode CLT** | Required (`xcode-select --install`) |
 
+## Prerequisites: Install OpenClaw
+
+AgenShield sandboxes [OpenClaw](https://www.npmjs.com/package/openclaw) — you need a working OpenClaw installation before setting up AgenShield.
+
+```bash
+# 1. Install OpenClaw globally
+npm install -g openclaw@latest
+
+# 2. Run the onboarding wizard (sets up gateway, workspace, channels, and skills)
+openclaw onboard
+```
+
+The onboarding wizard will walk you through linking your AI model provider (Google Gemini, Anthropic Claude, OpenAI, etc.) and configuring your workspace. Once `openclaw onboard` completes successfully, you're ready to install AgenShield.
+
+> For full OpenClaw documentation, see [docs.openclaw.ai/install](https://docs.openclaw.ai/install).
+
 ## Quick Start
 
 ```bash

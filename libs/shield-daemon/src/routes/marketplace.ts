@@ -30,6 +30,8 @@ import { setCachedAnalysis } from '../services/skill-analyzer';
 import {
   createSkillWrapper,
   addSkillPolicy,
+  sudoMkdir,
+  sudoWriteFile,
 } from '../services/skill-lifecycle';
 import {
   getSkillsDir,
@@ -45,6 +47,7 @@ import {
   installSkillViaBroker,
 } from '../services/broker-bridge';
 import { addSkillEntry, syncOpenClawFromPolicies } from '../services/openclaw-config';
+import { executeSkillInstallSteps } from '../services/skill-deps';
 import { loadConfig } from '../config/index';
 
 /* ── Install-in-progress tracking ───────────────────────── */
@@ -428,6 +431,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           }
 
           const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+          const agentUsername = path.basename(agentHome);
           const binDir = path.join(agentHome, 'bin');
           const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
           skillDir = path.join(skillsDir, slug);
@@ -465,21 +469,47 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
             }
           } else {
             console.log(`[Marketplace] Broker unavailable, installing ${slug} directly`);
-            fs.mkdirSync(skillDir, { recursive: true });
+            sudoMkdir(skillDir, agentUsername);
 
             for (const file of files) {
               const filePath = path.join(skillDir, file.name);
               const fileDir = path.dirname(filePath);
               if (fileDir !== skillDir) {
-                fs.mkdirSync(fileDir, { recursive: true });
+                sudoMkdir(fileDir, agentUsername);
               }
-              fs.writeFileSync(filePath, file.content, 'utf-8');
+              sudoWriteFile(filePath, file.content, agentUsername);
             }
 
             createSkillWrapper(slug, binDir);
 
             logs.push(`Files written directly: ${files.length} files`);
             logs.push(`Wrapper created: ${path.join(binDir, slug)}`);
+          }
+
+          // 7b. Execute dependency install steps from skill metadata
+          emitSkillInstallProgress(slug, 'deps', 'Installing skill dependencies');
+          try {
+            const depsResult = await executeSkillInstallSteps({
+              slug,
+              skillDir,
+              agentHome,
+              agentUsername,
+              onLog: (msg) => emitSkillInstallProgress(slug, 'deps', msg),
+            });
+            if (depsResult.installed.length > 0) {
+              logs.push(`Dependencies installed: ${depsResult.installed.join(', ')}`);
+            }
+            if (depsResult.errors.length > 0) {
+              for (const err of depsResult.errors) {
+                emitSkillInstallProgress(slug, 'warning', `Dependency warning: ${err}`);
+                logs.push(`Dependency warning: ${err}`);
+              }
+            }
+          } catch (err) {
+            // Dependency install failure is a warning, not a fatal error
+            const msg = `Dependency installation failed: ${(err as Error).message}`;
+            emitSkillInstallProgress(slug, 'warning', msg);
+            logs.push(msg);
           }
 
           // 8. Update openclaw.json with skill entry (daemon owns this as root)

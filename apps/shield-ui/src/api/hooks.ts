@@ -314,6 +314,10 @@ export function useOpenClawAction() {
     mutationFn: (action: 'start' | 'stop' | 'restart') => api.openclaw[action](),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['openclaw', 'status'] });
+      // Refetch again after a short delay to catch async state change
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['openclaw', 'status'] });
+      }, 2000);
     },
   });
 }

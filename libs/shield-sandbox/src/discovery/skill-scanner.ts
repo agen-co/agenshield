@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type {
   SkillMetadata,
+  OpenClawSkillMetadata,
   SkillExtractedInfo,
   DiscoveredSkill,
   SkillCommandRequirement,
@@ -54,13 +55,14 @@ function unique(value: string, index: number, self: string[]): boolean {
  */
 export function extractSkillInfo(metadata: SkillMetadata | null): SkillExtractedInfo {
   const topReq = metadata?.requires;
-  const oclReq = metadata?.metadata?.openclaw?.requires;
+  const oclMeta = metadata?.metadata?.openclaw ?? metadata?.metadata?.clawdbot as OpenClawSkillMetadata | undefined;
+  const oclReq = oclMeta?.requires;
   return {
     apiKeys: [...(topReq?.env ?? []), ...(oclReq?.env ?? [])].filter(unique),
     bins: [...(topReq?.bins ?? []), ...(oclReq?.bins ?? [])].filter(unique),
     anyBins: [...(topReq?.anyBins ?? []), ...(oclReq?.anyBins ?? [])].filter(unique),
     configOptions: [...(topReq?.config ?? []), ...(oclReq?.config ?? [])].filter(unique),
-    installSteps: metadata?.metadata?.openclaw?.install,
+    installSteps: oclMeta?.install,
   };
 }
 

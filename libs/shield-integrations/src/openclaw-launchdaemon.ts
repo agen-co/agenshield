@@ -300,13 +300,7 @@ PLISTEOF`);
  */
 export async function startOpenClawServices(): Promise<OpenClawDaemonResult> {
   try {
-    // kickstart bypasses throttling and starts immediately
-    try {
-      await execAsync(`sudo launchctl kickstart system/${OPENCLAW_GATEWAY_LABEL}`);
-    } catch {
-      // May already be running
-    }
-
+    await execAsync(`sudo launchctl kickstart system/${OPENCLAW_GATEWAY_LABEL}`);
     return {
       success: true,
       message: 'OpenClaw gateway started',
@@ -325,12 +319,7 @@ export async function startOpenClawServices(): Promise<OpenClawDaemonResult> {
  */
 export async function stopOpenClawServices(): Promise<OpenClawDaemonResult> {
   try {
-    try {
-      await execAsync(`sudo launchctl kill SIGTERM system/${OPENCLAW_GATEWAY_LABEL}`);
-    } catch {
-      // May not be running
-    }
-
+    await execAsync(`sudo launchctl kill SIGTERM system/${OPENCLAW_GATEWAY_LABEL}`);
     return {
       success: true,
       message: 'OpenClaw gateway stopped',
@@ -349,11 +338,7 @@ export async function stopOpenClawServices(): Promise<OpenClawDaemonResult> {
  */
 export async function restartOpenClawServices(): Promise<OpenClawDaemonResult> {
   try {
-    // kickstart -k kills and restarts
-    try {
-      await execAsync(`sudo launchctl kickstart -k system/${OPENCLAW_GATEWAY_LABEL}`);
-    } catch { /* may not be running */ }
-
+    await execAsync(`sudo launchctl kickstart -k system/${OPENCLAW_GATEWAY_LABEL}`);
     return {
       success: true,
       message: 'OpenClaw gateway restarted',
@@ -458,25 +443,43 @@ export function getOpenClawStatusSync(): OpenClawStatus {
 }
 
 /**
- * Get the OpenClaw dashboard URL (includes embedded API key).
+ * Get the OpenClaw dashboard URL by reading gateway config from openclaw.json.
  *
- * Runs `openclaw dashboard` via the launcher script, which prints a URL
- * to stdout and exits immediately.
+ * Constructs the URL from gateway.port and gateway.auth.token fields.
  */
 export async function getOpenClawDashboardUrl(): Promise<{ success: boolean; url?: string; error?: string }> {
   try {
     const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-    const agentUsername = path.basename(agentHome);
-    // Run as agent user via sudo (sudoers rule grants NOPASSWD access).
-    // NVM sources produce huge stderr output, so bump maxBuffer to 10 MB.
-    const { stdout, stderr } = await execAsync(
-      `sudo -H -u ${agentUsername} ${OPENCLAW_LAUNCHER_PATH} dashboard`,
-      { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }
-    );
-    const url = stdout.trim();
-    if (!url) {
-      return { success: false, error: stderr.trim() || 'No URL returned from openclaw dashboard' };
+    const configPath = path.join(agentHome, '.openclaw', 'openclaw.json');
+
+    let raw: string;
+    try {
+      raw = await fs.readFile(configPath, 'utf-8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+        // File owned by agent user — read via sudo
+        const agentUsername = path.basename(agentHome);
+        const { stdout } = await execAsync(
+          `sudo -H -u ${agentUsername} cat "${configPath}"`,
+          { cwd: '/' }
+        );
+        raw = stdout;
+      } else {
+        return { success: false, error: `Cannot read openclaw.json: ${(err as Error).message}` };
+      }
     }
+
+    const config = JSON.parse(raw) as {
+      gateway?: { port?: number; mode?: string; auth?: { token?: string } };
+    };
+
+    const port = config.gateway?.port;
+    const token = config.gateway?.auth?.token;
+    if (!port || !token) {
+      return { success: false, error: 'Gateway port or auth token not found in openclaw.json' };
+    }
+
+    const url = `http://127.0.0.1:${port}/?token=${token}`;
     return { success: true, url };
   } catch (error) {
     return { success: false, error: `Failed to get dashboard URL: ${(error as Error).message}` };

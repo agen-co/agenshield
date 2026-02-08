@@ -20,6 +20,7 @@ import {
   updateDownloadedAnalysis,
 } from '../services/marketplace';
 import { setCachedAnalysis } from '../services/skill-analyzer';
+import { readOpenClawConfig, removeSkillEntry } from '../services/openclaw-config';
 import { emitSkillAnalyzed, emitSkillAnalysisFailed } from '../events/emitter';
 import { getSystemConfigDir } from '../config/paths';
 
@@ -360,33 +361,22 @@ function scanSkills(): void {
 
 /**
  * Detect mismatches between openclaw.json entries and approved skills.
- * Remove entries from openclaw.json that are not in the approved list.
+ * Disable entries in openclaw.json that are not in the approved list
+ * (sets enabled: false, strips env, preserves other properties).
  */
 function detectOpenClawMismatches(): void {
   try {
-    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-    const configPath = path.join(agentHome, '.openclaw', 'openclaw.json');
-    if (!fs.existsSync(configPath)) return;
-
-    const raw = fs.readFileSync(configPath, 'utf-8');
-    const config = JSON.parse(raw) as { skills?: { entries?: Record<string, unknown> } };
-    if (!config.skills?.entries) return;
-
     const approved = loadApprovedSkills();
     const approvedNames = new Set(approved.map((a) => a.name));
-    const entries = Object.keys(config.skills.entries);
 
-    let changed = false;
-    for (const name of entries) {
+    const config = readOpenClawConfig();
+    if (!config.skills?.entries) return;
+
+    for (const name of Object.keys(config.skills.entries)) {
       if (!approvedNames.has(name)) {
-        delete config.skills.entries[name];
-        changed = true;
-        console.log(`[SkillsWatcher] Removed stale openclaw.json entry: ${name}`);
+        removeSkillEntry(name);
+        console.log(`[SkillsWatcher] Disabled stale openclaw.json entry: ${name}`);
       }
-    }
-
-    if (changed) {
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
     }
   } catch {
     // Best-effort; openclaw.json may not exist or be unreadable

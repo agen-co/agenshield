@@ -11,13 +11,56 @@ import { execSync } from 'node:child_process';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { loadConfig, updateConfig } from '../config/index';
 
+// ─── Sudo helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Create a directory, falling back to sudo as the agent user on EACCES.
+ */
+export function sudoMkdir(dir: string, agentUsername: string): void {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      execSync(`sudo -H -u ${agentUsername} /bin/mkdir -p "${dir}"`, { cwd: '/', stdio: 'pipe' });
+    } else {
+      throw err;
+    }
+  }
+}
+
+/**
+ * Write a file, falling back to sudo tee as the agent user on EACCES.
+ */
+export function sudoWriteFile(filePath: string, content: string, agentUsername: string, mode?: number): void {
+  try {
+    fs.writeFileSync(filePath, content, { mode });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      execSync(
+        `sudo -H -u ${agentUsername} tee "${filePath}" > /dev/null`,
+        { input: content, cwd: '/', stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+      if (mode) {
+        try {
+          execSync(`sudo -H -u ${agentUsername} chmod ${mode.toString(8)} "${filePath}"`, { cwd: '/', stdio: 'pipe' });
+        } catch { /* best-effort */ }
+      }
+    } else {
+      throw err;
+    }
+  }
+}
+
+// ─── Skill Wrapper ───────────────────────────────────────────────────────────
+
 /**
  * Create a bash wrapper in $AGENT_HOME/bin/<skill-name> that invokes the skill through policy.
  */
 export function createSkillWrapper(name: string, binDir: string): void {
-  if (!fs.existsSync(binDir)) {
-    fs.mkdirSync(binDir, { recursive: true });
-  }
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+  const agentUsername = path.basename(agentHome);
+
+  sudoMkdir(binDir, agentUsername);
 
   const wrapperPath = path.join(binDir, name);
   const wrapperContent = `#!/bin/bash
@@ -27,7 +70,7 @@ if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 exec /opt/agenshield/bin/shield-client skill run "${name}" "$@"
 `;
 
-  fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
+  sudoWriteFile(wrapperPath, wrapperContent, agentUsername, 0o755);
 
   const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
   try {

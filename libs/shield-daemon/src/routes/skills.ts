@@ -33,6 +33,8 @@ import {
   removeSkillWrapper,
   addSkillPolicy,
   removeSkillPolicy,
+  sudoMkdir,
+  sudoWriteFile,
 } from '../services/skill-lifecycle';
 import { addSkillEntry, removeSkillEntry, syncOpenClawFromPolicies } from '../services/openclaw-config';
 import {
@@ -833,6 +835,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+      const agentUsername = path.basename(agentHome);
       const binDir = path.join(agentHome, 'bin');
       const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
       const skillDir = path.join(skillsDir, name);
@@ -842,11 +845,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         addToApprovedList(name, publisher);
 
         // 4. Write files to $AGENT_HOME/.openclaw/skills/<name>/
-        fs.mkdirSync(skillDir, { recursive: true });
+        sudoMkdir(skillDir, agentUsername);
         for (const file of files) {
           const filePath = path.join(skillDir, file.name);
-          fs.mkdirSync(path.dirname(filePath), { recursive: true });
-          fs.writeFileSync(filePath, file.content, 'utf-8');
+          sudoMkdir(path.dirname(filePath), agentUsername);
+          sudoWriteFile(filePath, file.content, agentUsername);
         }
 
         // 5. Set ownership (root-owned, agent-readable)

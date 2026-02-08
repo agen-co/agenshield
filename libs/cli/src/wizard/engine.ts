@@ -1229,18 +1229,35 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     try {
       const { execSync } = await import('node:child_process');
 
-      const sudoersContent = [
-        '# AgenShield: allow broker to run openclaw commands as agent user',
-        `${brokerUsername} ALL=(${agentUsername}) NOPASSWD: /opt/agenshield/bin/openclaw-launcher.sh *`,
-        `${brokerUsername} ALL=(${agentUsername}) NOPASSWD: /usr/bin/tee ${agentHome}/.openclaw/*`,
-        '',
-        '# AgenShield: allow broker to manage openclaw gateway LaunchDaemon',
-        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl kickstart system/com.agenshield.openclaw.gateway`,
-        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/com.agenshield.openclaw.gateway`,
-        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl kill SIGTERM system/com.agenshield.openclaw.gateway`,
-        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl list com.agenshield.openclaw.gateway`,
-        '',
-      ].join('\n');
+      // Include the original user (who ran setup) so dev-mode daemon can also use sudo
+      const originalUser = getOriginalUser();
+      const users = [brokerUsername];
+      if (originalUser && originalUser !== brokerUsername) {
+        users.push(originalUser);
+      }
+
+      const lines: string[] = [
+        '# AgenShield: allow broker (and host user) to run openclaw commands as agent user',
+      ];
+      for (const user of users) {
+        lines.push(`${user} ALL=(${agentUsername}) NOPASSWD: /opt/agenshield/bin/openclaw-launcher.sh *`);
+        lines.push(`${user} ALL=(${agentUsername}) NOPASSWD: /bin/cat ${agentHome}/.openclaw/*`);
+        lines.push(`${user} ALL=(${agentUsername}) NOPASSWD: /usr/bin/tee ${agentHome}/.openclaw/*`);
+        lines.push(`${user} ALL=(${agentUsername}) NOPASSWD: /bin/mkdir -p ${agentHome}/.openclaw/*`);
+        lines.push(`${user} ALL=(${agentUsername}) NOPASSWD: /usr/bin/tee ${agentHome}/bin/*`);
+        lines.push(`${user} ALL=(${agentUsername}) NOPASSWD: /bin/mkdir -p ${agentHome}/bin`);
+      }
+      lines.push('');
+      lines.push('# AgenShield: allow broker (and host user) to manage openclaw gateway LaunchDaemon');
+      for (const user of users) {
+        lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl kickstart system/com.agenshield.openclaw.gateway`);
+        lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/com.agenshield.openclaw.gateway`);
+        lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl kill SIGTERM system/com.agenshield.openclaw.gateway`);
+        lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl list com.agenshield.openclaw.gateway`);
+      }
+      lines.push('');
+
+      const sudoersContent = lines.join('\n');
 
       const tmpPath = '/tmp/agenshield-sudoers';
 
@@ -1263,7 +1280,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       // 4. Set permissions (440 is required for sudoers files)
       execSync('sudo chmod 440 /etc/sudoers.d/agenshield', { encoding: 'utf-8', stdio: 'pipe' });
 
-      logVerbose(`Sudoers rule installed: ${brokerUsername} → ${agentUsername} + root (launchctl)`, context);
+      logVerbose(`Sudoers rule installed: ${users.join(', ')} → ${agentUsername} + root (launchctl)`, context);
       return { success: true };
     } catch (err) {
       // Clean up temp file on failure
@@ -1552,6 +1569,10 @@ async function runSteps(
     _currentStepId = stepId;
     logVerbose(`▶ Starting step: ${step.name} (${step.id})`, context);
     onStateChange?.(state);
+
+    // Yield a macrotask tick so the SSE 'running' event flushes to the browser
+    // before the step executor (which may use execSync) blocks the event loop.
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     // Execute the step
     const executor = stepExecutors[stepId];
