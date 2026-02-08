@@ -45,15 +45,17 @@ export async function installAgentHomebrew(options: {
     await execAsync(`sudo chown ${agentUsername}:${socketGroupName} "${brewDir}"`);
 
     // 2. Download and extract Homebrew tarball as agent user
+    // --norc --noprofile prevents loading the calling user's rc files
+    // -H sets HOME for sudo so the agent user's environment is clean
     log('Downloading and extracting Homebrew');
     const installCmd = [
-      `export HOME="${agentHome}"`,
       `cd "${agentHome}"`,
+      `export HOME="${agentHome}"`,
       `/usr/bin/curl -fsSL "${HOMEBREW_TARBALL_URL}" | /usr/bin/tar xz --strip 1 -C homebrew`,
     ].join(' && ');
 
     await execAsync(
-      `sudo -u ${agentUsername} /bin/bash -c '${installCmd}'`,
+      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${installCmd}'`,
       { timeout: 120_000 },
     );
 

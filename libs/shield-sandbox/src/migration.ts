@@ -236,7 +236,7 @@ export function migrateOpenClaw(
 /**
  * Sanitize an OpenClaw config by stripping skill-related secrets.
  * Removes `env` and `apiKey` from each skill entry (those go to the vault).
- * Enables the skill watcher. Returns a new object — does NOT mutate the input.
+ * Returns a new object — does NOT mutate the input.
  */
 export function sanitizeOpenClawConfig(config: Record<string, unknown>): Record<string, unknown> {
   const sanitized: Record<string, unknown> = JSON.parse(JSON.stringify(config));
@@ -251,9 +251,6 @@ export function sanitizeOpenClawConfig(config: Record<string, unknown>): Record<
       delete entry['apiKey'];
     }
   }
-
-  const settings = (sanitized['settings'] ?? {}) as Record<string, unknown>;
-  sanitized['settings'] = { ...settings, skillWatcher: { enabled: true } };
 
   return sanitized;
 }

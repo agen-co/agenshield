@@ -205,6 +205,7 @@ export async function installAgentOpenClaw(options: {
     log(`Installing ${versionSpec} for agent user via NVM npm`);
 
     const installCmd = [
+      `cd /`,
       `export HOME="${agentHome}"`,
       `export NVM_DIR="${nvmDir}"`,
       `source "${nvmDir}/nvm.sh"`,
@@ -212,13 +213,14 @@ export async function installAgentOpenClaw(options: {
     ].join(' && ');
 
     await execAsync(
-      `sudo -u ${agentUsername} /bin/bash -c '${installCmd}'`,
+      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${installCmd}'`,
       { timeout: 180_000 },
     );
 
     // 2. Resolve installed binary path
     log('Resolving installed openclaw binary path');
     const whichCmd = [
+      `cd /`,
       `export HOME="${agentHome}"`,
       `export NVM_DIR="${nvmDir}"`,
       `source "${nvmDir}/nvm.sh"`,
@@ -226,7 +228,7 @@ export async function installAgentOpenClaw(options: {
     ].join(' && ');
 
     const { stdout: binaryPath } = await execAsync(
-      `sudo -u ${agentUsername} /bin/bash -c '${whichCmd}'`,
+      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${whichCmd}'`,
     );
     const resolvedPath = binaryPath.trim();
 
@@ -237,6 +239,7 @@ export async function installAgentOpenClaw(options: {
     // 3. Verify version
     log('Verifying OpenClaw installation');
     const verifyCmd = [
+      `cd /`,
       `export HOME="${agentHome}"`,
       `export NVM_DIR="${nvmDir}"`,
       `source "${nvmDir}/nvm.sh"`,
@@ -244,7 +247,7 @@ export async function installAgentOpenClaw(options: {
     ].join(' && ');
 
     const { stdout: versionOut } = await execAsync(
-      `sudo -u ${agentUsername} /bin/bash -c '${verifyCmd}'`,
+      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${verifyCmd}'`,
     );
     const installedVersion = versionOut.trim();
 
