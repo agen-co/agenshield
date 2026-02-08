@@ -388,7 +388,13 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       sudo(`rm -f "${guardedShellPath}"`);
     }
 
-    // 7. Clean up directories
+    // 7. Remove sudoers drop-in
+    if (fs.existsSync('/etc/sudoers.d/agenshield')) {
+      logVerbose('[cleanup] Removing /etc/sudoers.d/agenshield', context);
+      sudo('rm -f /etc/sudoers.d/agenshield');
+    }
+
+    // 8. Clean up directories
     for (const dir of ['/etc/agenshield', '/var/log/agenshield', '/var/run/agenshield', '/opt/agenshield']) {
       if (fs.existsSync(dir)) {
         logVerbose(`[cleanup] Removing ${dir}`, context);
@@ -906,7 +912,6 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       binDir: `${agentUser.home}/bin`,
       wrappersDir: `${agentUser.home}/bin`,
       configDir: `${agentUser.home}/.openclaw`,
-      packageDir: `${agentUser.home}/.openclaw-pkg`,
       npmDir: `${agentUser.home}/.npm`,
       socketDir: context.pathsConfig.socketDir,
       logDir: context.pathsConfig.logDir,
@@ -1203,6 +1208,72 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       return {
         success: false,
         error: `Failed to install daemon config: ${(err as Error).message}`,
+      };
+    }
+  },
+
+  'install-sudoers': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const brokerUsername = context.userConfig.brokerUser.username;
+    const agentUsername = context.userConfig.agentUser.username;
+    const agentHome = context.userConfig.agentUser.home;
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install /etc/sudoers.d/agenshield granting ${brokerUsername} sudo for ${agentUsername} operations`, context);
+      return { success: true };
+    }
+
+    try {
+      const { execSync } = await import('node:child_process');
+
+      const sudoersContent = [
+        '# AgenShield: allow broker to run openclaw commands as agent user',
+        `${brokerUsername} ALL=(${agentUsername}) NOPASSWD: /opt/agenshield/bin/openclaw-launcher.sh *`,
+        `${brokerUsername} ALL=(${agentUsername}) NOPASSWD: /usr/bin/tee ${agentHome}/.openclaw/*`,
+        '',
+        '# AgenShield: allow broker to manage openclaw gateway LaunchDaemon',
+        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl kickstart system/com.agenshield.openclaw.gateway`,
+        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/com.agenshield.openclaw.gateway`,
+        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl kill SIGTERM system/com.agenshield.openclaw.gateway`,
+        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl list com.agenshield.openclaw.gateway`,
+        '',
+      ].join('\n');
+
+      const tmpPath = '/tmp/agenshield-sudoers';
+
+      // 1. Write to temp file
+      logVerbose('Writing sudoers rules to temp file', context);
+      execSync(`sudo tee "${tmpPath}" > /dev/null`, {
+        input: sudoersContent,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      // 2. Validate with visudo
+      logVerbose('Validating sudoers syntax', context);
+      execSync(`sudo visudo -c -f "${tmpPath}"`, { encoding: 'utf-8', stdio: 'pipe' });
+
+      // 3. Move to /etc/sudoers.d/
+      logVerbose('Installing sudoers drop-in to /etc/sudoers.d/agenshield', context);
+      execSync(`sudo mv "${tmpPath}" /etc/sudoers.d/agenshield`, { encoding: 'utf-8', stdio: 'pipe' });
+
+      // 4. Set permissions (440 is required for sudoers files)
+      execSync('sudo chmod 440 /etc/sudoers.d/agenshield', { encoding: 'utf-8', stdio: 'pipe' });
+
+      logVerbose(`Sudoers rule installed: ${brokerUsername} → ${agentUsername} + root (launchctl)`, context);
+      return { success: true };
+    } catch (err) {
+      // Clean up temp file on failure
+      try {
+        const { execSync } = await import('node:child_process');
+        execSync('sudo rm -f /tmp/agenshield-sudoers', { stdio: 'pipe' });
+      } catch { /* ignore */ }
+      return {
+        success: false,
+        error: `Failed to install sudoers rule: ${(err as Error).message}`,
       };
     }
   },

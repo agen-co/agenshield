@@ -29,6 +29,7 @@ export type WizardStepId =
   | 'generate-seatbelt'
   | 'install-broker'
   | 'install-daemon-config'
+  | 'install-sudoers'
   | 'install-policies'
   | 'setup-launchdaemon'
   | 'install-openclaw'
@@ -129,7 +130,7 @@ export interface WizardContext {
     binDir: string;
     wrappersDir: string;
     configDir: string;
-    packageDir: string;
+    packageDir?: string;
     npmDir: string;
     socketDir: string;
     logDir: string;
@@ -437,6 +438,14 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['create-directories'],
+  },
+  {
+    id: 'install-sudoers',
+    name: 'Install Sudoers Rule',
+    description: 'Grant broker passwordless sudo for agent operations',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['create-broker-user', 'create-agent-user'],
   },
   {
     id: 'install-policies',

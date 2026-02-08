@@ -294,9 +294,9 @@ export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE
 export AGENSHIELD_SOCKET="${config.socketPath}"
 export AGENSHIELD_HTTP_PORT="${config.httpPort}"
 export AGENSHIELD_INTERCEPT_EXEC=true
-export AGENSHIELD_INTERCEPT_HTTP=false
-export AGENSHIELD_INTERCEPT_FETCH=false
-export AGENSHIELD_INTERCEPT_WS=false
+export AGENSHIELD_INTERCEPT_HTTP=true
+export AGENSHIELD_INTERCEPT_FETCH=true
+export AGENSHIELD_INTERCEPT_WS=true
 export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
 
 # Only use the NVM-installed node binary (copied to /opt/agenshield/bin/node-bin)
@@ -848,9 +848,9 @@ export NODE_OPTIONS="${wrapperConfig.interceptorFlag} ${wrapperConfig.intercepto
 export AGENSHIELD_SOCKET="${wrapperConfig.socketPath}"
 export AGENSHIELD_HTTP_PORT="${wrapperConfig.httpPort}"
 export AGENSHIELD_INTERCEPT_EXEC=true
-export AGENSHIELD_INTERCEPT_HTTP=false
-export AGENSHIELD_INTERCEPT_FETCH=false
-export AGENSHIELD_INTERCEPT_WS=false
+export AGENSHIELD_INTERCEPT_HTTP=true
+export AGENSHIELD_INTERCEPT_FETCH=true
+export AGENSHIELD_INTERCEPT_WS=true
 export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
 
 # Only use the NVM-installed node binary (copied to /opt/agenshield/bin/node-bin)
@@ -1556,9 +1556,9 @@ export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"
 export AGENSHIELD_SOCKET="${socketPath}"
 export AGENSHIELD_HTTP_PORT="${httpPort}"
 export AGENSHIELD_INTERCEPT_EXEC=true
-export AGENSHIELD_INTERCEPT_HTTP=false
-export AGENSHIELD_INTERCEPT_FETCH=false
-export AGENSHIELD_INTERCEPT_WS=false
+export AGENSHIELD_INTERCEPT_HTTP=true
+export AGENSHIELD_INTERCEPT_FETCH=true
+export AGENSHIELD_INTERCEPT_WS=true
 export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
 exec ${nodeBinTarget} "$@"
 `;

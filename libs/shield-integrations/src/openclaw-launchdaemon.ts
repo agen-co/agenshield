@@ -9,6 +9,7 @@
  */
 
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -84,9 +85,9 @@ export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"
 export AGENSHIELD_SOCKET="${socketPath}"
 export AGENSHIELD_HTTP_PORT="${httpPort}"
 export AGENSHIELD_INTERCEPT_EXEC=true
-export AGENSHIELD_INTERCEPT_HTTP=false
-export AGENSHIELD_INTERCEPT_FETCH=false
-export AGENSHIELD_INTERCEPT_WS=false
+export AGENSHIELD_INTERCEPT_HTTP=true
+export AGENSHIELD_INTERCEPT_FETCH=true
+export AGENSHIELD_INTERCEPT_WS=true
 export AGENSHIELD_CONTEXT_TYPE=agent
 
 exec openclaw "$@"
@@ -110,7 +111,7 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
     <array>
         <string>${OPENCLAW_LAUNCHER_PATH}</string>
         <string>daemon</string>
-        <string>start</string>
+        <string>run</string>
     </array>
 
     <key>UserName</key>
@@ -168,7 +169,7 @@ export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): stri
     <array>
         <string>${OPENCLAW_LAUNCHER_PATH}</string>
         <string>gateway</string>
-        <string>start</string>
+        <string>run</string>
     </array>
 
     <key>UserName</key>
@@ -257,9 +258,7 @@ export async function installOpenClawLaunchDaemons(
     // 2. Ensure log files exist with correct ownership
     const agentUsername = config.agentUsername;
     const socketGroupName = config.socketGroupName;
-    await execAsync(`sudo touch /var/log/agenshield/openclaw-daemon.log /var/log/agenshield/openclaw-daemon.error.log`);
     await execAsync(`sudo touch /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
-    await execAsync(`sudo chown ${agentUsername}:${socketGroupName} /var/log/agenshield/openclaw-daemon.log /var/log/agenshield/openclaw-daemon.error.log`);
     await execAsync(`sudo chown ${agentUsername}:${socketGroupName} /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
 
     // 3. Remove stale entries
@@ -270,15 +269,7 @@ export async function installOpenClawLaunchDaemons(
       await execAsync(`sudo launchctl bootout system/${OPENCLAW_GATEWAY_LABEL} 2>/dev/null`);
     } catch { /* not loaded */ }
 
-    // 4. Generate and write daemon plist
-    const daemonPlist = generateOpenClawDaemonPlist(config);
-    await execAsync(`sudo tee "${OPENCLAW_DAEMON_PLIST}" > /dev/null << 'PLISTEOF'
-${daemonPlist}
-PLISTEOF`);
-    await execAsync(`sudo chown root:wheel "${OPENCLAW_DAEMON_PLIST}"`);
-    await execAsync(`sudo chmod 644 "${OPENCLAW_DAEMON_PLIST}"`);
-
-    // 5. Generate and write gateway plist
+    // 4. Generate and write gateway plist
     const gatewayPlist = generateOpenClawGatewayPlist(config);
     await execAsync(`sudo tee "${OPENCLAW_GATEWAY_PLIST}" > /dev/null << 'PLISTEOF'
 ${gatewayPlist}
@@ -286,8 +277,7 @@ PLISTEOF`);
     await execAsync(`sudo chown root:wheel "${OPENCLAW_GATEWAY_PLIST}"`);
     await execAsync(`sudo chmod 644 "${OPENCLAW_GATEWAY_PLIST}"`);
 
-    // 6. Load plists (but don't start — RunAtLoad is false)
-    await execAsync(`sudo launchctl load -w "${OPENCLAW_DAEMON_PLIST}"`);
+    // 5. Load gateway plist (but don't start — RunAtLoad is false)
     await execAsync(`sudo launchctl load -w "${OPENCLAW_GATEWAY_PLIST}"`);
 
     return {
@@ -312,11 +302,6 @@ export async function startOpenClawServices(): Promise<OpenClawDaemonResult> {
   try {
     // kickstart bypasses throttling and starts immediately
     try {
-      await execAsync(`sudo launchctl kickstart system/${OPENCLAW_DAEMON_LABEL}`);
-    } catch {
-      // May already be running
-    }
-    try {
       await execAsync(`sudo launchctl kickstart system/${OPENCLAW_GATEWAY_LABEL}`);
     } catch {
       // May already be running
@@ -324,12 +309,12 @@ export async function startOpenClawServices(): Promise<OpenClawDaemonResult> {
 
     return {
       success: true,
-      message: 'OpenClaw services started',
+      message: 'OpenClaw gateway started',
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to start OpenClaw services: ${(error as Error).message}`,
+      message: `Failed to start OpenClaw gateway: ${(error as Error).message}`,
       error: error as Error,
     };
   }
@@ -341,11 +326,6 @@ export async function startOpenClawServices(): Promise<OpenClawDaemonResult> {
 export async function stopOpenClawServices(): Promise<OpenClawDaemonResult> {
   try {
     try {
-      await execAsync(`sudo launchctl kill SIGTERM system/${OPENCLAW_DAEMON_LABEL}`);
-    } catch {
-      // May not be running
-    }
-    try {
       await execAsync(`sudo launchctl kill SIGTERM system/${OPENCLAW_GATEWAY_LABEL}`);
     } catch {
       // May not be running
@@ -353,12 +333,12 @@ export async function stopOpenClawServices(): Promise<OpenClawDaemonResult> {
 
     return {
       success: true,
-      message: 'OpenClaw services stopped',
+      message: 'OpenClaw gateway stopped',
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to stop OpenClaw services: ${(error as Error).message}`,
+      message: `Failed to stop OpenClaw gateway: ${(error as Error).message}`,
       error: error as Error,
     };
   }
@@ -371,20 +351,17 @@ export async function restartOpenClawServices(): Promise<OpenClawDaemonResult> {
   try {
     // kickstart -k kills and restarts
     try {
-      await execAsync(`sudo launchctl kickstart -k system/${OPENCLAW_DAEMON_LABEL}`);
-    } catch { /* may not be running */ }
-    try {
       await execAsync(`sudo launchctl kickstart -k system/${OPENCLAW_GATEWAY_LABEL}`);
     } catch { /* may not be running */ }
 
     return {
       success: true,
-      message: 'OpenClaw services restarted',
+      message: 'OpenClaw gateway restarted',
     };
   } catch (error) {
     return {
       success: false,
-      message: `Failed to restart OpenClaw services: ${(error as Error).message}`,
+      message: `Failed to restart OpenClaw gateway: ${(error as Error).message}`,
       error: error as Error,
     };
   }
@@ -446,18 +423,6 @@ export async function getOpenClawStatus(): Promise<OpenClawStatus> {
     gateway: { running: false },
   };
 
-  // Check daemon
-  try {
-    const { stdout } = await execAsync(`sudo launchctl list ${OPENCLAW_DAEMON_LABEL} 2>/dev/null`);
-    result.daemon = parseLaunchctlStatus(stdout);
-    if (!result.daemon.running) {
-      // If launchctl list succeeds but no PID, service is loaded but not running
-      result.daemon.running = false;
-    }
-  } catch {
-    // Not loaded or not running
-  }
-
   // Check gateway
   try {
     const { stdout } = await execAsync(`sudo launchctl list ${OPENCLAW_GATEWAY_LABEL} 2>/dev/null`);
@@ -482,14 +447,6 @@ export function getOpenClawStatusSync(): OpenClawStatus {
   };
 
   try {
-    const stdout = execSync(`sudo launchctl list ${OPENCLAW_DAEMON_LABEL} 2>/dev/null`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    result.daemon = parseLaunchctlStatus(stdout);
-  } catch { /* not loaded */ }
-
-  try {
     const stdout = execSync(`sudo launchctl list ${OPENCLAW_GATEWAY_LABEL} 2>/dev/null`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -501,11 +458,37 @@ export function getOpenClawStatusSync(): OpenClawStatus {
 }
 
 /**
+ * Get the OpenClaw dashboard URL (includes embedded API key).
+ *
+ * Runs `openclaw dashboard` via the launcher script, which prints a URL
+ * to stdout and exits immediately.
+ */
+export async function getOpenClawDashboardUrl(): Promise<{ success: boolean; url?: string; error?: string }> {
+  try {
+    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const agentUsername = path.basename(agentHome);
+    // Run as agent user via sudo (sudoers rule grants NOPASSWD access).
+    // NVM sources produce huge stderr output, so bump maxBuffer to 10 MB.
+    const { stdout, stderr } = await execAsync(
+      `sudo -H -u ${agentUsername} ${OPENCLAW_LAUNCHER_PATH} dashboard`,
+      { timeout: 15000, maxBuffer: 10 * 1024 * 1024 }
+    );
+    const url = stdout.trim();
+    if (!url) {
+      return { success: false, error: stderr.trim() || 'No URL returned from openclaw dashboard' };
+    }
+    return { success: true, url };
+  } catch (error) {
+    return { success: false, error: `Failed to get dashboard URL: ${(error as Error).message}` };
+  }
+}
+
+/**
  * Check if OpenClaw LaunchDaemon plists are installed.
  */
 export async function isOpenClawInstalled(): Promise<boolean> {
   try {
-    await fs.access(OPENCLAW_DAEMON_PLIST);
+    await fs.access(OPENCLAW_GATEWAY_PLIST);
     return true;
   } catch {
     return false;
@@ -549,7 +532,6 @@ export async function uninstallOpenClawLaunchDaemons(): Promise<OpenClawDaemonRe
 
 // Export constants for external use
 export {
-  OPENCLAW_DAEMON_LABEL,
   OPENCLAW_GATEWAY_LABEL,
   OPENCLAW_DAEMON_PLIST,
   OPENCLAW_GATEWAY_PLIST,

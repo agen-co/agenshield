@@ -3,6 +3,7 @@ import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
 import { AgentIdentityCard } from '../components/settings/AgentIdentityCard';
 import { ServerConfigCard } from '../components/settings/ServerConfigCard';
+import { OpenClawCard } from '../components/settings/OpenClawCard';
 import { LoggingCard } from '../components/settings/LoggingCard';
 import { AdvancedCard } from '../components/settings/AdvancedCard';
 import { DangerZoneCard } from '../components/settings/DangerZoneCard';
@@ -17,6 +18,7 @@ export function Settings() {
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <AgentIdentityCard />
         <ServerConfigCard />
+        <OpenClawCard />
         <LoggingCard />
         <AdvancedCard />
         <DangerZoneCard />

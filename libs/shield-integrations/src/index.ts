@@ -31,9 +31,8 @@ export {
   type StopHostOpenClawResult,
 } from './openclaw-install';
 
-// OpenClaw LaunchDaemon (daemon/gateway process lifecycle)
+// OpenClaw LaunchDaemon (gateway process lifecycle)
 export {
-  generateOpenClawDaemonPlist,
   generateOpenClawGatewayPlist,
   installOpenClawLauncher,
   installOpenClawLaunchDaemons,
@@ -42,9 +41,9 @@ export {
   restartOpenClawServices,
   getOpenClawStatus,
   getOpenClawStatusSync,
+  getOpenClawDashboardUrl,
   isOpenClawInstalled,
   uninstallOpenClawLaunchDaemons,
-  OPENCLAW_DAEMON_LABEL,
   OPENCLAW_GATEWAY_LABEL,
   OPENCLAW_DAEMON_PLIST,
   OPENCLAW_GATEWAY_PLIST,

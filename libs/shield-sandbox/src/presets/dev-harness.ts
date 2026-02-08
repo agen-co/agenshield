@@ -135,6 +135,9 @@ export const devHarnessPreset: TargetPreset = {
     try {
       const packagePath = context.detection.packagePath;
       const packageDir = context.directories.packageDir;
+      if (!packageDir) {
+        return { success: false, error: 'packageDir is not configured' };
+      }
 
       // Copy the entire test-harness directory to the sandbox package dir
       // (includes package.json so npm install can resolve dependencies)

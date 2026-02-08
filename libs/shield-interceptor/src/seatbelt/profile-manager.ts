@@ -88,6 +88,15 @@ export class ProfileManager {
     lines.push(')');
     lines.push('');
 
+    // Device files: /dev/null etc. are single files, not directories — use literal
+    lines.push('(allow file-write*');
+    lines.push('  (literal "/dev/null")');
+    lines.push('  (literal "/dev/zero")');
+    lines.push('  (literal "/dev/random")');
+    lines.push('  (literal "/dev/urandom")');
+    lines.push(')');
+    lines.push('');
+
     // Denied paths
     if (sandbox.deniedPaths.length > 0) {
       lines.push(';; Denied paths');
@@ -97,31 +106,63 @@ export class ProfileManager {
       lines.push('');
     }
 
-    // Binary execution
-    lines.push(';; Binary execution');
+    // Binary execution — allow standard system binary directories.
+    // The security boundary is network isolation + filesystem write restriction +
+    // guarded shell's TRAPDEBUG, NOT individual binary whitelisting.
+    // A literal-only approach breaks shell init (id, locale) and system commands.
+    lines.push(';; Binary execution (system directories allowed as subpaths)');
     lines.push('(allow process-exec');
-    lines.push('  (literal "/bin/sh")');
-    lines.push('  (literal "/bin/bash")');
-    lines.push('  (literal "/usr/bin/env")');
-    lines.push('  (literal "/usr/bin/sandbox-exec")');
 
-    if (sandbox.allowedBinaries.length > 0) {
-      for (const bin of sandbox.allowedBinaries) {
-        if (bin.endsWith('/')) {
-          // Directory: allow subpath
-          lines.push(`  (subpath "${this.escapeSbpl(bin)}")`);
-        } else {
-          lines.push(`  (literal "${this.escapeSbpl(bin)}")`);
-        }
+    // macOS system binary directories (always present on macOS)
+    lines.push('  (subpath "/bin")');
+    lines.push('  (subpath "/sbin")');
+    lines.push('  (subpath "/usr/bin")');
+    lines.push('  (subpath "/usr/sbin")');
+    lines.push('  (subpath "/usr/local/bin")');
+    lines.push('  (subpath "/opt/agenshield/bin")');
+
+    // Resolve agent-specific paths from environment
+    const coveredSubpaths = ['/bin/', '/sbin/', '/usr/bin/', '/usr/sbin/', '/usr/local/bin/', '/opt/agenshield/bin/'];
+    const home = process.env['HOME'];
+    if (home) {
+      lines.push(`  (subpath "${this.escapeSbpl(home)}/bin")`);         // agent wrappers
+      lines.push(`  (subpath "${this.escapeSbpl(home)}/homebrew")`);    // agent's brew (bin + lib/node_modules + Cellar)
+      coveredSubpaths.push(`${home}/bin/`, `${home}/homebrew/`);
+    }
+    const nvmDir = process.env['NVM_DIR'] || (home ? `${home}/.nvm` : null);
+    if (nvmDir) {
+      lines.push(`  (subpath "${this.escapeSbpl(nvmDir)}")`);           // all NVM node versions + global packages
+      coveredSubpaths.push(`${nvmDir}/`);
+    }
+
+    // Resolve HOMEBREW_PREFIX if set (covers non-standard locations)
+    const brewPrefix = process.env['HOMEBREW_PREFIX'];
+    if (brewPrefix && (!home || !brewPrefix.startsWith(home))) {
+      // Only add if not already covered by $HOME/homebrew
+      lines.push(`  (subpath "${this.escapeSbpl(brewPrefix)}/bin")`);
+      lines.push(`  (subpath "${this.escapeSbpl(brewPrefix)}/lib")`);
+      coveredSubpaths.push(`${brewPrefix}/bin/`, `${brewPrefix}/lib/`);
+    }
+
+    // Additional paths from policy (e.g. node_modules, custom binaries)
+    const uniqueBinaries = [...new Set(sandbox.allowedBinaries)];
+    for (const bin of uniqueBinaries) {
+      // Skip paths already covered by the system/resolved directory subpaths above
+      if (coveredSubpaths.some(dir => bin === dir || bin.startsWith(dir))) continue;
+      if (bin.endsWith('/')) {
+        lines.push(`  (subpath "${this.escapeSbpl(bin)}")`);
+      } else {
+        lines.push(`  (literal "${this.escapeSbpl(bin)}")`);
       }
     }
     lines.push(')');
     lines.push('');
 
-    // Denied binaries
-    if (sandbox.deniedBinaries.length > 0) {
+    // Denied binaries (deduplicated)
+    const uniqueDenied = [...new Set(sandbox.deniedBinaries)];
+    if (uniqueDenied.length > 0) {
       lines.push(';; Denied binaries');
-      for (const bin of sandbox.deniedBinaries) {
+      for (const bin of uniqueDenied) {
         lines.push(`(deny process-exec (literal "${this.escapeSbpl(bin)}"))`);
       }
       lines.push('');

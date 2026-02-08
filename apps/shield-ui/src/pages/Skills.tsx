@@ -93,7 +93,6 @@ export function Skills() {
       case 'analyzed': return 'Install';
       case 'installed': return 'Uninstall';
       case 'blocked': return 'Unblock';
-      case 'untrusted': return 'Pending';
       default: return 'Manage';
     }
   };

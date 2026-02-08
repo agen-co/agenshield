@@ -194,7 +194,6 @@ export function createDirectoryStructure(user: SandboxUser): {
     binDir: path.join(user.homeDir, 'bin'),
     wrappersDir: path.join(user.homeDir, 'bin-wrappers'),
     configDir: path.join(user.homeDir, '.openclaw'),
-    packageDir: path.join(user.homeDir, '.openclaw-pkg'),
     npmDir: path.join(user.homeDir, '.npm-global'),
   };
 

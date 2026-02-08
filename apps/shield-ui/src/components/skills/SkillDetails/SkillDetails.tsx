@@ -76,7 +76,8 @@ export function SkillDetails() {
   }
 
   const chipConfig = originChipConfig[skill.origin];
-  const vulnLevel = skill.analysis?.vulnerability?.level;
+  const vulnLevel = skill.analysis?.vulnerability?.level
+    ?? (skill.origin === 'untrusted' ? 'critical' : undefined);
 
   const isUntrustedAnalyzed = skill.origin === 'untrusted' && skill.actionState === 'analyzed';
 
@@ -401,13 +402,6 @@ function ActionButton({
       return <DangerButton fullWidth onClick={onClick}>Uninstall</DangerButton>;
     case 'blocked':
       return <PrimaryButton fullWidth onClick={onClick}>Unblock</PrimaryButton>;
-    case 'untrusted':
-      return (
-        <SecondaryButton fullWidth disabled>
-          <CircularLoader size={14} sx={{ mr: 1 }} />
-          Pending Analysis...
-        </SecondaryButton>
-      );
     default:
       return null;
   }

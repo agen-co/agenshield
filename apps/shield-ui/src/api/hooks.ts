@@ -296,6 +296,34 @@ export function useFactoryReset() {
   });
 }
 
+// --- OpenClaw hooks ---
+
+export function useOpenClawStatus() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: ['openclaw', 'status'],
+    queryFn: api.openclaw.getStatus,
+    enabled: healthy,
+    refetchInterval: healthy ? 10000 : false,
+  });
+}
+
+export function useOpenClawAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (action: 'start' | 'stop' | 'restart') => api.openclaw[action](),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['openclaw', 'status'] });
+    },
+  });
+}
+
+export function useOpenClawDashboardUrl() {
+  return useMutation({
+    mutationFn: () => api.openclaw.getDashboardUrl(),
+  });
+}
+
 // --- Filesystem browse hooks ---
 
 export function useBrowsePath(dirPath: string | null) {

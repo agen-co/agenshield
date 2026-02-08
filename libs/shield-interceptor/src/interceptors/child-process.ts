@@ -25,6 +25,7 @@ const childProcessModule = require('node:child_process') as typeof childProcess;
 export class ChildProcessInterceptor extends BaseInterceptor {
   private syncClient: SyncClient;
   private _checking = false;
+  private _executing = false;  // Guards exec→execFile re-entrancy
   private profileManager: ProfileManager | null = null;
   private originalExec: typeof childProcess.exec | null = null;
   private originalExecSync: typeof childProcess.execSync | null = null;
@@ -199,6 +200,12 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       return { command, args, options };
     }
 
+    // Skip if command is already sandbox-exec (defense against double-wrapping)
+    if (command === '/usr/bin/sandbox-exec' || command.endsWith('/sandbox-exec')) {
+      debugLog(`cp.wrapWithSeatbelt: SKIP already sandbox-exec command=${command}`);
+      return { command, args, options };
+    }
+
     debugLog(`cp.wrapWithSeatbelt: wrapping command=${command}`);
 
     // Generate and cache the profile
@@ -236,6 +243,13 @@ export class ChildProcessInterceptor extends BaseInterceptor {
     if (!this.profileManager || !sandbox || process.platform !== 'darwin') {
       return { command, options };
     }
+
+    // Skip if command already starts with sandbox-exec (defense against double-wrapping)
+    if (command.startsWith('/usr/bin/sandbox-exec ') || command.startsWith('sandbox-exec ')) {
+      debugLog(`cp.wrapCommandStringWithSeatbelt: SKIP already sandbox-exec command=${command}`);
+      return { command, options };
+    }
+
     debugLog(`cp.wrapCommandStringWithSeatbelt: wrapping command=${command}`);
 
     const profileContent = this.profileManager.generateProfile(sandbox);
@@ -272,10 +286,10 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         : undefined;
       const options = args[0] as Record<string, unknown> | undefined;
 
-      debugLog(`cp.exec ENTER command=${command} _checking=${self._checking}`);
+      debugLog(`cp.exec ENTER command=${command} _checking=${self._checking} _executing=${self._executing}`);
 
-      // Re-entrancy guard
-      if (self._checking) {
+      // Re-entrancy guard (also blocks exec→execFile double-interception)
+      if (self._checking || self._executing) {
         debugLog(`cp.exec SKIP (re-entrancy) command=${command}`);
         return original(command, ...args, callback) as childProcess.ChildProcess;
       }
@@ -299,10 +313,16 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       const wrapped = self.wrapCommandStringWithSeatbelt(command, options, policyResult);
 
       debugLog(`cp.exec calling original command=${wrapped.command}`);
-      if (options) {
-        return original(wrapped.command, wrapped.options as childProcess.ExecOptions, callback) as childProcess.ChildProcess;
+      // Set _executing to prevent exec→execFile double-interception
+      self._executing = true;
+      try {
+        if (wrapped.options) {
+          return original(wrapped.command, wrapped.options as childProcess.ExecOptions, callback) as childProcess.ChildProcess;
+        }
+        return original(wrapped.command, callback) as childProcess.ChildProcess;
+      } finally {
+        self._executing = false;
       }
-      return original(wrapped.command, callback) as childProcess.ChildProcess;
     } as typeof childProcess.exec;
   }
 
@@ -314,10 +334,10 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       command: string,
       options?: childProcess.ExecSyncOptions
     ): Buffer | string {
-      debugLog(`cp.execSync ENTER command=${command} _checking=${self._checking}`);
+      debugLog(`cp.execSync ENTER command=${command} _checking=${self._checking} _executing=${self._executing}`);
 
       // Re-entrancy guard
-      if (self._checking) {
+      if (self._checking || self._executing) {
         debugLog(`cp.execSync SKIP (re-entrancy) command=${command}`);
         return original(command, options);
       }
@@ -335,7 +355,12 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       );
 
       debugLog(`cp.execSync calling original command=${wrapped.command}`);
-      return original(wrapped.command, wrapped.options as childProcess.ExecSyncOptions);
+      self._executing = true;
+      try {
+        return original(wrapped.command, wrapped.options as childProcess.ExecSyncOptions);
+      } finally {
+        self._executing = false;
+      }
     };
 
     return interceptedExecSync as typeof childProcess.execSync;
@@ -351,10 +376,10 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       options?: childProcess.SpawnOptions
     ): childProcess.ChildProcess {
       const fullCmd = args ? `${command} ${args.join(' ')}` : command;
-      debugLog(`cp.spawn ENTER command=${fullCmd} _checking=${self._checking}`);
+      debugLog(`cp.spawn ENTER command=${fullCmd} _checking=${self._checking} _executing=${self._executing}`);
 
       // Re-entrancy guard
-      if (self._checking) {
+      if (self._checking || self._executing) {
         debugLog(`cp.spawn SKIP (re-entrancy) command=${fullCmd}`);
         return original(command, args as string[], options || {});
       }
@@ -400,10 +425,10 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       options?: childProcess.SpawnSyncOptions
     ): childProcess.SpawnSyncReturns<Buffer | string> {
       const fullCommand = args ? `${command} ${args.join(' ')}` : command;
-      debugLog(`cp.spawnSync ENTER command=${fullCommand} _checking=${self._checking}`);
+      debugLog(`cp.spawnSync ENTER command=${fullCommand} _checking=${self._checking} _executing=${self._executing}`);
 
       // Re-entrancy guard
-      if (self._checking) {
+      if (self._checking || self._executing) {
         debugLog(`cp.spawnSync SKIP (re-entrancy) command=${fullCommand}`);
         return original(command, args as string[], options);
       }
@@ -456,8 +481,8 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       file: string,
       ...rest: any[]
     ): childProcess.ChildProcess {
-      // Re-entrancy guard
-      if (self._checking) {
+      // Re-entrancy guard (also blocks exec→execFile double-interception)
+      if (self._checking || self._executing) {
         return original(file, ...rest) as childProcess.ChildProcess;
       }
 
@@ -526,7 +551,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       options?: childProcess.ForkOptions
     ): childProcess.ChildProcess {
       // Re-entrancy guard
-      if (self._checking) {
+      if (self._checking || self._executing) {
         return original(modulePath, args as string[], options);
       }
 

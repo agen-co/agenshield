@@ -276,6 +276,20 @@ export const api = {
       }),
   },
 
+  // OpenClaw gateway lifecycle
+  openclaw: {
+    getStatus: () =>
+      request<{ success: boolean; data: { daemon: { running: boolean; pid?: number }; gateway: { running: boolean; pid?: number } } }>('/openclaw/status'),
+    start: () =>
+      request<{ success: boolean; data: { message: string } }>('/openclaw/start', { method: 'POST' }),
+    stop: () =>
+      request<{ success: boolean; data: { message: string } }>('/openclaw/stop', { method: 'POST' }),
+    restart: () =>
+      request<{ success: boolean; data: { message: string } }>('/openclaw/restart', { method: 'POST' }),
+    getDashboardUrl: () =>
+      request<{ success: boolean; data: { url: string } }>('/openclaw/dashboard-url'),
+  },
+
   // Factory reset
   factoryReset: () =>
     request<{ success: boolean }>('/config/factory-reset', { method: 'POST' }),

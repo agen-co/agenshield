@@ -161,40 +161,27 @@ async function buildSandboxConfig(
     const cmd = cleanTarget.split(' ')[0];
     if (cmd) {
       if (cmd.startsWith('/')) {
-        // Absolute path — use as-is, plus add basename variants
+        // Absolute path — use as-is
         sandbox.allowedBinaries.push(cmd);
         // macOS: /tmp → /private/tmp, resolve real path so seatbelt allows execution
         try {
           const realCmd = nodefs.realpathSync(cmd);
           if (realCmd !== cmd) sandbox.allowedBinaries.push(realCmd);
         } catch { /* command may not exist yet */ }
-        const basename = cmd.split('/').pop()!;
-        sandbox.allowedBinaries.push(
-          `/usr/bin/${basename}`,
-          `/usr/local/bin/${basename}`,
-          `/opt/homebrew/bin/${basename}`,
-          `/bin/${basename}`,
-        );
-      } else {
-        // Relative command — add common binary paths
-        sandbox.allowedBinaries.push(
-          `/usr/bin/${cmd}`,
-          `/usr/local/bin/${cmd}`,
-          `/opt/homebrew/bin/${cmd}`,
-          `/bin/${cmd}`,
-        );
       }
+      // No need for per-basename path variants — the profile-manager
+      // already allows /bin, /sbin, /usr/bin, /usr/sbin, /usr/local/bin,
+      // $HOME/homebrew, and $NVM_DIR as subpaths.
     }
   }
 
-  // Always allow these essential binaries
+  // Always allow these essential binaries — resolve from agent home
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
   sandbox.allowedBinaries.push(
     '/opt/agenshield/bin/',
-    '/usr/local/lib/node_modules/',
-    '/opt/homebrew/lib/node_modules/',
-    '/usr/bin/curl',
-    '/usr/local/bin/curl',
-    '/opt/homebrew/bin/curl',
+    `${agentHome}/homebrew/`,            // agent's homebrew (bin + lib + Cellar)
+    `${agentHome}/.nvm/`,                // agent's NVM (node versions + global packages)
+    `${agentHome}/bin/`,                 // agent's wrapper scripts
   );
 
   // Determine network access mode
