@@ -284,6 +284,41 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
   // ── New setup steps ───────────────────────────────────────────────────
 
+  'cleanup-previous': async (context) => {
+    const { forceUninstall } = await import('@agenshield/sandbox');
+    const { execSync } = await import('node:child_process');
+
+    // Quick check: does the default agent user exist?
+    let agentUserExists = false;
+    try {
+      execSync('dscl . -read /Users/ash_default_agent', { encoding: 'utf-8', stdio: 'pipe' });
+      agentUserExists = true;
+    } catch { /* user doesn't exist */ }
+
+    if (!agentUserExists) {
+      logVerbose('No previous installation detected', context);
+      return { success: true };
+    }
+
+    logVerbose('Found previous installation (ash_default_agent exists), cleaning up', context);
+
+    if (context.options?.dryRun) {
+      logVerbose('[dry-run] Would remove previous installation', context);
+      return { success: true };
+    }
+
+    const result = forceUninstall((progress) => {
+      logVerbose(`[cleanup] ${progress.step}: ${progress.message || progress.error || ''}`, context);
+    });
+
+    if (!result.success) {
+      // Non-fatal — log warning but continue
+      logVerbose('Previous installation cleanup had issues but continuing', context);
+    }
+
+    return { success: true };
+  },
+
   'install-homebrew': async (context) => {
     if (!context.userConfig) {
       return { success: false, error: 'User configuration not set' };

@@ -16,6 +16,7 @@ export type WizardStepId =
   | 'install-target'
   | 'configure'
   | 'confirm'
+  | 'cleanup-previous'
   | 'create-groups'
   | 'create-agent-user'
   | 'create-broker-user'
@@ -334,12 +335,20 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
 
   // Setup phase
   {
+    id: 'cleanup-previous',
+    name: 'Clean Previous Installation',
+    description: 'Remove any previous AgenShield installation',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['confirm'],
+  },
+  {
     id: 'create-groups',
     name: 'Create Groups',
     description: 'Create socket access and workspace groups',
     phase: 'setup',
     requiresSudo: true,
-    dependsOn: ['confirm'],
+    dependsOn: ['cleanup-previous'],
   },
   {
     id: 'create-agent-user',
