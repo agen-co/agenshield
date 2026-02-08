@@ -47,11 +47,11 @@ import {
   getOriginalUser,
   getHostOpenClawConfigPath,
   onboardAgentOpenClaw,
-  startAgentOpenClawGateway,
-  startAgentOpenClawDashboard,
   // OpenClaw LaunchDaemons
   installOpenClawLaunchDaemons,
   startOpenClawServices,
+  OPENCLAW_DAEMON_PLIST,
+  OPENCLAW_GATEWAY_PLIST,
 } from '@agenshield/integrations';
 import type { OriginalInstallation, MigratedPaths, SandboxUserInfo, UserConfig, PasscodeData } from '@agenshield/ipc';
 import type {
@@ -688,44 +688,44 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     const socketGroupName = context.userConfig.groups.socket.name;
 
     if (context.options?.dryRun) {
-      logVerbose(`[dry-run] Would start openclaw gateway run + dashboard`, context);
-      context.openclawGateway = { pid: 0, running: false };
+      logVerbose(`[dry-run] Would install OpenClaw LaunchDaemons (managed by broker)`, context);
+      context.openclawLaunchDaemons = {
+        daemonPlistPath: OPENCLAW_DAEMON_PLIST,
+        gatewayPlistPath: OPENCLAW_GATEWAY_PLIST,
+        loaded: false,
+      };
       return { success: true };
     }
 
-    // 1. Start openclaw gateway run in background
-    logVerbose('Starting OpenClaw gateway (foreground/run mode, backgrounded)', context);
-    const gatewayResult = await startAgentOpenClawGateway({
-      agentHome: agentUser.home,
+    // 1. Install OpenClaw LaunchDaemons (gateway + daemon) — managed by launchd/broker
+    logVerbose('Installing OpenClaw LaunchDaemons (broker-managed)', context);
+    const installResult = await installOpenClawLaunchDaemons({
       agentUsername: agentUser.username,
       socketGroupName,
-      verbose: context.options?.verbose,
+      agentHome: agentUser.home,
     });
 
-    if (!gatewayResult.success) {
-      return { success: false, error: gatewayResult.message };
+    if (!installResult.success) {
+      return { success: false, error: installResult.message };
     }
 
-    context.openclawGateway = {
-      pid: gatewayResult.pid!,
-      running: true,
-    };
-    logVerbose(`OpenClaw gateway running (PID: ${gatewayResult.pid})`, context);
+    logVerbose('OpenClaw LaunchDaemons installed and loaded', context);
 
-    // 2. Start openclaw dashboard in background
-    logVerbose('Starting OpenClaw dashboard', context);
-    const dashResult = await startAgentOpenClawDashboard({
-      agentHome: agentUser.home,
-      agentUsername: agentUser.username,
-      socketGroupName,
-      verbose: context.options?.verbose,
-    });
+    // 2. Start OpenClaw services via launchctl kickstart
+    logVerbose('Starting OpenClaw services via launchctl', context);
+    const startResult = await startOpenClawServices();
 
-    if (!dashResult.success) {
-      logVerbose(`Dashboard failed to start (non-fatal): ${dashResult.message}`, context);
+    if (!startResult.success) {
+      logVerbose(`Failed to start OpenClaw services (non-fatal): ${startResult.message}`, context);
     } else {
-      logVerbose(`OpenClaw dashboard started (PID: ${dashResult.pid})`, context);
+      logVerbose('OpenClaw services started', context);
     }
+
+    context.openclawLaunchDaemons = {
+      daemonPlistPath: OPENCLAW_DAEMON_PLIST,
+      gatewayPlistPath: OPENCLAW_GATEWAY_PLIST,
+      loaded: true,
+    };
 
     return { success: true };
   },

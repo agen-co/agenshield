@@ -234,6 +234,7 @@ export function copyOpenClawConfig(options: {
 
     // Ensure skills/ subdirectory exists (source may not have had one)
     sudoExec(`mkdir -p "${path.join(targetConfigDir, 'skills')}"`);
+    sudoExec(`chmod 2775 "${path.join(targetConfigDir, 'skills')}"`);
 
     sudoExec(`chmod 2775 "${targetConfigDir}"`);
 

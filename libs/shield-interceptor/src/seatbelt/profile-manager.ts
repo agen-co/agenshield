@@ -21,6 +21,7 @@ const _readFileSync = fs.readFileSync.bind(fs);
 const _readdirSync = fs.readdirSync.bind(fs);
 const _statSync = fs.statSync.bind(fs);
 const _unlinkSync = fs.unlinkSync.bind(fs);
+const _chmodSync = fs.chmodSync.bind(fs);
 
 export class ProfileManager {
   private profileDir: string;
@@ -226,7 +227,16 @@ export class ProfileManager {
   private ensureDir(): void {
     if (this.ensuredDir) return;
     if (!_existsSync(this.profileDir)) {
-      _mkdirSync(this.profileDir, { recursive: true, mode: 0o755 });
+      // World-writable + sticky bit (like /tmp) so all system users can write profiles
+      _mkdirSync(this.profileDir, { recursive: true, mode: 0o1777 });
+    } else {
+      // Fix permissions if directory was created with restrictive mode by another user
+      try {
+        const stat = _statSync(this.profileDir);
+        if ((stat.mode & 0o777) !== 0o777) {
+          _chmodSync(this.profileDir, 0o1777);
+        }
+      } catch { /* may not own the dir — chmod will fail, but it might already be writable */ }
     }
     this.ensuredDir = true;
   }
