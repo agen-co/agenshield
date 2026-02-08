@@ -66,7 +66,7 @@ export const devHarnessPreset: TargetPreset = {
     if (fs.existsSync(dummyOpenclawPath)) {
       const testHarnessDir = path.join(process.cwd(), 'tools/test-harness');
       const pkgPath = path.join(testHarnessDir, 'package.json');
-      let version = '1.0.0-dummy';
+      let version = '2026.2.1';
 
       if (fs.existsSync(pkgPath)) {
         try {
@@ -112,7 +112,7 @@ export const devHarnessPreset: TargetPreset = {
 
           return {
             found: true,
-            version: pkg.version || '1.0.0-dummy',
+            version: pkg.version || '2026.2.1',
             packagePath: testHarnessDir,
             binaryPath: path.join(testHarnessDir, 'bin/dummy-openclaw.js'),
             configPath,

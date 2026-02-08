@@ -47,16 +47,16 @@ export async function installAgentHomebrew(options: {
     // 2. Download and extract Homebrew tarball as agent user
     // --norc --noprofile prevents loading the calling user's rc files
     // -H sets HOME for sudo so the agent user's environment is clean
+    // cwd: agentHome avoids getcwd errors when caller's cwd is inaccessible
     log('Downloading and extracting Homebrew');
     const installCmd = [
-      `cd "${agentHome}"`,
       `export HOME="${agentHome}"`,
       `/usr/bin/curl -fsSL "${HOMEBREW_TARBALL_URL}" | /usr/bin/tar xz --strip 1 -C homebrew`,
     ].join(' && ');
 
     await execAsync(
       `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${installCmd}'`,
-      { timeout: 120_000 },
+      { cwd: agentHome, timeout: 120_000 },
     );
 
     // 3. Verify brew binary exists

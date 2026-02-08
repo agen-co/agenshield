@@ -27,7 +27,7 @@ describe('bash scripts', () => {
     it('should report correct version', () => {
       const result = runShell('openclaw --version');
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('1.0.0-dummy');
+      expect(result.stdout).toContain('2026.2.1');
     });
 
     it('should show help output', () => {
@@ -83,7 +83,7 @@ describe('bash scripts', () => {
       const binPath = path.join(targetDir, 'bin', 'dummy-openclaw.js');
       const result = runShell(`node ${binPath} --version`);
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('1.0.0-dummy');
+      expect(result.stdout).toContain('2026.2.1');
     });
 
     it('should have package.json in the clone', () => {

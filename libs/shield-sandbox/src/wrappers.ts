@@ -1394,37 +1394,34 @@ export async function installAgentNvm(options: {
     // 2. Download and install NVM as the agent user
     // PROFILE=/dev/null prevents NVM from modifying shell rc files
     // --norc --noprofile prevents loading the calling user's rc files
-    // cd / avoids getcwd errors when cwd is inaccessible to the agent user
+    // cwd: '/' avoids getcwd errors when caller's cwd is inaccessible to agent user
     log('Downloading and installing NVM');
     const installCmd = [
-      `cd /`,
       `export HOME="${agentHome}"`,
       `export NVM_DIR="${nvmDir}"`,
       `/usr/bin/curl -o- "${NVM_INSTALL_URL}" | PROFILE=/dev/null /bin/bash`,
     ].join(' && ');
-    await execAsync(`sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${installCmd}'`, { timeout: 60000 });
+    await execAsync(`sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${installCmd}'`, { cwd: '/', timeout: 60000 });
 
     // 3. Install the specified Node.js version
     log(`Installing Node.js v${nodeVersion} via NVM`);
     const nvmInstallCmd = [
-      `cd /`,
       `export HOME="${agentHome}"`,
       `export NVM_DIR="${nvmDir}"`,
       `source "${nvmDir}/nvm.sh"`,
       `nvm install ${nodeVersion}`,
     ].join(' && ');
-    await execAsync(`sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${nvmInstallCmd}'`, { timeout: 120000 });
+    await execAsync(`sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${nvmInstallCmd}'`, { cwd: '/', timeout: 120000 });
 
     // 4. Resolve the installed node binary path
     log('Resolving installed node binary path');
     const whichCmd = [
-      `cd /`,
       `export HOME="${agentHome}"`,
       `export NVM_DIR="${nvmDir}"`,
       `source "${nvmDir}/nvm.sh"`,
       `nvm which ${nodeVersion}`,
     ].join(' && ');
-    const { stdout } = await execAsync(`sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${whichCmd}'`);
+    const { stdout } = await execAsync(`sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${whichCmd}'`, { cwd: '/' });
     const nodeBinaryPath = stdout.trim();
 
     if (!nodeBinaryPath) {
@@ -1434,7 +1431,8 @@ export async function installAgentNvm(options: {
     // 5. Verify the binary works
     log(`Verifying node binary at ${nodeBinaryPath}`);
     const { stdout: versionOut } = await execAsync(
-      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c 'cd / && "${nodeBinaryPath}" --version'`
+      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '"${nodeBinaryPath}" --version'`,
+      { cwd: '/' },
     );
     const actualVersion = versionOut.trim();
     log(`Node.js ${actualVersion} installed successfully`);

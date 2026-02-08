@@ -205,7 +205,6 @@ export async function installAgentOpenClaw(options: {
     log(`Installing ${versionSpec} for agent user via NVM npm`);
 
     const installCmd = [
-      `cd /`,
       `export HOME="${agentHome}"`,
       `export NVM_DIR="${nvmDir}"`,
       `source "${nvmDir}/nvm.sh"`,
@@ -214,13 +213,12 @@ export async function installAgentOpenClaw(options: {
 
     await execAsync(
       `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${installCmd}'`,
-      { timeout: 180_000 },
+      { cwd: '/', timeout: 180_000 },
     );
 
     // 2. Resolve installed binary path
     log('Resolving installed openclaw binary path');
     const whichCmd = [
-      `cd /`,
       `export HOME="${agentHome}"`,
       `export NVM_DIR="${nvmDir}"`,
       `source "${nvmDir}/nvm.sh"`,
@@ -229,6 +227,7 @@ export async function installAgentOpenClaw(options: {
 
     const { stdout: binaryPath } = await execAsync(
       `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${whichCmd}'`,
+      { cwd: '/' },
     );
     const resolvedPath = binaryPath.trim();
 
@@ -239,7 +238,6 @@ export async function installAgentOpenClaw(options: {
     // 3. Verify version
     log('Verifying OpenClaw installation');
     const verifyCmd = [
-      `cd /`,
       `export HOME="${agentHome}"`,
       `export NVM_DIR="${nvmDir}"`,
       `source "${nvmDir}/nvm.sh"`,
@@ -248,6 +246,7 @@ export async function installAgentOpenClaw(options: {
 
     const { stdout: versionOut } = await execAsync(
       `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${verifyCmd}'`,
+      { cwd: '/' },
     );
     const installedVersion = versionOut.trim();
 
@@ -403,8 +402,8 @@ export async function stopHostOpenClaw(options: {
   log(`Stopping OpenClaw daemon for user: ${originalUser}`);
   try {
     await execAsync(
-      `sudo -u ${originalUser} openclaw daemon stop`,
-      { timeout: 30_000 },
+      `sudo -H -u ${originalUser} openclaw daemon stop`,
+      { cwd: '/', timeout: 30_000 },
     );
     daemonStopped = true;
     log('OpenClaw daemon stopped');
@@ -418,8 +417,8 @@ export async function stopHostOpenClaw(options: {
   log(`Stopping OpenClaw gateway for user: ${originalUser}`);
   try {
     await execAsync(
-      `sudo -u ${originalUser} openclaw gateway stop`,
-      { timeout: 30_000 },
+      `sudo -H -u ${originalUser} openclaw gateway stop`,
+      { cwd: '/', timeout: 30_000 },
     );
     gatewayStopped = true;
     log('OpenClaw gateway stopped');

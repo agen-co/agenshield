@@ -20,7 +20,7 @@ describe('sandbox enforcement via test harness', () => {
   it('openclaw --version should return dummy version', () => {
     const result = runShell('openclaw --version');
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('1.0.0-dummy');
+    expect(result.stdout).toContain('2026.2.1');
   });
 
   it('should run openclaw status as agent user', () => {
