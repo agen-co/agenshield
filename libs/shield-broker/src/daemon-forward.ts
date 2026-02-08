@@ -7,6 +7,8 @@
  * a request but the daemon may have a user-defined policy that allows it.
  */
 
+import type { SandboxConfig, PolicyExecutionContext } from '@agenshield/ipc';
+
 /** Timeout for daemon RPC calls (ms) */
 const DAEMON_RPC_TIMEOUT = 2000;
 
@@ -14,6 +16,8 @@ export interface DaemonPolicyResult {
   allowed: boolean;
   policyId?: string;
   reason?: string;
+  sandbox?: SandboxConfig;
+  executionContext?: PolicyExecutionContext;
 }
 
 /**
@@ -29,7 +33,8 @@ export interface DaemonPolicyResult {
 export async function forwardPolicyToDaemon(
   operation: string,
   target: string,
-  daemonUrl: string
+  daemonUrl: string,
+  context?: PolicyExecutionContext
 ): Promise<DaemonPolicyResult | null> {
   try {
     const controller = new AbortController();
@@ -42,7 +47,7 @@ export async function forwardPolicyToDaemon(
         jsonrpc: '2.0',
         id: `broker-fwd-${Date.now()}`,
         method: 'policy_check',
-        params: { operation, target },
+        params: { operation, target, context },
       }),
       signal: controller.signal,
     });
@@ -54,7 +59,13 @@ export async function forwardPolicyToDaemon(
     }
 
     const json = (await response.json()) as {
-      result?: { allowed?: boolean; policyId?: string; reason?: string };
+      result?: {
+        allowed?: boolean;
+        policyId?: string;
+        reason?: string;
+        sandbox?: SandboxConfig;
+        executionContext?: PolicyExecutionContext;
+      };
       error?: { message?: string };
     };
 
@@ -70,10 +81,22 @@ export async function forwardPolicyToDaemon(
         allowed: !!result.allowed,
         policyId: result.policyId,
         reason: result.reason,
+        sandbox: result.sandbox,
+        executionContext: result.executionContext,
       };
     }
 
     // Daemon default-allow (no policyId) — don't override broker's decision
+    // But still pass through sandbox config for exec operations
+    if (result.sandbox) {
+      return {
+        allowed: true,
+        reason: result.reason,
+        sandbox: result.sandbox,
+        executionContext: result.executionContext,
+      };
+    }
+
     return null;
   } catch {
     // Daemon unreachable or timeout — keep broker denial

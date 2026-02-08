@@ -15,6 +15,7 @@ import { emitSkillUntrustedDetected, emitSkillApproved } from './events/emitter'
 import { getVault } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
 import { getActivityLog } from './services/activity-log';
+import { shutdownProxyPool } from './proxy/pool';
 
 /**
  * Create and configure the Fastify server
@@ -114,11 +115,12 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     // Non-fatal: MCP auto-activation failed, user can connect later
   }
 
-  // Stop watchers and MCP on server close
+  // Stop watchers, proxy pool, and MCP on server close
   app.addHook('onClose', async () => {
     stopSecurityWatcher();
     stopSkillsWatcher();
     activityLog.stop();
+    shutdownProxyPool();
     await deactivateMCP();
   });
 

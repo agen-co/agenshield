@@ -78,8 +78,6 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
     let phase: string = 'detection';
     const hasConfirm = engine.state.steps.find(s => s.id === 'confirm');
     const hasComplete = engine.state.steps.find(s => s.id === 'complete');
-    const scanSource = engine.state.steps.find(s => s.id === 'scan-source');
-    const selectItems = engine.state.steps.find(s => s.id === 'select-items');
     const verifyStep = engine.state.steps.find(s => s.id === 'verify');
 
     if (engine.state.isComplete || hasComplete?.status === 'completed') {
@@ -87,14 +85,8 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
     } else if (engine.state.steps.find(s => s.id === 'setup-passcode')?.status === 'running') {
       phase = 'passcode';
     } else if (verifyStep?.status === 'completed') {
-      // Migration phase is done, waiting for passcode
+      // Setup and verification done, waiting for passcode
       phase = 'passcode';
-    } else if (selectItems?.status === 'running' || selectItems?.status === 'completed') {
-      // Running migration phase (select-items, migrate, verify)
-      phase = 'migration';
-    } else if (scanSource?.status === 'completed' && selectItems?.status === 'pending') {
-      // Scan done, waiting for user to select items
-      phase = 'selection';
     } else if (hasConfirm?.status === 'completed') {
       phase = 'execution';
     } else if (engine.context.presetDetection?.found) {

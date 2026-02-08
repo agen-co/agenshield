@@ -6,12 +6,27 @@
 
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { debugLog } from '../debug-log.js';
+import type { PolicyExecutionContext } from '@agenshield/ipc';
 
 export class FetchInterceptor extends BaseInterceptor {
   private originalFetch: typeof fetch | null = null;
 
   constructor(options: BaseInterceptorOptions) {
     super(options);
+  }
+
+  /**
+   * Build execution context from config
+   */
+  private getPolicyExecutionContext(): PolicyExecutionContext | undefined {
+    const config = this.interceptorConfig;
+    if (!config) return undefined;
+    return {
+      callerType: config.contextType || 'agent',
+      skillSlug: config.contextSkillSlug,
+      agentId: config.contextAgentId,
+      depth: 0,
+    };
   }
 
   install(): void {
@@ -60,9 +75,9 @@ export class FetchInterceptor extends BaseInterceptor {
       return this.originalFetch(input, init);
     }
 
-    // Check policy
+    // Check policy with execution context
     debugLog(`fetch checkPolicy START url=${url}`);
-    await this.checkPolicy('http_request', url);
+    await this.checkPolicy('http_request', url, this.getPolicyExecutionContext());
     debugLog(`fetch checkPolicy DONE url=${url}`);
 
     // Make request through broker

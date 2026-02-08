@@ -12,6 +12,7 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { isSecretEnvVar } from '@agenshield/sandbox';
+import { isOpenClawInstalled, stopOpenClawServices } from '@agenshield/integrations';
 import { captureCallingUserEnv } from './sudo-env.js';
 
 const require = createRequire(import.meta.url);
@@ -363,6 +364,15 @@ export async function stopDaemon(): Promise<{
   success: boolean;
   message: string;
 }> {
+  // Stop OpenClaw services first (they depend on broker)
+  try {
+    if (await isOpenClawInstalled()) {
+      await stopOpenClawServices();
+    }
+  } catch {
+    // Best effort
+  }
+
   const status = await getDaemonStatus();
 
   if (!status.running) {

@@ -30,7 +30,8 @@
     "test:e2e-enforcement": "sudo npx nx run test-e2e-enforcement:e2e --skip-nx-cache",
     "registry:start": "node scripts/registry/start.mjs",
     "registry:publish": "node scripts/registry/publish.mjs",
-    "registry:stop": "node scripts/registry/stop.mjs"
+    "registry:stop": "node scripts/registry/stop.mjs",
+    "test:seatbelt": "npx nx build shield-daemon && npx tsx tools/test-seatbelt.ts"
   },
   "private": true,
   "devDependencies": {

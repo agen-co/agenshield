@@ -214,6 +214,9 @@ export AGENSHIELD_HTTP_PORT="${config.httpPort}"
 export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_HTTP=true
 
+# Set execution context
+export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
+
 # Find npm - prefer homebrew, then system
 if [ -x "/opt/homebrew/bin/npm" ]; then
   exec /opt/homebrew/bin/npm "$@"
@@ -309,6 +312,9 @@ export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_EXEC=true
 
+# Set execution context (agent level by default, skills override via skill-injector)
+export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
+
 # Find node - prefer copied binary, then homebrew, then system
 if [ -x "/opt/agenshield/bin/node-bin" ]; then
   exec /opt/agenshield/bin/node-bin "$@"
@@ -340,6 +346,9 @@ export AGENSHIELD_SOCKET="${config.socketPath}"
 export AGENSHIELD_HTTP_PORT="${config.httpPort}"
 export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_HTTP=true
+
+# Set execution context
+export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
 
 # Find npx
 if [ -x "/opt/homebrew/bin/npx" ]; then
@@ -875,6 +884,7 @@ export AGENSHIELD_HTTP_PORT="${wrapperConfig.httpPort}"
 export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_EXEC=true
+export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
 if [ -x "/opt/agenshield/bin/node-bin" ]; then
   exec /opt/agenshield/bin/node-bin "$@"
 elif [ -x "/opt/homebrew/bin/node" ]; then

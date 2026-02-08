@@ -28,12 +28,28 @@ import {
   copyBrokerBinary,
   copyShieldClient,
   installGuardedShell,
+  // NVM (existing)
+  installAgentNvm,
   // Preset system
   getPreset,
   autoDetectPreset,
   type MigrationContext,
   type MigrationDirectories,
 } from '@agenshield/sandbox';
+import {
+  // Homebrew
+  installAgentHomebrew,
+  // OpenClaw install + config
+  detectHostOpenClawVersion,
+  installAgentOpenClaw,
+  copyOpenClawConfig,
+  stopHostOpenClaw,
+  getOriginalUser,
+  getHostOpenClawConfigPath,
+  // OpenClaw LaunchDaemons
+  installOpenClawLaunchDaemons,
+  startOpenClawServices,
+} from '@agenshield/integrations';
 import type { OriginalInstallation, MigratedPaths, SandboxUserInfo, UserConfig, PasscodeData } from '@agenshield/ipc';
 import type {
   WizardStep,
@@ -263,75 +279,279 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     return { success: true };
   },
 
-  'scan-source': async (context) => {
-    if (!context.preset) {
-      return { success: false, error: 'No preset loaded' };
+  // ── New setup steps ───────────────────────────────────────────────────
+
+  'install-homebrew': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
     }
 
-    // Dry-run: create empty scan result
+    const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
+
     if (context.options?.dryRun) {
-      context.scanResult = {
-        skills: [],
-        envVars: [],
-        scannedProfiles: [],
-        scannedAt: new Date().toISOString(),
-        warnings: [],
-      };
+      logVerbose(`[dry-run] Would install Homebrew to ${agentUser.home}/homebrew`, context);
+      context.homebrewInstalled = { brewPath: `${agentUser.home}/homebrew/bin/brew`, success: true };
       return { success: true };
     }
 
-    // Call preset.scan() if available
-    if (context.preset.scan && context.presetDetection) {
-      const result = await context.preset.scan(context.presetDetection);
-      context.scanResult = result ?? {
-        skills: [],
-        envVars: [],
-        scannedProfiles: [],
-        scannedAt: new Date().toISOString(),
-        warnings: [],
-      };
-    } else {
-      context.scanResult = {
-        skills: [],
-        envVars: [],
-        scannedProfiles: [],
-        scannedAt: new Date().toISOString(),
-        warnings: [],
-      };
+    logVerbose(`Installing user-specific Homebrew for ${agentUser.username}`, context);
+    const result = await installAgentHomebrew({
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      socketGroupName,
+      verbose: context.options?.verbose,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.message };
     }
 
-    // Store original installation info (read-only, no backup/rename)
-    if (context.presetDetection) {
-      context.originalInstallation = {
-        method: (context.presetDetection.method as 'npm' | 'git') || 'npm',
-        packagePath: context.presetDetection.packagePath || '',
-        binaryPath: context.presetDetection.binaryPath,
-        configPath: context.presetDetection.configPath,
-        version: context.presetDetection.version,
-      };
-    }
-
+    context.homebrewInstalled = { brewPath: result.brewPath, success: true };
     return { success: true };
   },
 
-  'select-items': async (context) => {
-    // If selection was already provided (via API or CLI), just validate and succeed
-    if (context.migrationSelection) {
+  'install-nvm': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
+    const nodeVersion = context.options?.nodeVersion || '24';
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install NVM + Node.js v${nodeVersion} for ${agentUser.username}`, context);
+      context.nvmInstalled = {
+        nvmDir: `${agentUser.home}/.nvm`,
+        nodeVersion: `v${nodeVersion}`,
+        nodeBinaryPath: `${agentUser.home}/.nvm/versions/node/v${nodeVersion}.0.0/bin/node`,
+        success: true,
+      };
       return { success: true };
     }
 
-    // Default: select everything (auto-mode or when there's nothing to select)
-    if (!context.scanResult ||
-        (context.scanResult.skills.length === 0 && context.scanResult.envVars.length === 0)) {
-      context.migrationSelection = { selectedSkills: [], selectedEnvVars: [] };
-      return { success: true };
+    logVerbose(`Installing NVM + Node.js v${nodeVersion} for ${agentUser.username}`, context);
+    const result = await installAgentNvm({
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      socketGroupName,
+      nodeVersion,
+      verbose: context.options?.verbose,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.message };
     }
 
-    // Default to selecting all skills and all secret env vars
-    context.migrationSelection = {
-      selectedSkills: context.scanResult.skills.map(s => s.name),
-      selectedEnvVars: context.scanResult.envVars.filter(e => e.isSecret).map(e => e.name),
+    // Copy NVM node binary to /opt/agenshield/bin/node-bin
+    logVerbose(`Copying NVM node binary to /opt/agenshield/bin/node-bin`, context);
+    const nodeResult = await copyNodeBinary(context.userConfig, result.nodeBinaryPath);
+    if (!nodeResult.success) {
+      return { success: false, error: `Node binary copy failed: ${nodeResult.message}` };
+    }
+
+    context.nvmInstalled = {
+      nvmDir: result.nvmDir,
+      nodeVersion: result.nodeVersion,
+      nodeBinaryPath: result.nodeBinaryPath,
+      success: true,
     };
+    return { success: true };
+  },
+
+  'configure-shell': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would configure guarded shell with Homebrew + NVM paths`, context);
+      context.shellConfigured = { success: true };
+      return { success: true };
+    }
+
+    logVerbose('Installing guarded shell with Homebrew and NVM paths', context);
+    const result = await installGuardedShell(context.userConfig, { verbose: context.options?.verbose });
+    if (!result.success) {
+      return { success: false, error: result.message };
+    }
+
+    context.shellConfigured = { success: true };
+    return { success: true };
+  },
+
+  'install-openclaw': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
+
+    // Detect host version
+    const hostVersion = context.presetDetection?.version || detectHostOpenClawVersion() || 'latest';
+    logVerbose(`Host OpenClaw version: ${hostVersion}`, context);
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install openclaw@${hostVersion} for ${agentUser.username}`, context);
+      context.openclawInstalled = {
+        version: hostVersion,
+        binaryPath: `${agentUser.home}/.nvm/versions/node/v24.0.0/bin/openclaw`,
+        success: true,
+      };
+      return { success: true };
+    }
+
+    logVerbose(`Installing openclaw@${hostVersion} for agent user`, context);
+    const result = await installAgentOpenClaw({
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      socketGroupName,
+      targetVersion: hostVersion,
+      verbose: context.options?.verbose,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.message };
+    }
+
+    context.openclawInstalled = {
+      version: result.version,
+      binaryPath: result.binaryPath,
+      success: true,
+    };
+    return { success: true };
+  },
+
+  'copy-openclaw-config': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
+
+    // Find host config path
+    const sourceConfigPath = context.presetDetection?.configPath
+      || getHostOpenClawConfigPath();
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would copy .openclaw from ${sourceConfigPath || '(not found)'} to ${agentUser.home}/.openclaw`, context);
+      context.openclawConfigCopied = {
+        configDir: `${agentUser.home}/.openclaw`,
+        sanitized: true,
+        success: true,
+      };
+      return { success: true };
+    }
+
+    if (!sourceConfigPath) {
+      logVerbose('No host .openclaw config found, creating empty config', context);
+    }
+
+    logVerbose(`Copying OpenClaw config to agent user`, context);
+    const result = copyOpenClawConfig({
+      sourceConfigPath: sourceConfigPath || '/nonexistent',
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      socketGroup: socketGroupName,
+      verbose: context.options?.verbose,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.message };
+    }
+
+    context.openclawConfigCopied = {
+      configDir: result.configDir,
+      sanitized: result.sanitized,
+      success: true,
+    };
+    return { success: true };
+  },
+
+  'stop-host-openclaw': async (context) => {
+    const originalUser = getOriginalUser();
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would stop OpenClaw daemon + gateway for user: ${originalUser}`, context);
+      context.hostOpenclawStopped = { daemonStopped: true, gatewayStopped: true };
+      return { success: true };
+    }
+
+    logVerbose(`Stopping host OpenClaw processes for user: ${originalUser}`, context);
+    const result = await stopHostOpenClaw({
+      originalUser,
+      verbose: context.options?.verbose,
+    });
+
+    context.hostOpenclawStopped = {
+      daemonStopped: result.daemonStopped,
+      gatewayStopped: result.gatewayStopped,
+    };
+
+    // Non-fatal if stop fails (processes might not be running)
+    return { success: true };
+  },
+
+  'start-openclaw': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install and start OpenClaw LaunchDaemons`, context);
+      context.openclawLaunchDaemons = {
+        daemonPlistPath: '/Library/LaunchDaemons/com.agenshield.openclaw.daemon.plist',
+        gatewayPlistPath: '/Library/LaunchDaemons/com.agenshield.openclaw.gateway.plist',
+        loaded: false,
+      };
+      return { success: true };
+    }
+
+    logVerbose('Installing OpenClaw LaunchDaemon plists', context);
+    const installResult = await installOpenClawLaunchDaemons({
+      agentUsername: agentUser.username,
+      socketGroupName,
+      agentHome: agentUser.home,
+      socketPath: context.pathsConfig?.socketPath,
+    });
+
+    if (!installResult.success) {
+      return { success: false, error: installResult.message };
+    }
+
+    logVerbose('Starting OpenClaw services', context);
+    const startResult = await startOpenClawServices();
+    if (!startResult.success) {
+      return { success: false, error: startResult.message };
+    }
+
+    context.openclawLaunchDaemons = {
+      daemonPlistPath: '/Library/LaunchDaemons/com.agenshield.openclaw.daemon.plist',
+      gatewayPlistPath: '/Library/LaunchDaemons/com.agenshield.openclaw.gateway.plist',
+      loaded: true,
+    };
+    return { success: true };
+  },
+
+  'open-dashboard': async (context) => {
+    if (context.options?.dryRun) {
+      logVerbose('[dry-run] Would open dashboard in browser', context);
+      return { success: true };
+    }
+
+    try {
+      const { exec: execCb } = await import('node:child_process');
+      execCb('open http://localhost:5200', () => {});
+      logVerbose('Opened dashboard at http://localhost:5200', context);
+    } catch {
+      logVerbose('Could not open browser automatically', context);
+    }
     return { success: true };
   },
 
@@ -872,95 +1092,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     }
   },
 
-  migrate: async (context) => {
-    if (!context.preset || !context.agentUser || !context.directories || !context.userConfig) {
-      return { success: false, error: 'Missing required context for migration' };
-    }
-
-    // Get the entry command for this preset to determine binary name
-    const entryCommand = context.preset.getEntryCommand({
-      agentUser: context.userConfig.agentUser,
-      directories: context.directories as MigrationDirectories,
-      entryPoint: context.options?.entryPoint,
-      detection: context.presetDetection,
-    });
-
-    // Skip in dry-run mode
-    if (context.options?.dryRun) {
-      context.migration = {
-        success: true,
-        newPaths: {
-          packagePath: context.directories.packageDir,
-          binaryPath: entryCommand,
-          configPath: `${context.directories.configDir}/config.json`,
-        },
-      };
-      return { success: true };
-    }
-
-    // Use preset's migrate function with user's selection
-    const migrationContext: MigrationContext = {
-      agentUser: context.userConfig.agentUser,
-      directories: context.directories as MigrationDirectories,
-      entryPoint: context.options?.entryPoint,
-      detection: context.presetDetection,
-      selection: context.migrationSelection,
-    };
-
-    const result = await context.preset.migrate(migrationContext);
-    if (!result.success) {
-      return { success: false, error: result.error };
-    }
-
-    // Re-apply correct ownership for .openclaw (broker-owned, setgid per directories.ts)
-    // Migration may have set agent ownership; .openclaw must be broker-writable.
-    try {
-      const { execSync } = await import('node:child_process');
-      const agentConfigDir = `${context.userConfig.agentUser.home}/.openclaw`;
-      const brokerUser = context.userConfig.brokerUser.username;
-      const socketGroup = context.userConfig.groups.socket.name;
-      logVerbose(`Running: sudo chown -R ${brokerUser}:${socketGroup} "${agentConfigDir}"`, context);
-      execSync(`sudo chown -R ${brokerUser}:${socketGroup} "${agentConfigDir}"`, { encoding: 'utf-8', stdio: 'pipe' });
-      logVerbose(`Running: sudo chmod 2775 "${agentConfigDir}"`, context);
-      execSync(`sudo chmod 2775 "${agentConfigDir}"`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch (err) {
-      logVerbose(`Warning: failed to fix .openclaw ownership: ${(err as Error).message}`, context);
-    }
-
-    context.migration = {
-      success: true,
-      newPaths: result.newPaths,
-    };
-
-    // Now save the full backup with all the information
-    if (context.originalInstallation && context.agentUser && result.newPaths) {
-      const sandboxUserInfo: SandboxUserInfo = {
-        username: context.agentUser.username,
-        uid: context.agentUser.uid,
-        gid: context.agentUser.gid,
-        homeDir: context.agentUser.homeDir,
-      };
-
-      const migratedPaths: MigratedPaths = {
-        packagePath: result.newPaths.packagePath,
-        configPath: result.newPaths.configPath || `${context.directories?.configDir}/config.json`,
-        binaryPath: result.newPaths.binaryPath,
-      };
-
-      const backupResult = saveBackup({
-        originalInstallation: context.originalInstallation,
-        sandboxUser: sandboxUserInfo,
-        migratedPaths,
-      });
-
-      if (!backupResult.success) {
-        // Log warning but don't fail - installation is already complete
-        console.warn(`Warning: Could not save backup: ${backupResult.error}`);
-      }
-    }
-
-    return { success: true };
-  },
+  // NOTE: migrate step removed — replaced by install-openclaw + copy-openclaw-config
 
   verify: async (context) => {
     if (!context.userConfig) {
@@ -1180,15 +1312,13 @@ export function createWizardEngine(options?: WizardOptions): WizardEngine {
     },
 
     /**
-     * Run setup phase (confirm through scan-source, stops for user selection)
+     * Run setup phase — all setup steps from confirm through complete.
      * Called after user confirms they want to proceed.
-     * Excludes: select-items, migrate, verify, setup-passcode, complete.
-     * The UI will show the scan result and let the user select items before
-     * calling runMigrationPhase().
+     * Excludes: setup-passcode, open-dashboard, complete (handled by runFinalPhase).
      */
     async runSetupPhase() {
       const excludeFromSetup: WizardStepId[] = [
-        'select-items', 'migrate', 'verify', 'setup-passcode', 'complete',
+        'setup-passcode', 'open-dashboard', 'complete',
       ];
 
       // Prompt for sudo credentials before privileged steps (skip in dry-run)
@@ -1212,32 +1342,21 @@ export function createWizardEngine(options?: WizardOptions): WizardEngine {
     },
 
     /**
-     * Run migration phase (select-items + migrate + verify)
-     * Called after the user has selected which skills and secrets to migrate.
+     * Run migration phase — no longer needed in new flow.
+     * Kept for backward compatibility; does nothing.
+     * @deprecated Use runSetupPhase() which now includes install-openclaw + copy-openclaw-config.
      */
     async runMigrationPhase() {
-      const migrationSteps: WizardStepId[] = ['select-items', 'migrate', 'verify'];
-
-      if (!context.options?.dryRun) {
-        const { ensureSudoAccess, startSudoKeepalive } = await import('../utils/privileges.js');
-        ensureSudoAccess();
-        const keepalive = startSudoKeepalive();
-        try {
-          await runSteps(state, context, migrationSteps, engine.onStateChange);
-        } finally {
-          clearInterval(keepalive);
-        }
-        return;
-      }
-      await runSteps(state, context, migrationSteps, engine.onStateChange);
+      // Migration is now part of the setup phase (install-openclaw + copy-openclaw-config)
+      return;
     },
 
     /**
-     * Run final phase (setup-passcode and complete)
+     * Run final phase (setup-passcode, open-dashboard, and complete)
      * Called after the passcode UI has collected the passcode value
      */
     async runFinalPhase() {
-      const finalSteps: WizardStepId[] = ['setup-passcode', 'complete'];
+      const finalSteps: WizardStepId[] = ['setup-passcode', 'open-dashboard', 'complete'];
       await runSteps(state, context, finalSteps, engine.onStateChange);
 
       if (!state.hasError) {

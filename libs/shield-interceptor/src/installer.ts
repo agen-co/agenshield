@@ -68,6 +68,7 @@ export function installInterceptors(
       eventReporter,
       failOpen: config.failOpen,
       brokerHttpPort: config.httpPort,
+      config,
     });
     installed.fetch.install();
     log(config, 'debug', 'Installed fetch interceptor');
@@ -107,6 +108,7 @@ export function installInterceptors(
       eventReporter,
       failOpen: config.failOpen,
       brokerHttpPort: config.httpPort,
+      config,
     });
     installed.childProcess.install();
     log(config, 'debug', 'Installed child_process interceptor');

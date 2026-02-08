@@ -2,7 +2,7 @@
  * API types for AgenShield daemon communication
  */
 
-import type { DaemonStatus } from './daemon';
+import type { DaemonStatus, OpenClawServiceStatus } from './daemon';
 import type { ShieldConfig } from './config';
 
 export interface ApiResponse<T> {
@@ -57,6 +57,10 @@ export interface FsBrowseEntry {
   type: 'file' | 'directory';
 }
 export type FsBrowseResponse = ApiResponse<{ entries: FsBrowseEntry[] }>;
+
+// OpenClaw types
+export type GetOpenClawStatusResponse = ApiResponse<OpenClawServiceStatus>;
+export type OpenClawActionResponse = ApiResponse<{ message: string }>;
 
 // Request types
 export type UpdateConfigRequest = Partial<ShieldConfig>;

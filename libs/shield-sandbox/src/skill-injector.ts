@@ -161,6 +161,25 @@ export async function injectAgenCoSkill(
 }
 
 /**
+ * Generate a skill wrapper script that sets execution context env vars
+ * before running the actual skill binary.
+ */
+export function generateSkillWrapperScript(
+  skillSlug: string,
+  targetBinPath: string
+): string {
+  return `#!/bin/bash
+# AgenShield skill wrapper for: ${skillSlug}
+# Sets execution context so the interceptor can apply skill-scoped policies
+
+export AGENSHIELD_CONTEXT_TYPE=skill
+export AGENSHIELD_SKILL_SLUG=${skillSlug}
+
+exec "${targetBinPath}" "$@"
+`;
+}
+
+/**
  * Create a symlink for the agenco command in the agent's bin directory
  */
 export async function createAgenCoSymlink(
@@ -176,18 +195,16 @@ export async function createAgenCoSymlink(
       'agenco.js'
     );
 
-    const symlinkPath = path.join(binDir, 'agenco');
+    const wrapperPath = path.join(binDir, 'agenco');
 
-    // Remove existing symlink if present
-    if (fs.existsSync(symlinkPath)) {
-      fs.unlinkSync(symlinkPath);
+    // Remove existing file/symlink if present
+    if (fs.existsSync(wrapperPath)) {
+      fs.unlinkSync(wrapperPath);
     }
 
-    // Create symlink
-    fs.symlinkSync(agencoBin, symlinkPath);
-
-    // Make executable
-    fs.chmodSync(symlinkPath, 0o755);
+    // Create a wrapper script instead of a symlink so we can set context env vars
+    const wrapperContent = generateSkillWrapperScript('agenco-secure-integrations', agencoBin);
+    fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
 
     return { success: true };
   } catch (err) {

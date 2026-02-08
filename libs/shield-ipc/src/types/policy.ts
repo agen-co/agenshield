@@ -24,6 +24,8 @@ export interface PolicyRule {
   enabled: boolean;
   /** Priority (higher = evaluated first) */
   priority?: number;
+  /** Scope restriction: 'agent', 'skill', or 'skill:<slug>' */
+  scope?: 'agent' | 'skill' | string;
 }
 
 /**
@@ -79,6 +81,50 @@ export interface PolicyConfiguration {
 }
 
 /**
+ * Sandbox configuration for seatbelt wrapping
+ */
+export interface SandboxConfig {
+  /** Whether seatbelt wrapping is enabled */
+  enabled: boolean;
+  /** Paths allowed for read access */
+  allowedReadPaths: string[];
+  /** Paths allowed for read+write access */
+  allowedWritePaths: string[];
+  /** Paths explicitly denied */
+  deniedPaths: string[];
+  /** Whether network access is allowed */
+  networkAllowed: boolean;
+  /** Specific hosts allowed for network access */
+  allowedHosts: string[];
+  /** Specific ports allowed for network access */
+  allowedPorts: number[];
+  /** Binaries allowed to execute */
+  allowedBinaries: string[];
+  /** Binaries explicitly denied */
+  deniedBinaries: string[];
+  /** Environment variables to inject */
+  envInjection: Record<string, string>;
+  /** Environment variable names to strip */
+  envDeny: string[];
+  /** Pre-generated SBPL profile content (overrides dynamic generation) */
+  profileContent?: string;
+}
+
+/**
+ * Execution context for hierarchical permission checking
+ */
+export interface PolicyExecutionContext {
+  /** Whether the caller is an agent or a skill */
+  callerType: 'agent' | 'skill';
+  /** Slug of the skill (if callerType is 'skill') */
+  skillSlug?: string;
+  /** Agent identifier */
+  agentId?: string;
+  /** Call depth in the execution chain */
+  depth: number;
+}
+
+/**
  * Policy evaluation result
  */
 export interface PolicyEvaluationResult {
@@ -90,6 +136,10 @@ export interface PolicyEvaluationResult {
   reason?: string;
   /** Evaluation duration in ms */
   durationMs?: number;
+  /** Sandbox configuration for approved exec operations */
+  sandbox?: SandboxConfig;
+  /** Execution context used during evaluation */
+  executionContext?: PolicyExecutionContext;
 }
 
 /**

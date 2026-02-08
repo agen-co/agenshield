@@ -5,9 +5,22 @@
  * Registered at root level (not under /api) so it skips auth middleware.
  */
 
+import * as crypto from 'node:crypto';
+import * as nodefs from 'node:fs';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { SandboxConfig, PolicyExecutionContext, PolicyConfig, ShieldConfig } from '@agenshield/ipc';
 import { loadConfig } from '../config/index';
 import { emitInterceptorEvent } from '../events/emitter';
+import {
+  globToRegex,
+  normalizeUrlBase,
+  normalizeUrlTarget,
+  matchUrlPattern,
+  policyScopeMatches,
+  extractCommandBasename,
+  filterUrlPoliciesForCommand,
+} from '../policy/url-matcher';
+import { getProxyPool } from '../proxy/pool';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -21,20 +34,6 @@ interface JsonRpcResponse {
   id: string;
   result?: unknown;
   error?: { code: number; message: string };
-}
-
-/**
- * Convert a glob pattern to a RegExp (same algorithm as broker's PolicyEnforcer.matchPattern)
- */
-function globToRegex(pattern: string): RegExp {
-  const regexPattern = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape special chars except * and ?
-    .replace(/\*\*/g, '{{GLOBSTAR}}')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '.')
-    .replace(/{{GLOBSTAR}}/g, '.*');
-
-  return new RegExp(`^${regexPattern}$`, 'i');
 }
 
 /**
@@ -55,90 +54,26 @@ function matchCommandPattern(pattern: string, target: string): boolean {
   // Wildcard: matches everything
   if (trimmed === '*') return true;
 
+  // Normalize: extract basename from absolute command paths
+  // e.g. "/usr/bin/curl https://david.com" → "curl https://david.com"
+  let normalizedTarget = target;
+  const firstSpace = target.indexOf(' ');
+  const cmd = firstSpace >= 0 ? target.slice(0, firstSpace) : target;
+  if (cmd.startsWith('/')) {
+    const basename = cmd.split('/').pop() || cmd;
+    normalizedTarget = firstSpace >= 0 ? basename + target.slice(firstSpace) : basename;
+  }
+
   // Claude Code-style: ":*" suffix = prefix match with optional args
   if (trimmed.endsWith(':*')) {
     const prefix = trimmed.slice(0, -2);
-    const lowerTarget = target.toLowerCase();
+    const lowerTarget = normalizedTarget.toLowerCase();
     const lowerPrefix = prefix.toLowerCase();
     return lowerTarget === lowerPrefix || lowerTarget.startsWith(lowerPrefix + ' ');
   }
 
   // No ":*" = exact match (case-insensitive)
-  return target.toLowerCase() === trimmed.toLowerCase();
-}
-
-/**
- * Normalize a URL pattern base:
- * - Strip trailing slashes
- * - If pattern is a bare domain (no protocol), prefix with https:// (HTTP is blocked by default)
- *
- * Does NOT append wildcards — the matching logic handles exact + sub-path matching.
- *
- * Examples:
- *   "example.com"           -> "https://example.com"
- *   "https://example.com/"  -> "https://example.com"
- *   "http://example.com"    -> "http://example.com" (explicit http preserved)
- *   "*://example.com/*"     -> "*://example.com/*" (wildcards preserved)
- */
-function normalizeUrlBase(pattern: string): string {
-  let p = pattern.trim();
-
-  // Strip trailing slashes (but not from protocol)
-  p = p.replace(/\/+$/, '');
-
-  // If pattern doesn't start with a protocol or wildcard protocol, add https://
-  // (HTTP is blocked by default - users must explicitly use http:// patterns)
-  if (!p.match(/^(\*|https?):\/\//i)) {
-    p = `https://${p}`;
-  }
-
-  return p;
-}
-
-/**
- * Match a URL target against a URL pattern.
- * For patterns without wildcards, matches both the exact URL and any sub-paths.
- * For patterns with wildcards, matches as-is.
- *
- * Examples:
- *   "https://example.com/api" matches "https://example.com/api" (exact)
- *   "https://example.com/api" matches "https://example.com/api/users" (sub-path)
- *   "https://example.com/api" does NOT match "https://example.com/api-evil"
- *   "https://example.com/*"   matches "https://example.com/anything"
- */
-function matchUrlPattern(pattern: string, target: string): boolean {
-  const base = normalizeUrlBase(pattern);
-  const trimmed = pattern.trim().replace(/\/+$/, '');
-
-  if (trimmed.endsWith('*')) {
-    // User already provided wildcards — match as-is
-    return globToRegex(base).test(target);
-  }
-
-  // No wildcards — match exact URL OR any sub-path
-  return globToRegex(base).test(target) || globToRegex(`${base}/**`).test(target);
-}
-
-/**
- * Normalize a URL target for matching:
- * - Ensures there's always a path (at least '/') for matching against ** patterns
- * - Strips trailing slashes from paths (but keeps root '/')
- */
-function normalizeUrlTarget(url: string): string {
-  const trimmed = url.trim();
-  try {
-    const parsed = new URL(trimmed);
-    // Normalize path: URL constructor converts empty path to '/'
-    let path = parsed.pathname;
-    // Strip trailing slashes from paths longer than root, but keep root '/'
-    if (path.length > 1) {
-      path = path.replace(/\/+$/, '');
-    }
-    return `${parsed.protocol}//${parsed.host}${path}${parsed.search}`;
-  } catch {
-    // Invalid URL, just strip trailing slashes
-    return trimmed.replace(/\/+$/, '');
-  }
+  return normalizedTarget.toLowerCase() === trimmed.toLowerCase();
 }
 
 /**
@@ -159,25 +94,166 @@ function operationToTarget(operation: string): string {
   }
 }
 
+// Known commands that typically need network access
+const NETWORK_COMMANDS = new Set([
+  'curl', 'wget', 'git', 'npm', 'npx', 'yarn', 'pnpm',
+  'pip', 'pip3', 'brew', 'apt', 'ssh', 'scp', 'rsync',
+  'fetch', 'http', 'nc', 'ncat', 'node', 'deno', 'bun',
+]);
+
+/**
+ * Determine the network access mode for a sandboxed command.
+ *
+ * Priority:
+ * 1. Explicit networkAccess on matched policy
+ * 2. Known network command → always proxy
+ * 3. Default → none (non-network commands)
+ */
+function determineNetworkAccess(
+  _config: ShieldConfig,
+  matchedPolicy: PolicyConfig | undefined,
+  target: string
+): 'none' | 'proxy' | 'direct' {
+  // 1. Explicit setting on matched policy
+  if (matchedPolicy?.networkAccess) return matchedPolicy.networkAccess;
+
+  // 2. Check if command is a known network command
+  const cleanTarget = target.startsWith('fork:') ? target.slice(5) : target;
+  const cmdPart = cleanTarget.split(' ')[0] || '';
+  const basename = cmdPart.includes('/') ? cmdPart.split('/').pop()! : cmdPart;
+  if (!NETWORK_COMMANDS.has(basename.toLowerCase())) return 'none';
+
+  // 3. Always proxy network commands — the proxy enforces whatever URL policies exist.
+  // With no URL policies, the proxy acts as a passthrough (default-allow).
+  return 'proxy';
+}
+
+/**
+ * Build a SandboxConfig for an approved exec operation.
+ * Combines sensible defaults with context-based tightening.
+ * May acquire a per-run proxy for network-enabled commands.
+ */
+async function buildSandboxConfig(
+  config: ShieldConfig,
+  matchedPolicy: PolicyConfig | undefined,
+  _context: PolicyExecutionContext | undefined,
+  target?: string
+): Promise<SandboxConfig> {
+  // Default sandbox config
+  const sandbox: SandboxConfig = {
+    enabled: true,
+    allowedReadPaths: [],
+    allowedWritePaths: [],
+    deniedPaths: [],
+    networkAllowed: false,
+    allowedHosts: [],
+    allowedPorts: [],
+    allowedBinaries: [],
+    deniedBinaries: [],
+    envInjection: {},
+    envDeny: [],
+  };
+
+  // Resolve the command binary and add to allowed binaries
+  if (target) {
+    // Strip fork: prefix if present
+    const cleanTarget = target.startsWith('fork:') ? target.slice(5) : target;
+    const cmd = cleanTarget.split(' ')[0];
+    if (cmd) {
+      if (cmd.startsWith('/')) {
+        // Absolute path — use as-is, plus add basename variants
+        sandbox.allowedBinaries.push(cmd);
+        // macOS: /tmp → /private/tmp, resolve real path so seatbelt allows execution
+        try {
+          const realCmd = nodefs.realpathSync(cmd);
+          if (realCmd !== cmd) sandbox.allowedBinaries.push(realCmd);
+        } catch { /* command may not exist yet */ }
+        const basename = cmd.split('/').pop()!;
+        sandbox.allowedBinaries.push(
+          `/usr/bin/${basename}`,
+          `/usr/local/bin/${basename}`,
+          `/opt/homebrew/bin/${basename}`,
+          `/bin/${basename}`,
+        );
+      } else {
+        // Relative command — add common binary paths
+        sandbox.allowedBinaries.push(
+          `/usr/bin/${cmd}`,
+          `/usr/local/bin/${cmd}`,
+          `/opt/homebrew/bin/${cmd}`,
+          `/bin/${cmd}`,
+        );
+      }
+    }
+  }
+
+  // Always allow these essential binaries
+  sandbox.allowedBinaries.push(
+    '/opt/agenshield/bin/',
+    '/usr/local/lib/node_modules/',
+    '/opt/homebrew/lib/node_modules/',
+    '/usr/bin/curl',
+    '/usr/local/bin/curl',
+    '/opt/homebrew/bin/curl',
+  );
+
+  // Determine network access mode
+  const networkMode = determineNetworkAccess(config, matchedPolicy, target || '');
+  console.log(`[sandbox] command="${(target || '').slice(0, 60)}" networkMode=${networkMode}`);
+
+  if (networkMode === 'none') {
+    sandbox.networkAllowed = false;
+  } else if (networkMode === 'direct') {
+    console.log(`[sandbox] direct network access (no proxy)`);
+    sandbox.networkAllowed = true;
+  } else if (networkMode === 'proxy') {
+    // Acquire a per-run proxy bound to this execution
+    const execId = crypto.randomUUID();
+    const commandBasename = extractCommandBasename(target || '');
+    // Filter URL policies scoped to this command (+ universal policies)
+    const urlPolicies = filterUrlPoliciesForCommand(config.policies || [], commandBasename);
+    const pool = getProxyPool();
+    const { port } = await pool.acquire(execId, target || '', urlPolicies);
+
+    console.log(`[sandbox] proxy network: port=${port} command=${commandBasename} urlPolicies=${urlPolicies.length} execId=${execId.slice(0, 8)}`);
+
+    sandbox.networkAllowed = true;
+    sandbox.allowedHosts = ['localhost'];
+    sandbox.envInjection = {
+      HTTP_PROXY: `http://127.0.0.1:${port}`,
+      HTTPS_PROXY: `http://127.0.0.1:${port}`,
+      ALL_PROXY: `http://127.0.0.1:${port}`,
+      http_proxy: `http://127.0.0.1:${port}`,
+      https_proxy: `http://127.0.0.1:${port}`,
+      all_proxy: `http://127.0.0.1:${port}`,
+      NO_PROXY: '',
+      AGENSHIELD_EXEC_ID: execId,
+    };
+  }
+
+  return sandbox;
+}
+
 /**
  * Evaluate a policy check against loaded config policies
  */
-function evaluatePolicyCheck(
+async function evaluatePolicyCheck(
   operation: string,
-  target: string
-): { allowed: boolean; policyId?: string; reason?: string } {
+  target: string,
+  context?: PolicyExecutionContext
+): Promise<{ allowed: boolean; policyId?: string; reason?: string; sandbox?: SandboxConfig; executionContext?: PolicyExecutionContext }> {
   const config = loadConfig();
   const policies = config.policies || [];
 
-  // Filter enabled policies, sort by priority desc
+  // Filter enabled policies that match scope, sort by priority desc
   const applicable = policies
-    .filter((p) => p.enabled)
+    .filter((p) => p.enabled && policyScopeMatches(p, context))
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
   const targetType = operationToTarget(operation);
 
-  console.log('[policy_check] operation:', operation, 'target:', target, 'targetType:', targetType);
-  console.log('[policy_check] enabled policies:', applicable.length);
+  console.log('[policy_check] operation:', operation, 'target:', target, 'targetType:', targetType, 'context:', JSON.stringify(context));
+  console.log('[policy_check] enabled policies (scope-filtered):', applicable.length);
 
   // Block plain HTTP requests by default (security best practice)
   if (targetType === 'url' && target.match(/^http:\/\//i)) {
@@ -202,6 +278,7 @@ function evaluatePolicyCheck(
       return {
         allowed: false,
         reason: 'Plain HTTP is blocked by default. Use HTTPS or create an explicit http:// allow policy.',
+        executionContext: context,
       };
     }
   }
@@ -235,12 +312,19 @@ function evaluatePolicyCheck(
 
       if (matches) {
         console.log('[policy_check] MATCHED policy:', policy.name, 'action:', policy.action);
+        const allowed = policy.action === 'allow';
+
         return {
-          allowed: policy.action === 'allow',
+          allowed,
           policyId: policy.id,
-          reason: policy.action === 'allow'
+          reason: allowed
             ? `Allowed by policy: ${policy.name}`
             : `Denied by policy: ${policy.name}`,
+          // Build sandbox config for allowed exec operations
+          sandbox: allowed && operation === 'exec'
+            ? await buildSandboxConfig(config, policy, context, target)
+            : undefined,
+          executionContext: context,
         };
       }
     }
@@ -248,7 +332,14 @@ function evaluatePolicyCheck(
 
   // Default: allow (no matching policy)
   console.log('[policy_check] no matching policy, allowing by default');
-  return { allowed: true };
+  return {
+    allowed: true,
+    // Provide sandbox config for exec operations even with default-allow
+    sandbox: operation === 'exec'
+      ? await buildSandboxConfig(config, undefined, context, target)
+      : undefined,
+    executionContext: context,
+  };
 }
 
 /**
@@ -313,7 +404,8 @@ const handlers: Record<string, RpcHandler> = {
   policy_check: (params) =>
     evaluatePolicyCheck(
       String(params['operation'] ?? ''),
-      String(params['target'] ?? '')
+      String(params['target'] ?? ''),
+      params['context'] as PolicyExecutionContext | undefined
     ),
   events_batch: (params) => handleEventsBatch(params),
   http_request: (params) => handleHttpRequest(params),

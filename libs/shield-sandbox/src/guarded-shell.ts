@@ -54,8 +54,12 @@ export HISTFILE="\$HOME/.zsh_history"
 # Suppress locale to prevent /etc/zshrc from calling locale command
 export LC_ALL=C LANG=C
 
-export PATH="$HOME/bin"
+export PATH="$HOME/bin:$HOME/homebrew/bin"
 export SHELL="/usr/local/bin/guarded-shell"
+
+# NVM initialization
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
 
 # Clear any leftover env tricks
 unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_INSERT_LIBRARIES
@@ -80,8 +84,12 @@ emulate -LR zsh
 # Re-set HISTFILE (safety: ensure it points to agent's home, not ZDOTDIR)
 HISTFILE="$HOME/.zsh_history"
 
-# Re-set PATH (only ~/bin — override anything that may have been added)
-PATH="$HOME/bin"
+# Re-set PATH (~/bin + ~/homebrew/bin — override anything that may have been added)
+PATH="$HOME/bin:$HOME/homebrew/bin"
+
+# NVM re-source for interactive shell
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
 
 # ---- Shell options ----
 # Note: NOT using setopt RESTRICTED as it disables cd entirely.
@@ -90,7 +98,7 @@ setopt NO_CASE_GLOB
 setopt NO_BEEP
 
 # ---- Lock critical variables (readonly) ----
-typeset -r PATH HOME SHELL HISTFILE
+typeset -r PATH HOME SHELL HISTFILE NVM_DIR
 
 # ---- Enforcement helpers ----
 deny() {
@@ -118,8 +126,10 @@ is_allowed_cmd() {
   local resolved
   resolved="\$(whence -p -- "\$cmd" 2>/dev/null)" || return 1
 
-  # Must live under HOME/bin exactly
+  # Must live under HOME/bin, HOME/homebrew/bin, or HOME/.nvm
   [[ "\$resolved" == "$HOME/bin/"* ]] && return 0
+  [[ "\$resolved" == "$HOME/homebrew/bin/"* ]] && return 0
+  [[ "\$resolved" == "$HOME/.nvm/"* ]] && return 0
   return 1
 }
 

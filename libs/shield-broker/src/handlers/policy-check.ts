@@ -11,17 +11,21 @@
 
 import type { HandlerContext, HandlerResult } from '../types.js';
 import type { HandlerDependencies } from './types.js';
+import type { SandboxConfig, PolicyExecutionContext } from '@agenshield/ipc';
 import { forwardPolicyToDaemon } from '../daemon-forward.js';
 
 interface PolicyCheckParams {
   operation: string;
   target: string;
+  context?: PolicyExecutionContext;
 }
 
 interface PolicyCheckResultData {
   allowed: boolean;
   policyId?: string;
   reason?: string;
+  sandbox?: SandboxConfig;
+  executionContext?: PolicyExecutionContext;
 }
 
 /** Default daemon RPC URL */
@@ -32,7 +36,7 @@ export async function handlePolicyCheck(
   context: HandlerContext,
   deps: HandlerDependencies
 ): Promise<HandlerResult<PolicyCheckResultData>> {
-  const { operation, target } = params as unknown as PolicyCheckParams;
+  const { operation, target, context: execContext } = params as unknown as PolicyCheckParams;
 
   if (!operation) {
     return {
@@ -84,10 +88,19 @@ export async function handlePolicyCheck(
 
   // Broker denied — forward to daemon to check for user-defined allow override
   const daemonUrl = deps.daemonUrl || DEFAULT_DAEMON_URL;
-  const daemonResult = await forwardPolicyToDaemon(operation, target || '', daemonUrl);
+  const daemonResult = await forwardPolicyToDaemon(operation, target || '', daemonUrl, execContext);
 
   if (daemonResult && daemonResult.allowed) {
-    return { success: true, data: daemonResult };
+    return {
+      success: true,
+      data: {
+        allowed: daemonResult.allowed,
+        policyId: daemonResult.policyId,
+        reason: daemonResult.reason,
+        sandbox: daemonResult.sandbox,
+        executionContext: daemonResult.executionContext,
+      },
+    };
   }
 
   // Keep broker denial

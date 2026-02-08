@@ -193,6 +193,9 @@ export {
   classifyDirectory,
 } from './discovery';
 
+// Homebrew, OpenClaw Install, and OpenClaw LaunchDaemon have been
+// moved to @agenshield/integrations to break circular dependency with broker.
+
 // Skill Injector (AgenCo skill injection)
 export {
   injectAgenCoSkill,

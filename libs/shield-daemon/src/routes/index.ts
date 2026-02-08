@@ -19,6 +19,7 @@ import { secretsRoutes } from './secrets';
 import { marketplaceRoutes } from './marketplace';
 import { fsRoutes } from './fs';
 import { activityRoutes } from './activity';
+import { openclawRoutes } from './openclaw';
 import { rpcRoutes } from './rpc';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
@@ -110,6 +111,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(marketplaceRoutes);
       await api.register(fsRoutes);
       await api.register(activityRoutes);
+      await api.register(openclawRoutes);
     },
     { prefix: API_PREFIX }
   );

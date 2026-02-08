@@ -7,6 +7,7 @@
 import type { AsyncClient } from '../client/http-client.js';
 import type { PolicyEvaluator } from '../policy/evaluator.js';
 import type { EventReporter } from '../events/reporter.js';
+import type { InterceptorConfig } from '../config.js';
 import { PolicyDeniedError, BrokerUnavailableError } from '../errors.js';
 import { debugLog } from '../debug-log.js';
 
@@ -17,6 +18,8 @@ export interface BaseInterceptorOptions {
   failOpen: boolean;
   /** HTTP port used by the broker (to skip interception of broker traffic) */
   brokerHttpPort?: number;
+  /** Full interceptor config (for seatbelt + context) */
+  config?: InterceptorConfig;
 }
 
 export abstract class BaseInterceptor {
@@ -25,6 +28,7 @@ export abstract class BaseInterceptor {
   protected eventReporter: EventReporter;
   protected failOpen: boolean;
   protected installed: boolean = false;
+  protected interceptorConfig?: InterceptorConfig;
   private brokerHttpPort: number;
 
   constructor(options: BaseInterceptorOptions) {
@@ -33,6 +37,7 @@ export abstract class BaseInterceptor {
     this.eventReporter = options.eventReporter;
     this.failOpen = options.failOpen;
     this.brokerHttpPort = options.brokerHttpPort ?? 5201;
+    this.interceptorConfig = options.config;
   }
 
   /**
@@ -71,11 +76,26 @@ export abstract class BaseInterceptor {
   }
 
   /**
+   * Build execution context from config
+   */
+  protected getBasePolicyExecutionContext(): import('@agenshield/ipc').PolicyExecutionContext | undefined {
+    const config = this.interceptorConfig;
+    if (!config) return undefined;
+    return {
+      callerType: config.contextType || 'agent',
+      skillSlug: config.contextSkillSlug,
+      agentId: config.contextAgentId,
+      depth: 0,
+    };
+  }
+
+  /**
    * Check policy and handle the result
    */
   protected async checkPolicy(
     operation: string,
-    target: string
+    target: string,
+    context?: import('@agenshield/ipc').PolicyExecutionContext
   ): Promise<void> {
     const startTime = Date.now();
     debugLog(`base.checkPolicy START op=${operation} target=${target}`);
@@ -83,7 +103,7 @@ export abstract class BaseInterceptor {
     try {
       this.eventReporter.intercept(operation, target);
 
-      const result = await this.policyEvaluator.check(operation, target);
+      const result = await this.policyEvaluator.check(operation, target, context);
       debugLog(`base.checkPolicy evaluator result op=${operation} target=${target} allowed=${result.allowed} policyId=${result.policyId}`);
 
       if (!result.allowed) {
