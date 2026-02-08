@@ -9,7 +9,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { exec, execSync } from 'node:child_process';
+import { exec, execSync, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execAsync = promisify(exec);
@@ -382,10 +382,45 @@ export function copyOpenClawConfig(options: {
 }
 
 /**
+ * Find OpenClaw-related processes running for a given user.
+ * Returns PIDs grouped by process type.
+ */
+function findOpenClawProcesses(username: string): { daemon: number[]; gateway: number[]; other: number[] } {
+  const result: { daemon: number[]; gateway: number[]; other: number[] } = { daemon: [], gateway: [], other: [] };
+
+  try {
+    // Find all openclaw processes owned by the user
+    const { output } = sudoExec(`ps -u ${username} -o pid,command`);
+    if (!output) return result;
+
+    for (const line of output.split('\n')) {
+      if (!line.includes('openclaw')) continue;
+      const pidMatch = line.match(/^\s*(\d+)/);
+      if (!pidMatch) continue;
+      const pid = parseInt(pidMatch[1], 10);
+
+      if (line.includes('daemon')) {
+        result.daemon.push(pid);
+      } else if (line.includes('gateway')) {
+        result.gateway.push(pid);
+      } else {
+        result.other.push(pid);
+      }
+    }
+  } catch {
+    // ps failed — no processes found
+  }
+
+  return result;
+}
+
+/**
  * Stop the host user's OpenClaw daemon and gateway processes.
  *
- * Runs `openclaw daemon stop` and `openclaw gateway stop` as the original
- * (non-agent) user.
+ * 1. Checks for running OpenClaw processes via `ps`
+ * 2. Tries graceful stop via `openclaw daemon/gateway stop`
+ * 3. Falls back to `kill` if processes are still alive
+ * 4. Never fails — all errors are caught and logged
  */
 export async function stopHostOpenClaw(options: {
   /** The original user running OpenClaw (e.g., 'david') */
@@ -398,40 +433,91 @@ export async function stopHostOpenClaw(options: {
   let daemonStopped = false;
   let gatewayStopped = false;
 
-  // Stop daemon
-  log(`Stopping OpenClaw daemon for user: ${originalUser}`);
-  try {
-    await execAsync(
-      `sudo -H -u ${originalUser} openclaw daemon stop`,
-      { cwd: '/', timeout: 30_000 },
-    );
-    daemonStopped = true;
-    log('OpenClaw daemon stopped');
-  } catch (err) {
-    // May fail if not running — that's OK
-    log(`OpenClaw daemon stop: ${(err as Error).message}`);
-    daemonStopped = true; // Consider success if not running
+  // 1. Check what's running
+  const procs = findOpenClawProcesses(originalUser);
+  const totalProcs = procs.daemon.length + procs.gateway.length + procs.other.length;
+  log(`Found ${totalProcs} OpenClaw process(es) for ${originalUser} (daemon: ${procs.daemon.length}, gateway: ${procs.gateway.length}, other: ${procs.other.length})`);
+
+  if (totalProcs === 0) {
+    log('No OpenClaw processes running — nothing to stop');
+    return {
+      success: true,
+      daemonStopped: true,
+      gatewayStopped: true,
+      message: 'No OpenClaw processes were running',
+    };
   }
 
-  // Stop gateway
-  log(`Stopping OpenClaw gateway for user: ${originalUser}`);
-  try {
-    await execAsync(
-      `sudo -H -u ${originalUser} openclaw gateway stop`,
-      { cwd: '/', timeout: 30_000 },
-    );
+  // 2. Try graceful stop via openclaw CLI
+  if (procs.gateway.length > 0) {
+    log(`Stopping OpenClaw gateway for user: ${originalUser}`);
+    try {
+      await execAsync(
+        `sudo -H -u ${originalUser} openclaw gateway stop`,
+        { cwd: '/', timeout: 15_000 },
+      );
+      gatewayStopped = true;
+      log('OpenClaw gateway stopped gracefully');
+    } catch {
+      log('OpenClaw gateway stop command failed, will try kill');
+    }
+  } else {
     gatewayStopped = true;
-    log('OpenClaw gateway stopped');
-  } catch (err) {
-    log(`OpenClaw gateway stop: ${(err as Error).message}`);
-    gatewayStopped = true; // Consider success if not running
+  }
+
+  if (procs.daemon.length > 0) {
+    log(`Stopping OpenClaw daemon for user: ${originalUser}`);
+    try {
+      await execAsync(
+        `sudo -H -u ${originalUser} openclaw daemon stop`,
+        { cwd: '/', timeout: 15_000 },
+      );
+      daemonStopped = true;
+      log('OpenClaw daemon stopped gracefully');
+    } catch {
+      log('OpenClaw daemon stop command failed, will try kill');
+    }
+  } else {
+    daemonStopped = true;
+  }
+
+  // 3. Fallback: kill any remaining processes
+  const remaining = findOpenClawProcesses(originalUser);
+  const allPids = [...remaining.daemon, ...remaining.gateway, ...remaining.other];
+  if (allPids.length > 0) {
+    log(`${allPids.length} OpenClaw process(es) still running, sending SIGTERM`);
+    for (const pid of allPids) {
+      try {
+        sudoExec(`kill ${pid}`);
+      } catch {
+        // Ignore — process may have already exited
+      }
+    }
+
+    // Brief wait, then SIGKILL any stubborn ones
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const stubborn = findOpenClawProcesses(originalUser);
+    const stubbornPids = [...stubborn.daemon, ...stubborn.gateway, ...stubborn.other];
+    if (stubbornPids.length > 0) {
+      log(`${stubbornPids.length} process(es) survived SIGTERM, sending SIGKILL`);
+      for (const pid of stubbornPids) {
+        try {
+          sudoExec(`kill -9 ${pid}`);
+        } catch {
+          // Ignore
+        }
+      }
+    }
+
+    daemonStopped = true;
+    gatewayStopped = true;
   }
 
   return {
-    success: daemonStopped && gatewayStopped,
+    success: true,
     daemonStopped,
     gatewayStopped,
-    message: `Daemon: ${daemonStopped ? 'stopped' : 'failed'}, Gateway: ${gatewayStopped ? 'stopped' : 'failed'}`,
+    message: `Daemon: stopped, Gateway: stopped`,
   };
 }
 
@@ -440,7 +526,7 @@ export async function stopHostOpenClaw(options: {
  * Uses SUDO_USER env var or falls back to os.userInfo().
  */
 export function getOriginalUser(): string {
-  return process.env['SUDO_USER'] || require('node:os').userInfo().username;
+  return process.env['SUDO_USER'] || os.userInfo().username;
 }
 
 /**
@@ -453,4 +539,171 @@ export function getHostOpenClawConfigPath(username?: string): string | null {
     return configPath;
   }
   return null;
+}
+
+// ─── Onboard & Gateway ──────────────────────────────────────────────────────
+
+/**
+ * Run `openclaw onboard --non-interactive ...` as the agent user to initialize
+ * OpenClaw's internal state (session files, local config). Must run after
+ * install-openclaw and copy-openclaw-config.
+ */
+export async function onboardAgentOpenClaw(options: {
+  agentHome: string;
+  agentUsername: string;
+  verbose?: boolean;
+}): Promise<{ success: boolean; message: string }> {
+  const { agentHome, agentUsername, verbose } = options;
+  const nvmDir = `${agentHome}/.nvm`;
+  const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+
+  const onboardCmd = [
+    `export HOME="${agentHome}"`,
+    `export NVM_DIR="${nvmDir}"`,
+    `source "${nvmDir}/nvm.sh"`,
+    `openclaw onboard --non-interactive --accept-risk --flow quickstart --mode local --no-install-daemon --daemon-runtime node --skip-channels --skip-skills --skip-health --skip-ui --node-manager npm`,
+  ].join(' && ');
+
+  log('Running openclaw onboard as agent user');
+  try {
+    const { stdout, stderr } = await execAsync(
+      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${onboardCmd}'`,
+      { cwd: '/', timeout: 120_000 },
+    );
+    if (verbose && stdout.trim()) log(`onboard stdout: ${stdout.trim()}`);
+    if (verbose && stderr.trim()) log(`onboard stderr: ${stderr.trim()}`);
+    log('OpenClaw onboard completed');
+    return { success: true, message: 'OpenClaw onboard completed' };
+  } catch (err) {
+    const msg = (err as Error).message;
+    log(`OpenClaw onboard failed (non-fatal): ${msg}`);
+    return { success: false, message: `OpenClaw onboard failed: ${msg}` };
+  }
+}
+
+/**
+ * Start `openclaw gateway` as the agent user in the background.
+ * Returns the PID of the spawned process.
+ *
+ * Uses `spawn` with `detached: true` so the gateway survives the parent
+ * process exiting. Logs go to /var/log/agenshield/openclaw-gateway.log.
+ */
+export async function startAgentOpenClawGateway(options: {
+  agentHome: string;
+  agentUsername: string;
+  verbose?: boolean;
+}): Promise<{ success: boolean; pid?: number; message: string }> {
+  const { agentHome, agentUsername, verbose } = options;
+  const nvmDir = `${agentHome}/.nvm`;
+  const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+
+  const gatewayCmd = [
+    `export HOME="${agentHome}"`,
+    `export NVM_DIR="${nvmDir}"`,
+    `source "${nvmDir}/nvm.sh"`,
+    `exec openclaw gateway run`,
+  ].join(' && ');
+
+  log('Starting openclaw gateway run in background');
+  try {
+    // Ensure log directory and files exist
+    sudoExec('mkdir -p /var/log/agenshield');
+    sudoExec(`touch /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
+    sudoExec(`chown ${agentUsername} /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
+
+    const outLog = fs.openSync('/var/log/agenshield/openclaw-gateway.log', 'a');
+    const errLog = fs.openSync('/var/log/agenshield/openclaw-gateway.error.log', 'a');
+
+    const child = spawn(
+      'sudo',
+      ['-H', '-u', agentUsername, '/bin/bash', '--norc', '--noprofile', '-c', gatewayCmd],
+      {
+        cwd: '/',
+        detached: true,
+        stdio: ['ignore', outLog, errLog],
+      },
+    );
+
+    const pid = child.pid;
+    child.unref();
+    fs.closeSync(outLog);
+    fs.closeSync(errLog);
+
+    if (!pid) {
+      return { success: false, message: 'Failed to spawn openclaw gateway — no PID returned' };
+    }
+
+    // Brief wait to check the process didn't exit immediately
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Verify it's still running
+    try {
+      process.kill(pid, 0); // signal 0 = check if alive
+      log(`OpenClaw gateway started (PID: ${pid})`);
+      return { success: true, pid, message: `OpenClaw gateway running (PID: ${pid})` };
+    } catch {
+      log('OpenClaw gateway process exited immediately — check logs');
+      return { success: false, message: 'OpenClaw gateway exited immediately. Check /var/log/agenshield/openclaw-gateway.error.log' };
+    }
+  } catch (err) {
+    const msg = (err as Error).message;
+    log(`Failed to start openclaw gateway: ${msg}`);
+    return { success: false, message: `Failed to start openclaw gateway: ${msg}` };
+  }
+}
+
+/**
+ * Start `openclaw dashboard` as the agent user in the background.
+ * Returns the PID of the spawned process.
+ */
+export async function startAgentOpenClawDashboard(options: {
+  agentHome: string;
+  agentUsername: string;
+  verbose?: boolean;
+}): Promise<{ success: boolean; pid?: number; message: string }> {
+  const { agentHome, agentUsername, verbose } = options;
+  const nvmDir = `${agentHome}/.nvm`;
+  const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+
+  const dashboardCmd = [
+    `export HOME="${agentHome}"`,
+    `export NVM_DIR="${nvmDir}"`,
+    `source "${nvmDir}/nvm.sh"`,
+    `exec openclaw dashboard`,
+  ].join(' && ');
+
+  log('Starting openclaw dashboard in background');
+  try {
+    sudoExec(`touch /var/log/agenshield/openclaw-dashboard.log /var/log/agenshield/openclaw-dashboard.error.log`);
+    sudoExec(`chown ${agentUsername} /var/log/agenshield/openclaw-dashboard.log /var/log/agenshield/openclaw-dashboard.error.log`);
+
+    const outLog = fs.openSync('/var/log/agenshield/openclaw-dashboard.log', 'a');
+    const errLog = fs.openSync('/var/log/agenshield/openclaw-dashboard.error.log', 'a');
+
+    const child = spawn(
+      'sudo',
+      ['-H', '-u', agentUsername, '/bin/bash', '--norc', '--noprofile', '-c', dashboardCmd],
+      {
+        cwd: '/',
+        detached: true,
+        stdio: ['ignore', outLog, errLog],
+      },
+    );
+
+    const pid = child.pid;
+    child.unref();
+    fs.closeSync(outLog);
+    fs.closeSync(errLog);
+
+    if (!pid) {
+      return { success: false, message: 'Failed to spawn openclaw dashboard — no PID returned' };
+    }
+
+    log(`OpenClaw dashboard started (PID: ${pid})`);
+    return { success: true, pid, message: `OpenClaw dashboard running (PID: ${pid})` };
+  } catch (err) {
+    const msg = (err as Error).message;
+    log(`Failed to start openclaw dashboard: ${msg}`);
+    return { success: false, message: `Failed to start openclaw dashboard: ${msg}` };
+  }
 }

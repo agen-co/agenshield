@@ -39,13 +39,16 @@ import {
 import {
   // Homebrew
   installAgentHomebrew,
-  // OpenClaw install + config
+  // OpenClaw install + config + lifecycle
   detectHostOpenClawVersion,
   installAgentOpenClaw,
   copyOpenClawConfig,
   stopHostOpenClaw,
   getOriginalUser,
   getHostOpenClawConfigPath,
+  onboardAgentOpenClaw,
+  startAgentOpenClawGateway,
+  startAgentOpenClawDashboard,
   // OpenClaw LaunchDaemons
   installOpenClawLaunchDaemons,
   startOpenClawServices,
@@ -495,47 +498,80 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     return { success: true };
   },
 
+  'onboard-openclaw': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+
+    if (context.options?.dryRun) {
+      logVerbose('[dry-run] Would run openclaw onboard --non-interactive', context);
+      context.openclawOnboarded = { success: true };
+      return { success: true };
+    }
+
+    logVerbose('Running openclaw onboard for agent user', context);
+    const result = await onboardAgentOpenClaw({
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      verbose: context.options?.verbose,
+    });
+
+    context.openclawOnboarded = { success: result.success };
+
+    // Non-fatal — onboard may fail if openclaw doesn't support the flags
+    if (!result.success) {
+      logVerbose(`Onboard returned non-success (non-fatal): ${result.message}`, context);
+    }
+    return { success: true };
+  },
+
   'start-openclaw': async (context) => {
     if (!context.userConfig) {
       return { success: false, error: 'User configuration not set' };
     }
 
     const { agentUser } = context.userConfig;
-    const socketGroupName = context.userConfig.groups.socket.name;
 
     if (context.options?.dryRun) {
-      logVerbose(`[dry-run] Would install and start OpenClaw LaunchDaemons`, context);
-      context.openclawLaunchDaemons = {
-        daemonPlistPath: '/Library/LaunchDaemons/com.agenshield.openclaw.daemon.plist',
-        gatewayPlistPath: '/Library/LaunchDaemons/com.agenshield.openclaw.gateway.plist',
-        loaded: false,
-      };
+      logVerbose(`[dry-run] Would start openclaw gateway run + dashboard`, context);
+      context.openclawGateway = { pid: 0, running: false };
       return { success: true };
     }
 
-    logVerbose('Installing OpenClaw LaunchDaemon plists', context);
-    const installResult = await installOpenClawLaunchDaemons({
-      agentUsername: agentUser.username,
-      socketGroupName,
+    // 1. Start openclaw gateway run in background
+    logVerbose('Starting OpenClaw gateway (foreground/run mode, backgrounded)', context);
+    const gatewayResult = await startAgentOpenClawGateway({
       agentHome: agentUser.home,
-      socketPath: context.pathsConfig?.socketPath,
+      agentUsername: agentUser.username,
+      verbose: context.options?.verbose,
     });
 
-    if (!installResult.success) {
-      return { success: false, error: installResult.message };
+    if (!gatewayResult.success) {
+      return { success: false, error: gatewayResult.message };
     }
 
-    logVerbose('Starting OpenClaw services', context);
-    const startResult = await startOpenClawServices();
-    if (!startResult.success) {
-      return { success: false, error: startResult.message };
-    }
-
-    context.openclawLaunchDaemons = {
-      daemonPlistPath: '/Library/LaunchDaemons/com.agenshield.openclaw.daemon.plist',
-      gatewayPlistPath: '/Library/LaunchDaemons/com.agenshield.openclaw.gateway.plist',
-      loaded: true,
+    context.openclawGateway = {
+      pid: gatewayResult.pid!,
+      running: true,
     };
+    logVerbose(`OpenClaw gateway running (PID: ${gatewayResult.pid})`, context);
+
+    // 2. Start openclaw dashboard in background
+    logVerbose('Starting OpenClaw dashboard', context);
+    const dashResult = await startAgentOpenClawDashboard({
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      verbose: context.options?.verbose,
+    });
+
+    if (!dashResult.success) {
+      logVerbose(`Dashboard failed to start (non-fatal): ${dashResult.message}`, context);
+    } else {
+      logVerbose(`OpenClaw dashboard started (PID: ${dashResult.pid})`, context);
+    }
+
     return { success: true };
   },
 

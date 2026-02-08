@@ -33,6 +33,7 @@ export type WizardStepId =
   | 'install-openclaw'
   | 'copy-openclaw-config'
   | 'stop-host-openclaw'
+  | 'onboard-openclaw'
   | 'verify'
   | 'start-openclaw'
   | 'setup-passcode'
@@ -263,6 +264,17 @@ export interface WizardContext {
     gatewayPlistPath: string;
     loaded: boolean;
   };
+
+  /** OpenClaw onboard result */
+  openclawOnboarded?: {
+    success: boolean;
+  };
+
+  /** OpenClaw gateway process (started inline) */
+  openclawGateway?: {
+    pid: number;
+    running: boolean;
+  };
 }
 
 /**
@@ -457,12 +469,20 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
     dependsOn: ['copy-openclaw-config'],
   },
   {
+    id: 'onboard-openclaw',
+    name: 'Initialize OpenClaw',
+    description: 'Run openclaw onboard to initialize agent environment',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['stop-host-openclaw'],
+  },
+  {
     id: 'verify',
     name: 'Verify Installation',
     description: 'Verify users, groups, and directories',
     phase: 'setup',
     requiresSudo: true,
-    dependsOn: ['stop-host-openclaw'],
+    dependsOn: ['onboard-openclaw'],
   },
   {
     id: 'start-openclaw',
