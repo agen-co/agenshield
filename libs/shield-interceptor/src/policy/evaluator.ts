@@ -6,6 +6,7 @@
  */
 
 import type { AsyncClient } from '../client/http-client.js';
+import type { SandboxConfig, PolicyExecutionContext } from '@agenshield/ipc';
 
 export interface PolicyEvaluatorOptions {
   client: AsyncClient;
@@ -15,6 +16,8 @@ export interface PolicyCheckResult {
   allowed: boolean;
   policyId?: string;
   reason?: string;
+  sandbox?: SandboxConfig;
+  executionContext?: PolicyExecutionContext;
 }
 
 export class PolicyEvaluator {
@@ -30,12 +33,13 @@ export class PolicyEvaluator {
    */
   async check(
     operation: string,
-    target: string
+    target: string,
+    context?: PolicyExecutionContext
   ): Promise<PolicyCheckResult> {
     try {
       const result = await this.client.request<PolicyCheckResult>(
         'policy_check',
-        { operation, target }
+        { operation, target, context }
       );
 
       return result;

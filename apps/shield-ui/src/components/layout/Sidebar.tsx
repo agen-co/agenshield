@@ -36,11 +36,13 @@ import {
   Plug,
   Activity,
   AlertTriangle,
+  ExternalLink,
 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { useSnapshot } from 'valtio';
 import { eventStore } from '../../state/events';
-import { useStatus } from '../../api/hooks';
+import { useStatus, useOpenClawDashboardUrl } from '../../api/hooks';
+import { notify } from '../../stores/notifications';
 
 const DRAWER_WIDTH = tokens.sidebar.width;
 
@@ -79,10 +81,26 @@ export function Sidebar({
   const navigate = useNavigate();
   const { connected: sseConnected } = useSnapshot(eventStore);
   const { data: status } = useStatus();
+  const openClawDashboard = useOpenClawDashboardUrl();
 
   const handleNavigation = (path: string) => {
     navigate(path);
     onClose();
+  };
+
+  const handleOpenClawClick = () => {
+    openClawDashboard.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.data?.url) {
+          window.open(data.data.url, '_blank');
+        } else {
+          notify.error('Could not get OpenClaw dashboard URL');
+        }
+      },
+      onError: (error) => {
+        notify.error(error.message || 'Failed to open OpenClaw dashboard');
+      },
+    });
   };
 
   const drawerContent = (
@@ -140,6 +158,34 @@ export function Sidebar({
             </ListItemButton>
           </ListItem>
         ))}
+
+        {/* OpenClaw external link */}
+        <Divider sx={{ my: 1 }} />
+        <ListItem disablePadding sx={{ mb: 0.5 }}>
+          <ListItemButton
+            onClick={handleOpenClawClick}
+            disabled={openClawDashboard.isPending}
+            sx={{
+              px: 1,
+              py: 0.25,
+              '&:hover': {
+                bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'grey.50',
+              },
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: 30 }}>
+              {openClawDashboard.isPending ? (
+                <CircularProgress size={18} sx={{ color: 'text.secondary' }} />
+              ) : (
+                <ExternalLink size={20} />
+              )}
+            </ListItemIcon>
+            <ListItemText
+              primary="OpenClaw"
+              primaryTypographyProps={{ variant: 'subtitle1' }}
+            />
+          </ListItemButton>
+        </ListItem>
       </List>
 
       {/* Footer */}

@@ -62,7 +62,11 @@ export class EventReporter {
     const level = this.getLogLevel(event);
     if (this.shouldLog(level)) {
       const prefix = event.type === 'allow' ? '✓' : event.type === 'deny' ? '✗' : '•';
-      console[level](`[AgenShield] ${prefix} ${event.operation}: ${event.target}`);
+      let detail = `${prefix} ${event.operation}: ${event.target}`;
+      if (event.policyId) detail += ` [policy:${event.policyId}]`;
+      if (event.error) detail += ` [reason:${event.error}]`;
+      if (event.duration) detail += ` [${event.duration}ms]`;
+      console[level](`[AgenShield] ${detail}`);
     }
 
     // Flush if queue is getting large

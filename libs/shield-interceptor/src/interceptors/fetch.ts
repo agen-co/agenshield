@@ -6,12 +6,27 @@
 
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { debugLog } from '../debug-log.js';
+import type { PolicyExecutionContext } from '@agenshield/ipc';
 
 export class FetchInterceptor extends BaseInterceptor {
   private originalFetch: typeof fetch | null = null;
 
   constructor(options: BaseInterceptorOptions) {
     super(options);
+  }
+
+  /**
+   * Build execution context from config
+   */
+  private getPolicyExecutionContext(): PolicyExecutionContext | undefined {
+    const config = this.interceptorConfig;
+    if (!config) return undefined;
+    return {
+      callerType: config.contextType || 'agent',
+      skillSlug: config.contextSkillSlug,
+      agentId: config.contextAgentId,
+      depth: 0,
+    };
   }
 
   install(): void {
@@ -60,75 +75,25 @@ export class FetchInterceptor extends BaseInterceptor {
       return this.originalFetch(input, init);
     }
 
-    // Check policy
+    // Check policy with execution context
     debugLog(`fetch checkPolicy START url=${url}`);
-    await this.checkPolicy('http_request', url);
-    debugLog(`fetch checkPolicy DONE url=${url}`);
-
-    // Make request through broker
     try {
-      const method = init?.method || 'GET';
-      const headers: Record<string, string> = {};
-
-      if (init?.headers) {
-        if (init.headers instanceof Headers) {
-          init.headers.forEach((value, key) => {
-            headers[key] = value;
-          });
-        } else if (Array.isArray(init.headers)) {
-          for (const [key, value] of init.headers) {
-            headers[key] = value;
-          }
-        } else {
-          Object.assign(headers, init.headers);
-        }
-      }
-
-      let body: string | undefined;
-      if (init?.body) {
-        if (typeof init.body === 'string') {
-          body = init.body;
-        } else if (init.body instanceof ArrayBuffer) {
-          body = Buffer.from(init.body).toString('base64');
-        } else {
-          body = String(init.body);
-        }
-      }
-
-      const result = await this.client.request<{
-        status: number;
-        statusText: string;
-        headers: Record<string, string>;
-        body: string;
-      }>('http_request', {
-        url,
-        method,
-        headers,
-        body,
-      });
-
-      // Create Response object
-      const responseHeaders = new Headers(result.headers);
-      return new Response(result.body, {
-        status: result.status,
-        statusText: result.statusText,
-        headers: responseHeaders,
-      });
+      await this.checkPolicy('http_request', url, this.getPolicyExecutionContext());
+      debugLog(`fetch checkPolicy DONE url=${url}`);
     } catch (error) {
-      debugLog(`fetch ERROR url=${url} error=${(error as Error).message}`);
-      // Re-throw policy errors
       if ((error as Error).name === 'PolicyDeniedError') {
         throw error;
       }
-
-      // Fall back to direct fetch if broker fails and failOpen is true
+      // Broker unavailable — failOpen handled inside checkPolicy
       if (this.failOpen) {
         debugLog(`fetch failOpen fallback url=${url}`);
         return this.originalFetch(input, init);
       }
-
       throw error;
     }
+
+    // Policy allowed — make request directly (no broker proxy)
+    return this.originalFetch(input, init);
   }
 
 }

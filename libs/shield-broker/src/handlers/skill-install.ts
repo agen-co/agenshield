@@ -139,12 +139,12 @@ export async function handleSkillInstall(
       filesWritten++;
     }
 
-    // Set ownership on skill directory
+    // Lock down skill directory: read+traverse for everyone, no group/other write
+    // Ownership is already correct: broker user + socketGroup (via setgid on parent)
     try {
-      execSync(`chown -R root:${socketGroup} "${skillDir}"`, { stdio: 'pipe' });
       execSync(`chmod -R a+rX,go-w "${skillDir}"`, { stdio: 'pipe' });
     } catch (err) {
-      const msg = `chown on skill dir failed: ${(err as Error).message}`;
+      const msg = `chmod on skill dir failed: ${(err as Error).message}`;
       console.warn(`[SkillInstall] ${msg}`);
       warnings.push(msg);
     }
@@ -165,15 +165,8 @@ export async function handleSkillInstall(
       const wrapperContent = createWrapperContent(slug, skillDir);
       await fs.writeFile(wrapperPath, wrapperContent, { mode: 0o755 });
 
-      // Set ownership on wrapper
-      try {
-        execSync(`chown root:${socketGroup} "${wrapperPath}"`, { stdio: 'pipe' });
-        execSync(`chmod 755 "${wrapperPath}"`, { stdio: 'pipe' });
-      } catch (err) {
-        const msg = `chown on wrapper failed: ${(err as Error).message}`;
-        console.warn(`[SkillInstall] ${msg}`);
-        warnings.push(msg);
-      }
+      // Wrapper is already 755 from writeFile above and owned by broker:socketGroup
+      // (setgid on bin/ ensures correct group)
     }
 
     return {

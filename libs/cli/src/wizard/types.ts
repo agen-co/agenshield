@@ -16,22 +16,30 @@ export type WizardStepId =
   | 'install-target'
   | 'configure'
   | 'confirm'
+  | 'cleanup-previous'
   | 'create-groups'
   | 'create-agent-user'
   | 'create-broker-user'
   | 'create-directories'
   | 'setup-socket'
-  | 'generate-seatbelt'
+  | 'install-homebrew'
+  | 'install-nvm'
+  | 'configure-shell'
   | 'install-wrappers'
+  | 'generate-seatbelt'
   | 'install-broker'
   | 'install-daemon-config'
+  | 'install-sudoers'
   | 'install-policies'
   | 'setup-launchdaemon'
-  | 'scan-source'
-  | 'select-items'
-  | 'migrate'
+  | 'install-openclaw'
+  | 'copy-openclaw-config'
+  | 'stop-host-openclaw'
+  | 'onboard-openclaw'
   | 'verify'
+  | 'start-openclaw'
   | 'setup-passcode'
+  | 'open-dashboard'
   | 'complete';
 
 export interface WizardStep {
@@ -122,7 +130,7 @@ export interface WizardContext {
     binDir: string;
     wrappersDir: string;
     configDir: string;
-    packageDir: string;
+    packageDir?: string;
     npmDir: string;
     socketDir: string;
     logDir: string;
@@ -210,6 +218,65 @@ export interface WizardContext {
 
   /** User's migration selection (from select-items step) */
   migrationSelection?: MigrationSelection;
+
+  // ── New setup flow fields ──────────────────────────────────────────────
+
+  /** Homebrew installation result */
+  homebrewInstalled?: {
+    brewPath: string;
+    success: boolean;
+  };
+
+  /** NVM installation result */
+  nvmInstalled?: {
+    nvmDir: string;
+    nodeVersion: string;
+    nodeBinaryPath: string;
+    success: boolean;
+  };
+
+  /** Shell configuration result */
+  shellConfigured?: {
+    success: boolean;
+  };
+
+  /** OpenClaw installation result (via npm in agent sandbox) */
+  openclawInstalled?: {
+    version: string;
+    binaryPath: string;
+    success: boolean;
+  };
+
+  /** OpenClaw config copy result */
+  openclawConfigCopied?: {
+    configDir: string;
+    sanitized: boolean;
+    success: boolean;
+  };
+
+  /** Host OpenClaw stop result */
+  hostOpenclawStopped?: {
+    daemonStopped: boolean;
+    gatewayStopped: boolean;
+  };
+
+  /** OpenClaw LaunchDaemon setup */
+  openclawLaunchDaemons?: {
+    daemonPlistPath: string;
+    gatewayPlistPath: string;
+    loaded: boolean;
+  };
+
+  /** OpenClaw onboard result */
+  openclawOnboarded?: {
+    success: boolean;
+  };
+
+  /** OpenClaw gateway process (started inline) */
+  openclawGateway?: {
+    pid: number;
+    running: boolean;
+  };
 }
 
 /**
@@ -269,12 +336,20 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
 
   // Setup phase
   {
+    id: 'cleanup-previous',
+    name: 'Clean Previous Installation',
+    description: 'Remove any previous AgenShield installation',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['confirm'],
+  },
+  {
     id: 'create-groups',
     name: 'Create Groups',
     description: 'Create socket access and workspace groups',
     phase: 'setup',
     requiresSudo: true,
-    dependsOn: ['confirm'],
+    dependsOn: ['cleanup-previous'],
   },
   {
     id: 'create-agent-user',
@@ -309,17 +384,41 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
     dependsOn: ['create-directories'],
   },
   {
-    id: 'generate-seatbelt',
-    name: 'Generate Seatbelt Profiles',
-    description: 'Generate macOS sandbox profiles',
+    id: 'install-homebrew',
+    name: 'Install Homebrew',
+    description: 'Install user-specific Homebrew for agent user (this may take up to 2 minutes)',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['create-directories'],
   },
   {
+    id: 'install-nvm',
+    name: 'Install NVM & Node.js',
+    description: 'Install NVM and Node.js for agent user (this may take up to 2 minutes)',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['install-homebrew'],
+  },
+  {
+    id: 'configure-shell',
+    name: 'Configure Shell',
+    description: 'Set up guarded shell with Homebrew and NVM paths',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['install-nvm'],
+  },
+  {
     id: 'install-wrappers',
     name: 'Install Wrappers',
     description: 'Install command wrappers to agent home bin directory (this may take up to a minute)',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['configure-shell'],
+  },
+  {
+    id: 'generate-seatbelt',
+    name: 'Generate Seatbelt Profiles',
+    description: 'Generate macOS sandbox profiles',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['create-directories'],
@@ -341,6 +440,14 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
     dependsOn: ['create-directories'],
   },
   {
+    id: 'install-sudoers',
+    name: 'Install Sudoers Rule',
+    description: 'Grant broker passwordless sudo for agent operations',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['create-broker-user', 'create-agent-user'],
+  },
+  {
     id: 'install-policies',
     name: 'Install Policies',
     description: 'Write default security policies',
@@ -351,54 +458,78 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
   {
     id: 'setup-launchdaemon',
     name: 'Setup LaunchDaemon',
-    description: 'Create and load launchd plist (this may take up to a minute)',
+    description: 'Create and load broker launchd plist (this may take up to a minute)',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['install-broker', 'install-daemon-config'],
   },
   {
-    id: 'scan-source',
-    name: 'Scan Source Application',
-    description: 'Read skills and environment variables from the source application',
+    id: 'copy-openclaw-config',
+    name: 'Copy OpenClaw Config',
+    description: 'Copy and sanitize OpenClaw config from host user',
     phase: 'setup',
+    requiresSudo: true,
     dependsOn: ['create-directories'],
   },
   {
-    id: 'select-items',
-    name: 'Select Migration Items',
-    description: 'Choose which skills and secrets to migrate',
-    phase: 'setup',
-    dependsOn: ['scan-source'],
-  },
-  {
-    id: 'migrate',
-    name: 'Migrate Installation',
-    description: 'Copy target application to sandbox',
+    id: 'install-openclaw',
+    name: 'Install OpenClaw',
+    description: 'Install OpenClaw in agent sandbox via NVM npm (this may take up to 3 minutes)',
     phase: 'setup',
     requiresSudo: true,
-    dependsOn: ['install-wrappers', 'setup-launchdaemon', 'select-items'],
+    dependsOn: ['setup-launchdaemon', 'install-wrappers', 'copy-openclaw-config'],
+  },
+  {
+    id: 'stop-host-openclaw',
+    name: 'Stop Host OpenClaw',
+    description: 'Stop OpenClaw daemon and gateway on host user',
+    phase: 'setup',
+    dependsOn: ['install-openclaw'],
+  },
+  {
+    id: 'onboard-openclaw',
+    name: 'Initialize OpenClaw',
+    description: 'Run openclaw onboard to initialize agent environment (this may take up to 2 minutes)',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['stop-host-openclaw'],
   },
   {
     id: 'verify',
     name: 'Verify Installation',
-    description: 'Test sandboxed application',
+    description: 'Verify users, groups, and directories',
     phase: 'setup',
     requiresSudo: true,
-    dependsOn: ['migrate'],
+    dependsOn: ['onboard-openclaw'],
+  },
+  {
+    id: 'start-openclaw',
+    name: 'Start OpenClaw',
+    description: 'Install and start OpenClaw LaunchDaemons with intercepted Node.js',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['verify'],
   },
   {
     id: 'setup-passcode',
     name: 'Setup Passcode',
     description: 'Set a passcode to protect sensitive configuration',
     phase: 'setup',
-    dependsOn: ['verify'],
+    dependsOn: ['start-openclaw'],
+  },
+  {
+    id: 'open-dashboard',
+    name: 'Open Dashboard',
+    description: 'Open AgenShield dashboard in browser',
+    phase: 'setup',
+    dependsOn: ['setup-passcode'],
   },
   {
     id: 'complete',
     name: 'Complete',
     description: 'Setup finished successfully',
     phase: 'setup',
-    dependsOn: ['setup-passcode'],
+    dependsOn: ['open-dashboard'],
   },
 ];
 

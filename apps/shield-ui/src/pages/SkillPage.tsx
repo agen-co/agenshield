@@ -3,7 +3,7 @@
  */
 
 import { useEffect } from 'react';
-import { Box, Button, Skeleton } from '@mui/material';
+import { Alert, Box, Button, Skeleton } from '@mui/material';
 import { ArrowLeft } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSnapshot } from 'valtio';
@@ -27,16 +27,6 @@ export function SkillPage() {
     }
   }, [slug]);
 
-  // Navigate back if the skill was deleted (e.g. from detail page)
-  useEffect(() => {
-    if (slug && !snap.selectedLoading) {
-      const exists = snap.skills.some((s) => s.slug === slug || s.name === slug);
-      if (!exists && snap.skills.length > 0) {
-        navigate('/skills', { replace: true });
-      }
-    }
-  }, [slug, snap.skills, snap.selectedLoading, navigate]);
-
   const selectedSkill = snap.skills.find((s) => s.slug === snap.selectedSlug || s.name === snap.selectedSlug);
 
   if (!slug) return null;
@@ -54,11 +44,13 @@ export function SkillPage() {
         Back to Skills
       </Button>
 
-      {snap.selectedLoading && !selectedSkill ? (
+      {snap.selectedLoading ? (
         <Box>
           <Skeleton variant="text" width="60%" height={40} />
           <Skeleton variant="rectangular" height={200} sx={{ mt: 2, borderRadius: 1 }} />
         </Box>
+      ) : !selectedSkill ? (
+        <Alert severity="info">Skill not found</Alert>
       ) : (
         <SkillDetails />
       )}

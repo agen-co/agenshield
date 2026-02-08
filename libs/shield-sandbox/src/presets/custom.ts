@@ -68,6 +68,10 @@ export const customPreset: TargetPreset = {
     const entryDir = path.dirname(entryPath);
     const entryFilename = path.basename(entryPath);
 
+    if (!context.directories.packageDir) {
+      return { success: false, error: 'packageDir is not configured' };
+    }
+
     // Copy the entire directory to the sandbox
     const result = sudoCopyDir(entryDir, context.directories.packageDir);
     if (!result.success) {

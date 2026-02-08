@@ -33,8 +33,8 @@ export function createSetupServer(engine: WizardEngine): SetupServer {
   let isComplete = false;
 
   // Wire engine verbose logs to SSE broadcast
-  setEngineLogCallback((message) => {
-    broadcastSetupEvent('setup:log', { message, timestamp: new Date().toISOString() });
+  setEngineLogCallback((message, stepId) => {
+    broadcastSetupEvent('setup:log', { message, stepId, timestamp: new Date().toISOString() });
   });
 
   // Wire engine state changes to SSE broadcast

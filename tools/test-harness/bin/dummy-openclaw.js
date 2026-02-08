@@ -13,7 +13,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 // Version that mimics OpenClaw
-const VERSION = '1.0.0-dummy';
+const VERSION = '2026.2.1';
 
 program
   .name('openclaw')

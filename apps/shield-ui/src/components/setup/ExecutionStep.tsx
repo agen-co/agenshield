@@ -13,16 +13,22 @@ import { setupStore } from '../../state/setup';
 import { slideIn } from '../../styles/animations';
 import { slowSpin } from '../../styles/setup-animations';
 
-// Steps to show in the execution view (infrastructure only — migration steps shown separately)
+// Steps to show in the execution view (all setup-phase steps)
 const EXECUTION_STEP_IDS = [
+  'cleanup-previous',
   'create-groups', 'create-agent-user', 'create-broker-user',
-  'create-directories', 'setup-socket', 'generate-seatbelt', 'install-wrappers',
-  'install-broker', 'install-daemon-config', 'install-policies', 'setup-launchdaemon',
-  'scan-source',
+  'create-directories', 'setup-socket',
+  'install-homebrew', 'install-nvm', 'configure-shell',
+  'install-wrappers', 'generate-seatbelt',
+  'install-broker', 'install-daemon-config', 'install-policies',
+  'setup-launchdaemon',
+  'copy-openclaw-config', 'install-openclaw',
+  'stop-host-openclaw', 'onboard-openclaw',
+  'verify', 'start-openclaw',
 ];
 
 export function ExecutionStep() {
-  const { wizardState } = useSnapshot(setupStore);
+  const { wizardState, stepLogs } = useSnapshot(setupStore);
 
   const executionSteps = useMemo(() => {
     if (!wizardState?.steps) return [];
@@ -84,8 +90,8 @@ export function ExecutionStep() {
               secondary={
                 step.status === 'error'
                   ? step.error
-                  : step.status === 'running' && step.id === 'install-wrappers'
-                    ? 'This may take up to a minute...'
+                  : step.status === 'running'
+                    ? stepLogs[step.id] || step.description
                     : undefined
               }
               primaryTypographyProps={{
@@ -95,7 +101,9 @@ export function ExecutionStep() {
               secondaryTypographyProps={{
                 variant: 'caption',
                 color: step.status === 'error' ? 'error.main' : 'text.secondary',
-                fontFamily: step.status === 'error' ? 'monospace' : undefined,
+                fontFamily: 'monospace',
+                noWrap: true,
+                sx: { textOverflow: 'ellipsis', overflow: 'hidden' },
               }}
             />
           </ListItem>

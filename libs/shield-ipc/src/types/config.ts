@@ -157,6 +157,10 @@ export interface PolicyConfig {
   operations?: string[];
   /** Preset this policy belongs to (undefined = user-created) */
   preset?: string;
+  /** Scope restriction: 'agent', 'skill', or 'skill:<slug>' */
+  scope?: 'agent' | 'skill' | string;
+  /** Network access level for sandboxed commands: none (default), proxy, or direct */
+  networkAccess?: 'none' | 'proxy' | 'direct';
 }
 
 export interface VaultConfig {

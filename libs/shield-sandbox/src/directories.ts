@@ -20,6 +20,8 @@ export interface DirectoryDefinition {
   mode: number;
   owner: string;
   group: string;
+  /** macOS ACL entries to apply (e.g. "username allow add_subdirectory,...") */
+  acl?: string[];
 }
 
 /**
@@ -140,21 +142,21 @@ export function createDirectoryStructure(config?: UserConfig): DirectoryStructur
         mode: 0o2775,               // setgid + group-writable for broker
         owner: brokerUsername,      // broker needs write access
         group: socketGroupName,
+        // ACL ensures broker retains write access even if openclaw resets ownership
+        acl: [
+          `${brokerUsername} allow read,write,append,add_subdirectory,add_file,delete_child,list,search,readattr,readextattr,writeattr,writeextattr,readsecurity,file_inherit,directory_inherit`,
+        ],
       },
       [`${agentHome}/.openclaw/skills`]: {
         mode: 0o2775, // setgid bit, group-writable for broker to create subdirectories
         owner: brokerUsername,      // broker needs write access
         group: socketGroupName,
+        // ACL inherited from .openclaw via file_inherit,directory_inherit
       },
       [`${agentHome}/workspace`]: {
         mode: 0o2775, // setgid bit
         owner: agentUsername,
         group: workspaceGroupName,
-      },
-      [`${agentHome}/.openclaw-pkg`]: {
-        mode: 0o755,
-        owner: agentUsername,
-        group: socketGroupName,
       },
       [`${agentHome}/.nvm`]: {
         mode: 0o755,
@@ -209,6 +211,7 @@ export async function createDirectory(
     mode: number;
     owner: string;
     group: string;
+    acl?: string[];
   },
   verboseOptions?: VerboseOptions
 ): Promise<DirectoryResult> {
@@ -226,6 +229,14 @@ export async function createDirectory(
     // Ensure mode is set correctly (mkdir might not set all bits)
     log(`Running: sudo chmod ${options.mode.toString(8)} "${dirPath}"`);
     await execAsync(`sudo chmod ${options.mode.toString(8)} "${dirPath}"`);
+
+    // Apply macOS ACL entries recursively (survives ownership changes by other processes)
+    if (options.acl && process.platform === 'darwin') {
+      for (const entry of options.acl) {
+        log(`Running: sudo chmod -R +a "${entry}" "${dirPath}"`);
+        await execAsync(`sudo chmod -R +a '${entry}' "${dirPath}"`);
+      }
+    }
 
     return {
       success: true,

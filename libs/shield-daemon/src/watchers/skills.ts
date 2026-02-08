@@ -324,7 +324,6 @@ function scanSkills(): void {
           if (callbacks.onUntrustedDetected) {
             callbacks.onUntrustedDetected({ name: skillName, reason: 'Skill not in approved list' });
           }
-          autoAnalyze(skillName, slug);
         }
       } else if (approvedEntry.hash) {
         // Approved WITH hash → integrity check (mtime-gated for performance)
@@ -345,7 +344,6 @@ function scanSkills(): void {
               if (callbacks.onUntrustedDetected) {
                 callbacks.onUntrustedDetected({ name: skillName, reason: 'Skill files modified externally' });
               }
-              autoAnalyze(skillName, slug);
             }
           }
         }

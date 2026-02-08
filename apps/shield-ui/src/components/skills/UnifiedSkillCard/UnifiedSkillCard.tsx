@@ -16,7 +16,8 @@ const originChipConfig: Record<string, { label: string; color: 'warning' | 'defa
 
 export function UnifiedSkillCard({ skill, selected = false, readOnly = false, onClick, onAction, onDelete }: UnifiedSkillCardProps) {
   const theme = useTheme();
-  const vulnLevel = skill.analysis?.vulnerability?.level;
+  const vulnLevel = skill.analysis?.vulnerability?.level
+    ?? (skill.origin === 'untrusted' ? 'critical' : undefined);
   const chipConfig = originChipConfig[skill.origin];
   const commands = skill.analysis?.commands;
   const envVars = skill.envVariables ?? skill.analysis?.envVariables;
@@ -218,13 +219,6 @@ function ActionButton({
       );
     case 'blocked':
       return <PrimaryButton size="small" onClick={onClick} sx={sx}>Unblock</PrimaryButton>;
-    case 'untrusted':
-      return (
-        <SecondaryButton size="small" disabled sx={sx}>
-          <CircularLoader size={12} sx={{ mr: 0.5 }} />
-          Pending
-        </SecondaryButton>
-      );
     default:
       return null;
   }

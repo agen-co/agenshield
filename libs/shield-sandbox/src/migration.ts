@@ -66,6 +66,10 @@ function createOpenClawWrapper(
   dirs: DirectoryStructure,
   method: 'npm' | 'git'
 ): { success: boolean; error?: string } {
+  if (!dirs.packageDir) {
+    return { success: false, error: 'packageDir is not configured' };
+  }
+
   const wrapperPath = path.join(dirs.binDir, 'openclaw');
 
   // Resolve entry point from package.json bin field so it works both
@@ -129,6 +133,10 @@ export function migrateNpmInstall(
   user: SandboxUser,
   dirs: DirectoryStructure
 ): MigrationResult {
+  if (!dirs.packageDir) {
+    return { success: false, error: 'packageDir is not configured' };
+  }
+
   // Copy package directory
   let result = sudoCopyDir(source.packagePath, dirs.packageDir);
   if (!result.success) {
@@ -177,6 +185,10 @@ export function migrateGitInstall(
   user: SandboxUser,
   dirs: DirectoryStructure
 ): MigrationResult {
+  if (!dirs.packageDir) {
+    return { success: false, error: 'packageDir is not configured' };
+  }
+
   const repoPath = source.gitRepoPath || source.packagePath;
 
   // Copy the entire git repo
@@ -236,7 +248,7 @@ export function migrateOpenClaw(
 /**
  * Sanitize an OpenClaw config by stripping skill-related secrets.
  * Removes `env` and `apiKey` from each skill entry (those go to the vault).
- * Enables the skill watcher. Returns a new object — does NOT mutate the input.
+ * Returns a new object — does NOT mutate the input.
  */
 export function sanitizeOpenClawConfig(config: Record<string, unknown>): Record<string, unknown> {
   const sanitized: Record<string, unknown> = JSON.parse(JSON.stringify(config));
@@ -251,9 +263,6 @@ export function sanitizeOpenClawConfig(config: Record<string, unknown>): Record<
       delete entry['apiKey'];
     }
   }
-
-  const settings = (sanitized['settings'] ?? {}) as Record<string, unknown>;
-  sanitized['settings'] = { ...settings, skillWatcher: { enabled: true } };
 
   return sanitized;
 }

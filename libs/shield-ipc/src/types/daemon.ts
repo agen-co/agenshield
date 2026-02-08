@@ -2,6 +2,17 @@
  * Daemon status types for AgenShield
  */
 
+export interface OpenClawProcessStatus {
+  running: boolean;
+  pid?: number;
+  lastExitStatus?: number;
+}
+
+export interface OpenClawServiceStatus {
+  daemon: OpenClawProcessStatus;
+  gateway: OpenClawProcessStatus;
+}
+
 export interface DaemonStatus {
   /** Whether the daemon is currently running */
   running: boolean;
@@ -19,4 +30,6 @@ export interface DaemonStatus {
   agentUsername?: string;
   /** Workspace group name from state (type='workspace') */
   workspaceGroup?: string;
+  /** OpenClaw service status (daemon + gateway) */
+  openclaw?: OpenClawServiceStatus;
 }

@@ -82,6 +82,8 @@ export const PolicyConfigSchema = z.object({
   priority: z.number().optional(),
   operations: z.array(z.string()).optional(),
   preset: z.string().optional(),
+  scope: z.string().optional(),
+  networkAccess: z.enum(['none', 'proxy', 'direct']).optional(),
 });
 
 export const VaultConfigSchema = z.object({

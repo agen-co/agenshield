@@ -116,6 +116,8 @@ export {
   copyBrokerBinary,
   copyShieldClient,
   installAgentNvm,
+  patchNvmNode,
+  execWithProgress,
   type NvmInstallResult,
   installPresetBinaries,
   installBasicCommands,
@@ -192,6 +194,9 @@ export {
   extractSkillInfo,
   classifyDirectory,
 } from './discovery';
+
+// Homebrew, OpenClaw Install, and OpenClaw LaunchDaemon have been
+// moved to @agenshield/integrations to break circular dependency with broker.
 
 // Skill Injector (AgenCo skill injection)
 export {

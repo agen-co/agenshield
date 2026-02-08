@@ -17,6 +17,8 @@ import { debugLog } from '../debug-log.js';
 const _existsSync = fs.existsSync.bind(fs);
 const _readFileSync = fs.readFileSync.bind(fs);
 const _unlinkSync = fs.unlinkSync.bind(fs);
+const _readdirSync = fs.readdirSync.bind(fs);
+const _statSync = fs.statSync.bind(fs);
 const _spawnSync = spawnSync;
 const _execSync = nodeExecSync;
 
@@ -32,12 +34,35 @@ export class SyncClient {
   private httpHost: string;
   private httpPort: number;
   private timeout: number;
+  private socketFailCount = 0;
+  private socketSkipUntil = 0;
 
   constructor(options: SyncClientOptions) {
     this.socketPath = options.socketPath;
     this.httpHost = options.httpHost;
     this.httpPort = options.httpPort;
     this.timeout = options.timeout;
+    this.cleanupStaleTmpFiles();
+  }
+
+  /**
+   * Remove stale /tmp/agenshield-sync-*.json files from previous runs
+   */
+  private cleanupStaleTmpFiles(): void {
+    try {
+      const tmpDir = '/tmp';
+      const files = _readdirSync(tmpDir);
+      const cutoff = Date.now() - 5 * 60 * 1000;
+      for (const f of files) {
+        if (f.startsWith('agenshield-sync-') && f.endsWith('.json')) {
+          const fp = `${tmpDir}/${f}`;
+          try {
+            const stat = _statSync(fp);
+            if (stat.mtimeMs < cutoff) _unlinkSync(fp);
+          } catch { /* ignore per-file errors */ }
+        }
+      }
+    } catch { /* ignore cleanup errors */ }
   }
 
   /**
@@ -45,12 +70,29 @@ export class SyncClient {
    */
   request<T>(method: string, params: Record<string, unknown>): T {
     debugLog(`syncClient.request START method=${method}`);
+    const now = Date.now();
+
+    // Circuit breaker: skip socket if it failed recently
+    if (now < this.socketSkipUntil) {
+      debugLog(`syncClient.request SKIP socket (circuit open for ${this.socketSkipUntil - now}ms), using HTTP`);
+      const result = this.httpRequestSync<T>(method, params);
+      debugLog(`syncClient.request http OK method=${method}`);
+      return result;
+    }
+
     // Try socket first using a synchronous approach
     try {
       const result = this.socketRequestSync<T>(method, params);
+      this.socketFailCount = 0; // Reset on success
       debugLog(`syncClient.request socket OK method=${method}`);
       return result;
     } catch (socketErr) {
+      this.socketFailCount++;
+      // After 2 consecutive failures, skip socket for 60 seconds
+      if (this.socketFailCount >= 2) {
+        this.socketSkipUntil = Date.now() + 60_000;
+        debugLog(`syncClient.request socket circuit OPEN (${this.socketFailCount} failures)`);
+      }
       debugLog(`syncClient.request socket FAILED: ${(socketErr as Error).message}, trying HTTP`);
       // Fall back to HTTP via subprocess
       const result = this.httpRequestSync<T>(method, params);
@@ -79,13 +121,23 @@ export class SyncClient {
     // Create a temporary file for the response
     const tmpFile = `/tmp/agenshield-sync-${id}.json`;
 
-    // Use a small Node.js script to make the request
+    // Use a small Node.js script to make the request.
+    // Key: clearTimeout + process.exit(0) on data to avoid blocking for the full timeout.
     const script = `
       const net = require('net');
       const fs = require('fs');
 
+      let done = false;
       const socket = net.createConnection('${this.socketPath}');
       let data = '';
+
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        socket.destroy();
+        fs.writeFileSync('${tmpFile}', JSON.stringify({ error: 'timeout' }));
+        process.exit(1);
+      }, ${this.timeout});
 
       socket.on('connect', () => {
         socket.write(${JSON.stringify(request)});
@@ -93,20 +145,22 @@ export class SyncClient {
 
       socket.on('data', (chunk) => {
         data += chunk.toString();
-        if (data.includes('\\n')) {
+        if (data.includes('\\n') && !done) {
+          done = true;
+          clearTimeout(timer);
           socket.end();
           fs.writeFileSync('${tmpFile}', data.split('\\n')[0]);
+          process.exit(0);
         }
       });
 
       socket.on('error', (err) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
         fs.writeFileSync('${tmpFile}', JSON.stringify({ error: err.message }));
+        process.exit(1);
       });
-
-      setTimeout(() => {
-        socket.destroy();
-        fs.writeFileSync('${tmpFile}', JSON.stringify({ error: 'timeout' }));
-      }, ${this.timeout});
     `;
 
     try {

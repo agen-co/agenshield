@@ -7,7 +7,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { exec } from 'node:child_process';
+import { exec, spawn as nodeSpawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -57,6 +57,8 @@ export interface WrapperConfig {
   npmPath: string;
   /** Path to brew executable */
   brewPath: string;
+  /** Path to NVM node version directory (e.g. ~/.nvm/versions/node/v24.13.0) */
+  nvmNodeDir: string;
 }
 
 /**
@@ -76,6 +78,7 @@ export function getDefaultWrapperConfig(userConfig?: UserConfig): WrapperConfig 
     nodePath: '/usr/local/bin/node',
     npmPath: '/usr/local/bin/npm',
     brewPath: '/opt/homebrew/bin/brew',
+    nvmNodeDir: `${agentHome}/.nvm/versions/node/current`,
   };
 }
 
@@ -196,31 +199,19 @@ esac
   },
 
   npm: {
-    description: 'npm wrapper with Node.js interceptor',
-    usesInterceptor: true,
+    description: 'npm wrapper — delegates to NVM npm (patched node loads interceptor)',
     generate: (config) => `#!/bin/bash
-# npm wrapper - routes npm network requests through AgenShield interceptor
-# Uses NODE_OPTIONS to load the interceptor module
+# npm wrapper — NVM's node is patched in-place, so the interceptor loads
+# automatically when npm (a JS script) invokes node. No NODE_OPTIONS needed here.
 
 # Ensure accessible working directory
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
-# Set up interceptor
-export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}"
-
-# Set AgenShield environment
-export AGENSHIELD_SOCKET="${config.socketPath}"
-export AGENSHIELD_HTTP_PORT="${config.httpPort}"
-export AGENSHIELD_INTERCEPT_FETCH=true
-export AGENSHIELD_INTERCEPT_HTTP=true
-
-# Find npm - prefer homebrew, then system
-if [ -x "/opt/homebrew/bin/npm" ]; then
-  exec /opt/homebrew/bin/npm "$@"
-elif [ -x "${config.npmPath}" ]; then
-  exec ${config.npmPath} "$@"
+# Only use NVM npm (patched NVM node loads interceptor automatically)
+if [ -x "${config.nvmNodeDir}/bin/npm" ]; then
+  exec "${config.nvmNodeDir}/bin/npm" "$@"
 else
-  echo "npm not found" >&2
+  echo "npm not found (expected at ${config.nvmNodeDir}/bin/npm)" >&2
   exit 1
 fi
 `,
@@ -299,55 +290,39 @@ exec ${config.agentHome}/bin/python "$@"
 # Ensure accessible working directory
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
-# Set up interceptor
 export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}"
-
-# Set AgenShield environment
 export AGENSHIELD_SOCKET="${config.socketPath}"
 export AGENSHIELD_HTTP_PORT="${config.httpPort}"
-export AGENSHIELD_INTERCEPT_FETCH=true
-export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_EXEC=true
+export AGENSHIELD_INTERCEPT_HTTP=true
+export AGENSHIELD_INTERCEPT_FETCH=true
+export AGENSHIELD_INTERCEPT_WS=true
+export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
 
-# Find node - prefer copied binary, then homebrew, then system
+# Only use the NVM-installed node binary (copied to /opt/agenshield/bin/node-bin)
 if [ -x "/opt/agenshield/bin/node-bin" ]; then
   exec /opt/agenshield/bin/node-bin "$@"
-elif [ -x "/opt/homebrew/bin/node" ]; then
-  exec /opt/homebrew/bin/node "$@"
-elif [ -x "${config.nodePath}" ]; then
-  exec ${config.nodePath} "$@"
 else
-  echo "node not found" >&2
+  echo "node-bin not found at /opt/agenshield/bin/node-bin" >&2
   exit 1
 fi
 `,
   },
 
   npx: {
-    description: 'npx wrapper with Node.js interceptor',
-    usesInterceptor: true,
+    description: 'npx wrapper — delegates to NVM npx (patched node loads interceptor)',
     generate: (config) => `#!/bin/bash
-# npx wrapper - runs npx with AgenShield interceptor
+# npx wrapper — NVM's node is patched in-place, so the interceptor loads
+# automatically when npx (a JS script) invokes node. No NODE_OPTIONS needed here.
 
 # Ensure accessible working directory
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
-# Set up interceptor
-export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}"
-
-# Set AgenShield environment
-export AGENSHIELD_SOCKET="${config.socketPath}"
-export AGENSHIELD_HTTP_PORT="${config.httpPort}"
-export AGENSHIELD_INTERCEPT_FETCH=true
-export AGENSHIELD_INTERCEPT_HTTP=true
-
-# Find npx
-if [ -x "/opt/homebrew/bin/npx" ]; then
-  exec /opt/homebrew/bin/npx "$@"
-elif [ -x "/usr/local/bin/npx" ]; then
-  exec /usr/local/bin/npx "$@"
+# Only use NVM npx (patched NVM node loads interceptor automatically)
+if [ -x "${config.nvmNodeDir}/bin/npx" ]; then
+  exec "${config.nvmNodeDir}/bin/npx" "$@"
 else
-  echo "npx not found" >&2
+  echo "npx not found (expected at ${config.nvmNodeDir}/bin/npx)" >&2
   exit 1
 fi
 `,
@@ -872,17 +847,17 @@ if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 export NODE_OPTIONS="${wrapperConfig.interceptorFlag} ${wrapperConfig.interceptorPath} \${NODE_OPTIONS:-}"
 export AGENSHIELD_SOCKET="${wrapperConfig.socketPath}"
 export AGENSHIELD_HTTP_PORT="${wrapperConfig.httpPort}"
-export AGENSHIELD_INTERCEPT_FETCH=true
-export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_EXEC=true
+export AGENSHIELD_INTERCEPT_HTTP=true
+export AGENSHIELD_INTERCEPT_FETCH=true
+export AGENSHIELD_INTERCEPT_WS=true
+export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
+
+# Only use the NVM-installed node binary (copied to /opt/agenshield/bin/node-bin)
 if [ -x "/opt/agenshield/bin/node-bin" ]; then
   exec /opt/agenshield/bin/node-bin "$@"
-elif [ -x "/opt/homebrew/bin/node" ]; then
-  exec /opt/homebrew/bin/node "$@"
-elif [ -x "/usr/local/bin/node" ]; then
-  exec /usr/local/bin/node "$@"
 else
-  echo "node not found" >&2
+  echo "node-bin not found at /opt/agenshield/bin/node-bin" >&2
   exit 1
 fi
 `;
@@ -1360,11 +1335,12 @@ export async function installAgentNvm(options: {
   socketGroupName: string;
   nodeVersion?: string;
   verbose?: boolean;
+  onLog?: (msg: string) => void;
 }): Promise<NvmInstallResult> {
-  const { agentHome, agentUsername, socketGroupName, verbose } = options;
+  const { agentHome, agentUsername, socketGroupName, verbose, onLog } = options;
   const nodeVersion = options.nodeVersion || '24';
   const nvmDir = `${agentHome}/.nvm`;
-  const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
+  const log = onLog || ((msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`));
 
   const empty: NvmInstallResult = {
     success: false,
@@ -1383,13 +1359,19 @@ export async function installAgentNvm(options: {
 
     // 2. Download and install NVM as the agent user
     // PROFILE=/dev/null prevents NVM from modifying shell rc files
+    // --norc --noprofile prevents loading the calling user's rc files
+    // cwd: '/' avoids getcwd errors when caller's cwd is inaccessible to agent user
     log('Downloading and installing NVM');
     const installCmd = [
       `export HOME="${agentHome}"`,
       `export NVM_DIR="${nvmDir}"`,
-      `/usr/bin/curl -o- "${NVM_INSTALL_URL}" | PROFILE=/dev/null /bin/bash`,
+      `/usr/bin/curl -sSo- "${NVM_INSTALL_URL}" | PROFILE=/dev/null /bin/bash`,
     ].join(' && ');
-    await execAsync(`sudo -u ${agentUsername} /bin/bash -c '${installCmd}'`, { timeout: 60000 });
+    await execWithProgress(
+      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${installCmd}'`,
+      log,
+      { timeout: 60000, cwd: '/' },
+    );
 
     // 3. Install the specified Node.js version
     log(`Installing Node.js v${nodeVersion} via NVM`);
@@ -1399,7 +1381,11 @@ export async function installAgentNvm(options: {
       `source "${nvmDir}/nvm.sh"`,
       `nvm install ${nodeVersion}`,
     ].join(' && ');
-    await execAsync(`sudo -u ${agentUsername} /bin/bash -c '${nvmInstallCmd}'`, { timeout: 120000 });
+    await execWithProgress(
+      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${nvmInstallCmd}'`,
+      log,
+      { timeout: 120000, cwd: '/' },
+    );
 
     // 4. Resolve the installed node binary path
     log('Resolving installed node binary path');
@@ -1409,7 +1395,7 @@ export async function installAgentNvm(options: {
       `source "${nvmDir}/nvm.sh"`,
       `nvm which ${nodeVersion}`,
     ].join(' && ');
-    const { stdout } = await execAsync(`sudo -u ${agentUsername} /bin/bash -c '${whichCmd}'`);
+    const { stdout } = await execAsync(`sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${whichCmd}'`, { cwd: '/' });
     const nodeBinaryPath = stdout.trim();
 
     if (!nodeBinaryPath) {
@@ -1419,7 +1405,8 @@ export async function installAgentNvm(options: {
     // 5. Verify the binary works
     log(`Verifying node binary at ${nodeBinaryPath}`);
     const { stdout: versionOut } = await execAsync(
-      `sudo -u ${agentUsername} /bin/bash -c '"${nodeBinaryPath}" --version'`
+      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '"${nodeBinaryPath}" --version'`,
+      { cwd: '/' },
     );
     const actualVersion = versionOut.trim();
     log(`Node.js ${actualVersion} installed successfully`);
@@ -1435,6 +1422,169 @@ export async function installAgentNvm(options: {
     return {
       ...empty,
       message: `NVM installation failed: ${(error as Error).message}`,
+      error: error as Error,
+    };
+  }
+}
+
+/** Filter out noisy subprocess output (curl progress meter, etc.) */
+function isNoiseLine(line: string): boolean {
+  // Curl progress meter header and data lines
+  if (/^\s*%\s+Total/.test(line)) return true;
+  if (/^\s*Dload\s+Upload/.test(line)) return true;
+  // Curl progress rows: mostly digits, spaces, dashes, colons (e.g. "0  0  0  0  0  0  --:--:--")
+  if (/^[\d\s.kMG:\-/|]+$/.test(line)) return true;
+  // Bare arrow prompts with no content (NVM outputs "=>" on empty lines)
+  if (/^=>?\s*$/.test(line)) return true;
+  return false;
+}
+
+/**
+ * Execute a command with real-time progress logging via spawn.
+ *
+ * Unlike execAsync which buffers all output, this streams stdout/stderr
+ * line-by-line through the `log()` callback so the UI can show download
+ * progress for long-running operations (NVM install, Node download, npm install).
+ */
+export async function execWithProgress(
+  command: string,
+  log: (msg: string) => void,
+  opts?: { timeout?: number; cwd?: string; env?: Record<string, string> },
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = nodeSpawn('/bin/bash', ['-c', command], {
+      cwd: opts?.cwd || '/',
+      env: { ...process.env, ...opts?.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    if (opts?.timeout) {
+      timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error(`Command timed out after ${opts.timeout}ms`));
+      }, opts.timeout);
+    }
+
+    child.stdout?.on('data', (data: Buffer) => {
+      const text = data.toString();
+      stdout += text;
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed && !isNoiseLine(trimmed)) log(trimmed);
+      }
+    });
+
+    child.stderr?.on('data', (data: Buffer) => {
+      const text = data.toString();
+      stderr += text;
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed && !isNoiseLine(trimmed)) log(trimmed);
+      }
+    });
+
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer);
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        const err = new Error(`Command failed with exit code ${code}: ${stderr.slice(0, 500)}`);
+        (err as any).stdout = stdout;
+        (err as any).stderr = stderr;
+        reject(err);
+      }
+    });
+
+    child.on('error', (err) => {
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+/**
+ * Patch the NVM-installed node binary in-place with an interceptor wrapper.
+ *
+ * After NVM installs node, the real binary has already been copied to
+ * `/opt/agenshield/bin/node-bin`. This function replaces the NVM binary
+ * (e.g. `~/.nvm/versions/node/v24.13.0/bin/node`) with a bash wrapper
+ * that loads the interceptor and execs `node-bin`.
+ *
+ * This ensures ALL node invocations go through the interceptor — whether
+ * called from `~/bin/node`, NVM's PATH, or directly — closing the NVM
+ * PATH-order bypass.
+ */
+export async function patchNvmNode(options: {
+  nodeBinaryPath: string;
+  agentUsername: string;
+  socketGroupName: string;
+  interceptorPath: string;
+  socketPath: string;
+  httpPort: number;
+  verbose?: boolean;
+  onLog?: (msg: string) => void;
+}): Promise<WrapperResult> {
+  const { nodeBinaryPath, agentUsername, socketGroupName, interceptorPath, socketPath, httpPort, verbose, onLog } = options;
+  const log = onLog || ((msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`));
+
+  try {
+    // 1. Verify the real binary has already been copied to /opt/agenshield/bin/node-bin
+    const nodeBinTarget = '/opt/agenshield/bin/node-bin';
+    try {
+      await fs.access(nodeBinTarget);
+    } catch {
+      return {
+        success: false,
+        name: 'patch-nvm-node',
+        path: nodeBinaryPath,
+        message: `node-bin not found at ${nodeBinTarget} — copyNodeBinary must run first`,
+      };
+    }
+
+    // 2. Remove the NVM node binary (it's been copied to node-bin)
+    log(`Removing NVM node binary at ${nodeBinaryPath}`);
+    await execAsync(`sudo rm -f "${nodeBinaryPath}"`);
+
+    // 3. Create a bash wrapper at the same path
+    const wrapperContent = `#!/bin/bash
+# AgenShield-patched node — loads interceptor before executing
+export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"
+export AGENSHIELD_SOCKET="${socketPath}"
+export AGENSHIELD_HTTP_PORT="${httpPort}"
+export AGENSHIELD_INTERCEPT_EXEC=true
+export AGENSHIELD_INTERCEPT_HTTP=true
+export AGENSHIELD_INTERCEPT_FETCH=true
+export AGENSHIELD_INTERCEPT_WS=true
+export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
+exec ${nodeBinTarget} "$@"
+`;
+
+    log(`Writing interceptor wrapper to ${nodeBinaryPath}`);
+    await execAsync(`sudo tee "${nodeBinaryPath}" > /dev/null << 'PATCHEOF'
+${wrapperContent}
+PATCHEOF`);
+
+    // 4. Set ownership and permissions
+    await execAsync(`sudo chown root:${socketGroupName} "${nodeBinaryPath}"`);
+    await execAsync(`sudo chmod 755 "${nodeBinaryPath}"`);
+
+    log(`NVM node patched in-place at ${nodeBinaryPath}`);
+    return {
+      success: true,
+      name: 'patch-nvm-node',
+      path: nodeBinaryPath,
+      message: `Patched NVM node at ${nodeBinaryPath} with interceptor wrapper`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      name: 'patch-nvm-node',
+      path: nodeBinaryPath,
+      message: `Failed to patch NVM node: ${(error as Error).message}`,
       error: error as Error,
     };
   }
@@ -1507,44 +1657,57 @@ export async function installPresetBinaries(options: {
   socketGroupName: string;
   nodeVersion?: string;
   verbose?: boolean;
+  /** Pre-installed NVM result from install-nvm step — skips duplicate installAgentNvm() */
+  nvmResult?: NvmInstallResult;
 }): Promise<PresetInstallResult> {
   const { requiredBins, userConfig, binDir, socketGroupName, verbose } = options;
   const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
   const errors: string[] = [];
   const installedWrappers: string[] = [];
   let seatbeltInstalled = false;
+  let resolvedNvmResult: NvmInstallResult | undefined;
 
   // 1. Install node binary to /opt/agenshield/bin/node-bin (if 'node' in requiredBins)
   if (requiredBins.includes('node')) {
     const agentHome = userConfig.agentUser.home;
     const agentUsername = userConfig.agentUser.username;
 
-    // Try NVM-based install first for version control
-    log('Installing NVM + Node.js for agent user');
-    const nvmResult = await installAgentNvm({
-      agentHome,
-      agentUsername,
-      socketGroupName,
-      nodeVersion: options.nodeVersion,
-      verbose,
-    });
-
-    if (nvmResult.success) {
-      log(`NVM installed Node.js ${nvmResult.nodeVersion} at ${nvmResult.nodeBinaryPath}`);
-      log('Copying NVM node binary to /opt/agenshield/bin/node-bin');
-      const nodeResult = await copyNodeBinary(userConfig, nvmResult.nodeBinaryPath);
-      if (!nodeResult.success) {
-        errors.push(`Node binary (from NVM): ${nodeResult.message}`);
-      }
+    // Use pre-installed NVM result if available, otherwise install fresh
+    if (options.nvmResult?.success) {
+      // install-nvm step already called copyNodeBinary — skip duplicate copy
+      log(`Using pre-installed NVM Node.js ${options.nvmResult.nodeVersion} (node-bin already copied)`);
+      resolvedNvmResult = options.nvmResult;
     } else {
-      // Fallback: copy host's node binary (original behavior)
-      log(`NVM install failed: ${nvmResult.message}. Falling back to host node binary.`);
-      log('Copying node binary to /opt/agenshield/bin/node-bin');
-      const nodeResult = await copyNodeBinary(userConfig);
-      if (!nodeResult.success) {
-        errors.push(`Node binary: ${nodeResult.message}`);
+      log('Installing NVM + Node.js for agent user');
+      resolvedNvmResult = await installAgentNvm({
+        agentHome,
+        agentUsername,
+        socketGroupName,
+        nodeVersion: options.nodeVersion,
+        verbose,
+      });
+
+      if (resolvedNvmResult.success) {
+        log(`NVM Node.js ${resolvedNvmResult.nodeVersion} at ${resolvedNvmResult.nodeBinaryPath}`);
+        log('Copying NVM node binary to /opt/agenshield/bin/node-bin');
+        const nodeResult = await copyNodeBinary(userConfig, resolvedNvmResult.nodeBinaryPath);
+        if (!nodeResult.success) {
+          errors.push(`Node binary (from NVM): ${nodeResult.message}`);
+        }
+      } else {
+        // Fallback: copy host's node binary (original behavior)
+        log(`NVM install failed: ${resolvedNvmResult.message}. Falling back to host node binary.`);
+        log('Copying node binary to /opt/agenshield/bin/node-bin');
+        const nodeResult = await copyNodeBinary(userConfig);
+        if (!nodeResult.success) {
+          errors.push(`Node binary: ${nodeResult.message}`);
+        }
       }
     }
+    // NOTE: patchNvmNode is NOT called here — it must run AFTER all npm installs
+    // (openclaw, etc.) complete, otherwise the interceptor tries to connect to the
+    // broker during installation and times out. The caller patches NVM node at the
+    // appropriate time (e.g. start-openclaw step).
   }
 
   // 2. Deploy interceptor (if any required bin uses it)
@@ -1560,7 +1723,11 @@ export async function installPresetBinaries(options: {
   }
 
   // 3. Install wrapper scripts for required bins
+  //    Set nvmNodeDir from resolved NVM result so wrappers point to the correct NVM path
   const wrapperConfig = getDefaultWrapperConfig(userConfig);
+  if (resolvedNvmResult?.success && resolvedNvmResult.nodeBinaryPath) {
+    wrapperConfig.nvmNodeDir = path.dirname(path.dirname(resolvedNvmResult.nodeBinaryPath));
+  }
   const validNames = requiredBins.filter(name => WRAPPER_DEFINITIONS[name]);
   for (const name of validNames) {
     log(`Installing wrapper: ${name} -> ${binDir}/${name}`);

@@ -6,7 +6,6 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import {
   checkPrerequisites,
-  saveBackup,
   createUserConfig,
   createGroups,
   createAgentUser,
@@ -28,12 +27,33 @@ import {
   copyBrokerBinary,
   copyShieldClient,
   installGuardedShell,
+  // NVM (existing)
+  installAgentNvm,
+  patchNvmNode,
   // Preset system
   getPreset,
   autoDetectPreset,
   type MigrationContext,
   type MigrationDirectories,
 } from '@agenshield/sandbox';
+import {
+  // Homebrew
+  installAgentHomebrew,
+  isAgentHomebrewInstalled,
+  // OpenClaw install + config + lifecycle
+  detectHostOpenClawVersion,
+  installAgentOpenClaw,
+  copyOpenClawConfig,
+  stopHostOpenClaw,
+  getOriginalUser,
+  getHostOpenClawConfigPath,
+  onboardAgentOpenClaw,
+  // OpenClaw LaunchDaemons
+  installOpenClawLaunchDaemons,
+  startOpenClawServices,
+  OPENCLAW_DAEMON_PLIST,
+  OPENCLAW_GATEWAY_PLIST,
+} from '@agenshield/integrations';
 import type { OriginalInstallation, MigratedPaths, SandboxUserInfo, UserConfig, PasscodeData } from '@agenshield/ipc';
 import type {
   WizardStep,
@@ -50,22 +70,24 @@ export type StepExecutor = (context: WizardContext) => Promise<{ success: boolea
  * Module-level log callback — allows the setup server to receive verbose
  * messages and broadcast them (e.g. via SSE) to the browser UI.
  */
-let _logCallback: ((message: string) => void) | undefined;
+let _logCallback: ((message: string, stepId?: WizardStepId) => void) | undefined;
+let _currentStepId: WizardStepId | undefined;
 
-export function setEngineLogCallback(cb: ((message: string) => void) | undefined): void {
+export function setEngineLogCallback(cb: ((message: string, stepId?: WizardStepId) => void) | undefined): void {
   _logCallback = cb;
 }
 
 /**
  * Verbose logging helper - logs messages when verbose mode is enabled.
- * Writes to stderr (terminal) and also calls the optional log callback
- * so the setup server can forward messages to the browser.
+ * Writes to stderr (terminal) only in verbose mode, but ALWAYS calls
+ * the log callback so the setup server can forward messages to the browser.
  */
 function logVerbose(message: string, context?: WizardContext): void {
   if (context?.options?.verbose || process.env['AGENSHIELD_VERBOSE'] === 'true') {
     process.stderr.write(`[SETUP] ${message}\n`);
-    _logCallback?.(message);
   }
+  // Always broadcast to the UI regardless of verbose flag
+  _logCallback?.(message, _currentStepId);
 }
 
 export interface WizardEngine {
@@ -263,75 +285,503 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     return { success: true };
   },
 
-  'scan-source': async (context) => {
-    if (!context.preset) {
-      return { success: false, error: 'No preset loaded' };
+  // ── New setup steps ───────────────────────────────────────────────────
+
+  'cleanup-previous': async (context) => {
+    logVerbose('Checking for previous installations', context);
+    const { execSync } = await import('node:child_process');
+    const fs = await import('node:fs');
+
+    // Quick check: does the default agent user exist?
+    let agentUserExists = false;
+    try {
+      execSync('dscl . -read /Users/ash_default_agent', { encoding: 'utf-8', stdio: 'pipe' });
+      agentUserExists = true;
+    } catch { /* user doesn't exist */ }
+
+    if (!agentUserExists) {
+      logVerbose('No previous installation detected', context);
+      return { success: true };
     }
 
-    // Dry-run: create empty scan result
+    logVerbose('Found previous installation (ash_default_agent exists), cleaning up', context);
+
     if (context.options?.dryRun) {
-      context.scanResult = {
-        skills: [],
-        envVars: [],
-        scannedProfiles: [],
-        scannedAt: new Date().toISOString(),
-        warnings: [],
+      logVerbose('[dry-run] Would remove previous installation', context);
+      return { success: true };
+    }
+
+    // NOTE: We cannot use forceUninstall() here because it calls stopDaemon()
+    // which kills the process on port 5200 — that's our own setup wizard.
+    // Instead we do the cleanup steps inline, skipping the daemon kill.
+
+    const sudo = (cmd: string) => {
+      try {
+        execSync(`sudo ${cmd}`, { encoding: 'utf-8', stdio: 'pipe' });
+        return true;
+      } catch { return false; }
+    };
+
+    // 1. Stop broker launchd service (but NOT the daemon on port 5200 — that's us)
+    const brokerPlist = '/Library/LaunchDaemons/com.agenshield.broker.plist';
+    if (fs.existsSync(brokerPlist)) {
+      logVerbose('[cleanup] Stopping broker LaunchDaemon', context);
+      sudo(`launchctl bootout system/com.agenshield.broker 2>/dev/null || true`);
+      sudo(`rm -f "${brokerPlist}"`);
+    }
+
+    // 2. Remove OpenClaw LaunchDaemon plists if present
+    for (const plist of [
+      '/Library/LaunchDaemons/com.agenshield.openclaw.daemon.plist',
+      '/Library/LaunchDaemons/com.agenshield.openclaw.gateway.plist',
+    ]) {
+      if (fs.existsSync(plist)) {
+        const label = plist.replace('/Library/LaunchDaemons/', '').replace('.plist', '');
+        logVerbose(`[cleanup] Removing ${label}`, context);
+        sudo(`launchctl bootout system/${label} 2>/dev/null || true`);
+        sudo(`rm -f "${plist}"`);
+      }
+    }
+
+    // 3. Discover and kill processes for all ash_* users
+    let sandboxUsers: string[] = [];
+    try {
+      const output = execSync('dscl . -list /Users', { encoding: 'utf-8' });
+      sandboxUsers = output.split('\n').filter(u => u.startsWith('ash_'));
+    } catch { /* ignore */ }
+
+    for (const username of sandboxUsers) {
+      logVerbose(`[cleanup] Killing processes for ${username}`, context);
+      sudo(`pkill -u ${username} 2>/dev/null || true`);
+    }
+    if (sandboxUsers.length > 0) {
+      try { execSync('sleep 1', { encoding: 'utf-8' }); } catch { /* ignore */ }
+      for (const username of sandboxUsers) {
+        sudo(`pkill -9 -u ${username} 2>/dev/null || true`);
+      }
+    }
+
+    // 4. Delete sandbox users (with home dirs)
+    const { deleteSandboxUser } = await import('@agenshield/sandbox');
+    for (const username of sandboxUsers) {
+      logVerbose(`[cleanup] Deleting user ${username}`, context);
+      deleteSandboxUser(username, { removeHomeDir: true });
+    }
+
+    // 5. Delete ash_* groups
+    let ashGroups: string[] = [];
+    try {
+      const output = execSync('dscl . -list /Groups', { encoding: 'utf-8' });
+      ashGroups = output.split('\n').filter(g => g.startsWith('ash_'));
+    } catch { /* ignore */ }
+
+    for (const groupName of ashGroups) {
+      logVerbose(`[cleanup] Deleting group ${groupName}`, context);
+      sudo(`dscl . -delete /Groups/${groupName}`);
+    }
+
+    // 6. Remove guarded shell from /etc/shells and disk
+    const guardedShellPath = '/usr/local/bin/guarded-shell';
+    if (fs.existsSync(guardedShellPath)) {
+      logVerbose('[cleanup] Removing guarded shell', context);
+      sudo(`sed -i '' '\\|${guardedShellPath}|d' /etc/shells`);
+      sudo(`rm -f "${guardedShellPath}"`);
+    }
+
+    // 7. Remove sudoers drop-in
+    if (fs.existsSync('/etc/sudoers.d/agenshield')) {
+      logVerbose('[cleanup] Removing /etc/sudoers.d/agenshield', context);
+      sudo('rm -f /etc/sudoers.d/agenshield');
+    }
+
+    // 8. Clean up directories
+    for (const dir of ['/etc/agenshield', '/var/log/agenshield', '/var/run/agenshield', '/opt/agenshield']) {
+      if (fs.existsSync(dir)) {
+        logVerbose(`[cleanup] Removing ${dir}`, context);
+        sudo(`rm -rf "${dir}"`);
+      }
+    }
+
+    logVerbose('Previous installation cleaned up', context);
+    return { success: true };
+  },
+
+  'install-homebrew': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install Homebrew to ${agentUser.home}/homebrew`, context);
+      context.homebrewInstalled = { brewPath: `${agentUser.home}/homebrew/bin/brew`, success: true };
+      return { success: true };
+    }
+
+    // Skip if already installed (e.g., retry after partial failure)
+    if (await isAgentHomebrewInstalled(agentUser.home)) {
+      logVerbose('Homebrew already installed, skipping', context);
+      context.homebrewInstalled = { brewPath: `${agentUser.home}/homebrew/bin/brew`, success: true };
+      return { success: true };
+    }
+
+    logVerbose(`Installing user-specific Homebrew for ${agentUser.username}`, context);
+    const onLog = (msg: string) => logVerbose(msg, context);
+    const result = await installAgentHomebrew({
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      socketGroupName,
+      verbose: context.options?.verbose,
+      onLog,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.message };
+    }
+
+    context.homebrewInstalled = { brewPath: result.brewPath, success: true };
+    return { success: true };
+  },
+
+  'install-nvm': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
+    const nodeVersion = context.options?.nodeVersion || '24';
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install NVM + Node.js v${nodeVersion} for ${agentUser.username}`, context);
+      context.nvmInstalled = {
+        nvmDir: `${agentUser.home}/.nvm`,
+        nodeVersion: `v${nodeVersion}`,
+        nodeBinaryPath: `${agentUser.home}/.nvm/versions/node/v${nodeVersion}.0.0/bin/node`,
+        success: true,
       };
       return { success: true };
     }
 
-    // Call preset.scan() if available
-    if (context.preset.scan && context.presetDetection) {
-      const result = await context.preset.scan(context.presetDetection);
-      context.scanResult = result ?? {
-        skills: [],
-        envVars: [],
-        scannedProfiles: [],
-        scannedAt: new Date().toISOString(),
-        warnings: [],
-      };
-    } else {
-      context.scanResult = {
-        skills: [],
-        envVars: [],
-        scannedProfiles: [],
-        scannedAt: new Date().toISOString(),
-        warnings: [],
-      };
+    // Skip if NVM + requested Node version already installed
+    const nvmDir = `${agentUser.home}/.nvm`;
+    const nvmSh = `${nvmDir}/nvm.sh`;
+    const fs = await import('node:fs');
+    if (fs.existsSync(nvmSh)) {
+      try {
+        const { exec: execCb } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const execAsync = promisify(execCb);
+        const { stdout } = await execAsync(
+          `sudo -H -u ${agentUser.username} /bin/bash --norc --noprofile -c 'source "${nvmSh}" && nvm which ${nodeVersion}'`,
+          { cwd: '/' },
+        );
+        if (stdout.trim()) {
+          logVerbose(`NVM + Node.js v${nodeVersion} already installed, skipping`, context);
+          // Still copy node binary to ensure it's up to date
+          const nodeResult = await copyNodeBinary(context.userConfig, stdout.trim());
+          if (!nodeResult.success) {
+            return { success: false, error: `Node binary copy failed: ${nodeResult.message}` };
+          }
+          // NOTE: Do NOT patch NVM node here — patching must happen after all
+          // npm installs (openclaw etc.) complete. See start-openclaw step.
+          context.nvmInstalled = {
+            nvmDir,
+            nodeVersion: `v${nodeVersion}`,
+            nodeBinaryPath: stdout.trim(),
+            success: true,
+          };
+          return { success: true };
+        }
+      } catch {
+        // Node version not installed, proceed with full install
+      }
     }
 
-    // Store original installation info (read-only, no backup/rename)
-    if (context.presetDetection) {
-      context.originalInstallation = {
-        method: (context.presetDetection.method as 'npm' | 'git') || 'npm',
-        packagePath: context.presetDetection.packagePath || '',
-        binaryPath: context.presetDetection.binaryPath,
-        configPath: context.presetDetection.configPath,
-        version: context.presetDetection.version,
-      };
+    logVerbose(`Installing NVM + Node.js v${nodeVersion} for ${agentUser.username}`, context);
+    const onLog = (msg: string) => logVerbose(msg, context);
+    const result = await installAgentNvm({
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      socketGroupName,
+      nodeVersion,
+      verbose: context.options?.verbose,
+      onLog,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.message };
     }
+
+    // Copy NVM node binary to /opt/agenshield/bin/node-bin
+    logVerbose(`Copying NVM node binary to /opt/agenshield/bin/node-bin`, context);
+    const nodeResult = await copyNodeBinary(context.userConfig, result.nodeBinaryPath);
+    if (!nodeResult.success) {
+      return { success: false, error: `Node binary copy failed: ${nodeResult.message}` };
+    }
+
+    // NOTE: Do NOT patch NVM node here — patching must happen after all
+    // npm installs (openclaw etc.) complete. See start-openclaw step.
+
+    context.nvmInstalled = {
+      nvmDir: result.nvmDir,
+      nodeVersion: result.nodeVersion,
+      nodeBinaryPath: result.nodeBinaryPath,
+      success: true,
+    };
+    return { success: true };
+  },
+
+  'configure-shell': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would configure guarded shell with Homebrew + NVM paths`, context);
+      context.shellConfigured = { success: true };
+      return { success: true };
+    }
+
+    logVerbose('Installing guarded shell with Homebrew and NVM paths', context);
+    const result = await installGuardedShell(context.userConfig, { verbose: context.options?.verbose });
+    if (!result.success) {
+      return { success: false, error: result.message };
+    }
+
+    context.shellConfigured = { success: true };
+    return { success: true };
+  },
+
+  'install-openclaw': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
+
+    // Detect host version
+    const hostVersion = context.presetDetection?.version || detectHostOpenClawVersion() || 'latest';
+    logVerbose(`Host OpenClaw version: ${hostVersion}`, context);
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install openclaw@${hostVersion} for ${agentUser.username}`, context);
+      context.openclawInstalled = {
+        version: hostVersion,
+        binaryPath: `${agentUser.home}/.nvm/versions/node/v24.0.0/bin/openclaw`,
+        success: true,
+      };
+      return { success: true };
+    }
+
+    logVerbose(`Installing openclaw@${hostVersion} for agent user`, context);
+    const onLog = (msg: string) => logVerbose(msg, context);
+    const result = await installAgentOpenClaw({
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      socketGroupName,
+      targetVersion: hostVersion,
+      verbose: context.options?.verbose,
+      onLog,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.message };
+    }
+
+    context.openclawInstalled = {
+      version: result.version,
+      binaryPath: result.binaryPath,
+      success: true,
+    };
+    return { success: true };
+  },
+
+  'copy-openclaw-config': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
+
+    // Find host config path
+    const sourceConfigPath = context.presetDetection?.configPath
+      || getHostOpenClawConfigPath();
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would copy .openclaw from ${sourceConfigPath || '(not found)'} to ${agentUser.home}/.openclaw`, context);
+      context.openclawConfigCopied = {
+        configDir: `${agentUser.home}/.openclaw`,
+        sanitized: false,
+        success: true,
+      };
+      return { success: true };
+    }
+
+    if (!sourceConfigPath) {
+      logVerbose('No host .openclaw config found, creating empty config', context);
+    }
+
+    logVerbose(`Copying OpenClaw config to agent user`, context);
+    const onLog = (msg: string) => logVerbose(msg, context);
+    const result = copyOpenClawConfig({
+      sourceConfigPath: sourceConfigPath || '/nonexistent',
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      socketGroup: socketGroupName,
+      verbose: context.options?.verbose,
+      onLog,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.message };
+    }
+
+    context.openclawConfigCopied = {
+      configDir: result.configDir,
+      sanitized: result.sanitized,
+      success: true,
+    };
+    return { success: true };
+  },
+
+  'stop-host-openclaw': async (context) => {
+    const originalUser = getOriginalUser();
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would stop OpenClaw daemon + gateway for user: ${originalUser}`, context);
+      context.hostOpenclawStopped = { daemonStopped: true, gatewayStopped: true };
+      return { success: true };
+    }
+
+    logVerbose(`Stopping host OpenClaw processes for user: ${originalUser}`, context);
+    const onLog = (msg: string) => logVerbose(msg, context);
+    const result = await stopHostOpenClaw({
+      originalUser,
+      verbose: context.options?.verbose,
+      onLog,
+    });
+
+    context.hostOpenclawStopped = {
+      daemonStopped: result.daemonStopped,
+      gatewayStopped: result.gatewayStopped,
+    };
+
+    // Non-fatal if stop fails (processes might not be running)
+    return { success: true };
+  },
+
+  'onboard-openclaw': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+
+    if (context.options?.dryRun) {
+      logVerbose('[dry-run] Would run openclaw onboard --non-interactive', context);
+      context.openclawOnboarded = { success: true };
+      return { success: true };
+    }
+
+    logVerbose('Running openclaw onboard for agent user', context);
+    const onLog = (msg: string) => logVerbose(msg, context);
+    const result = await onboardAgentOpenClaw({
+      agentHome: agentUser.home,
+      agentUsername: agentUser.username,
+      verbose: context.options?.verbose,
+      onLog,
+    });
+
+    context.openclawOnboarded = { success: result.success };
+
+    // Non-fatal — onboard may fail if openclaw doesn't support the flags
+    if (!result.success) {
+      logVerbose(`Onboard returned non-success (non-fatal): ${result.message}`, context);
+    }
+    return { success: true };
+  },
+
+  'start-openclaw': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const { agentUser } = context.userConfig;
+    const socketGroupName = context.userConfig.groups.socket.name;
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install OpenClaw LaunchDaemons (managed by broker)`, context);
+      context.openclawLaunchDaemons = {
+        daemonPlistPath: OPENCLAW_DAEMON_PLIST,
+        gatewayPlistPath: OPENCLAW_GATEWAY_PLIST,
+        loaded: false,
+      };
+      return { success: true };
+    }
+
+    // 1. Patch NVM node in-place BEFORE starting OpenClaw services.
+    //    All npm installs (openclaw, onboard, etc.) are done by now, so it's safe
+    //    to replace NVM's node with the interceptor wrapper. From this point on,
+    //    every `node` invocation via NVM goes through the interceptor.
+    const onLog = (msg: string) => logVerbose(msg, context);
+    if (context.nvmInstalled?.success && context.nvmInstalled.nodeBinaryPath) {
+      logVerbose('Patching NVM node binary in-place with interceptor wrapper', context);
+      const patchResult = await patchNvmNode({
+        nodeBinaryPath: context.nvmInstalled.nodeBinaryPath,
+        agentUsername: agentUser.username,
+        socketGroupName,
+        interceptorPath: '/opt/agenshield/lib/interceptor/register.cjs',
+        socketPath: '/var/run/agenshield/agenshield.sock',
+        httpPort: 5201,
+        verbose: context.options?.verbose,
+        onLog,
+      });
+      if (!patchResult.success) {
+        return { success: false, error: `Failed to patch NVM node: ${patchResult.message}` };
+      }
+    }
+
+    // 2. Install OpenClaw LaunchDaemons (gateway + daemon) — managed by launchd/broker
+    logVerbose('Installing OpenClaw LaunchDaemons (broker-managed)', context);
+    const installResult = await installOpenClawLaunchDaemons({
+      agentUsername: agentUser.username,
+      socketGroupName,
+      agentHome: agentUser.home,
+    });
+
+    if (!installResult.success) {
+      return { success: false, error: installResult.message };
+    }
+
+    logVerbose('OpenClaw LaunchDaemons installed and loaded', context);
+
+    // 3. Start OpenClaw services via launchctl kickstart
+    logVerbose('Starting OpenClaw services via launchctl', context);
+    const startResult = await startOpenClawServices();
+
+    if (!startResult.success) {
+      logVerbose(`Failed to start OpenClaw services (non-fatal): ${startResult.message}`, context);
+    } else {
+      logVerbose('OpenClaw services started', context);
+    }
+
+    context.openclawLaunchDaemons = {
+      daemonPlistPath: OPENCLAW_DAEMON_PLIST,
+      gatewayPlistPath: OPENCLAW_GATEWAY_PLIST,
+      loaded: true,
+    };
 
     return { success: true };
   },
 
-  'select-items': async (context) => {
-    // If selection was already provided (via API or CLI), just validate and succeed
-    if (context.migrationSelection) {
-      return { success: true };
-    }
-
-    // Default: select everything (auto-mode or when there's nothing to select)
-    if (!context.scanResult ||
-        (context.scanResult.skills.length === 0 && context.scanResult.envVars.length === 0)) {
-      context.migrationSelection = { selectedSkills: [], selectedEnvVars: [] };
-      return { success: true };
-    }
-
-    // Default to selecting all skills and all secret env vars
-    context.migrationSelection = {
-      selectedSkills: context.scanResult.skills.map(s => s.name),
-      selectedEnvVars: context.scanResult.envVars.filter(e => e.isSecret).map(e => e.name),
-    };
+  'open-dashboard': async (_context) => {
+    // No-op: the browser is already on the setup wizard page which
+    // transitions to CompleteStep and polls for daemon readiness.
     return { success: true };
   },
 
@@ -462,7 +912,6 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       binDir: `${agentUser.home}/bin`,
       wrappersDir: `${agentUser.home}/bin`,
       configDir: `${agentUser.home}/.openclaw`,
-      packageDir: `${agentUser.home}/.openclaw-pkg`,
       npmDir: `${agentUser.home}/.npm`,
       socketDir: context.pathsConfig.socketDir,
       logDir: context.pathsConfig.logDir,
@@ -609,6 +1058,13 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
           socketGroupName: context.userConfig.groups.socket.name,
           nodeVersion: context.options?.nodeVersion,
           verbose: context.options?.verbose,
+          nvmResult: context.nvmInstalled ? {
+            success: context.nvmInstalled.success,
+            nvmDir: context.nvmInstalled.nvmDir,
+            nodeVersion: context.nvmInstalled.nodeVersion,
+            nodeBinaryPath: context.nvmInstalled.nodeBinaryPath,
+            message: '',
+          } : undefined,
         });
         context.wrappersInstalled = result.installedWrappers;
         if (!result.success) {
@@ -756,6 +1212,72 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     }
   },
 
+  'install-sudoers': async (context) => {
+    if (!context.userConfig) {
+      return { success: false, error: 'User configuration not set' };
+    }
+
+    const brokerUsername = context.userConfig.brokerUser.username;
+    const agentUsername = context.userConfig.agentUser.username;
+    const agentHome = context.userConfig.agentUser.home;
+
+    if (context.options?.dryRun) {
+      logVerbose(`[dry-run] Would install /etc/sudoers.d/agenshield granting ${brokerUsername} sudo for ${agentUsername} operations`, context);
+      return { success: true };
+    }
+
+    try {
+      const { execSync } = await import('node:child_process');
+
+      const sudoersContent = [
+        '# AgenShield: allow broker to run openclaw commands as agent user',
+        `${brokerUsername} ALL=(${agentUsername}) NOPASSWD: /opt/agenshield/bin/openclaw-launcher.sh *`,
+        `${brokerUsername} ALL=(${agentUsername}) NOPASSWD: /usr/bin/tee ${agentHome}/.openclaw/*`,
+        '',
+        '# AgenShield: allow broker to manage openclaw gateway LaunchDaemon',
+        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl kickstart system/com.agenshield.openclaw.gateway`,
+        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/com.agenshield.openclaw.gateway`,
+        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl kill SIGTERM system/com.agenshield.openclaw.gateway`,
+        `${brokerUsername} ALL=(root) NOPASSWD: /bin/launchctl list com.agenshield.openclaw.gateway`,
+        '',
+      ].join('\n');
+
+      const tmpPath = '/tmp/agenshield-sudoers';
+
+      // 1. Write to temp file
+      logVerbose('Writing sudoers rules to temp file', context);
+      execSync(`sudo tee "${tmpPath}" > /dev/null`, {
+        input: sudoersContent,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      // 2. Validate with visudo
+      logVerbose('Validating sudoers syntax', context);
+      execSync(`sudo visudo -c -f "${tmpPath}"`, { encoding: 'utf-8', stdio: 'pipe' });
+
+      // 3. Move to /etc/sudoers.d/
+      logVerbose('Installing sudoers drop-in to /etc/sudoers.d/agenshield', context);
+      execSync(`sudo mv "${tmpPath}" /etc/sudoers.d/agenshield`, { encoding: 'utf-8', stdio: 'pipe' });
+
+      // 4. Set permissions (440 is required for sudoers files)
+      execSync('sudo chmod 440 /etc/sudoers.d/agenshield', { encoding: 'utf-8', stdio: 'pipe' });
+
+      logVerbose(`Sudoers rule installed: ${brokerUsername} → ${agentUsername} + root (launchctl)`, context);
+      return { success: true };
+    } catch (err) {
+      // Clean up temp file on failure
+      try {
+        const { execSync } = await import('node:child_process');
+        execSync('sudo rm -f /tmp/agenshield-sudoers', { stdio: 'pipe' });
+      } catch { /* ignore */ }
+      return {
+        success: false,
+        error: `Failed to install sudoers rule: ${(err as Error).message}`,
+      };
+    }
+  },
+
   'install-policies': async (context) => {
     if (!context.pathsConfig) {
       return { success: false, error: 'Configuration not set' };
@@ -872,95 +1394,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     }
   },
 
-  migrate: async (context) => {
-    if (!context.preset || !context.agentUser || !context.directories || !context.userConfig) {
-      return { success: false, error: 'Missing required context for migration' };
-    }
-
-    // Get the entry command for this preset to determine binary name
-    const entryCommand = context.preset.getEntryCommand({
-      agentUser: context.userConfig.agentUser,
-      directories: context.directories as MigrationDirectories,
-      entryPoint: context.options?.entryPoint,
-      detection: context.presetDetection,
-    });
-
-    // Skip in dry-run mode
-    if (context.options?.dryRun) {
-      context.migration = {
-        success: true,
-        newPaths: {
-          packagePath: context.directories.packageDir,
-          binaryPath: entryCommand,
-          configPath: `${context.directories.configDir}/config.json`,
-        },
-      };
-      return { success: true };
-    }
-
-    // Use preset's migrate function with user's selection
-    const migrationContext: MigrationContext = {
-      agentUser: context.userConfig.agentUser,
-      directories: context.directories as MigrationDirectories,
-      entryPoint: context.options?.entryPoint,
-      detection: context.presetDetection,
-      selection: context.migrationSelection,
-    };
-
-    const result = await context.preset.migrate(migrationContext);
-    if (!result.success) {
-      return { success: false, error: result.error };
-    }
-
-    // Re-apply correct ownership for .openclaw (broker-owned, setgid per directories.ts)
-    // Migration may have set agent ownership; .openclaw must be broker-writable.
-    try {
-      const { execSync } = await import('node:child_process');
-      const agentConfigDir = `${context.userConfig.agentUser.home}/.openclaw`;
-      const brokerUser = context.userConfig.brokerUser.username;
-      const socketGroup = context.userConfig.groups.socket.name;
-      logVerbose(`Running: sudo chown -R ${brokerUser}:${socketGroup} "${agentConfigDir}"`, context);
-      execSync(`sudo chown -R ${brokerUser}:${socketGroup} "${agentConfigDir}"`, { encoding: 'utf-8', stdio: 'pipe' });
-      logVerbose(`Running: sudo chmod 2775 "${agentConfigDir}"`, context);
-      execSync(`sudo chmod 2775 "${agentConfigDir}"`, { encoding: 'utf-8', stdio: 'pipe' });
-    } catch (err) {
-      logVerbose(`Warning: failed to fix .openclaw ownership: ${(err as Error).message}`, context);
-    }
-
-    context.migration = {
-      success: true,
-      newPaths: result.newPaths,
-    };
-
-    // Now save the full backup with all the information
-    if (context.originalInstallation && context.agentUser && result.newPaths) {
-      const sandboxUserInfo: SandboxUserInfo = {
-        username: context.agentUser.username,
-        uid: context.agentUser.uid,
-        gid: context.agentUser.gid,
-        homeDir: context.agentUser.homeDir,
-      };
-
-      const migratedPaths: MigratedPaths = {
-        packagePath: result.newPaths.packagePath,
-        configPath: result.newPaths.configPath || `${context.directories?.configDir}/config.json`,
-        binaryPath: result.newPaths.binaryPath,
-      };
-
-      const backupResult = saveBackup({
-        originalInstallation: context.originalInstallation,
-        sandboxUser: sandboxUserInfo,
-        migratedPaths,
-      });
-
-      if (!backupResult.success) {
-        // Log warning but don't fail - installation is already complete
-        console.warn(`Warning: Could not save backup: ${backupResult.error}`);
-      }
-    }
-
-    return { success: true };
-  },
+  // NOTE: migrate step removed — replaced by install-openclaw + copy-openclaw-config
 
   verify: async (context) => {
     if (!context.userConfig) {
@@ -1115,6 +1549,7 @@ async function runSteps(
 
     // Update step status to running
     step.status = 'running';
+    _currentStepId = stepId;
     logVerbose(`▶ Starting step: ${step.name} (${step.id})`, context);
     onStateChange?.(state);
 
@@ -1124,12 +1559,14 @@ async function runSteps(
       step.status = 'error';
       step.error = `No executor for step: ${step.id}`;
       state.hasError = true;
+      _currentStepId = undefined;
       logVerbose(`✗ Step ${step.id}: no executor found`, context);
       onStateChange?.(state);
       return { success: false, error: step.error };
     }
 
     const result = await executeStep(step, context, executor);
+    _currentStepId = undefined;
 
     if (result.success) {
       step.status = 'completed';
@@ -1180,15 +1617,13 @@ export function createWizardEngine(options?: WizardOptions): WizardEngine {
     },
 
     /**
-     * Run setup phase (confirm through scan-source, stops for user selection)
+     * Run setup phase — all setup steps from confirm through complete.
      * Called after user confirms they want to proceed.
-     * Excludes: select-items, migrate, verify, setup-passcode, complete.
-     * The UI will show the scan result and let the user select items before
-     * calling runMigrationPhase().
+     * Excludes: setup-passcode, open-dashboard, complete (handled by runFinalPhase).
      */
     async runSetupPhase() {
       const excludeFromSetup: WizardStepId[] = [
-        'select-items', 'migrate', 'verify', 'setup-passcode', 'complete',
+        'setup-passcode', 'open-dashboard', 'complete',
       ];
 
       // Prompt for sudo credentials before privileged steps (skip in dry-run)
@@ -1212,32 +1647,21 @@ export function createWizardEngine(options?: WizardOptions): WizardEngine {
     },
 
     /**
-     * Run migration phase (select-items + migrate + verify)
-     * Called after the user has selected which skills and secrets to migrate.
+     * Run migration phase — no longer needed in new flow.
+     * Kept for backward compatibility; does nothing.
+     * @deprecated Use runSetupPhase() which now includes install-openclaw + copy-openclaw-config.
      */
     async runMigrationPhase() {
-      const migrationSteps: WizardStepId[] = ['select-items', 'migrate', 'verify'];
-
-      if (!context.options?.dryRun) {
-        const { ensureSudoAccess, startSudoKeepalive } = await import('../utils/privileges.js');
-        ensureSudoAccess();
-        const keepalive = startSudoKeepalive();
-        try {
-          await runSteps(state, context, migrationSteps, engine.onStateChange);
-        } finally {
-          clearInterval(keepalive);
-        }
-        return;
-      }
-      await runSteps(state, context, migrationSteps, engine.onStateChange);
+      // Migration is now part of the setup phase (install-openclaw + copy-openclaw-config)
+      return;
     },
 
     /**
-     * Run final phase (setup-passcode and complete)
+     * Run final phase (setup-passcode, open-dashboard, and complete)
      * Called after the passcode UI has collected the passcode value
      */
     async runFinalPhase() {
-      const finalSteps: WizardStepId[] = ['setup-passcode', 'complete'];
+      const finalSteps: WizardStepId[] = ['setup-passcode', 'open-dashboard', 'complete'];
       await runSteps(state, context, finalSteps, engine.onStateChange);
 
       if (!state.hasError) {

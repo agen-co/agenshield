@@ -35,8 +35,8 @@ export interface MigrationDirectories {
   wrappersDir: string;
   /** Config directory */
   configDir: string;
-  /** Package/source directory */
-  packageDir: string;
+  /** Package/source directory (legacy, no longer created by default) */
+  packageDir?: string;
   /** npm packages directory */
   npmDir: string;
 }

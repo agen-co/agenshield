@@ -34,8 +34,8 @@ export interface DirectoryStructure {
   wrappersDir: string;
   /** OpenClaw config */
   configDir: string;
-  /** OpenClaw package */
-  packageDir: string;
+  /** OpenClaw package (legacy, no longer created by default) */
+  packageDir?: string;
   /** npm global packages */
   npmDir: string;
 }

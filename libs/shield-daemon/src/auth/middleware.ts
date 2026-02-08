@@ -118,6 +118,7 @@ export const PROTECTED_ROUTES = [
   { method: 'DELETE', path: '/api/secrets' },
   { method: 'POST', path: '/api/config/factory-reset' },
   { method: 'POST', path: '/api/skills/install' },
+  { method: 'GET', path: '/api/openclaw/dashboard-url' },
 ];
 
 /**

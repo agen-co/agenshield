@@ -14,6 +14,11 @@ import { AuditLogger } from './audit/logger.js';
 import { SecretVault } from './secrets/vault.js';
 import { SecretResolver } from './secrets/resolver.js';
 import type { BrokerConfig } from './types.js';
+import {
+  isOpenClawInstalled,
+  startOpenClawServices,
+  stopOpenClawServices,
+} from '@agenshield/integrations';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -254,9 +259,34 @@ async function main(): Promise<void> {
     console.log(`HTTP fallback server listening on ${config.httpHost}:${config.httpPort}`);
   }
 
+  // Start OpenClaw services if installed (coupled to broker lifecycle)
+  try {
+    if (await isOpenClawInstalled()) {
+      console.log('OpenClaw LaunchDaemons detected, starting services...');
+      const clawResult = await startOpenClawServices();
+      if (clawResult.success) {
+        console.log('OpenClaw services started.');
+      } else {
+        console.warn(`OpenClaw start warning: ${clawResult.message}`);
+      }
+    }
+  } catch (err) {
+    console.warn('Warning: Failed to start OpenClaw services:', err);
+  }
+
   // Handle shutdown signals
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`\nReceived ${signal}, shutting down...`);
+
+    // Stop OpenClaw services first (they depend on broker)
+    try {
+      if (await isOpenClawInstalled()) {
+        console.log('Stopping OpenClaw services...');
+        await stopOpenClawServices();
+      }
+    } catch {
+      // Best effort
+    }
 
     await socketServer.stop();
     if (httpServer) {

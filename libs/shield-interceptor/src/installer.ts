@@ -41,6 +41,14 @@ export function installInterceptors(
 
   const config = createConfig(configOverrides);
 
+  // Dump full config to stderr when debug is enabled
+  if (config.logLevel === 'debug') {
+    try {
+      const safeConfig = { ...config };
+      console.error('[AgenShield:config]', JSON.stringify(safeConfig, null, 2));
+    } catch {}
+  }
+
   // Initialize shared components
   client = new AsyncClient({
     socketPath: config.socketPath,
@@ -68,6 +76,7 @@ export function installInterceptors(
       eventReporter,
       failOpen: config.failOpen,
       brokerHttpPort: config.httpPort,
+      config,
     });
     installed.fetch.install();
     log(config, 'debug', 'Installed fetch interceptor');
@@ -107,6 +116,7 @@ export function installInterceptors(
       eventReporter,
       failOpen: config.failOpen,
       brokerHttpPort: config.httpPort,
+      config,
     });
     installed.childProcess.install();
     log(config, 'debug', 'Installed child_process interceptor');

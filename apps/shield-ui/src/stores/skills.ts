@@ -41,8 +41,7 @@ export type SkillActionState =
   | 'analyzed'
   | 'installing'
   | 'installed'
-  | 'blocked'
-  | 'untrusted';
+  | 'blocked';
 
 export interface UnifiedSkill {
   name: string;
@@ -121,7 +120,7 @@ function mapDaemonSkill(s: DaemonSkillSummary): UnifiedSkill {
       : isInstalling ? 'installing'
       : isError ? 'analysis_failed'
       : isAnalysisComplete ? 'analyzed'
-      : 'untrusted';
+      : 'not_analyzed';
   } else if (isBlocked) {
     origin = 'blocked';
     actionState = isAnalyzing ? 'analyzing' : isInstalling ? 'installing' : isError ? 'analysis_failed' : 'blocked';
@@ -324,10 +323,15 @@ export async function fetchInstalledSkills(): Promise<void> {
     const daemonSkills = await fetchDaemonSkills();
     const newSkills = daemonSkills.map(mapDaemonSkill);
 
+    // Snapshot detail-loaded skills BEFORE merge replaces the list.
+    // These may have been fetched via fetchSkillDetail (e.g. direct URL navigation)
+    // and might not appear in the daemon list response.
+    const previousDetailSkills = skillsStore.skills.filter(s => s.detailLoaded);
+
     // Preserve detail data from existing entries (readme, detailLoaded, full analysis)
     for (const newSkill of newSkills) {
-      const existing = skillsStore.skills.find((s) => s.slug === newSkill.slug);
-      if (existing?.detailLoaded) {
+      const existing = previousDetailSkills.find((s) => s.slug === newSkill.slug);
+      if (existing) {
         newSkill.readme = existing.readme;
         newSkill.detailLoaded = true;
         // Preserve rich analysis from detail fetch (list endpoint returns compact summary)
@@ -340,6 +344,15 @@ export async function fetchInstalledSkills(): Promise<void> {
 
     installedSkillsCache = newSkills;
     skillsStore.skills = mergeSkills(installedSkillsCache, searchSkillsCache);
+
+    // Re-insert detail-loaded skills that aren't in the merged result.
+    // This prevents the race condition where fetchSkillDetail completes first,
+    // then fetchInstalledSkills overwrites the list without the individually-fetched skill.
+    for (const detailSkill of previousDetailSkills) {
+      if (!skillsStore.skills.some(s => s.slug === detailSkill.slug)) {
+        skillsStore.skills.push(detailSkill);
+      }
+    }
 
     // Skills reported as 'analyzing' but WITHOUT an active client-side timeout
     // were NOT started in this browser session — treat as stale / timed-out.
@@ -389,19 +402,19 @@ export async function searchSkills(query: string): Promise<void> {
 
 export async function analyzeSkill(slugOrName: string): Promise<void> {
   const skill = findSkill(slugOrName);
-  const name = skill?.name ?? slugOrName;
+  const slug = skill?.slug ?? slugOrName;
 
   // Clear old analysis immediately so UI shows pending state
   updateSkill(slugOrName, { actionState: 'analyzing', analysis: null, analysisStatus: 'pending' });
   startAnalysisTimeout(slugOrName);
 
   try {
-    await analyzeSkillDaemon(name);
+    await analyzeSkillDaemon(slug);
     // SSE event (skills:analyzed / skills:analysis_failed) will update the store
   } catch (err) {
     clearAnalysisTimeout(slugOrName);
     updateSkill(slugOrName, { actionState: 'analysis_failed' });
-    notify.error(err instanceof Error ? err.message : `Analysis failed for "${name}"`);
+    notify.error(err instanceof Error ? err.message : `Analysis failed for "${slug}"`);
   }
 }
 

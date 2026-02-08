@@ -14,6 +14,7 @@ export const PolicyRuleSchema = z.object({
   patterns: z.array(z.string()),
   enabled: z.boolean(),
   priority: z.number().optional(),
+  scope: z.string().optional(),
 });
 
 export const FsConstraintsSchema = z.object({
