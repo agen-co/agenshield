@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/integrations",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "type": "module",
   "description": "OpenClaw and third-party integration utilities for AgenShield",
   "main": "./dist/index.js",

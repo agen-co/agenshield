@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parseSkillMd, extractSkillInfo } from '@agenshield/sandbox';
 import { execWithProgress } from '@agenshield/sandbox';
+import { installBrewBinaryWrappers } from './brew-wrapper';
 
 /** Supported install step kinds */
 const SUPPORTED_KINDS = new Set(['brew', 'npm', 'pip']);
@@ -63,9 +64,11 @@ export async function executeSkillInstallSteps(options: {
   skillDir: string;
   agentHome: string;
   agentUsername: string;
+  socketGroup?: string;
   onLog: (msg: string) => void;
 }): Promise<SkillDepsResult> {
   const { slug, skillDir, agentHome, agentUsername, onLog } = options;
+  const socketGroup = options.socketGroup || process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
   const installed: string[] = [];
   const errors: string[] = [];
 
@@ -133,6 +136,29 @@ export async function executeSkillInstallSteps(options: {
             { timeout: 120_000, cwd: '/' },
           );
           installed.push(formula);
+
+          // Create policy-enforcing wrappers for brew-installed binaries
+          try {
+            const wrapResult = installBrewBinaryWrappers({
+              slug,
+              formula,
+              metadataBins: step.bins,
+              agentHome,
+              agentUsername,
+              socketGroup,
+              onLog,
+            });
+            if (wrapResult.binariesWrapped.length > 0) {
+              onLog(`Wrapped brew binaries: ${wrapResult.binariesWrapped.join(', ')}`);
+            }
+            if (wrapResult.errors.length > 0) {
+              for (const err of wrapResult.errors) {
+                errors.push(err);
+              }
+            }
+          } catch (wrapErr) {
+            errors.push(`Brew wrapper creation failed: ${(wrapErr as Error).message}`);
+          }
           break;
         }
 

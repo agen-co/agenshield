@@ -3,6 +3,7 @@
  */
 
 import * as fs from 'node:fs';
+import { execSync } from 'node:child_process';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
@@ -73,9 +74,22 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   const skillsDir = `${agentHome}/.openclaw/skills`;
 
   // Ensure skills directory exists with proper permissions before starting watcher
+  const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
   if (!fs.existsSync(skillsDir)) {
     fs.mkdirSync(skillsDir, { recursive: true, mode: 0o2775 });
+    // Fix ownership — daemon runs as root but skills dir must be group-writable
+    try {
+      execSync(`chown -R root:${socketGroup} "${skillsDir}"`, { stdio: 'pipe' });
+    } catch { /* best-effort — may not be root */ }
     console.log(`[Daemon] Created skills directory: ${skillsDir}`);
+  } else {
+    // Self-heal: fix permissions on existing skills directory
+    try {
+      const stat = fs.statSync(skillsDir);
+      if ((stat.mode & 0o7777) !== 0o2775) {
+        fs.chmodSync(skillsDir, 0o2775);
+      }
+    } catch { /* best-effort */ }
   }
 
   // Initialize installation key (generate if first run, cache for sync access in watcher)

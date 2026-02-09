@@ -269,7 +269,14 @@ function installWrappersInDir(binDir: string, log: Logger, policyCommands?: Set<
       if (SPECIALIZED_WRAPPER_COMMANDS.has(cmd)) continue;
 
       const wrapperPath = path.join(binDir, cmd);
-      if (fs.existsSync(wrapperPath)) continue;
+      if (fs.existsSync(wrapperPath)) {
+        // Don't overwrite brew wrappers
+        try {
+          const existing = fs.readFileSync(wrapperPath, 'utf-8');
+          if (existing.includes('AgenShield brew wrapper (auto-generated)')) continue;
+        } catch { /* proceed to skip */ }
+        continue;
+      }
 
       if (hasShieldExec) {
         try {
@@ -312,6 +319,9 @@ function cleanupStaleWrappers(binDir: string, policyCommands: Set<string>, log: 
     if (SPECIALIZED_WRAPPER_COMMANDS.has(entry)) continue;
     if (BASIC_SYSTEM_COMMANDS_SET.has(entry)) continue;
 
+    // Skip .brew-originals directory (managed by brew-wrapper system)
+    if (entry === '.brew-originals') continue;
+
     // If still in active policies, keep it
     if (policyCommands.has(entry)) continue;
 
@@ -328,6 +338,8 @@ function cleanupStaleWrappers(binDir: string, policyCommands: Set<string>, log: 
         }
       } else if (stat.isFile()) {
         const content = fs.readFileSync(wrapperPath, 'utf-8');
+        // Skip brew wrappers (managed by brew-wrapper system)
+        if (content.includes('AgenShield brew wrapper (auto-generated)')) continue;
         if (content.includes('shield-client exec') && content.includes('AgenShield proxy (auto-generated)')) {
           fs.unlinkSync(wrapperPath);
           log.info(`[command-sync] removed stale dynamic wrapper (bash): ${entry}`);

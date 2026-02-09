@@ -73,7 +73,11 @@ function generateLauncherScript(config: OpenClawLaunchConfig): string {
 export HOME="${config.agentHome}"
 export NVM_DIR="${config.agentHome}/.nvm"
 
-# Load NVM to get correct node/npm/openclaw in PATH
+# Match guarded-shell PATH: wrappers first, then homebrew
+export PATH="$HOME/bin:$HOME/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export SHELL="/usr/local/bin/guarded-shell"
+
+# Load NVM to get correct node/npm/openclaw in PATH (prepends NVM paths)
 if [ -s "$NVM_DIR/nvm.sh" ]; then
   source "$NVM_DIR/nvm.sh"
 fi

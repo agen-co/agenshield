@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/sandbox",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "type": "module",
   "description": "User isolation and sandboxing utilities for AgenShield",
   "main": "./dist/index.js",
@@ -16,7 +16,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@agenshield/skills": "0.7.2",
+    "@agenshield/skills": "0.7.3",
     "yaml": "^2.7.1"
   },
   "devDependencies": {

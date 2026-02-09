@@ -64,7 +64,36 @@ function writeConfig(config: OpenClawConfig): void {
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
   const agentUsername = path.basename(agentHome);
 
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const configDir = path.dirname(configPath);
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true, mode: 0o2775 });
+    // Fix group ownership so agent + broker can both access
+    const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
+    try { execSync(`chown :${socketGroup} "${configDir}"`, { stdio: 'pipe' }); } catch { /* best-effort */ }
+  }
+
+  // Sanitize agents.defaults.workspace — must point to agent home, not the host user.
+  // copyOpenClawConfig's sed rewrite can fail silently, and openclaw onboard may
+  // regenerate the path from the wrong HOME, so self-heal on every write.
+  const correctWorkspace = path.join(agentHome, '.openclaw', 'workspace');
+  const raw = config as Record<string, unknown>;
+  if (raw.agents && typeof raw.agents === 'object') {
+    const agents = raw.agents as Record<string, unknown>;
+    if (agents.defaults && typeof agents.defaults === 'object') {
+      const defaults = agents.defaults as Record<string, unknown>;
+      if (typeof defaults.workspace === 'string' && defaults.workspace !== correctWorkspace) {
+        defaults.workspace = correctWorkspace;
+      }
+    }
+  }
+
+  // Log every write with a summary of what's changing
+  const skillsSummary = config.skills?.entries
+    ? Object.entries(config.skills.entries).map(([k, v]) => `${k}:${v?.enabled}`).join(', ')
+    : 'none';
+  const caller = new Error().stack?.split('\n')[2]?.trim() || 'unknown';
+  console.log(`[OpenClawConfig] Writing config — entries: [${skillsSummary}], allowBundled: [${config.skills?.allowBundled?.join(', ') || ''}], caller: ${caller}`);
+
   try {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
   } catch (err) {
@@ -166,6 +195,20 @@ export function syncOpenClawFromPolicies(policies: PolicyConfig[]): void {
     }
   }
 
+  // 5. Sync entries: every skill in allowBundled must have enabled: true
+  if (!config.skills.entries) config.skills.entries = {};
+  for (const name of allowBundled) {
+    const existing = config.skills.entries[name] ?? {};
+    config.skills.entries[name] = { ...existing, enabled: true };
+  }
+
+  // 6. Enable native commands — AgenShield broker handles command policy
+  if (!config.commands) (config as Record<string, unknown>).commands = {};
+  const commands = (config as Record<string, unknown>).commands as Record<string, unknown>;
+  commands.native = true;
+  commands.nativeSkills = true;
+
+
   writeConfig(config);
-  console.log(`[OpenClawConfig] Synced: allowBundled=[${allowBundled.join(', ')}], load.watch=true`);
+  console.log(`[OpenClawConfig] Synced: allowBundled=[${allowBundled.join(', ')}], entries synced, commands.native=always`);
 }

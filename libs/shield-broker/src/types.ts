@@ -356,3 +356,19 @@ export interface SkillUninstallResult {
   /** Whether wrapper was removed */
   wrapperRemoved: boolean;
 }
+
+export interface PolicyCheckParams {
+  /** Operation type to check */
+  operation: OperationType;
+  /** Target command/path/url to check */
+  target: string;
+}
+
+export interface PolicyCheckResult {
+  /** Whether the operation is allowed */
+  allowed: boolean;
+  /** Policy ID that matched (if any) */
+  policyId?: string;
+  /** Human-readable reason */
+  reason?: string;
+}

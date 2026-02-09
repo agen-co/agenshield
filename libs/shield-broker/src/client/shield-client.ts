@@ -48,6 +48,10 @@ async function main(): Promise<void> {
         await handleSecret(args.slice(1));
         break;
 
+      case 'check-exec':
+        await handleCheckExec(args.slice(1));
+        break;
+
       default:
         console.error(`Unknown command: ${command}`);
         printHelp();
@@ -74,6 +78,7 @@ Commands:
   exec <command> [args...]           Execute a command
   open <url>                         Open a URL in the browser
   secret get <name>                  Get a secret value
+  check-exec <command>               Check if a command is allowed by policy
 
 Environment:
   AGENSHIELD_SOCKET      Unix socket path (default: /var/run/agenshield/agenshield.sock)
@@ -222,6 +227,22 @@ async function handleSecret(args: string[]): Promise<void> {
 
   const result = await client.secretInject({ name });
   console.log(result.value);
+}
+
+async function handleCheckExec(args: string[]): Promise<void> {
+  const target = args[0];
+
+  if (!target) {
+    console.error('Usage: shield-client check-exec <command>');
+    process.exit(1);
+  }
+
+  const result = await client.policyCheck({ operation: 'exec', target });
+  if (result.allowed) {
+    process.exit(0);
+  } else {
+    process.exit(126); // "command cannot execute" convention
+  }
 }
 
 main().catch((error) => {

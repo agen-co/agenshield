@@ -410,7 +410,7 @@ async function handlePolicyCheck(params: Record<string, unknown>) {
 
   const result = await evaluatePolicyCheck(operation, target, context);
 
-  // Emit SSE events for denied operations so they appear in the Activity Feed
+  // Emit SSE events so policy check results appear in the Activity Feed immediately
   if (!result.allowed) {
     if (operation === 'exec') {
       emitExecDenied(target, result.reason || 'Denied by policy');
@@ -424,6 +424,14 @@ async function handlePolicyCheck(params: Record<string, unknown>) {
         error: result.reason || 'Denied by policy',
       });
     }
+  } else {
+    emitInterceptorEvent({
+      type: 'allowed',
+      operation,
+      target,
+      timestamp: new Date().toISOString(),
+      policyId: result.policyId,
+    });
   }
 
   return result;

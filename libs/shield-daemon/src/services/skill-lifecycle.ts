@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { loadConfig, updateConfig } from '../config/index';
+import { uninstallBrewBinaryWrappers } from './brew-wrapper';
 
 // ─── Sudo helpers ────────────────────────────────────────────────────────────
 
@@ -130,5 +131,36 @@ export function removeSkillPolicy(name: string): void {
 
   if (filtered.length !== config.policies.length) {
     updateConfig({ policies: filtered });
+  }
+}
+
+/**
+ * Remove brew binary wrappers owned by a skill.
+ * If the skill was the sole owner, removes the wrapper and original binary.
+ * If shared, updates the wrapper to the next owner.
+ */
+export function removeBrewBinaryWrappers(name: string): void {
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+  const agentUsername = path.basename(agentHome);
+
+  try {
+    const result = uninstallBrewBinaryWrappers({
+      slug: name,
+      agentHome,
+      agentUsername,
+      onLog: (msg) => console.log(`[skill-lifecycle] ${msg}`),
+    });
+
+    if (result.removed.length > 0) {
+      console.log(`[skill-lifecycle] Removed brew wrappers for ${name}: ${result.removed.join(', ')}`);
+    }
+    if (result.kept.length > 0) {
+      console.log(`[skill-lifecycle] Kept shared brew wrappers for ${name}: ${result.kept.join(', ')}`);
+    }
+    if (result.errors.length > 0) {
+      console.warn(`[skill-lifecycle] Brew wrapper removal errors for ${name}: ${result.errors.join('; ')}`);
+    }
+  } catch (err) {
+    console.warn(`[skill-lifecycle] Failed to remove brew wrappers for ${name}: ${(err as Error).message}`);
   }
 }

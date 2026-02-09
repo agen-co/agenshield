@@ -29,6 +29,7 @@ import {
   createStatusCommand,
   createDoctorCommand,
   createDaemonCommand,
+  createBrokerCommand,
   createUninstallCommand,
   createDevCommand,
 } from './commands/index.js';
@@ -57,6 +58,7 @@ Examples:
   $ agenshield doctor               Run diagnostics
   $ agenshield setup                Run setup wizard
   $ agenshield daemon start         Start daemon
+  $ agenshield broker restart       Restart broker
   $ agenshield dev                  Dev mode with interactive TUI
   $ agenshield dev clean            Clean dev environment
   $ agenshield dev shell            Open sandboxed agent shell
@@ -69,6 +71,7 @@ Examples:
   program.addCommand(createStatusCommand());
   program.addCommand(createDoctorCommand());
   program.addCommand(createDaemonCommand());
+  program.addCommand(createBrokerCommand());
   program.addCommand(createUninstallCommand());
   program.addCommand(createDevCommand());
 

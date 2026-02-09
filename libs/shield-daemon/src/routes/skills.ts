@@ -34,6 +34,7 @@ import {
   removeSkillWrapper,
   addSkillPolicy,
   removeSkillPolicy,
+  removeBrewBinaryWrappers,
   sudoMkdir,
   sudoWriteFile,
 } from '../services/skill-lifecycle';
@@ -637,6 +638,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(404).send({ error: result.error });
       }
 
+      // approveSkill only adds to approved-skills.json — also enable in openclaw.json
+      addSkillEntry(name);
+      addSkillPolicy(name);
+      syncOpenClawFromPolicies(loadConfig().policies);
+
       return reply.send({ success: true, message: `Skill "${name}" approved` });
     }
   );
@@ -736,6 +742,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           }
           removeSkillEntry(name);
           removeSkillPolicy(name);
+          removeBrewBinaryWrappers(name);
           syncOpenClawFromPolicies(loadConfig().policies);
           removeFromApprovedList(name);
           // Preserve marketplace cache for re-enable; mark as previously installed

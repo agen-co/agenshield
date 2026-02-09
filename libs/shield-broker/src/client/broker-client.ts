@@ -28,6 +28,8 @@ import type {
   SkillInstallResult,
   SkillUninstallParams,
   SkillUninstallResult,
+  PolicyCheckParams,
+  PolicyCheckResult,
 } from '../types.js';
 
 export interface BrokerClientOptions {
@@ -178,6 +180,20 @@ export class BrokerClient {
     return this.request<SkillUninstallResult>('skill_uninstall', params as unknown as Record<string, unknown>, {
       ...options,
       channel: 'socket', // skill_uninstall only allowed via socket
+    });
+  }
+
+  /**
+   * Check if an operation is allowed by policy
+   * Used by brew wrappers to gate command execution
+   */
+  async policyCheck(
+    params: PolicyCheckParams,
+    options?: RequestOptions
+  ): Promise<PolicyCheckResult> {
+    return this.request<PolicyCheckResult>('policy_check', params as unknown as Record<string, unknown>, {
+      ...options,
+      channel: 'socket',
     });
   }
 

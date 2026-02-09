@@ -302,19 +302,48 @@ export function copyOpenClawConfig(options: {
       log(`Rewriting paths: ${originalHome} → ${agentHome}`);
       // Use find + sed to replace all occurrences in text files
       // sed -i '' is macOS in-place edit; | delimiter avoids escaping /
-      sudoExec(
+      const sedResult = sudoExec(
         `find "${targetConfigDir}" -type f -exec sed -i '' "s|${originalHome}|${agentHome}|g" {} +`,
       );
+      if (!sedResult.success) {
+        log(`Warning: path rewrite via sed failed: ${sedResult.error}`);
+      }
+
+      // Belt-and-suspenders: explicitly fix openclaw.json paths via JSON parse/rewrite.
+      // sed can fail silently on binary-like content or permission issues.
+      const configJsonPath = path.join(targetConfigDir, 'openclaw.json');
+      try {
+        const rawJson = execSync(
+          `sudo cat "${configJsonPath}"`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+        );
+        const parsed = JSON.parse(rawJson) as Record<string, unknown>;
+        const rewritten = JSON.stringify(parsed, null, 2).replaceAll(originalHome, agentHome);
+        execSync(
+          `sudo tee "${configJsonPath}" > /dev/null`,
+          { input: rewritten, stdio: ['pipe', 'pipe', 'pipe'] },
+        );
+        log('Verified/fixed paths in openclaw.json via JSON rewrite');
+      } catch {
+        log('Warning: JSON path fix for openclaw.json skipped (file may not exist yet)');
+      }
     }
 
-    // Ensure skills/ and canvas/ subdirectories exist (source may not have had them)
-    sudoExec(`mkdir -p "${path.join(targetConfigDir, 'skills')}"`);
-    sudoExec(`chmod 2775 "${path.join(targetConfigDir, 'skills')}"`);
-    sudoExec(`mkdir -p "${path.join(targetConfigDir, 'canvas')}"`);
-    sudoExec(`chmod 2775 "${path.join(targetConfigDir, 'canvas')}"`);
-    sudoExec(`chown ${agentUsername}:${socketGroup} "${path.join(targetConfigDir, 'canvas')}"`)
+    // Ensure subdirectories exist with correct permissions (source may not have had them)
+    for (const subdir of ['skills', 'canvas', 'workspace', 'logs']) {
+      const dirPath = path.join(targetConfigDir, subdir);
+      sudoExec(`mkdir -p "${dirPath}"`);
+      sudoExec(`chown ${agentUsername}:${socketGroup} "${dirPath}"`);
+      sudoExec(`chmod 2775 "${dirPath}"`);
+    }
 
     sudoExec(`chmod 2775 "${targetConfigDir}"`);
+
+    // Ensure openclaw.json is group-readable (agent + broker both need access)
+    const configJson = path.join(targetConfigDir, 'openclaw.json');
+    if (fs.existsSync(configJson)) {
+      sudoExec(`chmod 664 "${configJson}"`);
+    }
 
     return {
       success: true,
@@ -511,6 +540,17 @@ export async function onboardAgentOpenClaw(options: {
   const nvmDir = `${agentHome}/.nvm`;
   const log = onLog || ((msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`));
 
+  // Pre-create directories that openclaw onboard expects to mkdir.
+  // The .openclaw dir may be owned by broker (from setup), so the agent user
+  // can't create subdirectories unless group-write is set correctly.
+  const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
+  for (const subdir of ['workspace', 'canvas', 'logs']) {
+    const dirPath = `${agentHome}/.openclaw/${subdir}`;
+    sudoExec(`mkdir -p "${dirPath}"`);
+    sudoExec(`chown ${agentUsername}:${socketGroup} "${dirPath}"`);
+    sudoExec(`chmod 2775 "${dirPath}"`);
+  }
+
   const onboardCmd = [
     `export HOME="${agentHome}"`,
     `export NVM_DIR="${nvmDir}"`,
@@ -551,10 +591,22 @@ export async function startAgentOpenClawGateway(options: {
   const nvmDir = `${agentHome}/.nvm`;
   const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
 
+  const socketPath = '/var/run/agenshield/agenshield.sock';
+  const interceptorPath = '/opt/agenshield/lib/interceptor/register.cjs';
+
   const gatewayCmd = [
     `export HOME="${agentHome}"`,
     `export NVM_DIR="${nvmDir}"`,
+    `export PATH="${agentHome}/bin:${agentHome}/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"`,
+    `export SHELL="/usr/local/bin/guarded-shell"`,
     `source "${nvmDir}/nvm.sh"`,
+    `export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"`,
+    `export AGENSHIELD_SOCKET="${socketPath}"`,
+    `export AGENSHIELD_INTERCEPT_EXEC=true`,
+    `export AGENSHIELD_INTERCEPT_HTTP=true`,
+    `export AGENSHIELD_INTERCEPT_FETCH=true`,
+    `export AGENSHIELD_INTERCEPT_WS=true`,
+    `export AGENSHIELD_CONTEXT_TYPE=agent`,
     `exec openclaw gateway run`,
   ].join(' && ');
 
@@ -621,10 +673,22 @@ export async function startAgentOpenClawDashboard(options: {
   const nvmDir = `${agentHome}/.nvm`;
   const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
 
+  const dashSocketPath = '/var/run/agenshield/agenshield.sock';
+  const dashInterceptorPath = '/opt/agenshield/lib/interceptor/register.cjs';
+
   const dashboardCmd = [
     `export HOME="${agentHome}"`,
     `export NVM_DIR="${nvmDir}"`,
+    `export PATH="${agentHome}/bin:${agentHome}/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"`,
+    `export SHELL="/usr/local/bin/guarded-shell"`,
     `source "${nvmDir}/nvm.sh"`,
+    `export NODE_OPTIONS="--require ${dashInterceptorPath} \${NODE_OPTIONS:-}"`,
+    `export AGENSHIELD_SOCKET="${dashSocketPath}"`,
+    `export AGENSHIELD_INTERCEPT_EXEC=true`,
+    `export AGENSHIELD_INTERCEPT_HTTP=true`,
+    `export AGENSHIELD_INTERCEPT_FETCH=true`,
+    `export AGENSHIELD_INTERCEPT_WS=true`,
+    `export AGENSHIELD_CONTEXT_TYPE=agent`,
     `exec openclaw dashboard`,
   ].join(' && ');
 
