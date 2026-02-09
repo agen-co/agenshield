@@ -45,6 +45,9 @@ export const USERS_DIR = 'users';
 /** Marketplace downloads subdirectory (under CONFIG_DIR) */
 export const MARKETPLACE_DIR = 'marketplace';
 
+/** Path to migration state file (root-owned) */
+export const MIGRATION_STATE_PATH = '/etc/agenshield/migrations.json';
+
 /** Default OAuth callback port */
 export const CALLBACK_PORT = 9876;
 

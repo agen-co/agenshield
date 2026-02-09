@@ -154,8 +154,8 @@ export function Secrets() {
         />
       </Box>
 
-      <Card sx={{ opacity: formFocused ? 0.45 : 1, transition: 'opacity 0.2s ease', pointerEvents: formFocused ? 'none' : 'auto' }}>
-        <CardContent sx={{ p: '0 !important' }}>
+      <Card sx={{ p:0, opacity: formFocused ? 0.45 : 1, transition: 'opacity 0.2s ease', pointerEvents: formFocused ? 'none' : 'auto' }}>
+        <CardContent >
           {isLoading ? (
             <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
               {Array.from({ length: 4 }).map((_, i) => (

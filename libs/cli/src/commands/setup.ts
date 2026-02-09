@@ -8,18 +8,24 @@
 
 import { Command } from 'commander';
 import React from 'react';
-import readline from 'node:readline';
 import { render } from 'ink';
 import { WizardApp } from '../wizard/index.js';
 import { formatPresetList, getPreset } from '@agenshield/sandbox';
 import { createWizardEngine } from '../wizard/engine.js';
 import type { WizardOptions } from '../wizard/types.js';
+import { InstallationFound } from '../wizard/components/InstallationFound.js';
+import type { InstallAction } from '../wizard/components/InstallationFound.js';
 
 /**
- * Check for an existing AgenShield installation and offer to uninstall it.
- * Equivalent to running `agenshield uninstall --skip-backup --force` before setup.
+ * Check for an existing AgenShield installation and offer to update, reinstall, or cancel.
+ * Uses an Ink-based interactive prompt (matching ModeSelect pattern).
  */
-async function checkExistingInstallation(options: { skipConfirm?: boolean }): Promise<void> {
+async function checkExistingInstallation(options: {
+  skipConfirm?: boolean;
+  dryRun?: boolean;
+  verbose?: boolean;
+  cli?: boolean;
+}): Promise<void> {
   const { ensureSudoAccess } = await import('../utils/privileges.js');
   ensureSudoAccess();
 
@@ -28,65 +34,82 @@ async function checkExistingInstallation(options: { skipConfirm?: boolean }): Pr
 
   if (!check.hasBackup) return; // No existing installation
 
-  console.log('');
-  console.log('  AgenShield is already installed.');
-  if (check.backup) {
-    console.log(`  Backup from: ${check.backup.timestamp}`);
-  }
-  console.log('');
+  // Detect installed version from migration state
+  let installedVersion = '0.1.0';
+  try {
+    const { loadMigrationState } = await import('../migrations/index.js');
+    const migState = loadMigrationState();
+    if (migState?.currentVersion) installedVersion = migState.currentVersion;
+  } catch { /* fallback to default */ }
 
-  if (!options.skipConfirm) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const answer = await new Promise<string>((resolve) => {
-      rl.question('  Uninstall existing installation and re-setup? [y/N] ', (ans) => {
-        rl.close();
-        resolve(ans);
-      });
+  if (options.skipConfirm) {
+    // Safe default: run non-destructive update
+    console.log('');
+    console.log('  --skip-confirm: running non-destructive update...');
+    const { runUpdate } = await import('./update.js');
+    await runUpdate({ dryRun: options.dryRun, verbose: options.verbose, cli: options.cli });
+    process.exit(0);
+  }
+
+  // Render Ink selection prompt
+  const action = await new Promise<InstallAction>((resolve) => {
+    const { unmount } = render(
+      React.createElement(InstallationFound, {
+        backupTimestamp: check.backup?.timestamp,
+        installedVersion,
+        onSelect: (choice: InstallAction) => { unmount(); resolve(choice); },
+      })
+    );
+  });
+
+  if (action === 'update') {
+    const { runUpdate } = await import('./update.js');
+    await runUpdate({ dryRun: options.dryRun, verbose: options.verbose, cli: options.cli });
+    process.exit(0);
+  }
+
+  if (action === 'reinstall') {
+    // Stop daemon
+    console.log('');
+    console.log('  Stopping daemon...');
+    const { stopDaemon } = await import('../utils/daemon.js');
+    await stopDaemon();
+
+    // Force uninstall
+    console.log('  Uninstalling existing installation...');
+    console.log('');
+    const result = forceUninstall((progress) => {
+      const icon = progress.success ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
+      console.log(`  ${icon} ${progress.step}: ${progress.message || progress.error || ''}`);
     });
-    if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes') {
-      console.log('');
-      console.log('  Setup cancelled.');
-      process.exit(0);
+
+    if (!result.success) {
+      console.error('');
+      console.error(`  \x1b[31mUninstall failed: ${result.error}\x1b[0m`);
+      process.exit(1);
     }
-  } else {
-    console.log('  --skip-confirm: auto-uninstalling existing installation...');
+
+    console.log('');
+    console.log('  \x1b[32mExisting installation removed.\x1b[0m');
+    console.log('  Proceeding with fresh setup...');
+    console.log('');
+
+    // Re-exec the setup command so it starts fresh after uninstall.
+    // All original flags (-v, --target, --skip-confirm, etc.) carry over
+    // via process.argv. The re-exec'd process will call canUninstall()
+    // again, which returns hasBackup=false (already removed), so no loop.
+    const { spawnSync } = await import('node:child_process');
+    const child = spawnSync(process.execPath, [...process.execArgv, ...process.argv.slice(1)], {
+      stdio: 'inherit',
+      env: process.env,
+    });
+    process.exit(child.status ?? 1);
   }
 
-  // Stop daemon
+  // cancel
   console.log('');
-  console.log('  Stopping daemon...');
-  const { stopDaemon } = await import('../utils/daemon.js');
-  await stopDaemon();
-
-  // Force uninstall
-  console.log('  Uninstalling existing installation...');
-  console.log('');
-  const result = forceUninstall((progress) => {
-    const icon = progress.success ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
-    console.log(`  ${icon} ${progress.step}: ${progress.message || progress.error || ''}`);
-  });
-
-  if (!result.success) {
-    console.error('');
-    console.error(`  \x1b[31mUninstall failed: ${result.error}\x1b[0m`);
-    process.exit(1);
-  }
-
-  console.log('');
-  console.log('  \x1b[32mExisting installation removed.\x1b[0m');
-  console.log('  Proceeding with fresh setup...');
-  console.log('');
-
-  // Re-exec the setup command so it starts fresh after uninstall.
-  // All original flags (-v, --target, --skip-confirm, etc.) carry over
-  // via process.argv. The re-exec'd process will call canUninstall()
-  // again, which returns hasBackup=false (already removed), so no loop.
-  const { spawnSync } = await import('node:child_process');
-  const child = spawnSync(process.execPath, [...process.execArgv, ...process.argv.slice(1)], {
-    stdio: 'inherit',
-    env: process.env,
-  });
-  process.exit(child.status ?? 1);
+  console.log('  Setup cancelled.');
+  process.exit(0);
 }
 
 /**
@@ -272,7 +295,12 @@ export function createSetupCommand(): Command {
 
       // Check for existing installation (skip in dry-run mode)
       if (!options.dryRun) {
-        await checkExistingInstallation({ skipConfirm: options.skipConfirm });
+        await checkExistingInstallation({
+          skipConfirm: options.skipConfirm,
+          dryRun: options.dryRun,
+          verbose: options.verbose,
+          cli: options.cli,
+        });
       }
 
       // Default to Web UI unless --cli is specified or env var opts out

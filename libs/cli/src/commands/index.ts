@@ -11,3 +11,4 @@ export { createDaemonCommand } from './daemon.js';
 export { createBrokerCommand } from './broker.js';
 export { createUninstallCommand } from './uninstall.js';
 export { createDevCommand } from './dev.js';
+export { createUpdateCommand } from './update.js';

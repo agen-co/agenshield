@@ -20,7 +20,11 @@
       "options": {
         "outputPath": "libs/shield-daemon/dist",
         "main": "libs/shield-daemon/src/index.ts",
-        "additionalEntryPoints": ["libs/shield-daemon/src/main.ts"],
+        "additionalEntryPoints": [
+          "libs/shield-daemon/src/main.ts",
+          "libs/shield-daemon/src/auth/index.ts",
+          "libs/shield-daemon/src/vault/index.ts"
+        ],
         "tsConfig": "libs/shield-daemon/tsconfig.lib.json",
         "format": ["esm"],
         "declaration": true,

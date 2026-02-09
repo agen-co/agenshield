@@ -154,6 +154,21 @@ export async function mkdirViaBroker(dirPath: string): Promise<void> {
 }
 
 /**
+ * Remove a file or directory via the broker's exec command.
+ */
+export async function rmViaBroker(targetPath: string): Promise<void> {
+  const client = getBrokerClient();
+  const result = await client.exec({
+    command: '/bin/rm',
+    args: ['-rf', targetPath],
+    cwd: '/',
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(`rm via broker failed: ${result.stderr}`);
+  }
+}
+
+/**
  * Reset the broker client (for testing or reconnection)
  */
 export function resetBrokerClient(): void {

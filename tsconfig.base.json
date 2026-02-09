@@ -24,6 +24,8 @@
       "agenshield": ["libs/cli/src/index.ts"],
       "@agenshield/ipc": ["libs/shield-ipc/src/index.ts"],
       "@agenshield/daemon": ["libs/shield-daemon/src/index.ts"],
+      "@agenshield/daemon/auth": ["libs/shield-daemon/src/auth/index.ts"],
+      "@agenshield/daemon/vault": ["libs/shield-daemon/src/vault/index.ts"],
       "@agenshield/sandbox": ["libs/shield-sandbox/src/index.ts"],
       "@agenshield/broker": ["libs/shield-broker/src/index.ts"],
       "@agenshield/interceptor": ["libs/shield-interceptor/src/index.ts"],

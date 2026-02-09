@@ -32,6 +32,7 @@ import {
   createBrokerCommand,
   createUninstallCommand,
   createDevCommand,
+  createUpdateCommand,
 } from './commands/index.js';
 
 // Package version - will be replaced during build
@@ -62,6 +63,7 @@ Examples:
   $ agenshield dev                  Dev mode with interactive TUI
   $ agenshield dev clean            Clean dev environment
   $ agenshield dev shell            Open sandboxed agent shell
+  $ agenshield update               Non-destructive update
   $ agenshield uninstall            Reverse isolation
 `
     );
@@ -74,6 +76,7 @@ Examples:
   program.addCommand(createBrokerCommand());
   program.addCommand(createUninstallCommand());
   program.addCommand(createDevCommand());
+  program.addCommand(createUpdateCommand());
 
   return program;
 }

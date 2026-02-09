@@ -90,6 +90,13 @@ export function matchUrlPattern(pattern: string, target: string): boolean {
 export function policyScopeMatches(policy: PolicyConfig, context?: PolicyExecutionContext): boolean {
   const scope = policy.scope;
   if (!scope) return true;
+
+  // command: scoped policies ONLY apply in the per-run proxy path
+  // (via filterUrlPoliciesForCommand), never in evaluatePolicyCheck
+  if (scope.startsWith('command:')) {
+    return false;
+  }
+
   if (!context) return true;
 
   if (scope === 'agent') {
@@ -118,13 +125,13 @@ export function extractCommandBasename(target: string): string {
 }
 
 /**
- * Check if a URL policy applies to a given command.
+ * Check if a policy's command scope matches a given command basename.
  *
  * - No scope → applies to all commands (universal)
  * - scope 'command:<name>' → only applies when executing that command
  * - Other scopes (agent, skill, skill:<slug>) → ignored for command filtering (treated as universal)
  */
-export function urlPolicyScopeMatchesCommand(policy: PolicyConfig, commandBasename: string): boolean {
+export function commandScopeMatches(policy: PolicyConfig, commandBasename: string): boolean {
   const scope = policy.scope;
   if (!scope) return true; // Universal
 
@@ -137,14 +144,27 @@ export function urlPolicyScopeMatchesCommand(policy: PolicyConfig, commandBasena
   return true;
 }
 
+/** @deprecated Use `commandScopeMatches` instead */
+export const urlPolicyScopeMatchesCommand = commandScopeMatches;
+
 /**
  * Filter URL policies that apply to a specific command.
  * Includes policies with no scope (universal) and those scoped to this command.
+ * Returns global (unscoped) first, then command-scoped — consistent ordering.
  */
 export function filterUrlPoliciesForCommand(policies: PolicyConfig[], commandBasename: string): PolicyConfig[] {
-  return policies.filter(
-    (p) => p.enabled && p.target === 'url' && urlPolicyScopeMatchesCommand(p, commandBasename)
-  );
+  const global: PolicyConfig[] = [];
+  const scoped: PolicyConfig[] = [];
+  for (const p of policies) {
+    if (!p.enabled || p.target !== 'url') continue;
+    if (!commandScopeMatches(p, commandBasename)) continue;
+    if (p.scope?.startsWith('command:')) {
+      scoped.push(p);
+    } else {
+      global.push(p);
+    }
+  }
+  return [...global, ...scoped];
 }
 
 /**

@@ -20,7 +20,7 @@ import {
   extractCommandBasename,
   filterUrlPoliciesForCommand,
 } from '../policy/url-matcher';
-import { collectDenyPathsFromPolicies } from '../policy/sandbox-helpers';
+import { collectDenyPathsFromPolicies, collectAllowPathsForCommand } from '../policy/sandbox-helpers';
 import { getProxyPool } from '../proxy/pool';
 
 interface JsonRpcRequest {
@@ -170,11 +170,27 @@ async function buildSandboxConfig(
   // to the broker may be blocked by the seatbelt profile).
   sandbox.envDeny.push('NODE_OPTIONS');
 
+  // Extract command basename early for scope filtering (reused by proxy below)
+  const commandBasename = target ? extractCommandBasename(target) : undefined;
+
   // Wire concrete filesystem deny paths from policies into seatbelt profile
-  const concreteDenyPaths = collectDenyPathsFromPolicies(config.policies || []);
+  const concreteDenyPaths = collectDenyPathsFromPolicies(config.policies || [], commandBasename);
   if (concreteDenyPaths.length > 0) {
     console.log(`[sandbox] deniedPaths from policies: ${concreteDenyPaths.join(', ')}`);
     sandbox.deniedPaths.push(...concreteDenyPaths);
+  }
+
+  // Collect command-scoped filesystem allow paths
+  if (commandBasename) {
+    const { readPaths, writePaths } = collectAllowPathsForCommand(config.policies || [], commandBasename);
+    if (readPaths.length > 0) {
+      console.log(`[sandbox] allowedReadPaths for ${commandBasename}: ${readPaths.join(', ')}`);
+      sandbox.allowedReadPaths.push(...readPaths);
+    }
+    if (writePaths.length > 0) {
+      console.log(`[sandbox] allowedWritePaths for ${commandBasename}: ${writePaths.join(', ')}`);
+      sandbox.allowedWritePaths.push(...writePaths);
+    }
   }
 
   // Resolve the command binary and add to allowed binaries
@@ -225,14 +241,13 @@ async function buildSandboxConfig(
   } else if (networkMode === 'proxy') {
     // Acquire a per-run proxy bound to this execution
     const execId = crypto.randomUUID();
-    const commandBasename = extractCommandBasename(target || '');
     // Filter URL policies scoped to this command (+ universal policies)
     const pool = getProxyPool();
     // Pass a getter so the proxy always evaluates the latest policies on each request
     const { port } = await pool.acquire(
       execId,
       target || '',
-      () => filterUrlPoliciesForCommand((loadConfig().policies || []), commandBasename),
+      () => filterUrlPoliciesForCommand((loadConfig().policies || []), commandBasename!),
       () => loadConfig().defaultAction ?? 'deny'
     );
 
@@ -403,6 +418,30 @@ async function handleHttpRequest(
   const method = String(params['method'] ?? 'GET').toUpperCase();
   const headers = (params['headers'] as Record<string, string>) ?? {};
   const body = params['body'] as string | undefined;
+
+  // Policy check before proxying (Python patcher sends no context)
+  const context = params['context'] as PolicyExecutionContext | undefined;
+  const policyResult = await evaluatePolicyCheck('http_request', url, context);
+
+  if (!policyResult.allowed) {
+    emitInterceptorEvent({
+      type: 'denied',
+      operation: 'http_request',
+      target: url,
+      timestamp: new Date().toISOString(),
+      policyId: policyResult.policyId,
+      error: policyResult.reason || 'Denied by policy',
+    });
+    throw new Error(policyResult.reason || 'Blocked by URL policy');
+  } else {
+    emitInterceptorEvent({
+      type: 'allowed',
+      operation: 'http_request',
+      target: url,
+      timestamp: new Date().toISOString(),
+      policyId: policyResult.policyId,
+    });
+  }
 
   const response = await fetch(url, {
     method,

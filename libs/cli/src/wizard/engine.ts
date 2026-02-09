@@ -1574,7 +1574,40 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
   },
 
   complete: async (_context) => {
-    // Final step - nothing to do
+    // Write initial migration state so `agenshield update` knows the base version
+    try {
+      const { MIGRATION_STATE_PATH } = await import('@agenshield/ipc');
+      const { execSync } = await import('node:child_process');
+      const VERSION = '0.1.0';
+      const state = JSON.stringify({
+        currentVersion: VERSION,
+        history: [],
+        lastUpdatedAt: new Date().toISOString(),
+      }, null, 2);
+      const tmpPath = '/tmp/agenshield-migrations-init.json';
+      execSync(`sudo tee "${tmpPath}" > /dev/null`, {
+        input: state,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      execSync(`sudo mkdir -p "$(dirname "${MIGRATION_STATE_PATH}")"`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      execSync(`sudo mv "${tmpPath}" "${MIGRATION_STATE_PATH}"`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      execSync(`sudo chmod 644 "${MIGRATION_STATE_PATH}"`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      logVerbose(`Initial migration state written to ${MIGRATION_STATE_PATH}`);
+    } catch (err) {
+      // Non-fatal — update command will create the file if missing
+      logVerbose(`Warning: Could not write initial migration state: ${(err as Error).message}`);
+    }
+
     return { success: true };
   },
 };

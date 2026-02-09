@@ -21,11 +21,12 @@ import {
   uninstallSkillViaBroker,
   isBrokerAvailable,
 } from './broker-bridge';
-import { addSkillPolicy, removeSkillPolicy, createSkillWrapper, removeSkillWrapper } from './skill-lifecycle';
+import { addSkillPolicy, removeSkillPolicy, createSkillWrapper, removeSkillWrapper, sudoMkdir, sudoWriteFile, sudoRm } from './skill-lifecycle';
 import { injectInstallationTag } from './skill-tag-injector';
 import { storeDownloadedSkill, markDownloadedAsInstalled } from './marketplace';
 import { stripEnvFromSkillMd } from '@agenshield/sandbox';
 import { AGENCO_PRESET } from '@agenshield/ipc';
+import { daemonEvents, emitSkillInstallProgress, emitSkillUninstalled } from '../events/emitter';
 import { INTEGRATION_CATALOG } from '../data/integration-catalog';
 import { loadState } from '../state';
 import { loadConfig, updateConfig } from '../config';
@@ -166,19 +167,24 @@ async function installMasterSkill(connectedIds: string[]): Promise<void> {
   if (brokerAvailable) {
     await installSkillViaBroker(MASTER_SKILL_NAME, files, { createWrapper: true });
   } else {
-    // Dev fallback: direct fs writes
+    // Dev fallback: use sudo helpers for proper permissions
+    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const agentUsername = path.basename(agentHome);
     const destDir = path.join(skillsDir, MASTER_SKILL_NAME);
-    fs.mkdirSync(destDir, { recursive: true });
+    await sudoMkdir(destDir, agentUsername);
     for (const file of files) {
       const filePath = path.join(destDir, file.name);
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, file.content);
+      const fileDir = path.dirname(filePath);
+      if (fileDir !== destDir) {
+        await sudoMkdir(fileDir, agentUsername);
+      }
+      await sudoWriteFile(filePath, file.content, agentUsername, file.mode);
     }
-    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
     const binDir = path.join(agentHome, 'bin');
     await createSkillWrapper(MASTER_SKILL_NAME, binDir);
   }
 
+  emitSkillInstallProgress(MASTER_SKILL_NAME, 'copy', 'Writing skill files');
   addSkillPolicy(MASTER_SKILL_NAME);
 
   // Add AgenCo preset policies (command + URL) if not already present
@@ -219,6 +225,7 @@ async function installMasterSkill(connectedIds: string[]): Promise<void> {
     console.warn(`[IntegrationSkills] Failed to store marketplace cache for master skill: ${(err as Error).message}`);
   }
 
+  daemonEvents.broadcast('skills:installed', { name: MASTER_SKILL_NAME });
   console.log(`[IntegrationSkills] Installed/updated master skill with ${connectedIds.length} integration(s)`);
 }
 
@@ -246,10 +253,18 @@ async function installIntegrationSkill(integrationId: string): Promise<void> {
   if (brokerAvailable) {
     await installSkillViaBroker(skillName, files, { createWrapper: false });
   } else {
+    // Dev fallback: use sudo helpers for proper permissions
+    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const agentUsername = path.basename(agentHome);
     const destDir = path.join(skillsDir, skillName);
-    fs.mkdirSync(destDir, { recursive: true });
+    await sudoMkdir(destDir, agentUsername);
     for (const file of files) {
-      fs.writeFileSync(path.join(destDir, file.name), file.content);
+      const filePath = path.join(destDir, file.name);
+      const fileDir = path.dirname(filePath);
+      if (fileDir !== destDir) {
+        await sudoMkdir(fileDir, agentUsername);
+      }
+      await sudoWriteFile(filePath, file.content, agentUsername);
     }
   }
 
@@ -278,6 +293,7 @@ async function installIntegrationSkill(integrationId: string): Promise<void> {
     console.warn(`[IntegrationSkills] Failed to store marketplace cache for ${skillName}: ${(err as Error).message}`);
   }
 
+  daemonEvents.broadcast('skills:installed', { name: skillName });
   console.log(`[IntegrationSkills] Installed integration skill: ${skillName}`);
 }
 
@@ -296,17 +312,19 @@ async function uninstallIntegrationSkill(integrationId: string): Promise<void> {
     try {
       await uninstallSkillViaBroker(skillName, { removeWrapper: false });
     } catch {
-      // Fallback to direct fs removal
       if (fs.existsSync(destDir)) {
-        fs.rmSync(destDir, { recursive: true, force: true });
+        const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+        await sudoRm(destDir, path.basename(agentHome));
       }
     }
   } else if (fs.existsSync(destDir)) {
-    fs.rmSync(destDir, { recursive: true, force: true });
+    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    await sudoRm(destDir, path.basename(agentHome));
   }
 
   removeFromApprovedList(skillName);
   removeSkillPolicy(skillName);
+  emitSkillUninstalled(skillName);
 
   console.log(`[IntegrationSkills] Uninstalled integration skill: ${skillName}`);
 }
@@ -325,16 +343,16 @@ async function uninstallMasterSkill(): Promise<void> {
     try {
       await uninstallSkillViaBroker(MASTER_SKILL_NAME, { removeWrapper: true });
     } catch {
-      // Fallback to direct fs removal
       if (fs.existsSync(destDir)) {
-        fs.rmSync(destDir, { recursive: true, force: true });
+        const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+        await sudoRm(destDir, path.basename(agentHome));
       }
     }
   } else {
-    if (fs.existsSync(destDir)) {
-      fs.rmSync(destDir, { recursive: true, force: true });
-    }
     const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    if (fs.existsSync(destDir)) {
+      await sudoRm(destDir, path.basename(agentHome));
+    }
     const binDir = path.join(agentHome, 'bin');
     removeSkillWrapper(MASTER_SKILL_NAME, binDir);
   }
@@ -351,6 +369,7 @@ async function uninstallMasterSkill(): Promise<void> {
     syncCommandPolicies(filtered);
   }
 
+  emitSkillUninstalled(MASTER_SKILL_NAME);
   console.log('[IntegrationSkills] Uninstalled master skill');
 }
 

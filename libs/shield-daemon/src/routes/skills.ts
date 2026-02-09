@@ -748,7 +748,14 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         // ENABLE: Copy from download cache to workspace
         const meta = getDownloadedSkillMeta(name);
         if (!meta) {
-          return reply.code(404).send({ error: 'Skill not found in download cache' });
+          // No cache and not on disk — orphaned approved entry. Clean it up.
+          removeSkillPolicy(name);
+          removeFromApprovedList(name);
+          removeSkillWrapper(name, binDir);
+          await removeBrewBinaryWrappers(name);
+          console.log(`[Skills] Cleaned up orphaned skill entry: ${name}`);
+          emitSkillUninstalled(name);
+          return reply.send({ success: true, action: 'disabled', name });
         }
 
         const files = getDownloadedSkillFiles(name);

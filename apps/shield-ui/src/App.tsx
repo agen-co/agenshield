@@ -27,6 +27,7 @@ import { useHealth, useServerMode } from './api/hooks';
 import { useSSE } from './hooks/useSSE';
 import { setupStore } from './state/setup';
 import { SetupWizard } from './pages/Setup';
+import { UpdatePage } from './pages/Update';
 import { NotFound } from './pages/NotFound';
 import { Notifications } from './components/shared/Notifications';
 import { queryClient } from './api/query-client';
@@ -80,6 +81,11 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
   // Setup mode: render full-screen wizard, bypass all auth gates
   if (serverMode === 'setup' || setupPhase === 'complete') {
     return <SetupWizard />;
+  }
+
+  // Update mode: render update wizard
+  if (serverMode === 'update') {
+    return <UpdatePage />;
   }
 
   // When anonymous read-only is disabled and not authenticated, block the entire UI

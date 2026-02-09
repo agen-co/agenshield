@@ -11,7 +11,7 @@ import { execSync } from 'node:child_process';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { loadConfig, updateConfig } from '../config/index';
 import { uninstallBrewBinaryWrappers } from './brew-wrapper';
-import { writeFileViaBroker, mkdirViaBroker, isBrokerAvailable } from './broker-bridge';
+import { writeFileViaBroker, mkdirViaBroker, rmViaBroker, isBrokerAvailable } from './broker-bridge';
 
 // ─── Sudo helpers ────────────────────────────────────────────────────────────
 
@@ -59,6 +59,27 @@ export async function sudoWriteFile(filePath: string, content: string, agentUser
           execSync(`sudo -H -u ${agentUsername} chmod ${mode.toString(8)} "${filePath}"`, { cwd: '/', stdio: 'pipe' });
         } catch { /* best-effort */ }
       }
+    } else {
+      throw err;
+    }
+  }
+}
+
+/**
+ * Remove a file or directory, falling back to broker on EACCES, then sudo as last resort.
+ */
+export async function sudoRm(targetPath: string, agentUsername: string): Promise<void> {
+  try {
+    fs.rmSync(targetPath, { recursive: true, force: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      try {
+        if (await isBrokerAvailable()) {
+          await rmViaBroker(targetPath);
+          return;
+        }
+      } catch { /* broker failed, fall through to sudo */ }
+      execSync(`sudo -H -u ${agentUsername} /bin/rm -rf "${targetPath}"`, { cwd: '/', stdio: 'pipe' });
     } else {
       throw err;
     }

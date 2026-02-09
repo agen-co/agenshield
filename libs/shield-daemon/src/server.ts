@@ -11,7 +11,7 @@ import type { DaemonConfig } from '@agenshield/ipc';
 import { registerRoutes } from './routes/index';
 import { getUiAssetsPath } from './static';
 import { startSecurityWatcher, stopSecurityWatcher } from './watchers/security';
-import { startSkillsWatcher, stopSkillsWatcher } from './watchers/skills';
+import { startSkillsWatcher, stopSkillsWatcher, ensureSkillWrappers } from './watchers/skills';
 import { startProcessHealthWatcher, stopProcessHealthWatcher } from './watchers/process-health';
 import { emitSkillUntrustedDetected, emitSkillApproved, emitProcessStarted, emitProcessStopped } from './events/emitter';
 import { getVault, getInstallationKey } from './vault';
@@ -105,6 +105,11 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     onUntrustedDetected: (info) => emitSkillUntrustedDetected(info.name, info.reason),
     onApproved: (name) => emitSkillApproved(name),
   }, 30000); // Check every 30 seconds
+
+  // Ensure wrappers exist for all approved skills (covers reinstall/upgrade scenarios)
+  ensureSkillWrappers().catch((err) => {
+    console.warn('[Daemon] Failed to ensure skill wrappers:', (err as Error).message);
+  });
 
   // Start persistent activity log
   const activityLog = getActivityLog();

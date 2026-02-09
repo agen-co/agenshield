@@ -1,4 +1,4 @@
-import { extractConcreteDenyPaths, collectDenyPathsFromPolicies } from '../policy/sandbox-helpers';
+import { extractConcreteDenyPaths, collectDenyPathsFromPolicies, collectAllowPathsForCommand } from '../policy/sandbox-helpers';
 import type { PolicyConfig } from '@agenshield/ipc';
 
 describe('extractConcreteDenyPaths', () => {
@@ -228,5 +228,190 @@ describe('collectDenyPathsFromPolicies', () => {
 
   it('returns empty array for no policies', () => {
     expect(collectDenyPathsFromPolicies([])).toEqual([]);
+  });
+
+  describe('with commandBasename', () => {
+    it('includes universal (no scope) deny policies', () => {
+      const policies = [
+        makePolicy({ id: 'global', target: 'filesystem', action: 'deny', patterns: ['/etc/passwd'] }),
+      ];
+      expect(collectDenyPathsFromPolicies(policies, 'curl')).toEqual(['/etc/passwd']);
+    });
+
+    it('includes matching command-scoped deny policies', () => {
+      const policies = [
+        makePolicy({ id: 'curl-deny', target: 'filesystem', action: 'deny', scope: 'command:curl', patterns: ['/home/secrets'] }),
+      ];
+      expect(collectDenyPathsFromPolicies(policies, 'curl')).toEqual(['/home/secrets']);
+    });
+
+    it('excludes non-matching command-scoped deny policies', () => {
+      const policies = [
+        makePolicy({ id: 'wget-deny', target: 'filesystem', action: 'deny', scope: 'command:wget', patterns: ['/home/secrets'] }),
+      ];
+      expect(collectDenyPathsFromPolicies(policies, 'curl')).toEqual([]);
+    });
+
+    it('combines global and matching command-scoped policies', () => {
+      const policies = [
+        makePolicy({ id: 'global', target: 'filesystem', action: 'deny', patterns: ['/etc/passwd'] }),
+        makePolicy({ id: 'curl-deny', target: 'filesystem', action: 'deny', scope: 'command:curl', patterns: ['/home/secrets'] }),
+        makePolicy({ id: 'wget-deny', target: 'filesystem', action: 'deny', scope: 'command:wget', patterns: ['/var/data'] }),
+      ];
+      expect(collectDenyPathsFromPolicies(policies, 'curl')).toEqual(['/etc/passwd', '/home/secrets']);
+    });
+
+    it('orders global policies before command-scoped policies', () => {
+      const policies = [
+        makePolicy({ id: 'curl-deny', target: 'filesystem', action: 'deny', scope: 'command:curl', patterns: ['/home/secrets'] }),
+        makePolicy({ id: 'global', target: 'filesystem', action: 'deny', patterns: ['/etc/passwd'] }),
+      ];
+      // Global first even though command-scoped came first in array
+      expect(collectDenyPathsFromPolicies(policies, 'curl')).toEqual(['/etc/passwd', '/home/secrets']);
+    });
+
+    it('backwards compat: without commandBasename, command-scoped policies are excluded', () => {
+      const policies = [
+        makePolicy({ id: 'global', target: 'filesystem', action: 'deny', patterns: ['/etc/passwd'] }),
+        makePolicy({ id: 'curl-deny', target: 'filesystem', action: 'deny', scope: 'command:curl', patterns: ['/home/secrets'] }),
+      ];
+      expect(collectDenyPathsFromPolicies(policies)).toEqual(['/etc/passwd']);
+    });
+
+    it('matches command scope case-insensitively', () => {
+      const policies = [
+        makePolicy({ id: 'curl-deny', target: 'filesystem', action: 'deny', scope: 'command:Curl', patterns: ['/home/secrets'] }),
+      ];
+      expect(collectDenyPathsFromPolicies(policies, 'curl')).toEqual(['/home/secrets']);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// collectAllowPathsForCommand
+// ---------------------------------------------------------------------------
+
+describe('collectAllowPathsForCommand', () => {
+  const makePolicy = (overrides: Partial<PolicyConfig>): PolicyConfig => ({
+    id: 'test',
+    name: 'Test Policy',
+    action: 'allow',
+    target: 'filesystem',
+    patterns: [],
+    enabled: true,
+    priority: 100,
+    ...overrides,
+  });
+
+  it('collects read paths from filesystem allow policy with no operations (default read)', () => {
+    const policies = [
+      makePolicy({ id: 'fs-allow', target: 'filesystem', action: 'allow', patterns: ['/path/to/creds'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual(['/path/to/creds']);
+    expect(result.writePaths).toEqual([]);
+  });
+
+  it('collects read paths from filesystem allow policy with file_read operation', () => {
+    const policies = [
+      makePolicy({ id: 'fs-allow', target: 'filesystem', action: 'allow', operations: ['file_read'], patterns: ['/path/to/creds'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual(['/path/to/creds']);
+    expect(result.writePaths).toEqual([]);
+  });
+
+  it('collects write paths from filesystem allow policy with file_write operation', () => {
+    const policies = [
+      makePolicy({ id: 'fs-allow', target: 'filesystem', action: 'allow', operations: ['file_write'], patterns: ['/tmp/output'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual([]);
+    expect(result.writePaths).toEqual(['/tmp/output']);
+  });
+
+  it('collects both read and write paths when both operations specified', () => {
+    const policies = [
+      makePolicy({ id: 'fs-allow', target: 'filesystem', action: 'allow', operations: ['file_read', 'file_write'], patterns: ['/workspace'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual(['/workspace']);
+    expect(result.writePaths).toEqual(['/workspace']);
+  });
+
+  it('collects from command target with file operations', () => {
+    const policies = [
+      makePolicy({ id: 'cmd-allow', target: 'command', action: 'allow', operations: ['file_read', 'file_list'], patterns: ['/config'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual(['/config']);
+    expect(result.writePaths).toEqual([]);
+  });
+
+  it('excludes wrong command scope', () => {
+    const policies = [
+      makePolicy({ id: 'curl-allow', target: 'filesystem', action: 'allow', scope: 'command:curl', patterns: ['/tmp/curl-data'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual([]);
+    expect(result.writePaths).toEqual([]);
+  });
+
+  it('includes matching command scope', () => {
+    const policies = [
+      makePolicy({ id: 'gog-allow', target: 'filesystem', action: 'allow', scope: 'command:gog', operations: ['file_read'], patterns: ['/path/to/creds'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual(['/path/to/creds']);
+  });
+
+  it('includes universal (no scope) policies', () => {
+    const policies = [
+      makePolicy({ id: 'global-allow', target: 'filesystem', action: 'allow', patterns: ['/shared/data'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual(['/shared/data']);
+  });
+
+  it('orders global before command-scoped', () => {
+    const policies = [
+      makePolicy({ id: 'gog-allow', target: 'filesystem', action: 'allow', scope: 'command:gog', patterns: ['/gog-specific'] }),
+      makePolicy({ id: 'global-allow', target: 'filesystem', action: 'allow', patterns: ['/shared'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    // Global first even though command-scoped was first in array
+    expect(result.readPaths).toEqual(['/shared', '/gog-specific']);
+  });
+
+  it('skips deny policies', () => {
+    const policies = [
+      makePolicy({ id: 'fs-deny', target: 'filesystem', action: 'deny', patterns: ['/etc/passwd'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual([]);
+    expect(result.writePaths).toEqual([]);
+  });
+
+  it('skips disabled policies', () => {
+    const policies = [
+      makePolicy({ id: 'disabled', target: 'filesystem', action: 'allow', enabled: false, patterns: ['/path'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual([]);
+  });
+
+  it('skips command target without file operations', () => {
+    const policies = [
+      makePolicy({ id: 'cmd-exec', target: 'command', action: 'allow', operations: ['exec'], patterns: ['/usr/bin/ls'] }),
+    ];
+    const result = collectAllowPathsForCommand(policies, 'gog');
+    expect(result.readPaths).toEqual([]);
+    expect(result.writePaths).toEqual([]);
+  });
+
+  it('returns empty for no policies', () => {
+    const result = collectAllowPathsForCommand([], 'gog');
+    expect(result.readPaths).toEqual([]);
+    expect(result.writePaths).toEqual([]);
   });
 });

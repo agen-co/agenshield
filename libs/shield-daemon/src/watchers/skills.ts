@@ -20,15 +20,15 @@ import {
   updateDownloadedAnalysis,
 } from '../services/marketplace';
 import { setCachedAnalysis } from '../services/skill-analyzer';
-import { addSkillPolicy } from '../services/skill-lifecycle';
+import { addSkillPolicy, createSkillWrapper } from '../services/skill-lifecycle';
 import { emitSkillAnalyzed, emitSkillAnalysisFailed } from '../events/emitter';
-import { getSystemConfigDir } from '../config/paths';
+import { getConfigDir } from '../config/paths';
 import { extractTagsFromSkillMd } from '../services/skill-tag-injector';
 import { hasValidInstallationTagSync } from '../vault/installation-key';
 
-/** Path to the approved skills configuration (dev-aware) */
+/** Path to the approved skills configuration (always user-writable) */
 function getApprovedSkillsPath(): string {
-  return path.join(getSystemConfigDir(), 'approved-skills.json');
+  return path.join(getConfigDir(), 'approved-skills.json');
 }
 
 /** Debounce interval for rapid filesystem events (ms) */
@@ -339,6 +339,12 @@ function scanSkills(): void {
                 const hash = computeSkillHash(fullPath);
                 addToApprovedList(skillName, undefined, hash ?? undefined);
                 addSkillPolicy(skillName);
+                // Create wrapper so the skill is actually invocable
+                const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+                const binDir = path.join(agentHome, 'bin');
+                createSkillWrapper(skillName, binDir).catch((err) => {
+                  console.warn(`[SkillsWatcher] Failed to create wrapper for ${skillName}:`, (err as Error).message);
+                });
                 if (callbacks.onApproved) {
                   callbacks.onApproved(skillName);
                 }
@@ -604,7 +610,12 @@ export function triggerSkillsScan(): void {
  * Get the configured skills directory path
  */
 export function getSkillsDir(): string {
-  return skillsDir;
+  if (skillsDir) return skillsDir;
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
+  if (agentHome) {
+    return path.join(agentHome, '.openclaw', 'workspace', 'skills');
+  }
+  return '';
 }
 
 /**
@@ -635,5 +646,35 @@ export function removeFromApprovedList(skillName: string): void {
   const filtered = approved.filter((s) => s.name !== skillName);
   if (filtered.length !== approved.length) {
     saveApprovedSkills(filtered);
+  }
+}
+
+/**
+ * Ensure wrappers exist for all approved skills that are on disk.
+ * Called at boot to cover reinstall/upgrade scenarios where approved-skills.json
+ * persists but wrapper scripts in $AGENT_HOME/bin/ were removed.
+ */
+export async function ensureSkillWrappers(): Promise<void> {
+  const approved = loadApprovedSkills();
+  if (approved.length === 0) return;
+
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+  const binDir = path.join(agentHome, 'bin');
+  const dir = getSkillsDir();
+
+  for (const entry of approved) {
+    // Only create wrappers for skills that are actually on disk
+    const skillPath = dir ? path.join(dir, entry.name) : '';
+    if (!skillPath || !fs.existsSync(skillPath)) continue;
+
+    const wrapperPath = path.join(binDir, entry.name);
+    if (fs.existsSync(wrapperPath)) continue;
+
+    try {
+      await createSkillWrapper(entry.name, binDir);
+      console.log(`[SkillsWatcher] Created missing wrapper for approved skill: ${entry.name}`);
+    } catch (err) {
+      console.warn(`[SkillsWatcher] Failed to create wrapper for ${entry.name}:`, (err as Error).message);
+    }
   }
 }

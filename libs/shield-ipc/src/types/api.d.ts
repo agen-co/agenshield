@@ -44,6 +44,7 @@ export type UpdateConfigResponse = ApiResponse<ShieldConfig>;
 export type HealthResponse = ApiResponse<{
     ok: boolean;
     timestamp: string;
+    mode?: 'daemon' | 'setup' | 'update';
 }>;
 export type GetSecurityStatusResponse = ApiResponse<SecurityStatusData>;
 export type UpdateConfigRequest = Partial<ShieldConfig>;
