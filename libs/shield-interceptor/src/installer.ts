@@ -90,6 +90,7 @@ export function installInterceptors(
       eventReporter,
       failOpen: config.failOpen,
       brokerHttpPort: config.httpPort,
+      config,
     });
     installed.http.install();
     log(config, 'debug', 'Installed http/https interceptor');

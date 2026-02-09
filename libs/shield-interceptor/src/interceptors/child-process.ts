@@ -113,6 +113,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
    */
   private syncPolicyCheck(fullCommand: string): PolicyCheckResult | null {
     this._checking = true;
+    const startTime = Date.now();
     try {
       debugLog(`cp.syncPolicyCheck START command=${fullCommand}`);
       const context = this.getPolicyExecutionContext();
@@ -123,6 +124,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       debugLog(`cp.syncPolicyCheck DONE allowed=${result.allowed} command=${fullCommand}`);
 
       if (!result.allowed) {
+        this.eventReporter.deny('exec', fullCommand, result.policyId, result.reason);
         throw new PolicyDeniedError(result.reason || 'Operation denied by policy', {
           operation: 'exec',
           target: fullCommand,
@@ -130,6 +132,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         });
       }
 
+      this.eventReporter.allow('exec', fullCommand, result.policyId, Date.now() - startTime);
       return result;
     } catch (error) {
       if (error instanceof PolicyDeniedError) {

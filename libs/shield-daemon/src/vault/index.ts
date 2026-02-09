@@ -157,3 +157,11 @@ export function resetVault(): void {
 
 // Re-export crypto utilities for convenience
 export { getMachineId, deriveKey, encrypt, decrypt } from './crypto';
+
+// Re-export installation key utilities
+export {
+  getInstallationKey,
+  getInstallationTag,
+  hasValidInstallationTagSync,
+  clearInstallationKeyCache,
+} from './installation-key';

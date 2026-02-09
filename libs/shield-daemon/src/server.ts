@@ -12,7 +12,7 @@ import { getUiAssetsPath } from './static';
 import { startSecurityWatcher, stopSecurityWatcher } from './watchers/security';
 import { startSkillsWatcher, stopSkillsWatcher } from './watchers/skills';
 import { emitSkillUntrustedDetected, emitSkillApproved } from './events/emitter';
-import { getVault } from './vault';
+import { getVault, getInstallationKey } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
 import { getActivityLog } from './services/activity-log';
 import { shutdownProxyPool } from './proxy/pool';
@@ -74,8 +74,16 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
 
   // Ensure skills directory exists with proper permissions before starting watcher
   if (!fs.existsSync(skillsDir)) {
-    fs.mkdirSync(skillsDir, { recursive: true, mode: 0o755 });
+    fs.mkdirSync(skillsDir, { recursive: true, mode: 0o2775 });
     console.log(`[Daemon] Created skills directory: ${skillsDir}`);
+  }
+
+  // Initialize installation key (generate if first run, cache for sync access in watcher)
+  try {
+    await getInstallationKey();
+    console.log('[Daemon] Installation key ready');
+  } catch (err) {
+    console.warn('[Daemon] Failed to initialize installation key:', (err as Error).message);
   }
 
   startSkillsWatcher(skillsDir, {

@@ -44,6 +44,10 @@ export function readOpenClawConfig(): OpenClawConfig {
             `sudo -H -u ${agentUsername} cat "${configPath}"`,
             { encoding: 'utf-8', cwd: '/', stdio: ['pipe', 'pipe', 'pipe'] }
           );
+          // Fix permissions so future reads don't need sudo
+          try { fs.chmodSync(configPath, 0o664); } catch {
+            try { execSync(`chmod 664 "${configPath}"`, { stdio: 'pipe' }); } catch { /* best-effort */ }
+          }
           return JSON.parse(raw) as OpenClawConfig;
         }
         throw err;
@@ -57,6 +61,9 @@ export function readOpenClawConfig(): OpenClawConfig {
 
 function writeConfig(config: OpenClawConfig): void {
   const configPath = getOpenClawConfigPath();
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+  const agentUsername = path.basename(agentHome);
+
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   try {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
@@ -64,8 +71,6 @@ function writeConfig(config: OpenClawConfig): void {
     if ((err as NodeJS.ErrnoException).code === 'EACCES') {
       // File may have been recreated by openclaw gateway with agent ownership.
       // Write via sudo as the agent user instead (sudoers rule grants NOPASSWD for tee).
-      const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-      const agentUsername = path.basename(agentHome);
       execSync(
         `sudo -H -u ${agentUsername} tee "${configPath}" > /dev/null`,
         { input: JSON.stringify(config, null, 2), stdio: ['pipe', 'pipe', 'pipe'], cwd: '/' }
@@ -73,6 +78,17 @@ function writeConfig(config: OpenClawConfig): void {
     } else {
       throw err;
     }
+  }
+
+  // Restore intended permissions (664) so broker + gateway can both read/write.
+  // Setup seeds the file as broker:socketGroup 664 but OpenClaw CLI or tee
+  // may recreate it with umask 077 → mode 600, breaking group reads.
+  try {
+    fs.chmodSync(configPath, 0o664);
+  } catch {
+    try {
+      execSync(`chmod 664 "${configPath}"`, { stdio: 'pipe' });
+    } catch { /* best-effort */ }
   }
 }
 

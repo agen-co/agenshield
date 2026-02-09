@@ -20,9 +20,12 @@ import {
   updateDownloadedAnalysis,
 } from '../services/marketplace';
 import { setCachedAnalysis } from '../services/skill-analyzer';
-import { readOpenClawConfig, removeSkillEntry } from '../services/openclaw-config';
+import { readOpenClawConfig, removeSkillEntry, addSkillEntry } from '../services/openclaw-config';
+import { addSkillPolicy } from '../services/skill-lifecycle';
 import { emitSkillAnalyzed, emitSkillAnalysisFailed } from '../events/emitter';
 import { getSystemConfigDir } from '../config/paths';
+import { extractTagsFromSkillMd } from '../services/skill-tag-injector';
+import { hasValidInstallationTagSync } from '../vault/installation-key';
 
 /** Path to the approved skills configuration (dev-aware) */
 function getApprovedSkillsPath(): string {
@@ -37,6 +40,8 @@ export interface ApprovedSkillEntry {
   approvedAt: string;
   hash?: string;
   publisher?: string;
+  /** Marketplace slug for linking back to download cache */
+  slug?: string;
 }
 
 export interface UntrustedSkillInfo {
@@ -318,12 +323,43 @@ function scanSkills(): void {
       const approvedEntry = approvedMap.get(skillName);
 
       if (!approvedEntry) {
-        // Not approved → move to marketplace as untrusted
+        // Not in approved list — check for valid installation tag before quarantining
         const fullPath = path.join(skillsDir, skillName);
-        const slug = moveToMarketplace(skillName, fullPath);
-        if (slug) {
-          if (callbacks.onUntrustedDetected) {
-            callbacks.onUntrustedDetected({ name: skillName, reason: 'Skill not in approved list' });
+        let autoApproved = false;
+
+        // Look for SKILL.md with a valid agenshield-{key} tag
+        for (const mdName of ['SKILL.md', 'skill.md']) {
+          const mdPath = path.join(fullPath, mdName);
+          try {
+            if (fs.existsSync(mdPath)) {
+              const content = fs.readFileSync(mdPath, 'utf-8');
+              const tags = extractTagsFromSkillMd(content);
+              if (hasValidInstallationTagSync(tags)) {
+                // Auto-approve: installed by this AgenShield instance
+                console.log(`[SkillsWatcher] Auto-approving skill with valid installation tag: ${skillName}`);
+                const hash = computeSkillHash(fullPath);
+                addToApprovedList(skillName, undefined, hash ?? undefined);
+                addSkillEntry(skillName);
+                addSkillPolicy(skillName);
+                if (callbacks.onApproved) {
+                  callbacks.onApproved(skillName);
+                }
+                autoApproved = true;
+                break;
+              }
+            }
+          } catch {
+            // Couldn't read SKILL.md, continue to quarantine
+          }
+        }
+
+        if (!autoApproved) {
+          // No valid tag → move to marketplace as untrusted
+          const slug = moveToMarketplace(skillName, fullPath);
+          if (slug) {
+            if (callbacks.onUntrustedDetected) {
+              callbacks.onUntrustedDetected({ name: skillName, reason: 'Skill not in approved list' });
+            }
           }
         }
       } else if (approvedEntry.hash) {
@@ -605,7 +641,7 @@ export function getSkillsDir(): string {
  * Used by marketplace install to pre-approve before writing files,
  * preventing a race condition with the watcher quarantining new skills.
  */
-export function addToApprovedList(skillName: string, publisher?: string, hash?: string): void {
+export function addToApprovedList(skillName: string, publisher?: string, hash?: string, slug?: string): void {
   const approved = loadApprovedSkills();
   if (!approved.some((s) => s.name === skillName)) {
     approved.push({
@@ -613,6 +649,7 @@ export function addToApprovedList(skillName: string, publisher?: string, hash?: 
       approvedAt: new Date().toISOString(),
       ...(publisher ? { publisher } : {}),
       ...(hash ? { hash } : {}),
+      ...(slug ? { slug } : {}),
     });
     saveApprovedSkills(approved);
   }

@@ -37,6 +37,23 @@ export async function handleEventsBatch(
     await deps.auditLogger.log(entry);
   }
 
+  // Forward events to daemon for SSE broadcasting (fire-and-forget)
+  if (eventList.length > 0) {
+    const daemonUrl = deps.daemonUrl || 'http://127.0.0.1:5200';
+    setImmediate(() => {
+      fetch(`${daemonUrl}/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: `broker-events-${Date.now()}`,
+          method: 'events_batch',
+          params: { events: eventList },
+        }),
+      }).catch(() => { /* fire-and-forget */ });
+    });
+  }
+
   return {
     success: true,
     data: { received: eventList.length },

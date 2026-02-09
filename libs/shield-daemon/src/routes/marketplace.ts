@@ -25,6 +25,7 @@ import {
   downloadAndExtractZip,
   storeDownloadedSkill,
   inlineImagesInMarkdown,
+  markDownloadedAsInstalled,
 } from '../services/marketplace';
 import { setCachedAnalysis } from '../services/skill-analyzer';
 import {
@@ -47,6 +48,7 @@ import {
   installSkillViaBroker,
 } from '../services/broker-bridge';
 import { stripEnvFromSkillMd } from '@agenshield/sandbox';
+import { injectInstallationTag } from '../services/skill-tag-injector';
 import { addSkillEntry, syncOpenClawFromPolicies } from '../services/openclaw-config';
 import { executeSkillInstallSteps } from '../services/skill-deps';
 import { loadConfig } from '../config/index';
@@ -440,21 +442,27 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
 
           // 6. Pre-approve to prevent race with watcher quarantining
           emitSkillInstallProgress(slug, 'approve', 'Pre-approving skill');
-          addToApprovedList(slug, publisher);
+          addToApprovedList(slug, publisher, undefined, slug);
           logs.push('Skill pre-approved');
 
-          // 7. Install files via broker or directly (dev fallback)
+          // 7. Prepare files: strip env vars and inject installation tag
           emitSkillInstallProgress(slug, 'copy', 'Writing skill files');
 
+          const taggedFiles = await Promise.all(files.map(async (f) => {
+            let content = f.content;
+            if (/SKILL\.md$/i.test(f.name)) {
+              content = stripEnvFromSkillMd(content);
+              content = await injectInstallationTag(content);
+            }
+            return { ...f, content };
+          }));
+
+          // Install files via broker or directly (dev fallback)
           const brokerAvailable = await isBrokerAvailable();
           if (brokerAvailable) {
-            const sanitizedFiles = files.map((f) => ({
-              name: f.name,
-              content: /SKILL\.md$/i.test(f.name) ? stripEnvFromSkillMd(f.content) : f.content,
-            }));
             const brokerResult = await installSkillViaBroker(
               slug,
-              sanitizedFiles,
+              taggedFiles.map((f) => ({ name: f.name, content: f.content })),
               { createWrapper: true, agentHome, socketGroup }
             );
 
@@ -477,19 +485,18 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
             console.log(`[Marketplace] Broker unavailable, installing ${slug} directly`);
             sudoMkdir(skillDir, agentUsername);
 
-            for (const file of files) {
+            for (const file of taggedFiles) {
               const filePath = path.join(skillDir, file.name);
               const fileDir = path.dirname(filePath);
               if (fileDir !== skillDir) {
                 sudoMkdir(fileDir, agentUsername);
               }
-              const content = /SKILL\.md$/i.test(file.name) ? stripEnvFromSkillMd(file.content) : file.content;
-              sudoWriteFile(filePath, content, agentUsername);
+              sudoWriteFile(filePath, file.content, agentUsername);
             }
 
             createSkillWrapper(slug, binDir);
 
-            logs.push(`Files written directly: ${files.length} files`);
+            logs.push(`Files written directly: ${taggedFiles.length} files`);
             logs.push(`Wrapper created: ${path.join(binDir, slug)}`);
           }
 
@@ -497,13 +504,41 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           let depsSuccess = true;
           emitSkillInstallProgress(slug, 'deps', 'Installing skill dependencies');
           try {
+            // Debounce dep logs: batch noisy output (brew/npm/pip), emit every 3s
+            let depsLineCount = 0;
+            let depsLastEmit = Date.now();
+            let depsLastLine = '';
+            const DEPS_DEBOUNCE_MS = 3000;
+            const depsOnLog = (msg: string) => {
+              depsLineCount++;
+              depsLastLine = msg;
+              // Always emit milestone lines (e.g. "Installing brew formula: ...")
+              if (/^(Installing|Found|Verifying)\s/.test(msg)) {
+                emitSkillInstallProgress(slug, 'deps', msg);
+                depsLastEmit = Date.now();
+                return;
+              }
+              // Batch the rest: emit a summary periodically
+              const now = Date.now();
+              if (now - depsLastEmit >= DEPS_DEBOUNCE_MS) {
+                emitSkillInstallProgress(slug, 'deps', `Installing... (${depsLineCount} lines)`);
+                depsLastEmit = now;
+              }
+            };
+
             const depsResult = await executeSkillInstallSteps({
               slug,
               skillDir,
               agentHome,
               agentUsername,
-              onLog: (msg) => emitSkillInstallProgress(slug, 'deps', msg),
+              onLog: depsOnLog,
             });
+
+            // Emit final summary
+            if (depsLineCount > 0) {
+              emitSkillInstallProgress(slug, 'deps', `Dependency install complete (${depsLineCount} lines processed)`);
+            }
+
             if (depsResult.installed.length > 0) {
               logs.push(`Dependencies installed: ${depsResult.installed.join(', ')}`);
             }
@@ -536,6 +571,9 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
             updateApprovedHash(slug, hash);
             logs.push('Integrity hash recorded');
           }
+
+          // 13. Mark marketplace cache as installed (preserves metadata for re-enable)
+          try { markDownloadedAsInstalled(slug); } catch { /* best-effort */ }
 
           // 14. Clear install flag BEFORE broadcast so GET /skills never returns stale 'installing'
           installInProgress.delete(slug);

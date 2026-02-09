@@ -24,6 +24,7 @@ export const VaultContentsSchema = z.object({
   envSecrets: z.record(z.string(), z.string()),
   sensitivePatterns: z.array(z.string()),
   passcode: PasscodeDataSchema.optional(),
+  installationKey: z.string().optional(),
 });
 
 // Inferred types from schemas

@@ -103,7 +103,7 @@ function slugify(name: string): string {
 
 function mapDaemonSkill(s: DaemonSkillSummary): UnifiedSkill {
   const isBlocked = s.status === 'quarantined' || s.status === 'blocked';
-  const isDownloaded = s.status === 'downloaded';
+  const isDownloaded = s.status === 'downloaded' || s.status === 'disabled';
   const isUntrusted = s.status === 'untrusted';
 
   let origin: SkillOrigin;

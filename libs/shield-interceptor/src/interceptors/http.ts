@@ -1,11 +1,19 @@
 /**
  * HTTP/HTTPS Interceptor
  *
- * Intercepts Node.js http and https module calls.
+ * Intercepts Node.js http and https module calls with synchronous policy
+ * checking. Uses SyncClient to block before the request fires, preventing
+ * the race condition where async policy checks arrive after the request
+ * has already completed.
  */
 
 import type * as http from 'node:http';
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
+import { SyncClient } from '../client/sync-client.js';
+import { PolicyDeniedError } from '../errors.js';
+import { debugLog } from '../debug-log.js';
+import type { PolicyExecutionContext } from '@agenshield/ipc';
+import type { PolicyCheckResult } from '../policy/evaluator.js';
 
 // Use require() for modules we need to monkey-patch (ESM imports are immutable)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -14,6 +22,7 @@ const httpModule = require('node:http') as typeof http;
 const httpsModule = require('node:https') as typeof http;
 
 export class HttpInterceptor extends BaseInterceptor {
+  private syncClient: SyncClient;
   private originalHttpRequest: typeof http.request | null = null;
   private originalHttpGet: typeof http.get | null = null;
   private originalHttpsRequest: typeof http.request | null = null;
@@ -21,6 +30,13 @@ export class HttpInterceptor extends BaseInterceptor {
 
   constructor(options: BaseInterceptorOptions) {
     super(options);
+    const config = this.interceptorConfig;
+    this.syncClient = new SyncClient({
+      socketPath: config?.socketPath || '/var/run/agenshield/agenshield.sock',
+      httpHost: config?.httpHost || 'localhost',
+      httpPort: config?.httpPort || 5201,
+      timeout: config?.timeout || 30000,
+    });
   }
 
   install(): void {
@@ -64,6 +80,57 @@ export class HttpInterceptor extends BaseInterceptor {
     this.installed = false;
   }
 
+  /**
+   * Build execution context from config for RPC calls
+   */
+  private getPolicyExecutionContext(): PolicyExecutionContext {
+    const config = this.interceptorConfig;
+    return {
+      callerType: config?.contextType || 'agent',
+      skillSlug: config?.contextSkillSlug,
+      agentId: config?.contextAgentId,
+      depth: 0,
+    };
+  }
+
+  /**
+   * Synchronous policy check via SyncClient.
+   * Returns the full policy result or null if broker is unavailable and failOpen is true.
+   */
+  private syncPolicyCheck(url: string): PolicyCheckResult | null {
+    const startTime = Date.now();
+    try {
+      debugLog(`http.syncPolicyCheck START url=${url}`);
+      const context = this.getPolicyExecutionContext();
+      const result = this.syncClient.request<PolicyCheckResult>(
+        'policy_check',
+        { operation: 'http_request', target: url, context }
+      );
+      debugLog(`http.syncPolicyCheck DONE allowed=${result.allowed} url=${url}`);
+
+      if (!result.allowed) {
+        this.eventReporter.deny('http_request', url, result.policyId, result.reason);
+        throw new PolicyDeniedError(result.reason || 'Operation denied by policy', {
+          operation: 'http_request',
+          target: url,
+          policyId: result.policyId,
+        });
+      }
+
+      this.eventReporter.allow('http_request', url, result.policyId, Date.now() - startTime);
+      return result;
+    } catch (error) {
+      if (error instanceof PolicyDeniedError) {
+        throw error;
+      }
+      debugLog(`http.syncPolicyCheck ERROR: ${(error as Error).message} url=${url}`);
+      if (!this.failOpen) {
+        throw error;
+      }
+      return null;
+    }
+  }
+
   private createInterceptedRequest(
     protocol: 'http' | 'https',
     original: typeof http.request
@@ -100,25 +167,28 @@ export class HttpInterceptor extends BaseInterceptor {
         );
       }
 
-      // Check policy asynchronously
-      // Note: We can't fully block sync http.request, so we check and may abort
-      const req = original.call(
+      self.eventReporter.intercept('http_request', url);
+
+      // Synchronous policy check — blocks before the request fires
+      try {
+        self.syncPolicyCheck(url);
+      } catch (error) {
+        // Denied — return a request that immediately errors
+        debugLog(`http.request DENIED url=${url}`);
+        const mod = protocol === 'http' ? httpModule : httpsModule;
+        const denied = original.call(mod, 'http://0.0.0.0:1', { method: 'GET' });
+        denied.once('error', () => {});
+        process.nextTick(() => denied.destroy(error as Error));
+        return denied;
+      }
+
+      // Policy allowed — make the real request
+      return original.call(
         protocol === 'http' ? httpModule : httpsModule,
         urlOrOptions as any,
         optionsOrCallback as any,
         callback
       );
-
-      // Emit check event
-      self.eventReporter.intercept('http_request', url);
-
-      // Check policy in background
-      self.checkPolicy('http_request', url).catch((error) => {
-        // Abort the request if policy denies
-        req.destroy(error);
-      });
-
-      return req;
     };
   }
 

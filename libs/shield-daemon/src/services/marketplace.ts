@@ -304,6 +304,8 @@ export interface DownloadedSkillMeta {
   /** Where this entry came from: 'marketplace' (preview/install) or 'watcher' (untrusted detection) */
   source?: 'marketplace' | 'watcher';
   analysis?: AnalyzeSkillResponse['analysis'];
+  /** True once the skill has been installed (survives disable for re-enable) */
+  wasInstalled?: boolean;
 }
 
 /**
@@ -360,6 +362,23 @@ export function updateDownloadedAnalysis(slug: string, analysis: AnalyzeSkillRes
   }
 }
 
+/**
+ * Mark a downloaded skill as having been installed.
+ * Survives disable so the skill can be shown as "disabled" in GET /skills.
+ */
+export function markDownloadedAsInstalled(slug: string): void {
+  const metaPath = path.join(getMarketplaceDir(), slug, 'metadata.json');
+  try {
+    if (!fs.existsSync(metaPath)) return;
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as DownloadedSkillMeta;
+    if (meta.wasInstalled) return; // already marked
+    meta.wasInstalled = true;
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
+  } catch {
+    // Best-effort
+  }
+}
+
 /** Summary info for a downloaded skill */
 export interface DownloadedSkillInfo {
   slug: string;
@@ -372,6 +391,8 @@ export interface DownloadedSkillInfo {
   /** Where this entry came from: 'marketplace' (preview/install) or 'watcher' (untrusted detection) */
   source?: 'marketplace' | 'watcher';
   analysis?: AnalyzeSkillResponse['analysis'];
+  /** True once the skill has been installed (survives disable for re-enable) */
+  wasInstalled?: boolean;
 }
 
 /**
@@ -399,6 +420,7 @@ export function listDownloadedSkills(): DownloadedSkillInfo[] {
           hasAnalysis: !!meta.analysis,
           source: meta.source,
           analysis: meta.analysis,
+          wasInstalled: meta.wasInstalled ?? false,
         });
       } catch {
         // Skip malformed entries

@@ -10,6 +10,7 @@ import { execSync } from 'node:child_process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { MarketplaceSkillFile } from '@agenshield/ipc';
 import { parseSkillMd, stripEnvFromSkillMd } from '@agenshield/sandbox';
+import { injectInstallationTag } from '../services/skill-tag-injector';
 import {
   listApproved,
   listUntrusted,
@@ -44,6 +45,7 @@ import {
   getMarketplaceSkill,
   storeDownloadedSkill,
   deleteDownloadedSkill,
+  markDownloadedAsInstalled,
   inlineImagesInMarkdown,
   updateDownloadedAnalysis,
   analyzeSkillBySlug,
@@ -253,18 +255,45 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       // Workspace: on disk but not approved or untrusted
       ...workspaceNames.map((name) => {
         const meta = skillsDir ? readSkillMetadata(path.join(skillsDir, name)) : {};
+        const dlMeta = getDownloadedSkillMeta(name);
+        const cached = getCachedAnalysis(name);
         return {
           name,
           source: 'workspace' as const,
           status: 'workspace' as const,
           path: path.join(skillsDir ?? '', name),
-          description: meta.description,
-          version: meta.version,
-          author: meta.author,
-          tags: meta.tags,
-          analysis: buildAnalysisSummary(name, getCachedAnalysis(name)),
+          description: meta.description ?? dlMeta?.description,
+          version: meta.version ?? dlMeta?.version,
+          author: meta.author ?? dlMeta?.author,
+          tags: meta.tags ?? dlMeta?.tags,
+          analysis: buildAnalysisSummary(name, dlMeta?.analysis || cached),
         };
       }),
+      // Disabled: previously installed marketplace skills that are no longer active
+      ...(() => {
+        const allKnown = new Set([
+          ...approvedNames,
+          ...untrustedNames,
+          ...workspaceNames,
+        ]);
+        return listDownloadedSkills()
+          .filter((d) => d.wasInstalled && !allKnown.has(d.slug) && !allKnown.has(d.name))
+          .map((d) => {
+            const cached = getCachedAnalysis(d.slug) || getCachedAnalysis(d.name);
+            return {
+              name: d.slug,
+              source: 'marketplace' as const,
+              status: 'disabled' as const,
+              path: '',
+              publisher: d.author,
+              description: d.description,
+              version: d.version,
+              author: d.author,
+              tags: d.tags,
+              analysis: buildAnalysisSummary(d.slug, d.analysis || cached),
+            };
+          });
+      })(),
     ];
 
     return reply.send({ data });
@@ -340,23 +369,24 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         };
       } else if (isWorkspace) {
         const meta = skillsDir ? readSkillMetadata(path.join(skillsDir, name)) : {};
+        const wsDlMeta = getDownloadedSkillMeta(name);
         summary = {
           name,
           source: 'workspace',
           status: 'workspace',
           path: skillsDir ? path.join(skillsDir, name) : '',
-          description: meta.description,
-          version: meta.version,
-          author: meta.author,
-          tags: meta.tags,
-          analysis: buildFullAnalysis(name, getCachedAnalysis(name)) as SkillSummary['analysis'],
+          description: meta.description ?? wsDlMeta?.description,
+          version: meta.version ?? wsDlMeta?.version,
+          author: meta.author ?? wsDlMeta?.author,
+          tags: meta.tags ?? wsDlMeta?.tags,
+          analysis: buildFullAnalysis(name, wsDlMeta?.analysis || getCachedAnalysis(name)) as SkillSummary['analysis'],
         };
       } else if (dlMeta) {
         const cached = getCachedAnalysis(name);
         summary = {
           name: dlMeta.slug ?? name,
           source: 'marketplace',
-          status: 'downloaded',
+          status: dlMeta.wasInstalled ? 'disabled' : 'downloaded',
           description: dlMeta.description,
           path: '',
           publisher: dlMeta.author,
@@ -708,7 +738,8 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           removeSkillPolicy(name);
           syncOpenClawFromPolicies(loadConfig().policies);
           removeFromApprovedList(name);
-          try { deleteDownloadedSkill(name); } catch { /* best-effort */ }
+          // Preserve marketplace cache for re-enable; mark as previously installed
+          try { markDownloadedAsInstalled(name); } catch { /* best-effort */ }
 
           console.log(`[Skills] Disabled marketplace skill: ${name}`);
           emitSkillUninstalled(name);
@@ -730,15 +761,25 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         }
 
         try {
-          // Pre-approve
-          addToApprovedList(name, meta.author);
+          // Pre-approve with marketplace slug link
+          addToApprovedList(name, meta.author, undefined, meta.slug);
+
+          // Prepare files: strip env vars and inject installation tag
+          const taggedFiles = await Promise.all(files.map(async (f) => {
+            let content = f.content;
+            if (/SKILL\.md$/i.test(f.name)) {
+              content = stripEnvFromSkillMd(content);
+              content = await injectInstallationTag(content);
+            }
+            return { name: f.name, content, type: f.type };
+          }));
 
           // Install via broker if available (handles mkdir, write, chown, wrapper)
           const brokerAvailable = await isBrokerAvailable();
           if (brokerAvailable) {
             const brokerResult = await installSkillViaBroker(
               name,
-              files.map((f) => ({ name: f.name, content: f.content })),
+              taggedFiles.map((f) => ({ name: f.name, content: f.content })),
               { createWrapper: true, agentHome, socketGroup }
             );
             if (!brokerResult.installed) {
@@ -752,7 +793,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           } else {
             // Fallback: direct fs operations
             fs.mkdirSync(skillDir, { recursive: true });
-            for (const file of files) {
+            for (const file of taggedFiles) {
               const filePath = path.join(skillDir, file.name);
               fs.mkdirSync(path.dirname(filePath), { recursive: true });
               fs.writeFileSync(filePath, file.content, 'utf-8');
@@ -774,6 +815,9 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           // Record integrity hash
           const hash = computeSkillHash(skillDir);
           if (hash) updateApprovedHash(name, hash);
+
+          // Mark marketplace cache as installed (preserves metadata for re-enable)
+          try { markDownloadedAsInstalled(name); } catch { /* best-effort */ }
 
           console.log(`[Skills] Enabled marketplace skill: ${name}`);
           return reply.send({ success: true, action: 'enabled', name });
@@ -844,13 +888,22 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         // 3. Pre-approve to prevent watcher quarantine race
         addToApprovedList(name, publisher);
 
-        // 4. Write files to $AGENT_HOME/.openclaw/skills/<name>/
+        // 4. Prepare files: strip env vars and inject installation tag
+        const taggedFiles = await Promise.all(files.map(async (f) => {
+          let content = f.content;
+          if (/SKILL\.md$/i.test(f.name)) {
+            content = stripEnvFromSkillMd(content);
+            content = await injectInstallationTag(content);
+          }
+          return { name: f.name, content };
+        }));
+
+        // 5. Write files to $AGENT_HOME/.openclaw/skills/<name>/
         sudoMkdir(skillDir, agentUsername);
-        for (const file of files) {
+        for (const file of taggedFiles) {
           const filePath = path.join(skillDir, file.name);
           sudoMkdir(path.dirname(filePath), agentUsername);
-          const content = /SKILL\.md$/i.test(file.name) ? stripEnvFromSkillMd(file.content) : file.content;
-          sudoWriteFile(filePath, content, agentUsername);
+          sudoWriteFile(filePath, file.content, agentUsername);
         }
 
         // 5. Set ownership (root-owned, agent-readable)
@@ -931,15 +984,25 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
         const skillDir = path.join(getSkillsDir(), name);
 
-        // Pre-approve
-        addToApprovedList(name, meta.author);
+        // Pre-approve with marketplace slug link
+        addToApprovedList(name, meta.author, undefined, meta.slug);
+
+        // Prepare files: strip env vars and inject installation tag
+        const taggedFiles = await Promise.all(files.map(async (f) => {
+          let content = f.content;
+          if (/SKILL\.md$/i.test(f.name)) {
+            content = stripEnvFromSkillMd(content);
+            content = await injectInstallationTag(content);
+          }
+          return { name: f.name, content, type: f.type };
+        }));
 
         // Install via broker if available
         const brokerAvailable = await isBrokerAvailable();
         if (brokerAvailable) {
           const brokerResult = await installSkillViaBroker(
             name,
-            files.map((f) => ({ name: f.name, content: f.content })),
+            taggedFiles.map((f) => ({ name: f.name, content: f.content })),
             { createWrapper: true, agentHome, socketGroup }
           );
           if (!brokerResult.installed) {
@@ -953,7 +1016,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         } else {
           // Fallback: direct fs operations
           fs.mkdirSync(skillDir, { recursive: true });
-          for (const file of files) {
+          for (const file of taggedFiles) {
             const filePath = path.join(skillDir, file.name);
             fs.mkdirSync(path.dirname(filePath), { recursive: true });
             fs.writeFileSync(filePath, file.content, 'utf-8');
@@ -974,6 +1037,9 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         // Record integrity hash
         const unblockHash = computeSkillHash(path.join(getSkillsDir(), name));
         if (unblockHash) updateApprovedHash(name, unblockHash);
+
+        // Mark marketplace cache as installed (preserves metadata for re-enable)
+        try { markDownloadedAsInstalled(name); } catch { /* best-effort */ }
 
         console.log(`[Skills] Unblocked and installed skill: ${name}`);
         return reply.send({ success: true, message: `Skill "${name}" approved and installed` });

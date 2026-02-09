@@ -128,4 +128,6 @@ export interface VaultContents {
   passcode?: PasscodeData;
   /** Named secrets with policy links */
   secrets?: VaultSecret[];
+  /** Unique per-installation key for skill trust verification */
+  installationKey?: string;
 }
