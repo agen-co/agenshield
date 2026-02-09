@@ -12,7 +12,8 @@ import { registerRoutes } from './routes/index';
 import { getUiAssetsPath } from './static';
 import { startSecurityWatcher, stopSecurityWatcher } from './watchers/security';
 import { startSkillsWatcher, stopSkillsWatcher } from './watchers/skills';
-import { emitSkillUntrustedDetected, emitSkillApproved } from './events/emitter';
+import { startProcessHealthWatcher, stopProcessHealthWatcher } from './watchers/process-health';
+import { emitSkillUntrustedDetected, emitSkillApproved, emitProcessStarted, emitProcessStopped } from './events/emitter';
 import { getVault, getInstallationKey } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
 import { getActivityLog } from './services/activity-log';
@@ -137,10 +138,15 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     // Non-fatal: MCP auto-activation failed, user can connect later
   }
 
+  // Start process health watcher for broker/gateway lifecycle events
+  await startProcessHealthWatcher(10000);
+
   // Stop watchers, proxy pool, and MCP on server close
   app.addHook('onClose', async () => {
+    emitProcessStopped('daemon', { pid: process.pid });
     stopSecurityWatcher();
     stopSkillsWatcher();
+    stopProcessHealthWatcher();
     activityLog.stop();
     shutdownProxyPool();
     await deactivateMCP();
@@ -154,6 +160,9 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     port: config.port,
     host: listenHost,
   });
+
+  // Emit daemon started event after successful listen
+  emitProcessStarted('daemon', { pid: process.pid });
 
   return app;
 }

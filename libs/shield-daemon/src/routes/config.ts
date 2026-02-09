@@ -23,6 +23,29 @@ import { generatePolicyMarkdown } from '../services/policy-markdown';
 import { listApproved, listUntrusted } from '../watchers/skills';
 import { listDownloadedSkills } from '../services/marketplace';
 
+/**
+ * Resolve the agent username from state, falling back to AGENSHIELD_AGENT_HOME env.
+ * Existing installations may have the user on the system but not in state.json.
+ */
+function getAgentUsername(): string | null {
+  const state = loadState();
+  const agentUser = state.users.find((u) => u.type === 'agent');
+  if (agentUser) return agentUser.username;
+
+  // Fallback: derive from AGENSHIELD_AGENT_HOME env var
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
+  if (agentHome) {
+    const parts = agentHome.split('/');
+    const name = parts[parts.length - 1] || null;
+    if (name) {
+      console.warn(`[config] agent user not in state — derived "${name}" from AGENSHIELD_AGENT_HOME. Re-run setup to fix.`);
+    }
+    return name;
+  }
+
+  return null;
+}
+
 /** Collect all known skill names (approved + untrusted + downloaded). */
 function getKnownSkillNames(): Set<string> {
   const names = new Set<string>();
@@ -55,9 +78,11 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
           const state = loadState();
 
           // Filesystem ACLs
-          const agentUser = state.users.find((u) => u.type === 'agent');
-          if (agentUser) {
-            syncFilesystemPolicyAcls(oldPolicies, updated.policies, agentUser.username, app.log);
+          const agentUsername = getAgentUsername();
+          if (agentUsername) {
+            syncFilesystemPolicyAcls(oldPolicies, updated.policies, agentUsername, app.log);
+          } else {
+            app.log.warn('[config] No agent user found in state or environment — filesystem ACL sync skipped');
           }
 
           // Command allowlist + wrappers
@@ -114,9 +139,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       // Revoke all policy enforcement before wiping config
       const oldConfig = loadConfig();
       const state = loadState();
-      const agentUser = state.users.find((u) => u.type === 'agent');
-      if (agentUser) {
-        syncFilesystemPolicyAcls(oldConfig.policies, [], agentUser.username, app.log);
+      const agentUsername = getAgentUsername();
+      if (agentUsername) {
+        syncFilesystemPolicyAcls(oldConfig.policies, [], agentUsername, app.log);
       }
       // Clear command allowlist (empty policies = empty allowlist)
       syncCommandPoliciesAndWrappers([], state, app.log);
@@ -161,14 +186,19 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
     error?: string;
   }> => {
     try {
-      const state = loadState();
-      const agentUser = state.users.find((u) => u.type === 'agent');
-      if (!agentUser) {
-        return { success: false, error: 'No agent user found in state' };
+      const agentUsername = getAgentUsername();
+      if (!agentUsername) {
+        return { success: false, error: 'No agent user found in state or environment' };
       }
 
+      const state = loadState();
+      const agentUser = state.users.find((u) => u.type === 'agent');
+      const agentHomeDir = agentUser?.homeDir
+        || process.env['AGENSHIELD_AGENT_HOME']
+        || `/Users/${agentUsername}`;
+
       const userConfig = createUserConfig();
-      const binDir = path.join(agentUser.homeDir, 'bin');
+      const binDir = path.join(agentHomeDir, 'bin');
       const result = await installShieldExec(userConfig, binDir);
 
       return {

@@ -74,18 +74,27 @@ export function operationsToAclPerms(operations: string[]): string {
 /**
  * Add a user ACL entry to a path.
  */
-export function addUserAcl(targetPath: string, userName: string, permissions: string, log: Logger = noop): void {
+export function addUserAcl(
+  targetPath: string,
+  userName: string,
+  permissions: string,
+  log: Logger = noop,
+  action: 'allow' | 'deny' = 'allow',
+): void {
   try {
     if (!fs.existsSync(targetPath)) {
       log.warn(`[acl] skipping non-existent path: ${targetPath}`);
       return;
     }
-    execSync(
-      `sudo chmod +a "user:${userName} allow ${permissions}" "${targetPath}"`,
-      { stdio: 'pipe' },
-    );
+    const cmd = `chmod +a "user:${userName} ${action} ${permissions}" "${targetPath}"`;
+    try {
+      execSync(cmd, { stdio: 'pipe' });
+    } catch {
+      // Fall back to sudo (e.g. for system-owned files)
+      execSync(`sudo ${cmd}`, { stdio: 'pipe' });
+    }
   } catch (err) {
-    log.warn(`[acl] failed to add ACL on ${targetPath}: ${(err as Error).message}`);
+    log.warn(`[acl] failed to add ${action} ACL on ${targetPath}: ${(err as Error).message}`);
   }
 }
 
@@ -122,10 +131,12 @@ export function removeUserAcl(targetPath: string, userName: string, log: Logger 
     indices.sort((a, b) => b - a);
     for (const idx of indices) {
       try {
-        execSync(
-          `sudo chmod -a# ${idx} "${targetPath}"`,
-          { stdio: 'pipe' },
-        );
+        const cmd = `chmod -a# ${idx} "${targetPath}"`;
+        try {
+          execSync(cmd, { stdio: 'pipe' });
+        } catch {
+          execSync(`sudo ${cmd}`, { stdio: 'pipe' });
+        }
       } catch (err) {
         log.warn(`[acl] failed to remove ACL entry ${idx} on ${targetPath}: ${(err as Error).message}`);
       }
@@ -164,22 +175,40 @@ function mergePerms(a: string, b: string): string {
 }
 
 /**
- * Build a `Map<path, permissions>` from a set of filesystem policies.
- *
- * Pass 1: collect direct targets with merged permissions.
- * Pass 2: add `search` for traversal ancestors not already in the map.
+ * Check whether a policy is relevant to filesystem ACL enforcement.
+ * Matches `target: 'filesystem'` and `target: 'command'` policies that
+ * have file-related operations (file_read, file_write, file_list).
  */
-function computeAclMap(policies: PolicyConfig[]): Map<string, string> {
-  const aclMap = new Map<string, string>();
+export function isFilesystemRelevant(p: PolicyConfig): boolean {
+  if (p.target === 'filesystem') return true;
+  if (p.target === 'command') {
+    const ops = p.operations ?? [];
+    return ops.some(op => op === 'file_read' || op === 'file_write' || op === 'file_list');
+  }
+  return false;
+}
 
-  // Pass 1 — direct targets (only ALLOW policies get ACLs; deny is enforced at runtime)
+/**
+ * Build allow and deny ACL maps from a set of filesystem-relevant policies.
+ *
+ * Allow map:
+ *   Pass 1: collect direct targets with merged permissions.
+ *   Pass 2: add `search` for traversal ancestors not already in the map.
+ * Deny map:
+ *   Pass 3: collect deny targets (no traversal ancestors needed for deny).
+ */
+export function computeAclMap(policies: PolicyConfig[]): { allow: Map<string, string>; deny: Map<string, string> } {
+  const allowMap = new Map<string, string>();
+  const denyMap = new Map<string, string>();
+
+  // Pass 1 — allow direct targets
   for (const policy of policies.filter(p => p.action === 'allow')) {
     const perms = operationsToAclPerms(policy.operations ?? []);
     if (!perms) continue;
     for (const pattern of policy.patterns) {
       const target = stripGlobToBasePath(pattern);
-      const existing = aclMap.get(target);
-      aclMap.set(target, existing ? mergePerms(existing, perms) : perms);
+      const existing = allowMap.get(target);
+      allowMap.set(target, existing ? mergePerms(existing, perms) : perms);
     }
   }
 
@@ -190,14 +219,25 @@ function computeAclMap(policies: PolicyConfig[]): Map<string, string> {
     for (const pattern of policy.patterns) {
       const target = stripGlobToBasePath(pattern);
       for (const ancestor of getAncestorsNeedingTraversal(target)) {
-        if (!aclMap.has(ancestor)) {
-          aclMap.set(ancestor, TRAVERSAL_PERMS);
+        if (!allowMap.has(ancestor)) {
+          allowMap.set(ancestor, TRAVERSAL_PERMS);
         }
       }
     }
   }
 
-  return aclMap;
+  // Pass 3 — deny targets (no traversal ancestors needed for deny)
+  for (const policy of policies.filter(p => p.action === 'deny')) {
+    const perms = operationsToAclPerms(policy.operations ?? []);
+    if (!perms) continue;
+    for (const pattern of policy.patterns) {
+      const target = stripGlobToBasePath(pattern);
+      const existing = denyMap.get(target);
+      denyMap.set(target, existing ? mergePerms(existing, perms) : perms);
+    }
+  }
+
+  return { allow: allowMap, deny: denyMap };
 }
 
 /**
@@ -205,7 +245,8 @@ function computeAclMap(policies: PolicyConfig[]): Map<string, string> {
  *
  * For every path in the union of old and new ACL maps:
  *   1. Remove all existing user ACLs (clean slate)
- *   2. Reapply permissions if the path is in the new map
+ *   2. Reapply deny ACLs first (macOS evaluates ACLs top-to-bottom)
+ *   3. Reapply allow ACLs second
  *
  * This "wipe then reapply" strategy avoids stale permission accumulation
  * and the deny+allow conflict where layering ACLs produces wrong results.
@@ -218,23 +259,32 @@ export function syncFilesystemPolicyAcls(
 ): void {
   const log = logger ?? noop;
 
-  const oldFs = oldPolicies.filter((p) => p.target === 'filesystem');
-  const newFs = newPolicies.filter((p) => p.target === 'filesystem');
+  const oldFs = oldPolicies.filter((p) => p.enabled !== false && isFilesystemRelevant(p));
+  const newFs = newPolicies.filter((p) => p.enabled !== false && isFilesystemRelevant(p));
 
-  const oldAclMap = computeAclMap(oldFs);
-  const newAclMap = computeAclMap(newFs);
+  const oldMaps = computeAclMap(oldFs);
+  const newMaps = computeAclMap(newFs);
 
-  // Collect ALL paths that had or will have ACLs
-  const allPaths = new Set([...oldAclMap.keys(), ...newAclMap.keys()]);
+  // Collect ALL paths that had or will have ACLs (from both allow + deny maps)
+  const allPaths = new Set([
+    ...oldMaps.allow.keys(), ...oldMaps.deny.keys(),
+    ...newMaps.allow.keys(), ...newMaps.deny.keys(),
+  ]);
 
   for (const targetPath of allPaths) {
     // Step 1: Remove all existing ACLs for this user on this path
     removeUserAcl(targetPath, userName, log);
 
-    // Step 2: Reapply if the path is in the new map
-    const newPerms = newAclMap.get(targetPath);
-    if (newPerms) {
-      addUserAcl(targetPath, userName, newPerms, log);
+    // Step 2: Apply deny ACLs first (macOS evaluates top-to-bottom; deny before allow)
+    const denyPerms = newMaps.deny.get(targetPath);
+    if (denyPerms) {
+      addUserAcl(targetPath, userName, denyPerms, log, 'deny');
+    }
+
+    // Step 3: Apply allow ACLs
+    const allowPerms = newMaps.allow.get(targetPath);
+    if (allowPerms) {
+      addUserAcl(targetPath, userName, allowPerms, log, 'allow');
     }
   }
 }

@@ -26,6 +26,7 @@ export const Root = styled('span', {
     fontSize: $size === 'small' ? 12 : 13,
     fontWeight: 600,
     lineHeight: 1.5,
+    whiteSpace: 'nowrap',
     color,
     backgroundColor: `${color}14`,
     border: `1px solid ${color}30`,

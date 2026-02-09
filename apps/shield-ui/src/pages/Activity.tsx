@@ -2,7 +2,7 @@
  * Activity page - full activity history with filters and CSS Grid table layout
  */
 
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import {
   Box,
   Select,
@@ -12,6 +12,7 @@ import {
   Button,
   Checkbox,
   ListItemText,
+  FormControlLabel,
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material';
 import {
@@ -35,6 +36,7 @@ import {
   getEventSummary,
   getEventColor,
   getEventStatus,
+  isNoiseEvent,
   EVENT_DISPLAY,
   BLOCKED_EVENT_TYPES,
 } from '../utils/eventDisplay';
@@ -65,9 +67,11 @@ const TYPE_OPTIONS: { label: string; value: TypeFilter }[] = [
   { label: 'Interceptor', value: 'interceptor' },
 ];
 
-const GRID_COLUMNS = '28px 90px 150px 1fr 90px';
+const GRID_COLUMNS = '28px 90px 150px 1fr auto';
 const ROW_HEIGHT = 44;
-const EXPANDED_EXTRA = 300;
+const PANEL_MAX_HEIGHT = 200;
+
+
 
 function getTimeThreshold(filter: TimeFilter): Date | null {
   if (filter === 'all') return null;
@@ -91,6 +95,7 @@ function isBlockedEvent(event: SSEEvent): boolean {
 
 function matchesTypeFilter(event: SSEEvent, filter: TypeFilter): boolean {
   if (filter === 'blocked') return isBlockedEvent(event);
+  if (filter === 'process' && event.type === 'daemon:status') return true;
   return event.type.startsWith(`${filter}:`);
 }
 
@@ -101,6 +106,7 @@ export function Activity() {
   const [search, setSearch] = useState('');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [typeFilters, setTypeFilters] = useState<TypeFilter[]>([]);
+  const [hideNoise, setHideNoise] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -121,6 +127,10 @@ export function Activity() {
   const filteredEvents = useMemo(() => {
     let result = [...events] as SSEEvent[];
 
+    if (hideNoise) {
+      result = result.filter((e) => !isNoiseEvent(e));
+    }
+
     const threshold = getTimeThreshold(timeFilter);
     if (threshold) {
       result = result.filter((e) => isAfter(e.timestamp, threshold));
@@ -140,21 +150,14 @@ export function Activity() {
     }
 
     return result;
-  }, [events, timeFilter, typeFilters, search]);
+  }, [events, hideNoise, timeFilter, typeFilters, search]);
 
   const virtualizer = useVirtualizer({
     count: filteredEvents.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => {
-      const event = filteredEvents[index];
-      return expandedIds.has(event.id) ? ROW_HEIGHT + EXPANDED_EXTRA : ROW_HEIGHT;
-    },
+    estimateSize: () => ROW_HEIGHT,
     overscan: 10,
   });
-
-  useEffect(() => {
-    virtualizer.measure();
-  }, [expandedIds, virtualizer]);
 
   return (
     <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
@@ -215,12 +218,29 @@ export function Activity() {
             <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
           ))}
         </Select>
+      </Box>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+        <FormControlLabel
+          control={
+            <Checkbox
+              size="small"
+              checked={hideNoise}
+              onChange={(e) => setHideNoise(e.target.checked)}
+              sx={{ p: 0, mr: 0.75 }}
+            />
+          }
+          label="Hide noise (system probes)"
+          slotProps={{ typography: { variant: 'caption', color: 'text.secondary' } }}
+          sx={{ ml: 0 }}
+        />
+        <Box sx={{ flex: 1 }} />
         {typeFilters.length > 0 && (
           <Chip
             label="Clear filters"
             size="small"
             onDelete={() => setTypeFilters([])}
-            sx={{ height: 28 }}
+            sx={{ height: 24 }}
           />
         )}
       </Box>
@@ -296,6 +316,8 @@ export function Activity() {
               return (
                 <Box
                   key={virtualRow.key}
+                  ref={virtualizer.measureElement}
+                  data-index={virtualRow.index}
                   sx={{
                     position: 'absolute',
                     top: 0,
@@ -325,7 +347,7 @@ export function Activity() {
                       size={14}
                       style={{
                         flexShrink: 0,
-                        transition: 'transform 0.15s ease',
+                        transition: 'transform 0.2s ease',
                         transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                         color: theme.palette.text.disabled,
                       }}
@@ -397,30 +419,39 @@ export function Activity() {
                     />
                   </Box>
 
-                  {/* Expanded JSON panel */}
-                  {isExpanded && (
-                    <Box
-                      sx={{
-                        maxHeight: EXPANDED_EXTRA,
-                        overflow: 'auto',
-                        mx: 2,
-                        mb: 1,
-                        p: 1.5,
-                        bgcolor: 'action.hover',
-                        borderRadius: 1,
-                        fontFamily: '"IBM Plex Mono", monospace',
-                        fontSize: '0.75rem',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-all',
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5, fontFamily: 'inherit' }}>
-                        ID: {event.id} | {format(event.timestamp, 'yyyy-MM-dd HH:mm:ss.SSS')}
-                      </Typography>
-                      {JSON.stringify(event.data, null, 2)}
+                  {/* Accordion panel — CSS grid-template-rows for smooth animation */}
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateRows: isExpanded ? '1fr' : '0fr',
+                      transition: 'grid-template-rows 0.2s ease-out',
+                    }}
+                  >
+                    <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
+                      <Box
+                        sx={{
+                          maxHeight: PANEL_MAX_HEIGHT,
+                          overflow: 'auto',
+                          mx: 2,
+                          mt: 0.5,
+                          mb: 1.5,
+                          p: 1.5,
+                          bgcolor: 'action.hover',
+                          borderRadius: 1,
+                          fontFamily: '"IBM Plex Mono", monospace',
+                          fontSize: '0.75rem',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-all',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5, fontFamily: 'inherit' }}>
+                          ID: {event.id} | {format(event.timestamp, 'yyyy-MM-dd HH:mm:ss.SSS')}
+                        </Typography>
+                        {JSON.stringify(event.data, null, 2)}
+                      </Box>
                     </Box>
-                  )}
+                  </Box>
                 </Box>
               );
             })}

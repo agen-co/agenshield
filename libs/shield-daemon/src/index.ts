@@ -12,7 +12,7 @@ export { loadConfig, saveConfig, updateConfig, ensureConfigDir } from './config/
 export { getConfigDir, getConfigPath, getPidPath, getLogPath } from './config/paths';
 export { getDefaultConfig, VERSION } from './config/defaults';
 export { getVault, resetVault, Vault } from './vault/index';
-export { loadState, saveState, updateState, updatePasscodeProtectionState, getPasscodeProtectionState } from './state/index';
+export { loadState, saveState, updateState, updatePasscodeProtectionState, getPasscodeProtectionState, addUserState } from './state/index';
 export { getSessionManager, resetSessionManager } from './auth/session';
 export { isPasscodeSet, setPasscode, checkPasscode, isProtectionEnabled, setProtectionEnabled, isRunningAsRoot } from './auth/passcode';
 export { isAuthenticated, requireAuth, extractToken } from './auth/middleware';

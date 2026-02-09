@@ -38,7 +38,6 @@ import {
   sudoMkdir,
   sudoWriteFile,
 } from '../services/skill-lifecycle';
-import { addSkillEntry, removeSkillEntry, syncOpenClawFromPolicies } from '../services/openclaw-config';
 import {
   listDownloadedSkills,
   getDownloadedSkillFiles,
@@ -54,7 +53,6 @@ import {
 } from '../services/marketplace';
 import { isInstallInProgress } from './marketplace';
 import { emitSkillAnalyzed, emitSkillAnalysisFailed, emitSkillUninstalled } from '../events/emitter';
-import { loadConfig } from '../config/index';
 import { requireAuth } from '../auth/middleware';
 import {
   isBrokerAvailable,
@@ -638,10 +636,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(404).send({ error: result.error });
       }
 
-      // approveSkill only adds to approved-skills.json — also enable in openclaw.json
-      addSkillEntry(name);
       addSkillPolicy(name);
-      syncOpenClawFromPolicies(loadConfig().policies);
 
       return reply.send({ success: true, message: `Skill "${name}" approved` });
     }
@@ -740,10 +735,8 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
             fs.rmSync(skillDir, { recursive: true, force: true });
             removeSkillWrapper(name, binDir);
           }
-          removeSkillEntry(name);
           removeSkillPolicy(name);
-          removeBrewBinaryWrappers(name);
-          syncOpenClawFromPolicies(loadConfig().policies);
+          await removeBrewBinaryWrappers(name);
           removeFromApprovedList(name);
           // Preserve marketplace cache for re-enable; mark as previously installed
           try { markDownloadedAsInstalled(name); } catch { /* best-effort */ }
@@ -811,13 +804,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
             } catch {
               // May fail if not root
             }
-            createSkillWrapper(name, binDir);
+            await createSkillWrapper(name, binDir);
           }
 
-          // Config + policy
-          addSkillEntry(name);
+          // Add policy
           addSkillPolicy(name);
-          syncOpenClawFromPolicies(loadConfig().policies);
 
           // Record integrity hash
           const hash = computeSkillHash(skillDir);
@@ -906,11 +897,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         }));
 
         // 5. Write files to $AGENT_HOME/.openclaw/workspace/skills/<name>/
-        sudoMkdir(skillDir, agentUsername);
+        await sudoMkdir(skillDir, agentUsername);
         for (const file of taggedFiles) {
           const filePath = path.join(skillDir, file.name);
-          sudoMkdir(path.dirname(filePath), agentUsername);
-          sudoWriteFile(filePath, file.content, agentUsername);
+          await sudoMkdir(path.dirname(filePath), agentUsername);
+          await sudoWriteFile(filePath, file.content, agentUsername);
         }
 
         // 5. Set ownership (root-owned, agent-readable)
@@ -922,12 +913,10 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         }
 
         // 6. Create wrapper in $AGENT_HOME/bin/<name>
-        createSkillWrapper(name, binDir);
+        await createSkillWrapper(name, binDir);
 
-        // 7. Update openclaw.json + policy
-        addSkillEntry(name);
+        // 7. Add policy
         addSkillPolicy(name);
-        syncOpenClawFromPolicies(loadConfig().policies);
 
         return reply.send({ success: true, name, analysis });
       } catch (err) {
@@ -1034,12 +1023,10 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           } catch {
             // May fail if not root
           }
-          createSkillWrapper(name, binDir);
+          await createSkillWrapper(name, binDir);
         }
 
-        addSkillEntry(name);
         addSkillPolicy(name);
-        syncOpenClawFromPolicies(loadConfig().policies);
 
         // Record integrity hash
         const unblockHash = computeSkillHash(path.join(getSkillsDir(), name));

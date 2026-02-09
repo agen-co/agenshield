@@ -49,9 +49,7 @@ import {
 } from '../services/broker-bridge';
 import { stripEnvFromSkillMd } from '@agenshield/sandbox';
 import { injectInstallationTag } from '../services/skill-tag-injector';
-import { addSkillEntry, syncOpenClawFromPolicies } from '../services/openclaw-config';
 import { executeSkillInstallSteps } from '../services/skill-deps';
-import { loadConfig } from '../config/index';
 
 /* ── Install-in-progress tracking ───────────────────────── */
 const installInProgress = new Set<string>();
@@ -483,18 +481,18 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
             }
           } else {
             console.log(`[Marketplace] Broker unavailable, installing ${slug} directly`);
-            sudoMkdir(skillDir, agentUsername);
+            await sudoMkdir(skillDir, agentUsername);
 
             for (const file of taggedFiles) {
               const filePath = path.join(skillDir, file.name);
               const fileDir = path.dirname(filePath);
               if (fileDir !== skillDir) {
-                sudoMkdir(fileDir, agentUsername);
+                await sudoMkdir(fileDir, agentUsername);
               }
-              sudoWriteFile(filePath, file.content, agentUsername);
+              await sudoWriteFile(filePath, file.content, agentUsername);
             }
 
-            createSkillWrapper(slug, binDir);
+            await createSkillWrapper(slug, binDir);
 
             logs.push(`Files written directly: ${taggedFiles.length} files`);
             logs.push(`Wrapper created: ${path.join(binDir, slug)}`);
@@ -557,12 +555,8 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
             logs.push(msg);
           }
 
-          // 8. Update openclaw.json with skill entry (daemon owns this as root)
-          addSkillEntry(slug);
-
-          // 11. Add policy rule
+          // 8. Add policy rule
           addSkillPolicy(slug);
-          syncOpenClawFromPolicies(loadConfig().policies);
           logs.push('Policy rule added');
 
           // 12. Compute and record integrity hash

@@ -20,7 +20,6 @@ import {
   updateDownloadedAnalysis,
 } from '../services/marketplace';
 import { setCachedAnalysis } from '../services/skill-analyzer';
-import { readOpenClawConfig, removeSkillEntry, addSkillEntry } from '../services/openclaw-config';
 import { addSkillPolicy } from '../services/skill-lifecycle';
 import { emitSkillAnalyzed, emitSkillAnalysisFailed } from '../events/emitter';
 import { getSystemConfigDir } from '../config/paths';
@@ -339,7 +338,6 @@ function scanSkills(): void {
                 console.log(`[SkillsWatcher] Auto-approving skill with valid installation tag: ${skillName}`);
                 const hash = computeSkillHash(fullPath);
                 addToApprovedList(skillName, undefined, hash ?? undefined);
-                addSkillEntry(skillName);
                 addSkillPolicy(skillName);
                 if (callbacks.onApproved) {
                   callbacks.onApproved(skillName);
@@ -389,33 +387,6 @@ function scanSkills(): void {
     }
   } catch (err) {
     console.error('[SkillsWatcher] Scan error:', (err as Error).message);
-  }
-
-  // Mismatch detection: clean stale openclaw.json entries
-  detectOpenClawMismatches();
-}
-
-/**
- * Detect mismatches between openclaw.json entries and approved skills.
- * Disable entries in openclaw.json that are not in the approved list
- * (sets enabled: false, strips env, preserves other properties).
- */
-function detectOpenClawMismatches(): void {
-  try {
-    const approved = loadApprovedSkills();
-    const approvedNames = new Set(approved.map((a) => a.name));
-
-    const config = readOpenClawConfig();
-    if (!config.skills?.entries) return;
-
-    for (const name of Object.keys(config.skills.entries)) {
-      if (!approvedNames.has(name)) {
-        removeSkillEntry(name);
-        console.log(`[SkillsWatcher] Disabled stale openclaw.json entry: ${name}`);
-      }
-    }
-  } catch {
-    // Best-effort; openclaw.json may not exist or be unreadable
   }
 }
 

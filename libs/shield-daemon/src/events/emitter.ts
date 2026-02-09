@@ -12,6 +12,14 @@ export type EventType =
   | 'security:alert'
   | 'process:started'
   | 'process:stopped'
+  | 'process:broker_started'
+  | 'process:broker_stopped'
+  | 'process:broker_restarted'
+  | 'process:gateway_started'
+  | 'process:gateway_stopped'
+  | 'process:gateway_restarted'
+  | 'process:daemon_started'
+  | 'process:daemon_stopped'
   | 'api:request'
   | 'api:outbound'
   | 'broker:request'
@@ -296,4 +304,41 @@ export function emitDaemonStatus(status: DaemonStatus): void {
  */
 export function emitEvent(type: EventType, data: unknown): void {
   daemonEvents.broadcast(type, data);
+}
+
+// ===== Process lifecycle event helpers =====
+
+export type ProcessName = 'broker' | 'gateway' | 'daemon';
+
+/**
+ * Helper to emit process started events
+ */
+export function emitProcessStarted(processName: ProcessName, data: { pid?: number }): void {
+  daemonEvents.broadcast(`process:${processName}_started` as EventType, {
+    process: processName,
+    action: 'started',
+    ...data,
+  });
+}
+
+/**
+ * Helper to emit process stopped events
+ */
+export function emitProcessStopped(processName: ProcessName, data: { pid?: number; lastExitStatus?: number }): void {
+  daemonEvents.broadcast(`process:${processName}_stopped` as EventType, {
+    process: processName,
+    action: 'stopped',
+    ...data,
+  });
+}
+
+/**
+ * Helper to emit process restarted events (PID changed while running)
+ */
+export function emitProcessRestarted(processName: ProcessName, data: { pid?: number; previousPid?: number; lastExitStatus?: number }): void {
+  daemonEvents.broadcast(`process:${processName}_restarted` as EventType, {
+    process: processName,
+    action: 'restarted',
+    ...data,
+  });
 }

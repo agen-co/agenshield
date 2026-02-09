@@ -56,7 +56,7 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
 
   // Skills
   'skills:quarantined': { icon: Zap, label: 'Skill Quarantined', color: 'warning' },
-  'skills:approved': { icon: Zap, label: 'Skill Approved', color: 'success' },
+  'skills:approved': { icon: Zap, label: 'Skills Scanner', color: 'success' },
   'skills:installed': { icon: Zap, label: 'Skill Installed', color: 'success' },
   'skills:install_failed': { icon: Zap, label: 'Skill Install Failed', color: 'error' },
   'skills:install_started': { icon: Download, label: 'Skill Installing', color: 'info' },
@@ -86,6 +86,9 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   // Process
   'process:started': { icon: Play, label: 'Process Started', color: 'success' },
   'process:stopped': { icon: Square, label: 'Process Stopped', color: 'warning' },
+
+  // Daemon
+  'daemon:status': { icon: RefreshCw, label: 'Daemon Heartbeat', color: 'secondary' },
 
   // Interceptor
   'interceptor:event': { icon: Crosshair, label: 'Interceptor Event', color: 'info' },
@@ -129,15 +132,41 @@ export function resolveEventColor(color: string, palette: Palette): string {
 import type { SSEEvent } from '../state/events';
 import type { StatusVariant } from '../components/shared/StatusBadge/StatusBadge.types';
 
+/** Noisy allowed exec commands to always filter in the overview feed (matched by prefix) */
+const NOISE_COMMANDS = ['arp ', 'networksetup ', 'ifconfig ', 'scutil '];
+
+/** Returns true for low-value system probe events (allowed exec of arp, networksetup, etc.) */
+export function isNoiseEvent(event: SSEEvent): boolean {
+  // Hide low-signal system events
+  if (event.type === 'skills:approved') return true;
+  if (event.type === 'daemon:status') return true;
+
+  if (event.type !== 'interceptor:event') return false;
+  const d = event.data as Record<string, unknown>;
+  if (d.operation !== 'exec') return false;
+  if (d.type !== 'allowed' && d.type !== 'allow' && d.type !== 'intercept') return false;
+  const target = String(d.target ?? '');
+  return NOISE_COMMANDS.some((prefix) => target.startsWith(prefix));
+}
+
 /** Single source-of-truth summary string for an event */
 export function getEventSummary(event: SSEEvent): string {
   const d = event.data as Record<string, unknown>;
 
+  if (event.type === 'api:request') {
+    const method = String(d.method ?? 'GET').toUpperCase();
+    const path = String(d.path ?? '');
+    return `${method} ${path}`;
+  }
   if (event.type === 'api:outbound') {
-    const ctx = d.context ?? '';
-    const status = d.statusCode ?? '';
-    const url = d.url ?? '';
-    return `${ctx} [${status}] ${url}`;
+    const method = String(d.method ?? 'GET').toUpperCase();
+    const url = String(d.url ?? '');
+    try {
+      const parsed = new URL(url);
+      return `${method} ${parsed.pathname}`;
+    } catch {
+      return `${method} ${url}`;
+    }
   }
   if (event.type === 'exec:denied') {
     const command = d.command ?? d.target ?? '';
@@ -181,6 +210,13 @@ export function getEventSummary(event: SSEEvent): string {
 
 /** Semantic color key for an event — 'error' for deny, 'success' for allow, else the display default */
 export function getEventColor(event: SSEEvent): string {
+  if (event.type === 'api:request' || event.type === 'api:outbound') {
+    const d = event.data as Record<string, unknown>;
+    const code = Number(d.statusCode ?? 0);
+    if (code >= 200 && code < 300) return 'success';
+    if (code >= 400) return 'error';
+    return 'info';
+  }
   if (BLOCKED_EVENT_TYPES.has(event.type)) return 'error';
   if (event.type === 'interceptor:event') {
     const d = event.data as Record<string, unknown>;
@@ -193,6 +229,14 @@ export function getEventColor(event: SSEEvent): string {
 
 /** Status badge data for the Activity table (matches policy StatusBadge style) */
 export function getEventStatus(event: SSEEvent): { label: string; variant: StatusVariant } {
+  if (event.type === 'api:request' || event.type === 'api:outbound') {
+    const d = event.data as Record<string, unknown>;
+    const code = Number(d.statusCode ?? 0);
+    if (code >= 200 && code < 300) return { label: String(code), variant: 'success' };
+    if (code >= 400) return { label: String(code), variant: 'error' };
+    if (code >= 300) return { label: String(code), variant: 'warning' };
+    return { label: code ? String(code) : 'pending', variant: 'info' };
+  }
   if (event.type === 'interceptor:event') {
     const d = event.data as Record<string, unknown>;
     const dtype = String(d.type ?? '');

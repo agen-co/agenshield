@@ -139,7 +139,7 @@ export async function executeSkillInstallSteps(options: {
 
           // Create policy-enforcing wrappers for brew-installed binaries
           try {
-            const wrapResult = installBrewBinaryWrappers({
+            const wrapResult = await installBrewBinaryWrappers({
               slug,
               formula,
               metadataBins: step.bins,

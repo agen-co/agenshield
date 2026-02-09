@@ -861,6 +861,21 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       shell: agentUser.shell,
     };
 
+    // Persist agent user in daemon state so ACL sync and other routes can find it
+    try {
+      const { addUserState } = await import('@agenshield/daemon');
+      addUserState({
+        username: agentUser.username,
+        uid: agentUser.uid,
+        type: 'agent',
+        createdAt: new Date().toISOString(),
+        homeDir: agentUser.home,
+      });
+      logVerbose(`Registered agent user ${agentUser.username} in daemon state`, context);
+    } catch (err) {
+      logVerbose(`Warning: failed to register agent user in state: ${(err as Error).message}`, context);
+    }
+
     return { success: true };
   },
 
@@ -898,6 +913,21 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       homeDir: brokerUser.home,
       shell: brokerUser.shell,
     };
+
+    // Persist broker user in daemon state
+    try {
+      const { addUserState } = await import('@agenshield/daemon');
+      addUserState({
+        username: brokerUser.username,
+        uid: brokerUser.uid,
+        type: 'broker',
+        createdAt: new Date().toISOString(),
+        homeDir: brokerUser.home,
+      });
+      logVerbose(`Registered broker user ${brokerUser.username} in daemon state`, context);
+    } catch (err) {
+      logVerbose(`Warning: failed to register broker user in state: ${(err as Error).message}`, context);
+    }
 
     return { success: true };
   },

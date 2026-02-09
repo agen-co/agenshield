@@ -6,6 +6,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { ApiResponse } from '@agenshield/ipc';
+import { emitProcessStarted, emitProcessStopped, emitProcessRestarted } from '../events/emitter';
 
 // Lazy-loaded sandbox functions (may not exist in current build)
 let _sandbox: Record<string, unknown> | undefined;
@@ -43,6 +44,7 @@ export async function openclawRoutes(app: FastifyInstance): Promise<void> {
       if (!result.success) {
         return { success: false, error: { code: 'OPENCLAW_START_ERROR', message: result.message } };
       }
+      emitProcessStarted('gateway', {});
       return { success: true, data: { message: result.message } };
     } catch (error) {
       return {
@@ -62,6 +64,7 @@ export async function openclawRoutes(app: FastifyInstance): Promise<void> {
       if (!result.success) {
         return { success: false, error: { code: 'OPENCLAW_STOP_ERROR', message: result.message } };
       }
+      emitProcessStopped('gateway', {});
       return { success: true, data: { message: result.message } };
     } catch (error) {
       return {
@@ -100,6 +103,7 @@ export async function openclawRoutes(app: FastifyInstance): Promise<void> {
       if (!result.success) {
         return { success: false, error: { code: 'OPENCLAW_RESTART_ERROR', message: result.message } };
       }
+      emitProcessRestarted('gateway', {});
       return { success: true, data: { message: result.message } };
     } catch (error) {
       return {

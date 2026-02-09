@@ -101,6 +101,57 @@ export async function uninstallSkillViaBroker(
 }
 
 /**
+ * Write a file via the broker's privileged file_write command.
+ * The broker auto-creates parent directories.
+ */
+export async function writeFileViaBroker(
+  filePath: string,
+  content: string,
+  options?: { mode?: number }
+): Promise<void> {
+  const client = getBrokerClient();
+  await client.fileWrite({
+    path: filePath,
+    content,
+    mode: options?.mode,
+  });
+}
+
+/**
+ * Copy a file via the broker by reading locally and writing via broker.
+ * Daemon has read access; broker provides write access to privileged paths.
+ */
+export async function copyFileViaBroker(
+  srcPath: string,
+  destPath: string,
+  mode?: number
+): Promise<void> {
+  const fs = await import('node:fs');
+  const content = fs.readFileSync(srcPath);
+  const client = getBrokerClient();
+  await client.fileWrite({
+    path: destPath,
+    content: content.toString('base64'),
+    encoding: 'base64',
+    mode,
+  });
+}
+
+/**
+ * Create a directory via the broker's exec command.
+ */
+export async function mkdirViaBroker(dirPath: string): Promise<void> {
+  const client = getBrokerClient();
+  const result = await client.exec({
+    command: '/bin/mkdir',
+    args: ['-p', dirPath],
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(`mkdir via broker failed: ${result.stderr}`);
+  }
+}
+
+/**
  * Reset the broker client (for testing or reconnection)
  */
 export function resetBrokerClient(): void {

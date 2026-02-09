@@ -14,7 +14,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { PROXIED_COMMANDS, BASIC_SYSTEM_COMMANDS } from '@agenshield/sandbox';
-import { sudoMkdir, sudoWriteFile } from './skill-lifecycle';
+import { writeFileViaBroker, copyFileViaBroker, mkdirViaBroker, isBrokerAvailable } from './broker-bridge';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -86,14 +86,32 @@ export function loadManifest(agentHome: string): BrewManifest {
   }
 }
 
-export function saveManifest(agentHome: string, manifest: BrewManifest, agentUsername?: string): void {
+export async function saveManifest(agentHome: string, manifest: BrewManifest): Promise<void> {
   const manifestPath = getManifestPath(agentHome);
   const dir = path.dirname(manifestPath);
-  const username = agentUsername || path.basename(agentHome);
-  if (!fs.existsSync(dir)) {
-    sudoMkdir(dir, username);
+  const content = JSON.stringify(manifest, null, 2) + '\n';
+
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(manifestPath, content);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      try {
+        if (await isBrokerAvailable()) {
+          await mkdirViaBroker(dir);
+          await writeFileViaBroker(manifestPath, content);
+          return;
+        }
+      } catch (brokerErr) {
+        console.warn(`[brew-wrapper] Broker fallback failed for saveManifest: ${(brokerErr as Error).message}`);
+      }
+      console.warn(`[brew-wrapper] Cannot write manifest (EACCES, broker unavailable): ${manifestPath}`);
+    } else {
+      throw err;
+    }
   }
-  sudoWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', username);
 }
 
 // ─── Binary Discovery ───────────────────────────────────────────────────────
@@ -172,10 +190,10 @@ export function discoverBrewBinaries(options: {
  * copies the Cellar binary to .brew-originals/<cmd>, and removes the symlink.
  * Idempotent — skips if already relocated.
  */
-export function relocateBrewBinary(options: {
+export async function relocateBrewBinary(options: {
   binaryName: string;
   agentHome: string;
-}): { success: boolean; originalPath: string; error?: string } {
+}): Promise<{ success: boolean; originalPath: string; error?: string }> {
   const { binaryName, agentHome } = options;
   const originalsDir = path.join(agentHome, 'bin', '.brew-originals');
   const originalPath = path.join(originalsDir, binaryName);
@@ -190,11 +208,19 @@ export function relocateBrewBinary(options: {
     try {
       fs.mkdirSync(originalsDir, { recursive: true, mode: 0o755 });
     } catch (err) {
-      return {
-        success: false,
-        originalPath,
-        error: `Cannot create originals dir: ${(err as Error).message}`,
-      };
+      if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+        try {
+          if (await isBrokerAvailable()) {
+            await mkdirViaBroker(originalsDir);
+          } else {
+            return { success: false, originalPath, error: `Cannot create originals dir (EACCES, broker unavailable)` };
+          }
+        } catch (brokerErr) {
+          return { success: false, originalPath, error: `Cannot create originals dir: ${(brokerErr as Error).message}` };
+        }
+      } else {
+        return { success: false, originalPath, error: `Cannot create originals dir: ${(err as Error).message}` };
+      }
     }
   }
 
@@ -229,15 +255,23 @@ export function relocateBrewBinary(options: {
   // Copy the real binary to .brew-originals/
   try {
     fs.copyFileSync(realBinaryPath, originalPath);
-    // Preserve executable bit
     const stat = fs.statSync(realBinaryPath);
     fs.chmodSync(originalPath, stat.mode);
   } catch (err) {
-    return {
-      success: false,
-      originalPath,
-      error: `Cannot copy binary: ${(err as Error).message}`,
-    };
+    if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      try {
+        if (await isBrokerAvailable()) {
+          const stat = fs.statSync(realBinaryPath);
+          await copyFileViaBroker(realBinaryPath, originalPath, stat.mode);
+        } else {
+          return { success: false, originalPath, error: `Cannot copy binary (EACCES, broker unavailable)` };
+        }
+      } catch (brokerErr) {
+        return { success: false, originalPath, error: `Cannot copy binary via broker: ${(brokerErr as Error).message}` };
+      }
+    } else {
+      return { success: false, originalPath, error: `Cannot copy binary: ${(err as Error).message}` };
+    }
   }
 
   // Remove the symlink from homebrew/bin/ to prevent bypass
@@ -289,18 +323,30 @@ export function generateBrewWrapper(options: {
 /**
  * Write a brew wrapper script to {agentHome}/bin/<cmd>.
  */
-export function installBrewWrapper(options: {
+export async function installBrewWrapper(options: {
   cmd: string;
   slug: string;
   formula: string;
   agentHome: string;
   socketGroup: string;
-}): void {
+}): Promise<void> {
   const { cmd, slug, formula, agentHome, socketGroup } = options;
   const wrapperPath = path.join(agentHome, 'bin', cmd);
   const content = generateBrewWrapper({ cmd, slug, formula, agentHome });
 
-  fs.writeFileSync(wrapperPath, content, { mode: 0o755 });
+  try {
+    fs.writeFileSync(wrapperPath, content, { mode: 0o755 });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      if (await isBrokerAvailable()) {
+        await writeFileViaBroker(wrapperPath, content, { mode: 0o755 });
+      } else {
+        throw err;
+      }
+    } else {
+      throw err;
+    }
+  }
 
   // Set ownership: root:<socketGroup>
   try {
@@ -321,7 +367,7 @@ export function installBrewWrapper(options: {
  * 3. For each binary: relocates original + creates wrapper (or adds skill to owners)
  * 4. Saves updated manifest
  */
-export function installBrewBinaryWrappers(options: {
+export async function installBrewBinaryWrappers(options: {
   slug: string;
   formula: string;
   metadataBins?: string[];
@@ -329,7 +375,7 @@ export function installBrewBinaryWrappers(options: {
   agentUsername: string;
   socketGroup: string;
   onLog: (msg: string) => void;
-}): BrewWrapperResult {
+}): Promise<BrewWrapperResult> {
   const { slug, formula, metadataBins, agentHome, agentUsername, socketGroup, onLog } = options;
   const binariesWrapped: string[] = [];
   const errors: string[] = [];
@@ -361,14 +407,14 @@ export function installBrewBinaryWrappers(options: {
     }
 
     // New binary — relocate + create wrapper
-    const relocation = relocateBrewBinary({ binaryName: bin, agentHome });
+    const relocation = await relocateBrewBinary({ binaryName: bin, agentHome });
     if (!relocation.success) {
       errors.push(`Failed to relocate ${bin}: ${relocation.error}`);
       continue;
     }
 
     try {
-      installBrewWrapper({ cmd: bin, slug, formula, agentHome, socketGroup });
+      await installBrewWrapper({ cmd: bin, slug, formula, agentHome, socketGroup });
     } catch (err) {
       errors.push(`Failed to create wrapper for ${bin}: ${(err as Error).message}`);
       continue;
@@ -408,7 +454,7 @@ export function installBrewBinaryWrappers(options: {
 
   // 4. Save manifest
   try {
-    saveManifest(agentHome, manifest, agentUsername);
+    await saveManifest(agentHome, manifest);
   } catch (err) {
     errors.push(`Failed to save manifest: ${(err as Error).message}`);
   }
@@ -432,12 +478,12 @@ const SYSTEM_PATH = '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
  *   - If sole owner: remove wrapper, remove original, run `brew uninstall`, remove from manifest
  *   - If shared: remove slug from owningSkills, update wrapper to next owner's slug
  */
-export function uninstallBrewBinaryWrappers(options: {
+export async function uninstallBrewBinaryWrappers(options: {
   slug: string;
   agentHome: string;
   agentUsername: string;
   onLog: (msg: string) => void;
-}): BrewUninstallResult {
+}): Promise<BrewUninstallResult> {
   const { slug, agentHome, agentUsername, onLog } = options;
   const removed: string[] = [];
   const kept: string[] = [];
@@ -494,7 +540,7 @@ export function uninstallBrewBinaryWrappers(options: {
       const nextSlug = entry.owningSkills[0];
       const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
       try {
-        installBrewWrapper({
+        await installBrewWrapper({
           cmd: binName,
           slug: nextSlug,
           formula: entry.formula,
@@ -549,7 +595,7 @@ export function uninstallBrewBinaryWrappers(options: {
   // Save manifest
   if (manifestChanged) {
     try {
-      saveManifest(agentHome, manifest, agentUsername);
+      await saveManifest(agentHome, manifest);
     } catch (err) {
       errors.push(`Failed to save manifest: ${(err as Error).message}`);
     }

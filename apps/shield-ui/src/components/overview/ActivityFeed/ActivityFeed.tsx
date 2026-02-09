@@ -4,14 +4,17 @@ import { useTheme } from '@mui/material/styles';
 import { formatDistanceToNow } from 'date-fns';
 import { useSnapshot } from 'valtio';
 import { eventStore } from '../../../state/events';
-import { getEventDisplay, resolveEventColor, getEventSummary } from '../../../utils/eventDisplay';
+import { getEventDisplay, resolveEventColor, getEventSummary, isNoiseEvent } from '../../../utils/eventDisplay';
 import { EmptyState } from '../../shared/EmptyState';
 import { Root, EventItem, EventIcon, EventContent } from './ActivityFeed.styles';
 
 export function ActivityFeed() {
   const theme = useTheme();
   const { events: allEvents } = useSnapshot(eventStore);
-  const recentEvents = useMemo(() => allEvents.slice(0, 20), [allEvents]);
+  const recentEvents = useMemo(
+    () => allEvents.filter((e) => !isNoiseEvent(e)).slice(0, 20),
+    [allEvents],
+  );
 
   return (
     <Card>

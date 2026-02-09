@@ -11,6 +11,8 @@ export interface OpenClawProcessStatus {
 export interface OpenClawServiceStatus {
   daemon: OpenClawProcessStatus;
   gateway: OpenClawProcessStatus;
+  /** Detected OpenClaw version. null = detection failed, undefined = not yet populated */
+  version?: string | null;
 }
 
 export interface DaemonStatus {

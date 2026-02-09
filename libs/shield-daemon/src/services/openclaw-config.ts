@@ -122,93 +122,36 @@ function writeConfig(config: OpenClawConfig): void {
 }
 
 /**
- * Add a skill entry to openclaw.json with enabled: true.
- * Never writes env — AgenShield handles secrets via vault/broker.
+ * @deprecated OpenClaw now discovers skills from workspace/skills/ directory.
+ * Kept as no-op for backward compatibility.
  */
-export function addSkillEntry(slug: string): void {
-  const config = readOpenClawConfig();
-
-  if (!config.skills) {
-    config.skills = {};
-  }
-  if (!config.skills.entries) {
-    config.skills.entries = {};
-  }
-
-  const existing = config.skills.entries[slug] ?? {};
-  config.skills.entries[slug] = { ...existing, enabled: true };
-
-  writeConfig(config);
-  console.log(`[OpenClawConfig] Added skill entry: ${slug}`);
+export function addSkillEntry(_slug: string): void {
+  // No-op: OpenClaw discovers skills from workspace/skills/ directory
 }
 
 /**
- * Remove a skill entry from openclaw.json.
+ * @deprecated OpenClaw now discovers skills from workspace/skills/ directory.
+ * Kept as no-op for backward compatibility.
  */
-export function removeSkillEntry(slug: string): void {
-  const config = readOpenClawConfig();
-
-  if (config.skills?.entries?.[slug]) {
-    const existing = config.skills.entries[slug];
-    delete existing.env;
-    config.skills.entries[slug] = { ...existing, enabled: false };
-    writeConfig(config);
-    console.log(`[OpenClawConfig] Disabled skill entry: ${slug}`);
-  }
+export function removeSkillEntry(_slug: string): void {
+  // No-op: OpenClaw discovers skills from workspace/skills/ directory
 }
 
 /**
  * Sync openclaw.json with the current AgenShield policy state.
  *
- * - Sets `skills.allowBundled` from enabled skill policies
- * - Ensures `skills.load.watch = true`
- * - Removes `skills.install` section (AgenShield handles installation)
- * - Strips `env` from all entries (AgenShield handles secrets)
+ * OpenClaw now discovers skills from the workspace/skills/ directory,
+ * so this only handles command configuration (commands.native/nativeSkills).
  */
-export function syncOpenClawFromPolicies(policies: PolicyConfig[]): void {
+export function syncOpenClawFromPolicies(_policies: PolicyConfig[]): void {
   const config = readOpenClawConfig();
-  if (!config.skills) config.skills = {};
 
-  // 1. Sync allowBundled from enabled skill policies
-  const allowBundled: string[] = [];
-  for (const p of policies) {
-    if (p.target === 'skill' && p.action === 'allow' && p.enabled) {
-      for (const pattern of p.patterns) {
-        if (!allowBundled.includes(pattern)) allowBundled.push(pattern);
-      }
-    }
-  }
-  config.skills.allowBundled = allowBundled;
-
-  // 2. Ensure load.watch is enabled
-  if (!config.skills.load) config.skills.load = {};
-  config.skills.load.watch = true;
-
-  // 3. Remove install section — AgenShield handles installation
-  delete config.skills.install;
-
-  // 4. Strip env from all entries
-  if (config.skills.entries) {
-    for (const key of Object.keys(config.skills.entries)) {
-      const entry = config.skills.entries[key];
-      if (entry && 'env' in entry) delete entry.env;
-    }
-  }
-
-  // 5. Sync entries: every skill in allowBundled must have enabled: true
-  if (!config.skills.entries) config.skills.entries = {};
-  for (const name of allowBundled) {
-    const existing = config.skills.entries[name] ?? {};
-    config.skills.entries[name] = { ...existing, enabled: true };
-  }
-
-  // 6. Enable native commands — AgenShield broker handles command policy
+  // Enable native commands — AgenShield broker handles command policy
   if (!config.commands) (config as Record<string, unknown>).commands = {};
   const commands = (config as Record<string, unknown>).commands as Record<string, unknown>;
   commands.native = true;
   commands.nativeSkills = true;
 
-
   writeConfig(config);
-  console.log(`[OpenClawConfig] Synced: allowBundled=[${allowBundled.join(', ')}], entries synced, commands.native=always`);
+  console.log(`[OpenClawConfig] Synced: commands.native=always`);
 }

@@ -290,7 +290,11 @@ exec ${config.agentHome}/bin/python "$@"
 # Ensure accessible working directory
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
-export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}"
+# Deduplicate: only add interceptor if not already in NODE_OPTIONS
+case "\${NODE_OPTIONS:-}" in
+  *"register.cjs"*) ;;
+  *) export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}" ;;
+esac
 export AGENSHIELD_SOCKET="${config.socketPath}"
 export AGENSHIELD_HTTP_PORT="${config.httpPort}"
 export AGENSHIELD_INTERCEPT_EXEC=true
@@ -1552,7 +1556,11 @@ export async function patchNvmNode(options: {
     // 3. Create a bash wrapper at the same path
     const wrapperContent = `#!/bin/bash
 # AgenShield-patched node — loads interceptor before executing
-export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"
+# Deduplicate: only add interceptor if not already in NODE_OPTIONS
+case "\${NODE_OPTIONS:-}" in
+  *"register.cjs"*) ;;
+  *) export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}" ;;
+esac
 export AGENSHIELD_SOCKET="${socketPath}"
 export AGENSHIELD_HTTP_PORT="${httpPort}"
 export AGENSHIELD_INTERCEPT_EXEC=true

@@ -66,6 +66,9 @@ export function generateBrokerPlist(
     <key>StandardErrorPath</key>
     <string>/var/log/agenshield/broker.error.log</string>
 
+    <!-- NOTE: Broker intentionally runs without NODE_OPTIONS/interceptor — it IS the
+         enforcement point. If broker ever spawns Node.js as the agent user, add
+         NODE_OPTIONS and AGENSHIELD_INTERCEPT_* here. -->
     <key>EnvironmentVariables</key>
     <dict>
         <key>AGENSHIELD_CONFIG</key>

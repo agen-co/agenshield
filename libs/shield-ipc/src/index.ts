@@ -117,3 +117,6 @@ export { COMMAND_CATALOG, searchCatalog } from './catalog';
 
 // Constants
 export * from './constants';
+
+// Version-based feature flags
+export * from './version-features';

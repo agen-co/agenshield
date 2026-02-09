@@ -11,17 +11,24 @@ import { execSync } from 'node:child_process';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { loadConfig, updateConfig } from '../config/index';
 import { uninstallBrewBinaryWrappers } from './brew-wrapper';
+import { writeFileViaBroker, mkdirViaBroker, isBrokerAvailable } from './broker-bridge';
 
 // ─── Sudo helpers ────────────────────────────────────────────────────────────
 
 /**
- * Create a directory, falling back to sudo as the agent user on EACCES.
+ * Create a directory, falling back to broker on EACCES, then sudo as last resort.
  */
-export function sudoMkdir(dir: string, agentUsername: string): void {
+export async function sudoMkdir(dir: string, agentUsername: string): Promise<void> {
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      try {
+        if (await isBrokerAvailable()) {
+          await mkdirViaBroker(dir);
+          return;
+        }
+      } catch { /* broker failed, fall through to sudo */ }
       execSync(`sudo -H -u ${agentUsername} /bin/mkdir -p "${dir}"`, { cwd: '/', stdio: 'pipe' });
     } else {
       throw err;
@@ -30,13 +37,19 @@ export function sudoMkdir(dir: string, agentUsername: string): void {
 }
 
 /**
- * Write a file, falling back to sudo tee as the agent user on EACCES.
+ * Write a file, falling back to broker on EACCES, then sudo tee as last resort.
  */
-export function sudoWriteFile(filePath: string, content: string, agentUsername: string, mode?: number): void {
+export async function sudoWriteFile(filePath: string, content: string, agentUsername: string, mode?: number): Promise<void> {
   try {
     fs.writeFileSync(filePath, content, { mode });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      try {
+        if (await isBrokerAvailable()) {
+          await writeFileViaBroker(filePath, content, { mode });
+          return;
+        }
+      } catch { /* broker failed, fall through to sudo */ }
       execSync(
         `sudo -H -u ${agentUsername} tee "${filePath}" > /dev/null`,
         { input: content, cwd: '/', stdio: ['pipe', 'pipe', 'pipe'] }
@@ -57,11 +70,11 @@ export function sudoWriteFile(filePath: string, content: string, agentUsername: 
 /**
  * Create a bash wrapper in $AGENT_HOME/bin/<skill-name> that invokes the skill through policy.
  */
-export function createSkillWrapper(name: string, binDir: string): void {
+export async function createSkillWrapper(name: string, binDir: string): Promise<void> {
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
   const agentUsername = path.basename(agentHome);
 
-  sudoMkdir(binDir, agentUsername);
+  await sudoMkdir(binDir, agentUsername);
 
   const wrapperPath = path.join(binDir, name);
   const wrapperContent = `#!/bin/bash
@@ -71,7 +84,7 @@ if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 exec /opt/agenshield/bin/shield-client skill run "${name}" "$@"
 `;
 
-  sudoWriteFile(wrapperPath, wrapperContent, agentUsername, 0o755);
+  await sudoWriteFile(wrapperPath, wrapperContent, agentUsername, 0o755);
 
   const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
   try {
@@ -139,12 +152,12 @@ export function removeSkillPolicy(name: string): void {
  * If the skill was the sole owner, removes the wrapper and original binary.
  * If shared, updates the wrapper to the next owner.
  */
-export function removeBrewBinaryWrappers(name: string): void {
+export async function removeBrewBinaryWrappers(name: string): Promise<void> {
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
   const agentUsername = path.basename(agentHome);
 
   try {
-    const result = uninstallBrewBinaryWrappers({
+    const result = await uninstallBrewBinaryWrappers({
       slug: name,
       agentHome,
       agentUsername,

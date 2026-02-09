@@ -13,6 +13,8 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { hasOpenClawFeature } from '@agenshield/ipc';
+import { detectHostOpenClawVersion } from './openclaw-install';
 
 const execAsync = promisify(exec);
 
@@ -78,12 +80,19 @@ export PATH="$HOME/bin:$HOME/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export SHELL="/usr/local/bin/guarded-shell"
 
 # Load NVM to get correct node/npm/openclaw in PATH (prepends NVM paths)
+NVM_LOADED=false
 if [ -s "$NVM_DIR/nvm.sh" ]; then
-  source "$NVM_DIR/nvm.sh"
+  source "$NVM_DIR/nvm.sh" 2>/dev/null && NVM_LOADED=true
+fi
+if [ "$NVM_LOADED" = "false" ]; then
+  echo "[AgenShield:PREFLIGHT] WARNING: NVM not loaded (NVM_DIR=$NVM_DIR)" >&2
 fi
 
-# Load interceptor via NODE_OPTIONS
-export NODE_OPTIONS="--disable-warning=ExperimentalWarning --require ${interceptorPath} \${NODE_OPTIONS:-}"
+# Load interceptor via NODE_OPTIONS (deduplicate if already set by plist EnvironmentVariables)
+case "\${NODE_OPTIONS:-}" in
+  *"register.cjs"*) ;;
+  *) export NODE_OPTIONS="--disable-warning=ExperimentalWarning --require ${interceptorPath} \${NODE_OPTIONS:-}" ;;
+esac
 
 # AgenShield environment
 export AGENSHIELD_SOCKET="${socketPath}"
@@ -93,6 +102,24 @@ export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_WS=true
 export AGENSHIELD_CONTEXT_TYPE=agent
+
+# Wait for broker socket (up to 30 seconds)
+SOCKET_WAIT=0
+while [ ! -S "${socketPath}" ] && [ $SOCKET_WAIT -lt 30 ]; do
+  sleep 1
+  SOCKET_WAIT=$((SOCKET_WAIT + 1))
+done
+if [ ! -S "${socketPath}" ]; then
+  echo "[AgenShield:PREFLIGHT] WARNING: broker socket not found after 30s at ${socketPath}" >&2
+fi
+
+# Pre-flight validation
+PREFLIGHT_OK=true
+[ ! -x "/opt/agenshield/bin/node-bin" ] && echo "[AgenShield:PREFLIGHT] FATAL: node-bin not found at /opt/agenshield/bin/node-bin" >&2 && PREFLIGHT_OK=false
+[ ! -f "${interceptorPath}" ] && echo "[AgenShield:PREFLIGHT] FATAL: interceptor not found at ${interceptorPath}" >&2 && PREFLIGHT_OK=false
+command -v openclaw &>/dev/null || { echo "[AgenShield:PREFLIGHT] FATAL: openclaw not in PATH (PATH=$PATH)" >&2; PREFLIGHT_OK=false; }
+[ -z "$NODE_OPTIONS" ] && echo "[AgenShield:PREFLIGHT] FATAL: NODE_OPTIONS is empty — interceptor will not load" >&2 && PREFLIGHT_OK=false
+[ "$PREFLIGHT_OK" = "false" ] && exit 78
 
 exec openclaw "$@"
 `;
@@ -104,6 +131,10 @@ exec openclaw "$@"
  * Generate LaunchDaemon plist for OpenClaw daemon process.
  */
 export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): string {
+  const socketPath = config.socketPath || '/var/run/agenshield/agenshield.sock';
+  const interceptorPath = config.interceptorPath || '/opt/agenshield/lib/interceptor/register.cjs';
+  const httpPort = config.httpPort || 5201;
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -123,6 +154,32 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
 
     <key>GroupName</key>
     <string>${config.socketGroupName}</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>${config.agentHome}</string>
+        <key>PATH</key>
+        <string>${config.agentHome}/bin:${config.agentHome}/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>SHELL</key>
+        <string>/usr/local/bin/guarded-shell</string>
+        <key>NODE_OPTIONS</key>
+        <string>--disable-warning=ExperimentalWarning --require ${interceptorPath}</string>
+        <key>AGENSHIELD_SOCKET</key>
+        <string>${socketPath}</string>
+        <key>AGENSHIELD_HTTP_PORT</key>
+        <string>${httpPort}</string>
+        <key>AGENSHIELD_INTERCEPT_EXEC</key>
+        <string>true</string>
+        <key>AGENSHIELD_INTERCEPT_HTTP</key>
+        <string>true</string>
+        <key>AGENSHIELD_INTERCEPT_FETCH</key>
+        <string>true</string>
+        <key>AGENSHIELD_INTERCEPT_WS</key>
+        <string>true</string>
+        <key>AGENSHIELD_CONTEXT_TYPE</key>
+        <string>agent</string>
+    </dict>
 
     <key>RunAtLoad</key>
     <false/>
@@ -162,6 +219,10 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
  * Generate LaunchDaemon plist for OpenClaw gateway process.
  */
 export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): string {
+  const socketPath = config.socketPath || '/var/run/agenshield/agenshield.sock';
+  const interceptorPath = config.interceptorPath || '/opt/agenshield/lib/interceptor/register.cjs';
+  const httpPort = config.httpPort || 5201;
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -181,6 +242,32 @@ export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): stri
 
     <key>GroupName</key>
     <string>${config.socketGroupName}</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>${config.agentHome}</string>
+        <key>PATH</key>
+        <string>${config.agentHome}/bin:${config.agentHome}/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>SHELL</key>
+        <string>/usr/local/bin/guarded-shell</string>
+        <key>NODE_OPTIONS</key>
+        <string>--disable-warning=ExperimentalWarning --require ${interceptorPath}</string>
+        <key>AGENSHIELD_SOCKET</key>
+        <string>${socketPath}</string>
+        <key>AGENSHIELD_HTTP_PORT</key>
+        <string>${httpPort}</string>
+        <key>AGENSHIELD_INTERCEPT_EXEC</key>
+        <string>true</string>
+        <key>AGENSHIELD_INTERCEPT_HTTP</key>
+        <string>true</string>
+        <key>AGENSHIELD_INTERCEPT_FETCH</key>
+        <string>true</string>
+        <key>AGENSHIELD_INTERCEPT_WS</key>
+        <string>true</string>
+        <key>AGENSHIELD_CONTEXT_TYPE</key>
+        <string>agent</string>
+    </dict>
 
     <key>RunAtLoad</key>
     <false/>
@@ -483,7 +570,10 @@ export async function getOpenClawDashboardUrl(): Promise<{ success: boolean; url
       return { success: false, error: 'Gateway port or auth token not found in openclaw.json' };
     }
 
-    const url = `http://127.0.0.1:${port}/?token=${token}`;
+    const version = detectHostOpenClawVersion();
+    const url = hasOpenClawFeature(version, 'hashTokenAuth')
+      ? `http://127.0.0.1:${port}/#token=${token}`
+      : `http://127.0.0.1:${port}/?token=${token}`;
     return { success: true, url };
   } catch (error) {
     return { success: false, error: `Failed to get dashboard URL: ${(error as Error).message}` };
