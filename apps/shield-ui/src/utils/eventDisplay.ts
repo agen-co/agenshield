@@ -121,3 +121,94 @@ export function resolveEventColor(color: string, palette: Palette): string {
     default: return palette.primary.main;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Shared summary / color / status helpers                            */
+/* ------------------------------------------------------------------ */
+
+import type { SSEEvent } from '../state/events';
+import type { StatusVariant } from '../components/shared/StatusBadge/StatusBadge.types';
+
+/** Single source-of-truth summary string for an event */
+export function getEventSummary(event: SSEEvent): string {
+  const d = event.data as Record<string, unknown>;
+
+  if (event.type === 'api:outbound') {
+    const ctx = d.context ?? '';
+    const status = d.statusCode ?? '';
+    const url = d.url ?? '';
+    return `${ctx} [${status}] ${url}`;
+  }
+  if (event.type === 'exec:denied') {
+    const command = d.command ?? d.target ?? '';
+    const reason = d.reason ?? d.error ?? '';
+    return reason ? `${command} — ${reason}` : String(command);
+  }
+  if (event.type === 'interceptor:event') {
+    const operation = String(d.operation ?? '');
+    const target = String(d.target ?? '');
+    const dtype = String(d.type ?? '');
+    const error = d.error as string | undefined;
+
+    if (dtype === 'denied' || dtype === 'deny') {
+      const hasTarget = (dtype === 'denied' || dtype === 'deny') &&
+        (operation === 'http_request' || operation === 'exec') && target;
+      const base = hasTarget ? `BLOCKED ${operation}: ${target}` : `BLOCKED ${operation}`;
+      return error ? `${base} — ${error}` : base;
+    }
+    // allow + http_request/exec → show target
+    if ((operation === 'http_request' || operation === 'exec') && target) {
+      return `${operation}: ${target}`;
+    }
+    return operation;
+  }
+  if (event.type === 'skills:untrusted_detected') {
+    const name = d.name ?? '';
+    const reason = d.reason ?? '';
+    return reason ? `${name} — ${reason}` : String(name);
+  }
+  if (event.type === 'skills:uninstalled') {
+    return String(d.name ?? '');
+  }
+
+  return (d.message as string) ??
+    (d.url as string) ??
+    (d.method as string) ??
+    (d.name as string) ??
+    (d.integration as string) ??
+    JSON.stringify(d).slice(0, 120);
+}
+
+/** Semantic color key for an event — 'error' for deny, 'success' for allow, else the display default */
+export function getEventColor(event: SSEEvent): string {
+  if (BLOCKED_EVENT_TYPES.has(event.type)) return 'error';
+  if (event.type === 'interceptor:event') {
+    const d = event.data as Record<string, unknown>;
+    const dtype = String(d.type ?? '');
+    if (dtype === 'denied' || dtype === 'deny') return 'error';
+    if (dtype === 'allowed' || dtype === 'allow') return 'success';
+  }
+  return getEventDisplay(event.type).color;
+}
+
+/** Status badge data for the Activity table (matches policy StatusBadge style) */
+export function getEventStatus(event: SSEEvent): { label: string; variant: StatusVariant } {
+  if (event.type === 'interceptor:event') {
+    const d = event.data as Record<string, unknown>;
+    const dtype = String(d.type ?? '');
+    if (dtype === 'denied' || dtype === 'deny') return { label: 'deny', variant: 'error' };
+    if (dtype === 'allowed' || dtype === 'allow') return { label: 'allow', variant: 'success' };
+    return { label: dtype || 'event', variant: 'info' };
+  }
+  if (BLOCKED_EVENT_TYPES.has(event.type)) return { label: 'deny', variant: 'error' };
+  if (event.type.includes('installed') || event.type.includes('approved') || event.type.includes('connected') || event.type.includes('started')) {
+    return { label: 'allow', variant: 'success' };
+  }
+  if (event.type.includes('warning') || event.type.includes('quarantined') || event.type.includes('untrusted')) {
+    return { label: 'warning', variant: 'warning' };
+  }
+  if (event.type.includes('failed') || event.type.includes('error') || event.type.includes('critical') || event.type.includes('alert')) {
+    return { label: 'error', variant: 'error' };
+  }
+  return { label: 'info', variant: 'info' };
+}

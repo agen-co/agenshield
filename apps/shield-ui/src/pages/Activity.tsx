@@ -1,25 +1,26 @@
 /**
- * Activity page - full activity history with filters
+ * Activity page - full activity history with filters and CSS Grid table layout
  */
 
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   Box,
-  Card,
-  CardContent,
   Select,
   MenuItem,
   Typography,
   Chip,
   Button,
+  Checkbox,
+  ListItemText,
 } from '@mui/material';
+import type { SelectChangeEvent } from '@mui/material';
 import {
   Activity as ActivityIcon,
   Trash2,
   ChevronRight,
 } from 'lucide-react';
 import { useTheme } from '@mui/material/styles';
-import { formatDistanceToNow, format, isAfter, subHours, subDays } from 'date-fns';
+import { format, isAfter, subHours, subDays } from 'date-fns';
 import { useSnapshot } from 'valtio';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { eventStore, clearEvents, type SSEEvent } from '../state/events';
@@ -28,10 +29,19 @@ import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
 import { EmptyState } from '../components/shared/EmptyState';
 import { useGuardedAction } from '../hooks/useGuardedAction';
-import { getEventDisplay, resolveEventColor, EVENT_DISPLAY, BLOCKED_EVENT_TYPES } from '../utils/eventDisplay';
+import {
+  getEventDisplay,
+  resolveEventColor,
+  getEventSummary,
+  getEventColor,
+  getEventStatus,
+  EVENT_DISPLAY,
+  BLOCKED_EVENT_TYPES,
+} from '../utils/eventDisplay';
+import { StatusBadge } from '../components/shared/StatusBadge';
 
 type TimeFilter = 'all' | '1h' | '6h' | '24h' | '7d';
-type TypeFilter = 'all' | 'blocked' | 'api' | 'security' | 'broker' | 'config' | 'skills' | 'exec' | 'agenco' | 'wrappers' | 'process' | 'interceptor';
+type TypeFilter = 'blocked' | 'api' | 'security' | 'broker' | 'config' | 'skills' | 'exec' | 'agenco' | 'wrappers' | 'process' | 'interceptor';
 
 const TIME_OPTIONS: { label: string; value: TimeFilter }[] = [
   { label: 'All Time', value: 'all' },
@@ -42,7 +52,6 @@ const TIME_OPTIONS: { label: string; value: TimeFilter }[] = [
 ];
 
 const TYPE_OPTIONS: { label: string; value: TypeFilter }[] = [
-  { label: 'All Types', value: 'all' },
   { label: 'Blocked / Denied', value: 'blocked' },
   { label: 'API Requests', value: 'api' },
   { label: 'Security', value: 'security' },
@@ -55,6 +64,10 @@ const TYPE_OPTIONS: { label: string; value: TypeFilter }[] = [
   { label: 'Process', value: 'process' },
   { label: 'Interceptor', value: 'interceptor' },
 ];
+
+const GRID_COLUMNS = '28px 90px 150px 1fr 90px';
+const ROW_HEIGHT = 44;
+const EXPANDED_EXTRA = 300;
 
 function getTimeThreshold(filter: TimeFilter): Date | null {
   if (filter === 'all') return null;
@@ -76,49 +89,10 @@ function isBlockedEvent(event: SSEEvent): boolean {
   return false;
 }
 
-function getEventSummary(event: SSEEvent): string {
-  const d = event.data as Record<string, unknown>;
-
-  if (event.type === 'api:outbound') {
-    const ctx = d.context ?? '';
-    const status = d.statusCode ?? '';
-    const url = d.url ?? '';
-    return `${ctx} [${status}] ${url}`;
-  }
-  if (event.type === 'exec:denied') {
-    const command = d.command ?? d.target ?? '';
-    const reason = d.reason ?? d.error ?? '';
-    return reason ? `${command} — ${reason}` : String(command);
-  }
-  if (event.type === 'interceptor:event') {
-    const operation = d.operation ?? '';
-    const target = d.target ?? '';
-    const type = d.type ?? '';
-    const error = d.error as string | undefined;
-    if (type === 'denied' || type === 'deny') {
-      return error ? `BLOCKED ${operation}: ${target} — ${error}` : `BLOCKED ${operation}: ${target}`;
-    }
-    return `${operation} → ${target} [${type}]`;
-  }
-  if (event.type === 'skills:untrusted_detected') {
-    const name = d.name ?? '';
-    const reason = d.reason ?? '';
-    return reason ? `${name} — ${reason}` : String(name);
-  }
-  if (event.type === 'skills:uninstalled') {
-    return String(d.name ?? '');
-  }
-
-  return (d.message as string) ??
-    (d.url as string) ??
-    (d.method as string) ??
-    (d.name as string) ??
-    (d.integration as string) ??
-    JSON.stringify(d).slice(0, 120);
+function matchesTypeFilter(event: SSEEvent, filter: TypeFilter): boolean {
+  if (filter === 'blocked') return isBlockedEvent(event);
+  return event.type.startsWith(`${filter}:`);
 }
-
-const ROW_HEIGHT = 52;
-const EXPANDED_HEIGHT = 352;
 
 export function Activity() {
   const theme = useTheme();
@@ -126,9 +100,14 @@ export function Activity() {
   const { events } = useSnapshot(eventStore);
   const [search, setSearch] = useState('');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [typeFilters, setTypeFilters] = useState<TypeFilter[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const parentRef = useRef<HTMLDivElement>(null);
+
+  const handleTypeFilterChange = useCallback((e: SelectChangeEvent<TypeFilter[]>) => {
+    const val = e.target.value;
+    setTypeFilters(typeof val === 'string' ? val.split(',') as TypeFilter[] : val);
+  }, []);
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds(prev => {
@@ -142,20 +121,15 @@ export function Activity() {
   const filteredEvents = useMemo(() => {
     let result = [...events] as SSEEvent[];
 
-    // Time filter
     const threshold = getTimeThreshold(timeFilter);
     if (threshold) {
       result = result.filter((e) => isAfter(e.timestamp, threshold));
     }
 
-    // Type filter
-    if (typeFilter === 'blocked') {
-      result = result.filter((e) => isBlockedEvent(e));
-    } else if (typeFilter !== 'all') {
-      result = result.filter((e) => e.type.startsWith(`${typeFilter}:`));
+    if (typeFilters.length > 0) {
+      result = result.filter((e) => typeFilters.some((f) => matchesTypeFilter(e, f)));
     }
 
-    // Search filter
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter((e) => {
@@ -166,14 +140,14 @@ export function Activity() {
     }
 
     return result;
-  }, [events, timeFilter, typeFilter, search]);
+  }, [events, timeFilter, typeFilters, search]);
 
   const virtualizer = useVirtualizer({
     count: filteredEvents.length,
     getScrollElement: () => parentRef.current,
     estimateSize: (index) => {
       const event = filteredEvents[index];
-      return expandedIds.has(event.id) ? EXPANDED_HEIGHT : ROW_HEIGHT;
+      return expandedIds.has(event.id) ? ROW_HEIGHT + EXPANDED_EXTRA : ROW_HEIGHT;
     },
     overscan: 10,
   });
@@ -210,15 +184,24 @@ export function Activity() {
             placeholder="Search events..."
           />
         </Box>
-        <Select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
+        <Select<TypeFilter[]>
+          multiple
+          value={typeFilters}
+          onChange={handleTypeFilterChange}
           size="small"
           displayEmpty
-          sx={{ minWidth: 160, height: 40 }}
+          renderValue={(selected) =>
+            selected.length === 0
+              ? 'All Types'
+              : selected.map((v) => TYPE_OPTIONS.find((o) => o.value === v)?.label ?? v).join(', ')
+          }
+          sx={{ minWidth: 180, height: 40, '& .MuiSelect-select': { py: 0.75 } }}
         >
           {TYPE_OPTIONS.map((opt) => (
-            <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
+            <MenuItem key={opt.value} value={opt.value}>
+              <Checkbox size="small" checked={typeFilters.includes(opt.value)} sx={{ p: 0, mr: 1 }} />
+              <ListItemText primary={opt.label} primaryTypographyProps={{ variant: 'body2' }} />
+            </MenuItem>
           ))}
         </Select>
         <Select
@@ -232,154 +215,218 @@ export function Activity() {
             <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
           ))}
         </Select>
+        {typeFilters.length > 0 && (
+          <Chip
+            label="Clear filters"
+            size="small"
+            onDelete={() => setTypeFilters([])}
+            sx={{ height: 28 }}
+          />
+        )}
       </Box>
 
-      <Card>
-        <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
-          {events.length === 0 ? (
-            <Box sx={{ p: 2 }}>
-              <EmptyState
-                icon={<ActivityIcon size={28} />}
-                title="No activity yet"
-                description="Events will appear here as they are received from the daemon via SSE."
-              />
-            </Box>
-          ) : filteredEvents.length === 0 ? (
-            <Box sx={{ p: 2 }}>
-              <EmptyState
-                title="No matching events"
-                description="Try adjusting your filters or search query."
-              />
-            </Box>
-          ) : (
-            <Box
-              ref={parentRef}
-              sx={{
-                maxHeight: 'calc(100vh - 280px)',
-                overflow: 'auto',
-              }}
-            >
-              <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
-                {virtualizer.getVirtualItems().map(virtualRow => {
-                  const event = filteredEvents[virtualRow.index];
-                  const display = getEventDisplay(event.type);
-                  const IconComp = display.icon;
-                  const color = resolveEventColor(display.color, theme.palette);
-                  const isExpanded = expandedIds.has(event.id);
+      {events.length === 0 ? (
+        <Box sx={{ p: 4 }}>
+          <EmptyState
+            icon={<ActivityIcon size={28} />}
+            title="No activity yet"
+            description="Events will appear here as they are received from the daemon via SSE."
+          />
+        </Box>
+      ) : filteredEvents.length === 0 ? (
+        <Box sx={{ p: 4 }}>
+          <EmptyState
+            title="No matching events"
+            description="Try adjusting your filters or search query."
+          />
+        </Box>
+      ) : (
+        <Box
+          ref={parentRef}
+          sx={{
+            maxHeight: 'calc(100vh - 280px)',
+            overflow: 'auto',
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 2,
+          }}
+        >
+          {/* Sticky table header */}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: GRID_COLUMNS,
+              alignItems: 'center',
+              gap: 1.5,
+              px: 2,
+              height: 36,
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              bgcolor: 'background.paper',
+              position: 'sticky',
+              top: 0,
+              zIndex: 1,
+            }}
+          >
+            <Box />
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              Time
+            </Typography>
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              Type
+            </Typography>
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              Details
+            </Typography>
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              Status
+            </Typography>
+          </Box>
 
-                  return (
-                    <Box
-                      key={virtualRow.key}
-                      sx={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        transform: `translateY(${virtualRow.start}px)`,
-                        borderBottom: '1px solid',
-                        borderColor: 'divider',
-                        cursor: 'pointer',
-                        '&:hover': { bgcolor: 'action.hover' },
-                        px: 2,
+          <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+            {virtualizer.getVirtualItems().map(virtualRow => {
+              const event = filteredEvents[virtualRow.index];
+              const display = getEventDisplay(event.type);
+              const IconComp = display.icon;
+              const eventColor = getEventColor(event);
+              const color = resolveEventColor(eventColor, theme.palette);
+              const status = getEventStatus(event);
+              const isExpanded = expandedIds.has(event.id);
+
+              return (
+                <Box
+                  key={virtualRow.key}
+                  sx={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: 'action.hover' },
+                  }}
+                  onClick={() => toggleExpand(event.id)}
+                >
+                  {/* Grid row */}
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: GRID_COLUMNS,
+                      alignItems: 'center',
+                      gap: 1.5,
+                      height: ROW_HEIGHT,
+                      px: 2,
+                    }}
+                  >
+                    {/* Chevron */}
+                    <ChevronRight
+                      size={14}
+                      style={{
+                        flexShrink: 0,
+                        transition: 'transform 0.15s ease',
+                        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                        color: theme.palette.text.disabled,
                       }}
-                      onClick={() => toggleExpand(event.id)}
+                    />
+
+                    {/* Time */}
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontFamily: '"IBM Plex Mono", monospace',
+                        whiteSpace: 'nowrap',
+                        color: 'text.secondary',
+                      }}
                     >
+                      {format(event.timestamp, 'HH:mm:ss')}
+                    </Typography>
+
+                    {/* Type — icon box + label */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
                       <Box
                         sx={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 1.5,
-                          height: ROW_HEIGHT,
+                          justifyContent: 'center',
+                          width: 24,
+                          height: 24,
+                          borderRadius: '6px',
+                          backgroundColor: `${color}14`,
+                          color,
+                          flexShrink: 0,
                         }}
                       >
-                        <ChevronRight
-                          size={14}
-                          style={{
-                            flexShrink: 0,
-                            transition: 'transform 0.15s ease',
-                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                            color: theme.palette.text.disabled,
-                          }}
-                        />
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: 28,
-                            height: 28,
-                            borderRadius: '6px',
-                            backgroundColor: `${color}14`,
-                            color,
-                            flexShrink: 0,
-                          }}
-                        >
-                          <IconComp size={14} />
-                        </Box>
-                        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body2" fontWeight={500} sx={{ flexShrink: 0 }}>
-                            {display.label}
-                          </Typography>
-                          <Chip
-                            label={event.type}
-                            size="small"
-                            variant="outlined"
-                            sx={{ height: 18, '& .MuiChip-label': { fontSize: '0.625rem', px: 0.75 } }}
-                          />
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            sx={{
-                              flex: 1,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              minWidth: 0,
-                            }}
-                          >
-                            {getEventSummary(event)}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ flexShrink: 0, textAlign: 'right' }}>
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'nowrap' }}>
-                            {formatDistanceToNow(event.timestamp, { addSuffix: true })}
-                          </Typography>
-                          <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.625rem' }}>
-                            {format(event.timestamp, 'HH:mm:ss')}
-                          </Typography>
-                        </Box>
+                        <IconComp size={13} />
                       </Box>
-
-                      {isExpanded && (
-                        <Box
-                          sx={{
-                            maxHeight: 300,
-                            overflow: 'auto',
-                            mb: 1,
-                            p: 1.5,
-                            bgcolor: 'action.hover',
-                            borderRadius: 1,
-                            fontFamily: '"IBM Plex Mono", monospace',
-                            fontSize: '0.75rem',
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-all',
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5, fontFamily: 'inherit' }}>
-                            ID: {event.id} | {format(event.timestamp, 'yyyy-MM-dd HH:mm:ss.SSS')}
-                          </Typography>
-                          {JSON.stringify(event.data, null, 2)}
-                        </Box>
-                      )}
+                      <Typography
+                        variant="caption"
+                        fontWeight={500}
+                        sx={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {display.label}
+                      </Typography>
                     </Box>
-                  );
-                })}
-              </div>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
+
+                    {/* Details */}
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontFamily: '"IBM Plex Mono", monospace',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        minWidth: 0,
+                        color: 'text.secondary',
+                      }}
+                    >
+                      {getEventSummary(event)}
+                    </Typography>
+
+                    {/* Status badge — matches policy allow/deny style */}
+                    <StatusBadge
+                      label={status.label}
+                      variant={status.variant}
+                      dot={false}
+                      size="small"
+                    />
+                  </Box>
+
+                  {/* Expanded JSON panel */}
+                  {isExpanded && (
+                    <Box
+                      sx={{
+                        maxHeight: EXPANDED_EXTRA,
+                        overflow: 'auto',
+                        mx: 2,
+                        mb: 1,
+                        p: 1.5,
+                        bgcolor: 'action.hover',
+                        borderRadius: 1,
+                        fontFamily: '"IBM Plex Mono", monospace',
+                        fontSize: '0.75rem',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-all',
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5, fontFamily: 'inherit' }}>
+                        ID: {event.id} | {format(event.timestamp, 'yyyy-MM-dd HH:mm:ss.SSS')}
+                      </Typography>
+                      {JSON.stringify(event.data, null, 2)}
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
+          </div>
+        </Box>
+      )}
 
       {filteredEvents.length > 0 && (
         <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block', textAlign: 'center' }}>

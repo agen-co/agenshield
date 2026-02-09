@@ -113,7 +113,7 @@ export async function handleSkillInstall(
       }
     }
 
-    const skillsDir = path.join(agentHome, '.openclaw', 'skills');
+    const skillsDir = path.join(agentHome, '.openclaw', 'workspace', 'skills');
     const skillDir = path.join(skillsDir, slug);
     const binDir = path.join(agentHome, 'bin');
 
@@ -216,7 +216,7 @@ export async function handleSkillUninstall(
       };
     }
 
-    const skillsDir = path.join(agentHome, '.openclaw', 'skills');
+    const skillsDir = path.join(agentHome, '.openclaw', 'workspace', 'skills');
     const skillDir = path.join(skillsDir, slug);
     const binDir = path.join(agentHome, 'bin');
     const wrapperPath = path.join(binDir, slug);

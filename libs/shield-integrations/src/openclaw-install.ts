@@ -261,7 +261,7 @@ export function copyOpenClawConfig(options: {
   try {
     if (!fs.existsSync(sourceConfigPath)) {
       log('Source config path does not exist, creating empty .openclaw');
-      sudoExec(`mkdir -p "${path.join(targetConfigDir, 'skills')}" "${path.join(targetConfigDir, 'canvas')}"`);
+      sudoExec(`mkdir -p "${path.join(targetConfigDir, 'workspace', 'skills')}" "${path.join(targetConfigDir, 'canvas')}"`);
       sudoExec(`chown -R ${agentUsername}:${socketGroup} "${targetConfigDir}"`);
       sudoExec(`chmod 2775 "${targetConfigDir}"`);
       return {
@@ -330,7 +330,7 @@ export function copyOpenClawConfig(options: {
     }
 
     // Ensure subdirectories exist with correct permissions (source may not have had them)
-    for (const subdir of ['skills', 'canvas', 'workspace', 'logs']) {
+    for (const subdir of ['canvas', 'workspace', 'workspace/skills', 'logs']) {
       const dirPath = path.join(targetConfigDir, subdir);
       sudoExec(`mkdir -p "${dirPath}"`);
       sudoExec(`chown ${agentUsername}:${socketGroup} "${dirPath}"`);
@@ -544,7 +544,7 @@ export async function onboardAgentOpenClaw(options: {
   // The .openclaw dir may be owned by broker (from setup), so the agent user
   // can't create subdirectories unless group-write is set correctly.
   const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
-  for (const subdir of ['workspace', 'canvas', 'logs']) {
+  for (const subdir of ['workspace', 'workspace/skills', 'canvas', 'logs']) {
     const dirPath = `${agentHome}/.openclaw/${subdir}`;
     sudoExec(`mkdir -p "${dirPath}"`);
     sudoExec(`chown ${agentUsername}:${socketGroup} "${dirPath}"`);
@@ -600,7 +600,7 @@ export async function startAgentOpenClawGateway(options: {
     `export PATH="${agentHome}/bin:${agentHome}/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"`,
     `export SHELL="/usr/local/bin/guarded-shell"`,
     `source "${nvmDir}/nvm.sh"`,
-    `export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"`,
+    `export NODE_OPTIONS="--disable-warning=ExperimentalWarning --require ${interceptorPath} \${NODE_OPTIONS:-}"`,
     `export AGENSHIELD_SOCKET="${socketPath}"`,
     `export AGENSHIELD_INTERCEPT_EXEC=true`,
     `export AGENSHIELD_INTERCEPT_HTTP=true`,
@@ -682,7 +682,7 @@ export async function startAgentOpenClawDashboard(options: {
     `export PATH="${agentHome}/bin:${agentHome}/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"`,
     `export SHELL="/usr/local/bin/guarded-shell"`,
     `source "${nvmDir}/nvm.sh"`,
-    `export NODE_OPTIONS="--require ${dashInterceptorPath} \${NODE_OPTIONS:-}"`,
+    `export NODE_OPTIONS="--disable-warning=ExperimentalWarning --require ${dashInterceptorPath} \${NODE_OPTIONS:-}"`,
     `export AGENSHIELD_SOCKET="${dashSocketPath}"`,
     `export AGENSHIELD_INTERCEPT_EXEC=true`,
     `export AGENSHIELD_INTERCEPT_HTTP=true`,

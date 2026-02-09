@@ -71,7 +71,7 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // Start skills watcher for quarantine enforcement
   // Default skills dir: agent home is derived from config or uses fallback
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-  const skillsDir = `${agentHome}/.openclaw/skills`;
+  const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
 
   // Ensure skills directory exists with proper permissions before starting watcher
   const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';

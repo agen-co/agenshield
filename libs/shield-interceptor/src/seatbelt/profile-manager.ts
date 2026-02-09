@@ -106,6 +106,15 @@ export class ProfileManager {
       lines.push('');
     }
 
+    // Read exceptions within denied paths (more specific subpath overrides deny)
+    if (sandbox.allowedReadPaths.length > 0) {
+      lines.push(';; Allowed read paths (exceptions to denied paths)');
+      for (const p of sandbox.allowedReadPaths) {
+        lines.push(`(allow file-read* (subpath "${this.escapeSbpl(p)}"))`);
+      }
+      lines.push('');
+    }
+
     // Binary execution — allow standard system binary directories.
     // The security boundary is network isolation + filesystem write restriction +
     // guarded shell's TRAPDEBUG, NOT individual binary whitelisting.

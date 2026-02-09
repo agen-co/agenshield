@@ -31,10 +31,23 @@ export function useSSE(enabled = true, token?: string | null) {
     historyLoaded.current = false;
 
     const client = createSSEClient(
-      (type, data) => {
+      (type, rawData) => {
+        // SSE sends full DaemonEvent { type, timestamp, data } — extract inner payload
+        const data: Record<string, unknown> =
+          rawData && typeof rawData === 'object' && 'data' in rawData &&
+          rawData.data != null && typeof rawData.data === 'object'
+            ? (rawData.data as Record<string, unknown>)
+            : rawData;
+
+        // Use daemon timestamp when available
+        const serverTs =
+          rawData && typeof rawData === 'object' && 'timestamp' in rawData
+            ? new Date(rawData.timestamp as string).getTime()
+            : Date.now();
+
         // Update daemon status store from SSE push
-        if (type === 'daemon:status' && data.data) {
-          setDaemonStatus(data.data as DaemonStatus);
+        if (type === 'daemon:status') {
+          setDaemonStatus(data as unknown as DaemonStatus);
           return; // Don't add status events to the activity feed
         }
 
@@ -51,7 +64,7 @@ export function useSSE(enabled = true, token?: string | null) {
           id: crypto.randomUUID(),
           type,
           data,
-          timestamp: Date.now(),
+          timestamp: serverTs,
         };
         addEvent(event);
       },

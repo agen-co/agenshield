@@ -83,7 +83,7 @@ if [ -s "$NVM_DIR/nvm.sh" ]; then
 fi
 
 # Load interceptor via NODE_OPTIONS
-export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"
+export NODE_OPTIONS="--disable-warning=ExperimentalWarning --require ${interceptorPath} \${NODE_OPTIONS:-}"
 
 # AgenShield environment
 export AGENSHIELD_SOCKET="${socketPath}"

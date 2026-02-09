@@ -147,7 +147,12 @@ export function createDirectoryStructure(config?: UserConfig): DirectoryStructur
           `${brokerUsername} allow read,write,append,add_subdirectory,add_file,delete_child,list,search,readattr,readextattr,writeattr,writeextattr,readsecurity,file_inherit,directory_inherit`,
         ],
       },
-      [`${agentHome}/.openclaw/skills`]: {
+      [`${agentHome}/.openclaw/workspace`]: {
+        mode: 0o2775, // setgid + group-writable for broker
+        owner: brokerUsername,
+        group: socketGroupName,
+      },
+      [`${agentHome}/.openclaw/workspace/skills`]: {
         mode: 0o2775, // setgid bit, group-writable for broker to create subdirectories
         owner: brokerUsername,      // broker needs write access
         group: socketGroupName,

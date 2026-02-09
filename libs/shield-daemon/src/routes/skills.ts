@@ -905,7 +905,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           return { name: f.name, content };
         }));
 
-        // 5. Write files to $AGENT_HOME/.openclaw/skills/<name>/
+        // 5. Write files to $AGENT_HOME/.openclaw/workspace/skills/<name>/
         sudoMkdir(skillDir, agentUsername);
         for (const file of taggedFiles) {
           const filePath = path.join(skillDir, file.name);

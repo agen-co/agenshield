@@ -25,9 +25,9 @@ export interface SkillInjectionResult {
  * Get the OpenClaw skills directory for a user
  */
 export function getSkillsDir(homeDir: string): string {
-  // OpenClaw stores skills in ~/.openclaw/skills/ or ~/.config/openclaw/skills/
+  // OpenClaw stores skills in ~/.openclaw/workspace/skills/ or ~/.config/openclaw/skills/
   const possiblePaths = [
-    path.join(homeDir, '.openclaw', 'skills'),
+    path.join(homeDir, '.openclaw', 'workspace', 'skills'),
     path.join(homeDir, '.config', 'openclaw', 'skills'),
   ];
 

@@ -124,6 +124,36 @@ export const BuiltinPolicies: PolicyRule[] = [
     priority: 200,
   },
 
+  // Allow essential commands for OpenClaw operation (node, openclaw, basic tools).
+  // Deny rules below have higher priority and still block dangerous patterns.
+  {
+    id: 'builtin-allow-essential-exec',
+    name: 'Allow essential commands',
+    action: 'allow',
+    target: 'command',
+    operations: ['exec'],
+    patterns: [
+      'node:*', 'node-bin:*', 'npm:*', 'npx:*', 'openclaw:*',
+      'git:*', 'curl:*',
+      'ls:*', 'cat:*', 'head:*', 'tail:*',
+      'grep:*', 'find:*', 'which:*',
+      'echo:*', 'touch:*', 'mkdir:*',
+      'cp:*', 'mv:*', 'rm:*',
+      'env:*', 'printenv:*',
+      'wc:*', 'sort:*', 'uniq:*',
+      'sed:*', 'awk:*', 'xargs:*',
+      'tar:*', 'tee:*',
+      'bash:*', 'sh:*', 'zsh:*',
+      'chmod:*', 'chown:*',
+      'dirname:*', 'basename:*', 'realpath:*',
+      'pwd:*', 'whoami:*', 'id:*',
+      'python:*', 'python3:*', 'pip:*', 'pip3:*',
+      'brew:*',
+    ],
+    enabled: true,
+    priority: 50,
+  },
+
   // Deny dangerous commands
   {
     id: 'builtin-deny-dangerous-commands',

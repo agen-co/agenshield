@@ -20,6 +20,7 @@ import {
   extractCommandBasename,
   filterUrlPoliciesForCommand,
 } from '../policy/url-matcher';
+import { collectDenyPathsFromPolicies } from '../policy/sandbox-helpers';
 import { getProxyPool } from '../proxy/pool';
 
 interface JsonRpcRequest {
@@ -162,6 +163,13 @@ async function buildSandboxConfig(
     envDeny: [],
   };
 
+  // Wire concrete filesystem deny paths from policies into seatbelt profile
+  const concreteDenyPaths = collectDenyPathsFromPolicies(config.policies || []);
+  if (concreteDenyPaths.length > 0) {
+    console.log(`[sandbox] deniedPaths from policies: ${concreteDenyPaths.join(', ')}`);
+    sandbox.deniedPaths.push(...concreteDenyPaths);
+  }
+
   // Resolve the command binary and add to allowed binaries
   if (target) {
     // Strip fork: prefix if present
@@ -185,12 +193,18 @@ async function buildSandboxConfig(
 
   // Always allow these essential binaries — resolve from agent home
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+  sandbox.allowedWritePaths.push(agentHome);
   sandbox.allowedBinaries.push(
     '/opt/agenshield/bin/',
     `${agentHome}/homebrew/`,            // agent's homebrew (bin + lib + Cellar)
     `${agentHome}/.nvm/`,                // agent's NVM (node versions + global packages)
     `${agentHome}/bin/`,                 // agent's wrapper scripts
   );
+
+  // Deny access to OpenClaw internals (tokens, config, logs) but allow workspace (skills)
+  const openclawDir = `${agentHome}/.openclaw`;
+  sandbox.deniedPaths.push(openclawDir);
+  sandbox.allowedReadPaths.push(`${openclawDir}/workspace`);
 
   // Determine network access mode
   const networkMode = determineNetworkAccess(config, matchedPolicy, target || '');

@@ -14,6 +14,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { PROXIED_COMMANDS, BASIC_SYSTEM_COMMANDS } from '@agenshield/sandbox';
+import { sudoMkdir, sudoWriteFile } from './skill-lifecycle';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -85,16 +86,14 @@ export function loadManifest(agentHome: string): BrewManifest {
   }
 }
 
-export function saveManifest(agentHome: string, manifest: BrewManifest): void {
+export function saveManifest(agentHome: string, manifest: BrewManifest, agentUsername?: string): void {
   const manifestPath = getManifestPath(agentHome);
   const dir = path.dirname(manifestPath);
+  const username = agentUsername || path.basename(agentHome);
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    sudoMkdir(dir, username);
   }
-  // Atomic write: temp file + rename
-  const tmpPath = manifestPath + '.tmp';
-  fs.writeFileSync(tmpPath, JSON.stringify(manifest, null, 2) + '\n', 'utf-8');
-  fs.renameSync(tmpPath, manifestPath);
+  sudoWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', username);
 }
 
 // ─── Binary Discovery ───────────────────────────────────────────────────────
@@ -409,7 +408,7 @@ export function installBrewBinaryWrappers(options: {
 
   // 4. Save manifest
   try {
-    saveManifest(agentHome, manifest);
+    saveManifest(agentHome, manifest, agentUsername);
   } catch (err) {
     errors.push(`Failed to save manifest: ${(err as Error).message}`);
   }
@@ -550,7 +549,7 @@ export function uninstallBrewBinaryWrappers(options: {
   // Save manifest
   if (manifestChanged) {
     try {
-      saveManifest(agentHome, manifest);
+      saveManifest(agentHome, manifest, agentUsername);
     } catch (err) {
       errors.push(`Failed to save manifest: ${(err as Error).message}`);
     }
