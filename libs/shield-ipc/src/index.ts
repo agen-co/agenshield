@@ -109,7 +109,7 @@ export {
 } from './schemas/auth.schema';
 
 // Presets
-export { OPENCLAW_PRESET, POLICY_PRESETS } from './presets';
+export { OPENCLAW_PRESET, AGENCO_PRESET, POLICY_PRESETS } from './presets';
 export type { PolicyPreset } from './presets';
 
 // Catalog

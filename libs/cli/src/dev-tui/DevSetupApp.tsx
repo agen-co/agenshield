@@ -67,7 +67,7 @@ const DEV_BASE_UID = 5400;
 const DEV_BASE_GID = 5300;
 
 const SKILL_NAMES = [
-  'agenco-secure-integrations',
+  'agenco',
   'soul-shield',
   'policy-enforce',
   'secret-broker',

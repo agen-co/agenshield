@@ -25,10 +25,13 @@ import { addSkillPolicy, removeSkillPolicy, createSkillWrapper, removeSkillWrapp
 import { injectInstallationTag } from './skill-tag-injector';
 import { storeDownloadedSkill, markDownloadedAsInstalled } from './marketplace';
 import { stripEnvFromSkillMd } from '@agenshield/sandbox';
+import { AGENCO_PRESET } from '@agenshield/ipc';
 import { INTEGRATION_CATALOG } from '../data/integration-catalog';
 import { loadState } from '../state';
+import { loadConfig, updateConfig } from '../config';
+import { syncCommandPolicies } from '../command-sync';
 
-const MASTER_SKILL_NAME = 'agenco-secure-integrations';
+const MASTER_SKILL_NAME = 'agenco';
 const INTEGRATION_SKILL_PREFIX = 'integration-';
 
 export interface SyncResult {
@@ -117,7 +120,7 @@ function generateIntegrationSkillMd(integrationId: string): string | null {
   lines.push('');
   lines.push('## Usage');
   lines.push('');
-  lines.push(`Use the \`agenco-secure-integrations\` skill to interact with ${details.title}.`);
+  lines.push(`Use the \`agenco\` skill to interact with ${details.title}.`);
   lines.push(`Search for tools with queries like: \`"${details.actions[0]?.name?.replace(/_/g, ' ') || `use ${integrationId}`}"\``);
   lines.push('');
 
@@ -127,7 +130,7 @@ function generateIntegrationSkillMd(integrationId: string): string | null {
 // ─── Install / Uninstall helpers ────────────────────────────────────────────
 
 /**
- * Install (or update) the master agenco-secure-integrations skill.
+ * Install (or update) the master agenco skill.
  */
 async function installMasterSkill(connectedIds: string[]): Promise<void> {
   const skillsDir = getSkillsDir();
@@ -177,6 +180,21 @@ async function installMasterSkill(connectedIds: string[]): Promise<void> {
   }
 
   addSkillPolicy(MASTER_SKILL_NAME);
+
+  // Add AgenCo preset policies (command + URL) if not already present
+  const config = loadConfig();
+  let changed = false;
+  for (const presetPolicy of AGENCO_PRESET.policies) {
+    if (!config.policies.some(p => p.id === presetPolicy.id)) {
+      config.policies.push(presetPolicy);
+      changed = true;
+    }
+  }
+  if (changed) {
+    updateConfig({ policies: config.policies });
+    // Sync to broker's dynamic allowlist so agenco command is allowed
+    syncCommandPolicies(config.policies);
+  }
 
   // Update integrity hash
   const destDir = path.join(skillsDir, MASTER_SKILL_NAME);
@@ -323,6 +341,15 @@ async function uninstallMasterSkill(): Promise<void> {
 
   removeFromApprovedList(MASTER_SKILL_NAME);
   removeSkillPolicy(MASTER_SKILL_NAME);
+
+  // Remove AgenCo preset policies
+  const config = loadConfig();
+  const agencoIds = new Set(AGENCO_PRESET.policies.map(p => p.id));
+  const filtered = config.policies.filter(p => !agencoIds.has(p.id));
+  if (filtered.length !== config.policies.length) {
+    updateConfig({ policies: filtered });
+    syncCommandPolicies(filtered);
+  }
 
   console.log('[IntegrationSkills] Uninstalled master skill');
 }

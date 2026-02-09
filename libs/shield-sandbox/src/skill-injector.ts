@@ -51,12 +51,12 @@ export function getAgenCoSkillPath(): string {
   // npm/npx: resolve via package name
   try {
     const pkgPath = require.resolve('@agenshield/skills/package.json');
-    possiblePaths.push(path.join(path.dirname(pkgPath), 'skills', 'agenco-secure-integrations'));
+    possiblePaths.push(path.join(path.dirname(pkgPath), 'skills', 'agenco'));
   } catch { /* not installed via npm */ }
 
   possiblePaths.push(
     // Global install
-    '/opt/agenshield/skills/agenco-secure-integrations',
+    '/opt/agenshield/skills/agenco',
   );
 
   for (const p of possiblePaths) {
@@ -114,7 +114,7 @@ export async function injectAgenCoSkill(
     }
 
     // Copy the skill
-    const destPath = path.join(skillsDir, 'agenco-secure-integrations');
+    const destPath = path.join(skillsDir, 'agenco');
     copyDirRecursive(sourcePath, destPath);
 
     // Build the skill if needed (has package.json but no dist)
@@ -143,7 +143,7 @@ export async function injectAgenCoSkill(
       // May fail if not root, but that's okay for development
     }
 
-    injectedSkills.push('agenco-secure-integrations');
+    injectedSkills.push('agenco');
 
     return {
       success: true,
@@ -190,7 +190,7 @@ export async function createAgenCoSymlink(
     const skillsDir = getSkillsDir(config.agentUser.home);
     const agencoBin = path.join(
       skillsDir,
-      'agenco-secure-integrations',
+      'agenco',
       'bin',
       'agenco.js'
     );
@@ -203,7 +203,7 @@ export async function createAgenCoSymlink(
     }
 
     // Create a wrapper script instead of a symlink so we can set context env vars
-    const wrapperContent = generateSkillWrapperScript('agenco-secure-integrations', agencoBin);
+    const wrapperContent = generateSkillWrapperScript('agenco', agencoBin);
     fs.writeFileSync(wrapperPath, wrapperContent, { mode: 0o755 });
 
     return { success: true };
@@ -223,7 +223,7 @@ export async function removeInjectedSkills(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const skillsDir = getSkillsDir(homeDir);
-    const agencoPath = path.join(skillsDir, 'agenco-secure-integrations');
+    const agencoPath = path.join(skillsDir, 'agenco');
 
     if (fs.existsSync(agencoPath)) {
       fs.rmSync(agencoPath, { recursive: true, force: true });
@@ -282,7 +282,7 @@ export async function updateOpenClawMcpConfig(
       transport: 'sse',
       auth: {
         type: 'oauth',
-        tokenProvider: 'agenco-secure-integrations',
+        tokenProvider: 'agenco',
       },
       metadata: {
         name: 'AgenCo Marketplace',

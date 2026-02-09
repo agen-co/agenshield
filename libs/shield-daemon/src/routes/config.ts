@@ -10,7 +10,7 @@ import type {
   UpdateConfigResponse,
   UpdateConfigRequest,
 } from '@agenshield/ipc';
-import { OPENCLAW_PRESET } from '@agenshield/ipc';
+import { OPENCLAW_PRESET, AGENCO_PRESET } from '@agenshield/ipc';
 import { loadConfig, updateConfig, saveConfig, getDefaultConfig } from '../config/index';
 import { getDefaultState, loadState, saveState } from '../state/index';
 import { getVault } from '../vault';
@@ -77,6 +77,17 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
             const exists = request.body.policies.some((p) => p.id === presetPolicy.id);
             if (!exists) {
               request.body.policies.push(presetPolicy);
+            }
+          }
+
+          // Protect AgenCo preset only when it was previously applied
+          const hasAgenco = request.body.policies.some((p) => p.preset === 'agenco');
+          if (hasAgenco) {
+            for (const presetPolicy of AGENCO_PRESET.policies) {
+              const exists = request.body.policies.some((p) => p.id === presetPolicy.id);
+              if (!exists) {
+                request.body.policies.push(presetPolicy);
+              }
             }
           }
         }

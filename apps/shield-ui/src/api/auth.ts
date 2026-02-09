@@ -90,6 +90,7 @@ export const authApi = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
+      body: JSON.stringify({}),
     }),
 
   /**
@@ -102,6 +103,7 @@ export const authApi = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
+      body: JSON.stringify({}),
     }),
 
   /**
@@ -114,6 +116,7 @@ export const authApi = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
+      body: JSON.stringify({}),
     }),
 
   /**

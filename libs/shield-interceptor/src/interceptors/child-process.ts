@@ -108,6 +108,29 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   }
 
   /**
+   * Strip guarded-shell wrapper from a command string so that policy checking
+   * and event reporting see the actual command (e.g. "gog auth list") instead
+   * of "/usr/local/bin/guarded-shell -c gog auth list".
+   * The original command is preserved for actual execution and seatbelt wrapping.
+   */
+  private unwrapGuardedShell(command: string): string {
+    const trimmed = command.trim();
+    // Full path: "/usr/local/bin/guarded-shell -c <cmd>"
+    const fullPrefix = '/usr/local/bin/guarded-shell ';
+    if (trimmed.startsWith(fullPrefix)) {
+      const rest = trimmed.slice(fullPrefix.length).trim();
+      return rest.startsWith('-c ') ? rest.slice(3).trim() : rest;
+    }
+    // Basename: "guarded-shell -c <cmd>"
+    const basePrefix = 'guarded-shell ';
+    if (trimmed.startsWith(basePrefix)) {
+      const rest = trimmed.slice(basePrefix.length).trim();
+      return rest.startsWith('-c ') ? rest.slice(3).trim() : rest;
+    }
+    return command;
+  }
+
+  /**
    * Synchronous policy check via SyncClient.
    * Returns the full policy result (with sandbox config) or null if broker
    * is unavailable and failOpen is true.
@@ -307,12 +330,13 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         return original(command, ...args, callback) as childProcess.ChildProcess;
       }
 
-      self.eventReporter.intercept('exec', command);
+      const policyTarget = self.unwrapGuardedShell(command);
+      self.eventReporter.intercept('exec', policyTarget);
 
       // Synchronous policy check
       let policyResult: PolicyCheckResult | null = null;
       try {
-        policyResult = self.syncPolicyCheck(command);
+        policyResult = self.syncPolicyCheck(policyTarget);
       } catch (error) {
         // Denied — deliver error via callback on next tick.
         // Use originalSpawn to avoid re-interception through exec→execFile chain.
@@ -358,10 +382,11 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         return original(command, options);
       }
 
-      self.eventReporter.intercept('exec', command);
+      const policyTarget = self.unwrapGuardedShell(command);
+      self.eventReporter.intercept('exec', policyTarget);
 
       // Synchronous policy check (throws on deny)
-      const policyResult = self.syncPolicyCheck(command);
+      const policyResult = self.syncPolicyCheck(policyTarget);
 
       // Apply seatbelt wrapping
       const wrapped = self.wrapCommandStringWithSeatbelt(
@@ -400,12 +425,13 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         return original(command, args as string[], options || {});
       }
 
-      self.eventReporter.intercept('exec', fullCmd);
+      const policyTarget = self.unwrapGuardedShell(fullCmd);
+      self.eventReporter.intercept('exec', policyTarget);
 
       // Synchronous policy check
       let policyResult: PolicyCheckResult | null = null;
       try {
-        policyResult = self.syncPolicyCheck(fullCmd);
+        policyResult = self.syncPolicyCheck(policyTarget);
       } catch (error) {
         // Denied — return a short-lived process that emits error.
         // The safety no-op handler prevents Node from throwing an uncaught
@@ -453,12 +479,13 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         return original(command, args as string[], options);
       }
 
-      self.eventReporter.intercept('exec', fullCommand);
+      const policyTarget = self.unwrapGuardedShell(fullCommand);
+      self.eventReporter.intercept('exec', policyTarget);
 
       // Synchronous policy check
       let policyResult: PolicyCheckResult | null = null;
       try {
-        policyResult = self.syncPolicyCheck(fullCommand);
+        policyResult = self.syncPolicyCheck(policyTarget);
       } catch (error) {
         debugLog(`cp.spawnSync DENIED command=${fullCommand}`);
         return {
@@ -524,12 +551,13 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       const fullCommand = args.length > 0 ? `${file} ${args.join(' ')}` : file;
       debugLog(`cp.execFile ENTER command=${fullCommand}`);
 
-      self.eventReporter.intercept('exec', fullCommand);
+      const policyTarget = self.unwrapGuardedShell(fullCommand);
+      self.eventReporter.intercept('exec', policyTarget);
 
       // Synchronous policy check
       let policyResult: PolicyCheckResult | null = null;
       try {
-        policyResult = self.syncPolicyCheck(fullCommand);
+        policyResult = self.syncPolicyCheck(policyTarget);
       } catch (error) {
         // Denied — deliver error via callback.
         // Safety no-op handler prevents uncaught exception.

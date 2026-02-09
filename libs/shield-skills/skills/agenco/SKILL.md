@@ -1,5 +1,5 @@
 ---
-name: agenco-secure-integrations
+name: agenco
 description: Execute third-party integration tools through AgenCo secure cloud gateway
 user-invocable: true
 disable-model-invocation: false

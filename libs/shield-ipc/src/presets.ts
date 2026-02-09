@@ -117,4 +117,34 @@ export const OPENCLAW_PRESET: PolicyPreset = {
   ],
 };
 
-export const POLICY_PRESETS: PolicyPreset[] = [OPENCLAW_PRESET];
+export const AGENCO_PRESET: PolicyPreset = {
+  id: 'agenco',
+  name: 'AgenCo Integrations',
+  description: 'Policies for AgenCo secure integration skill',
+  policies: [
+    {
+      id: 'preset-agenco-commands',
+      name: 'AgenCo Commands',
+      action: 'allow',
+      target: 'command',
+      patterns: ['agenco:*'],
+      enabled: true,
+      priority: 5,
+      preset: 'agenco',
+    },
+    {
+      id: 'preset-agenco-urls',
+      name: 'AgenCo Marketplace',
+      action: 'allow',
+      target: 'url',
+      patterns: [
+        'mcp.marketplace.frontegg.com',
+      ],
+      enabled: true,
+      priority: 5,
+      preset: 'agenco',
+    },
+  ],
+};
+
+export const POLICY_PRESETS: PolicyPreset[] = [OPENCLAW_PRESET, AGENCO_PRESET];

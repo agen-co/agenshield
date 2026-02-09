@@ -5,7 +5,7 @@
       "transport": "http",
       "auth": {
         "type": "oauth",
-        "tokenProvider": "agenco-secure-integrations"
+        "tokenProvider": "agenco"
       },
       "metadata": {
         "name": "AgenCo Marketplace",

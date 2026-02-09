@@ -94,7 +94,7 @@ export function SkillEnvSection({ onAddSecret, disabled }: SkillEnvSectionProps)
 
   return (
     <Card sx={{ mb: 3, opacity: disabled ? 0.45 : 1, transition: 'opacity 0.2s ease', pointerEvents: disabled ? 'none' : 'auto' }}>
-      <CardContent sx={{ p: 0 }}>
+      <CardContent sx={{ p: '0 !important' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2, pt: 2, pb: 1 }}>
           <Puzzle size={16} />
           <Typography variant="subtitle2" fontWeight={600}>

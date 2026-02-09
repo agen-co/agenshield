@@ -11,7 +11,7 @@ import { runShell, getRootDir } from '../setup/helpers';
 const ROOT = getRootDir();
 const AGENCO_BIN = path.join(
   ROOT,
-  'libs/shield-skills/skills/agenco-secure-integrations/bin/agenco.mjs'
+  'libs/shield-skills/skills/agenco/bin/agenco.mjs'
 );
 
 describe('agenco built-in skill CLI', () => {
@@ -75,7 +75,7 @@ describe('agenco built-in skill CLI', () => {
 
   it('SKILL.md should exist in the built-in skills directory', () => {
     const result = runShell(
-      `test -f libs/shield-skills/skills/agenco-secure-integrations/SKILL.md && echo "EXISTS"`
+      `test -f libs/shield-skills/skills/agenco/SKILL.md && echo "EXISTS"`
     );
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe('EXISTS');
@@ -86,7 +86,7 @@ describe('agenco built-in skill CLI', () => {
     const loaderScript = `
       const path = require('path');
       const fs = require('fs');
-      const skillPath = path.resolve('libs/shield-skills/skills/agenco-secure-integrations/SKILL.md');
+      const skillPath = path.resolve('libs/shield-skills/skills/agenco/SKILL.md');
       const content = fs.readFileSync(skillPath, 'utf-8');
       // Check YAML frontmatter
       const hasYaml = content.startsWith('---');
