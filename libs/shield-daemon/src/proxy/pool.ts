@@ -11,6 +11,7 @@
 import * as http from 'node:http';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { createPerRunProxy } from './server';
+import { emitInterceptorEvent } from '../events/emitter';
 
 interface ProxyInstance {
   execId: string;
@@ -77,7 +78,17 @@ export class ProxyPool {
       console.log(`[proxy:${execId.slice(0, 8)}] ${msg}`);
     };
 
-    const server = createPerRunProxy(urlPolicies, onActivity, logger);
+    const onBlock = (method: string, target: string, protocol: 'http' | 'https') => {
+      emitInterceptorEvent({
+        type: 'denied',
+        operation: 'http_request',
+        target: protocol === 'https' ? `https://${target}` : target,
+        timestamp: new Date().toISOString(),
+        error: `Blocked by URL policy (${method})`,
+      });
+    };
+
+    const server = createPerRunProxy(urlPolicies, onActivity, logger, onBlock);
 
     // Listen on port 0 — OS picks a free port
     const port = await new Promise<number>((resolve, reject) => {

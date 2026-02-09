@@ -28,10 +28,10 @@ import { PageHeader } from '../components/shared/PageHeader';
 import { SearchInput } from '../components/shared/SearchInput';
 import { EmptyState } from '../components/shared/EmptyState';
 import { useGuardedAction } from '../hooks/useGuardedAction';
-import { getEventDisplay, resolveEventColor, EVENT_DISPLAY } from '../utils/eventDisplay';
+import { getEventDisplay, resolveEventColor, EVENT_DISPLAY, BLOCKED_EVENT_TYPES } from '../utils/eventDisplay';
 
 type TimeFilter = 'all' | '1h' | '6h' | '24h' | '7d';
-type TypeFilter = 'all' | 'api' | 'security' | 'broker' | 'config' | 'skills' | 'exec' | 'agenco' | 'wrappers' | 'process' | 'interceptor';
+type TypeFilter = 'all' | 'blocked' | 'api' | 'security' | 'broker' | 'config' | 'skills' | 'exec' | 'agenco' | 'wrappers' | 'process' | 'interceptor';
 
 const TIME_OPTIONS: { label: string; value: TimeFilter }[] = [
   { label: 'All Time', value: 'all' },
@@ -43,6 +43,7 @@ const TIME_OPTIONS: { label: string; value: TimeFilter }[] = [
 
 const TYPE_OPTIONS: { label: string; value: TypeFilter }[] = [
   { label: 'All Types', value: 'all' },
+  { label: 'Blocked / Denied', value: 'blocked' },
   { label: 'API Requests', value: 'api' },
   { label: 'Security', value: 'security' },
   { label: 'Broker', value: 'broker' },
@@ -66,27 +67,54 @@ function getTimeThreshold(filter: TimeFilter): Date | null {
   }
 }
 
-function getEventSummary(event: SSEEvent): string {
-  if (event.type === 'api:outbound') {
+function isBlockedEvent(event: SSEEvent): boolean {
+  if (BLOCKED_EVENT_TYPES.has(event.type)) return true;
+  if (event.type === 'interceptor:event') {
     const d = event.data as Record<string, unknown>;
+    return d.type === 'denied' || d.type === 'deny';
+  }
+  return false;
+}
+
+function getEventSummary(event: SSEEvent): string {
+  const d = event.data as Record<string, unknown>;
+
+  if (event.type === 'api:outbound') {
     const ctx = d.context ?? '';
     const status = d.statusCode ?? '';
     const url = d.url ?? '';
     return `${ctx} [${status}] ${url}`;
   }
+  if (event.type === 'exec:denied') {
+    const command = d.command ?? d.target ?? '';
+    const reason = d.reason ?? d.error ?? '';
+    return reason ? `${command} — ${reason}` : String(command);
+  }
   if (event.type === 'interceptor:event') {
-    const d = event.data as Record<string, unknown>;
     const operation = d.operation ?? '';
     const target = d.target ?? '';
     const type = d.type ?? '';
+    const error = d.error as string | undefined;
+    if (type === 'denied' || type === 'deny') {
+      return error ? `BLOCKED ${operation}: ${target} — ${error}` : `BLOCKED ${operation}: ${target}`;
+    }
     return `${operation} → ${target} [${type}]`;
   }
-  return (event.data?.message as string) ??
-    (event.data?.url as string) ??
-    (event.data?.method as string) ??
-    (event.data?.name as string) ??
-    (event.data?.integration as string) ??
-    JSON.stringify(event.data).slice(0, 120);
+  if (event.type === 'skills:untrusted_detected') {
+    const name = d.name ?? '';
+    const reason = d.reason ?? '';
+    return reason ? `${name} — ${reason}` : String(name);
+  }
+  if (event.type === 'skills:uninstalled') {
+    return String(d.name ?? '');
+  }
+
+  return (d.message as string) ??
+    (d.url as string) ??
+    (d.method as string) ??
+    (d.name as string) ??
+    (d.integration as string) ??
+    JSON.stringify(d).slice(0, 120);
 }
 
 const ROW_HEIGHT = 52;
@@ -121,7 +149,9 @@ export function Activity() {
     }
 
     // Type filter
-    if (typeFilter !== 'all') {
+    if (typeFilter === 'blocked') {
+      result = result.filter((e) => isBlockedEvent(e));
+    } else if (typeFilter !== 'all') {
       result = result.filter((e) => e.type.startsWith(`${typeFilter}:`));
     }
 

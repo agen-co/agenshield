@@ -22,7 +22,8 @@ import { checkUrlPolicy } from '../policy/url-matcher';
 export function createPerRunProxy(
   urlPolicies: PolicyConfig[],
   onActivity: () => void,
-  logger: (msg: string) => void
+  logger: (msg: string) => void,
+  onBlock?: (method: string, target: string, protocol: 'http' | 'https') => void,
 ): http.Server {
   const server = http.createServer((req, res) => {
     onActivity();
@@ -38,6 +39,7 @@ export function createPerRunProxy(
     const allowed = checkUrlPolicy(urlPolicies, url);
     if (!allowed) {
       logger(`BLOCKED HTTP ${req.method} ${url}`);
+      onBlock?.(req.method || 'GET', url, 'http');
       res.writeHead(403, { 'Content-Type': 'text/plain' });
       res.end('Blocked by AgenShield URL policy');
       return;
@@ -92,6 +94,7 @@ export function createPerRunProxy(
     const allowed = checkUrlPolicy(urlPolicies, `https://${hostname}`);
     if (!allowed) {
       logger(`BLOCKED CONNECT ${hostname}:${port}`);
+      onBlock?.('CONNECT', `${hostname}:${port}`, 'https');
       clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
       clientSocket.destroy();
       return;

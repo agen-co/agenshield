@@ -301,12 +301,15 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       try {
         policyResult = self.syncPolicyCheck(command);
       } catch (error) {
-        // Denied — deliver error via callback on next tick
+        // Denied — deliver error via callback on next tick.
+        // Use originalSpawn to avoid re-interception through exec→execFile chain.
+        debugLog(`cp.exec DENIED command=${command}`);
+        const denied = self.originalSpawn!('false', [], { stdio: 'pipe' }) as childProcess.ChildProcess;
+        denied.once('error', () => {});
         if (callback) {
           process.nextTick(() => callback(error as Error, '', ''));
         }
-        // Return a short-lived dummy process
-        return original('echo ""') as childProcess.ChildProcess;
+        return denied;
       }
 
       // Apply seatbelt wrapping
@@ -391,9 +394,13 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       try {
         policyResult = self.syncPolicyCheck(fullCmd);
       } catch (error) {
-        // Denied — return a short-lived process that emits error
+        // Denied — return a short-lived process that emits error.
+        // The safety no-op handler prevents Node from throwing an uncaught
+        // exception if the caller hasn't attached an 'error' listener yet.
+        // Callers that DO listen will still receive the event.
         debugLog(`cp.spawn DENIED command=${fullCmd}`);
         const denied = original('false', [], { stdio: 'pipe' });
+        denied.once('error', () => {});
         process.nextTick(() => {
           denied.emit('error', error);
         });
@@ -511,11 +518,15 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       try {
         policyResult = self.syncPolicyCheck(fullCommand);
       } catch (error) {
-        // Denied — deliver error via callback
+        // Denied — deliver error via callback.
+        // Safety no-op handler prevents uncaught exception.
+        debugLog(`cp.execFile DENIED command=${fullCommand}`);
+        const denied = self.originalSpawn!('false', [], { stdio: 'pipe' }) as childProcess.ChildProcess;
+        denied.once('error', () => {});
         if (callback) {
           process.nextTick(() => callback!(error as Error, '', ''));
         }
-        return original('false') as childProcess.ChildProcess;
+        return denied;
       }
 
       // Apply seatbelt wrapping
@@ -567,8 +578,11 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         policyResult = self.syncPolicyCheck(fullCommand);
       } catch (error) {
         debugLog(`cp.fork DENIED command=${fullCommand}`);
-        // Return a short-lived process that emits error
+        // Return a short-lived process that emits error.
+        // Safety no-op handler prevents uncaught exception if caller
+        // hasn't attached an 'error' listener before nextTick fires.
         const denied = self.originalSpawn!('false', [], { stdio: 'pipe' });
+        denied.once('error', () => {});
         process.nextTick(() => {
           denied.emit('error', error);
         });

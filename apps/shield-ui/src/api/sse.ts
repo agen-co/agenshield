@@ -44,6 +44,8 @@ export function createSSEClient(
     'skills:install_failed',
     'skills:install_started',
     'skills:install_progress',
+    'skills:untrusted_detected',
+    'skills:uninstalled',
     'wrappers:installed',
     'wrappers:uninstalled',
     'wrappers:updated',

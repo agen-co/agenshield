@@ -26,6 +26,20 @@ function formatStrippedSSE(event: DaemonEvent): string {
 }
 
 /**
+ * Prefixes for event types that are always sent with full data, even to anonymous users.
+ * Only api:request, api:outbound, broker:*, and agenco:* are stripped (may contain
+ * sensitive request/response bodies). All security, policy, and operational events
+ * are always visible so the Activity Feed is useful without authentication.
+ */
+const ALWAYS_FULL_PREFIXES = ['skills:', 'exec:', 'interceptor:', 'security:', 'wrappers:', 'process:', 'config:'];
+
+function shouldSendFull(event: DaemonEvent, authenticated: boolean): boolean {
+  if (authenticated) return true;
+  if (event.type === 'heartbeat' || event.type === 'daemon:status') return true;
+  return ALWAYS_FULL_PREFIXES.some(p => event.type.startsWith(p));
+}
+
+/**
  * Register SSE routes
  */
 export async function sseRoutes(app: FastifyInstance): Promise<void> {
@@ -65,8 +79,7 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
     // Subscribe to events
     const unsubscribe = daemonEvents.subscribe((event) => {
       try {
-        // Heartbeat, daemon:status, and skills events always sent in full; others stripped for anonymous users
-        if (event.type === 'heartbeat' || event.type === 'daemon:status' || event.type.startsWith('skills:') || authenticated) {
+        if (shouldSendFull(event, authenticated)) {
           reply.raw.write(formatSSE(event));
         } else {
           reply.raw.write(formatStrippedSSE(event));
@@ -135,7 +148,7 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
       // Filter events by prefix match
       if (event.type.startsWith(filter) || event.type === 'heartbeat' || event.type === 'daemon:status') {
         try {
-          if (event.type === 'heartbeat' || event.type === 'daemon:status' || authenticated) {
+          if (shouldSendFull(event, authenticated)) {
             reply.raw.write(formatSSE(event));
           } else {
             reply.raw.write(formatStrippedSSE(event));

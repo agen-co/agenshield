@@ -20,6 +20,9 @@ import {
   Play,
   Square,
   Crosshair,
+  AlertTriangle,
+  Search,
+  Trash2,
 } from 'lucide-react';
 
 export interface EventDisplayMeta {
@@ -38,6 +41,7 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   'security:status': { icon: ShieldAlert, label: 'Security Status', color: 'warning' },
   'security:warning': { icon: ShieldAlert, label: 'Security Warning', color: 'warning' },
   'security:critical': { icon: ShieldBan, label: 'Security Critical', color: 'error' },
+  'security:alert': { icon: ShieldBan, label: 'Security Alert', color: 'error' },
 
   // Broker
   'broker:request': { icon: ArrowRightLeft, label: 'Broker Request', color: 'info' },
@@ -57,6 +61,10 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   'skills:install_failed': { icon: Zap, label: 'Skill Install Failed', color: 'error' },
   'skills:install_started': { icon: Download, label: 'Skill Installing', color: 'info' },
   'skills:install_progress': { icon: Download, label: 'Skill Install Progress', color: 'info' },
+  'skills:untrusted_detected': { icon: AlertTriangle, label: 'Untrusted Skill Detected', color: 'warning' },
+  'skills:uninstalled': { icon: Trash2, label: 'Skill Uninstalled', color: 'warning' },
+  'skills:analyzed': { icon: Search, label: 'Skill Analyzed', color: 'success' },
+  'skills:analysis_failed': { icon: Zap, label: 'Skill Analysis Failed', color: 'error' },
 
   // Wrappers
   'wrappers:installed': { icon: Package, label: 'Wrapper Installed', color: 'success' },
@@ -96,8 +104,10 @@ export function getEventDisplay(type: string): EventDisplayMeta {
 export const BLOCKED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'exec:denied',
   'skills:quarantined',
+  'skills:untrusted_detected',
   'security:warning',
   'security:critical',
+  'security:alert',
 ]);
 
 /** Resolve a semantic color key (e.g. 'error', 'info') to a palette color value */

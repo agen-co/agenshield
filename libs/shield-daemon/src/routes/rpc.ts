@@ -10,7 +10,7 @@ import * as nodefs from 'node:fs';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { SandboxConfig, PolicyExecutionContext, PolicyConfig, ShieldConfig } from '@agenshield/ipc';
 import { loadConfig } from '../config/index';
-import { emitInterceptorEvent } from '../events/emitter';
+import { emitInterceptorEvent, emitExecDenied } from '../events/emitter';
 import {
   globToRegex,
   normalizeUrlBase,
@@ -400,13 +400,37 @@ async function handleHttpRequest(
 
 type RpcHandler = (params: Record<string, unknown>) => unknown | Promise<unknown>;
 
+/**
+ * Wrapper that emits SSE events after policy_check evaluation
+ */
+async function handlePolicyCheck(params: Record<string, unknown>) {
+  const operation = String(params['operation'] ?? '');
+  const target = String(params['target'] ?? '');
+  const context = params['context'] as PolicyExecutionContext | undefined;
+
+  const result = await evaluatePolicyCheck(operation, target, context);
+
+  // Emit SSE events for denied operations so they appear in the Activity Feed
+  if (!result.allowed) {
+    if (operation === 'exec') {
+      emitExecDenied(target, result.reason || 'Denied by policy');
+    } else {
+      emitInterceptorEvent({
+        type: 'denied',
+        operation,
+        target,
+        timestamp: new Date().toISOString(),
+        policyId: result.policyId,
+        error: result.reason || 'Denied by policy',
+      });
+    }
+  }
+
+  return result;
+}
+
 const handlers: Record<string, RpcHandler> = {
-  policy_check: (params) =>
-    evaluatePolicyCheck(
-      String(params['operation'] ?? ''),
-      String(params['target'] ?? ''),
-      params['context'] as PolicyExecutionContext | undefined
-    ),
+  policy_check: (params) => handlePolicyCheck(params),
   events_batch: (params) => handleEventsBatch(params),
   http_request: (params) => handleHttpRequest(params),
   ping: () => ({ status: 'ok' }),
