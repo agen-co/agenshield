@@ -145,6 +145,7 @@ export async function mkdirViaBroker(dirPath: string): Promise<void> {
   const result = await client.exec({
     command: '/bin/mkdir',
     args: ['-p', dirPath],
+    cwd: '/',
   });
   if (result.exitCode !== 0) {
     throw new Error(`mkdir via broker failed: ${result.stderr}`);

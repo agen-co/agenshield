@@ -22,7 +22,7 @@
         "declaration": true,
         "declarationRootDir": "libs/shield-broker/src",
         "bundle": true,
-        "thirdParty": false,
+        "thirdParty": true,
         "platform": "node",
         "assets": ["libs/shield-broker/README.md", "LICENSE", "libs/shield-broker/package.json"],
         "esbuildOptions": {

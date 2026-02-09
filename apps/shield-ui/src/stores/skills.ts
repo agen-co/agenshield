@@ -652,6 +652,7 @@ export function handleSkillSSEEvent(type: string, rawEvent: Record<string, unkno
         notify.success(`Skill "${name}" installed`);
       }
       fetchInstalledSkills();
+      fetchSkillDetail(name).catch(() => {/* best-effort */});
       break;
     }
     case 'skills:install_failed': {

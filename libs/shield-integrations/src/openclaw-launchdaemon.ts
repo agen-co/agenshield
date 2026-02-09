@@ -391,6 +391,10 @@ PLISTEOF`);
  */
 export async function startOpenClawServices(): Promise<OpenClawDaemonResult> {
   try {
+    // Re-enable the job (may have been disabled by stopOpenClawServices)
+    try {
+      await execAsync(`sudo launchctl enable system/${OPENCLAW_GATEWAY_LABEL}`);
+    } catch { /* may already be enabled */ }
     await execAsync(`sudo launchctl kickstart system/${OPENCLAW_GATEWAY_LABEL}`);
     return {
       success: true,
@@ -410,6 +414,10 @@ export async function startOpenClawServices(): Promise<OpenClawDaemonResult> {
  */
 export async function stopOpenClawServices(): Promise<OpenClawDaemonResult> {
   try {
+    // Disable the job first to prevent KeepAlive auto-restart
+    try {
+      await execAsync(`sudo launchctl disable system/${OPENCLAW_GATEWAY_LABEL}`);
+    } catch { /* may already be disabled */ }
     await execAsync(`sudo launchctl kill SIGTERM system/${OPENCLAW_GATEWAY_LABEL}`);
     return {
       success: true,

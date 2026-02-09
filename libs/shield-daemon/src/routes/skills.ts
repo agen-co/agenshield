@@ -66,7 +66,7 @@ interface SkillAnalysisSummary {
   vulnerabilityLevel?: string;
   error?: string;
   commands?: Array<{ name: string; available: boolean }>;
-  envVariables?: Array<{ name: string; required: boolean; sensitive: boolean }>;
+  envVariables?: Array<{ name: string; required: boolean; sensitive: boolean; purpose?: string }>;
 }
 
 /** Normalized skill summary for frontend consumption */
@@ -158,7 +158,7 @@ function buildAnalysisSummary(name: string, rawAnalysis?: any): SkillAnalysisSum
       ? rawAnalysis.commands.map((c: { name: string; available: boolean }) => ({ name: c.name, available: c.available }))
       : undefined,
     envVariables: rawAnalysis.status === 'complete' && Array.isArray(rawAnalysis.envVariables)
-      ? rawAnalysis.envVariables.map((e: { name: string; required: boolean; sensitive: boolean }) => ({ name: e.name, required: e.required, sensitive: e.sensitive }))
+      ? rawAnalysis.envVariables.map((e: { name: string; required: boolean; sensitive: boolean; purpose?: string }) => ({ name: e.name, required: e.required, sensitive: e.sensitive, purpose: e.purpose }))
       : undefined,
   };
 }

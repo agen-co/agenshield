@@ -9,6 +9,7 @@ import { getVault } from '../vault';
 import { loadConfig } from '../config/index';
 import { syncSecrets } from '../secret-sync';
 import { getCachedAnalysis } from '../services/skill-analyzer';
+import { getDownloadedSkillMeta } from '../services/marketplace';
 import { listApproved } from '../watchers/skills';
 import crypto from 'node:crypto';
 
@@ -88,7 +89,9 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
     const envMap = new Map<string, SkillEnvRequirement>();
 
     for (const skill of approved) {
-      const analysis = getCachedAnalysis(skill.name);
+      const cached = getCachedAnalysis(skill.name);
+      const dlMeta = getDownloadedSkillMeta(skill.slug || skill.name);
+      const analysis = dlMeta?.analysis || cached;
       if (!analysis || analysis.status !== 'complete' || !Array.isArray(analysis.envVariables)) {
         continue;
       }

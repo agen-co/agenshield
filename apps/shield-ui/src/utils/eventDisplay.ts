@@ -86,6 +86,14 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   // Process
   'process:started': { icon: Play, label: 'Process Started', color: 'success' },
   'process:stopped': { icon: Square, label: 'Process Stopped', color: 'warning' },
+  'process:broker_started': { icon: Play, label: 'Broker Started', color: 'success' },
+  'process:broker_stopped': { icon: Square, label: 'Broker Stopped', color: 'warning' },
+  'process:broker_restarted': { icon: RefreshCw, label: 'Broker Restarted', color: 'info' },
+  'process:gateway_started': { icon: Play, label: 'Gateway Started', color: 'success' },
+  'process:gateway_stopped': { icon: Square, label: 'Gateway Stopped', color: 'warning' },
+  'process:gateway_restarted': { icon: RefreshCw, label: 'Gateway Restarted', color: 'info' },
+  'process:daemon_started': { icon: Play, label: 'Daemon Started', color: 'success' },
+  'process:daemon_stopped': { icon: Square, label: 'Daemon Stopped', color: 'warning' },
 
   // Daemon
   'daemon:status': { icon: RefreshCw, label: 'Daemon Heartbeat', color: 'secondary' },
@@ -200,6 +208,14 @@ export function getEventSummary(event: SSEEvent): string {
     return String(d.name ?? '');
   }
 
+  if (event.type.startsWith('process:')) {
+    const process = String(d.process ?? '').replace(/^\w/, (c) => c.toUpperCase());
+    const action = String(d.action ?? '');
+    const pid = d.pid;
+    const base = process && action ? `${process} ${action}` : process || action || event.type;
+    return pid ? `${base} (PID ${pid})` : base;
+  }
+
   return (d.message as string) ??
     (d.url as string) ??
     (d.method as string) ??
@@ -245,6 +261,13 @@ export function getEventStatus(event: SSEEvent): { label: string; variant: Statu
     return { label: dtype || 'event', variant: 'info' };
   }
   if (BLOCKED_EVENT_TYPES.has(event.type)) return { label: 'deny', variant: 'error' };
+  if (event.type.startsWith('process:')) {
+    if (event.type.endsWith('_started')) return { label: 'started', variant: 'success' };
+    if (event.type.endsWith('_stopped')) return { label: 'stopped', variant: 'warning' };
+    if (event.type.endsWith('_restarted')) return { label: 'restarted', variant: 'info' };
+    if (event.type === 'process:started') return { label: 'started', variant: 'success' };
+    if (event.type === 'process:stopped') return { label: 'stopped', variant: 'warning' };
+  }
   if (event.type.includes('installed') || event.type.includes('approved') || event.type.includes('connected') || event.type.includes('started')) {
     return { label: 'allow', variant: 'success' };
   }
