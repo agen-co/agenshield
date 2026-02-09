@@ -10,8 +10,9 @@ import { loadConfig } from '../config/index';
 import { syncSecrets } from '../secret-sync';
 import { getCachedAnalysis } from '../services/skill-analyzer';
 import { getDownloadedSkillMeta } from '../services/marketplace';
-import { listApproved } from '../watchers/skills';
+import { listApproved, getSkillsDir } from '../watchers/skills';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 
 interface MaskedSecret {
   id: string;
@@ -85,10 +86,30 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
       secretByName.set(s.name, s);
     }
 
+    // Collect all skill names (approved + workspace on-disk)
+    const approvedNames = new Set(approved.map((a) => a.name));
+    const skillsDir = getSkillsDir();
+    let workspaceNames: string[] = [];
+    if (skillsDir) {
+      try {
+        workspaceNames = fs.readdirSync(skillsDir, { withFileTypes: true })
+          .filter((d) => d.isDirectory())
+          .map((d) => d.name)
+          .filter((n) => !approvedNames.has(n));
+      } catch {
+        // Skills directory may not exist yet
+      }
+    }
+
     // Aggregate env vars from cached analyses
     const envMap = new Map<string, SkillEnvRequirement>();
 
-    for (const skill of approved) {
+    const allSkills = [
+      ...approved.map((a) => ({ name: a.name, slug: a.slug })),
+      ...workspaceNames.map((n) => ({ name: n, slug: undefined })),
+    ];
+
+    for (const skill of allSkills) {
       const cached = getCachedAnalysis(skill.name);
       const dlMeta = getDownloadedSkillMeta(skill.slug || skill.name);
       const analysis = dlMeta?.analysis || cached;

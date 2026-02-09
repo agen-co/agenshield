@@ -68,7 +68,7 @@ export function Overview() {
         </Box>
 
         {/* Right column - stacked cards */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
           <Box sx={cardAnim(150)}>
             <ActivityFeed />
           </Box>

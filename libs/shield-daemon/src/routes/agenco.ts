@@ -16,10 +16,10 @@ import type {
   AgenCoConnectIntegrationResponse,
 } from '@agenshield/ipc';
 import { getVault } from '../vault';
-import { loadState, updateAgenCoState, addConnectedIntegration } from '../state';
+import { loadState, updateAgenCoState, addConnectedIntegration, removeConnectedIntegration } from '../state';
 import { getMCPClient, activateMCP, deactivateMCP, getMCPState, finishMCPAuth, MCPUnauthorizedError } from '../mcp';
 import { emitAgenCoAuthRequired } from '../events/emitter';
-import { provisionAgenCoSkill, provisionIntegrationSkill } from '../services/integration-skills';
+import { onIntegrationConnected, onIntegrationDisconnected } from '../services/integration-skills';
 import { INTEGRATION_CATALOG, type IntegrationDetails } from '../data/integration-catalog';
 
 /**
@@ -313,6 +313,12 @@ export async function agencoRoutes(app: FastifyInstance): Promise<void> {
       connectedIntegrations: [],
     });
 
+    // Sync skills — removes all AgenCo skills since connectedIntegrations is now empty
+    try {
+      const { syncAgenCoSkills } = await import('../services/integration-skills.js');
+      await syncAgenCoSkills();
+    } catch { /* non-fatal */ }
+
     return { success: true };
   });
 
@@ -592,20 +598,64 @@ export async function agencoRoutes(app: FastifyInstance): Promise<void> {
 
       if (parsed.status === 'already_connected' || parsed.status === 'connected') {
         addConnectedIntegration(integration);
-        // Provision the agenco-secure-integrations skill (handles all integrations)
-        const { installed } = await provisionAgenCoSkill();
-        // Provision integration-specific documentation skill
-        const { installed: integrationInstalled } = await provisionIntegrationSkill(integration);
-        return {
-          success: true,
-          data: { ...parsed, skillProvisioned: installed, integrationSkillProvisioned: integrationInstalled },
-        };
+        try {
+          await onIntegrationConnected(integration);
+        } catch (err) {
+          console.error(`[AgenCo] Skill provisioning failed for ${integration}:`, (err as Error).message);
+        }
+        return { success: true, data: parsed };
       }
 
       return { success: true, data: parsed };
     } catch (error) {
       return { success: false, error: (error as Error).message };
     }
+  });
+
+  /**
+   * Disconnect an integration.
+   * Removes integration from state and cleans up associated skills.
+   */
+  app.post('/agenco/integrations/disconnect', async (request) => {
+    const { integration } = request.body as { integration: string };
+
+    if (!integration) {
+      return { success: false, error: 'Missing "integration" parameter' };
+    }
+
+    const state = loadState();
+    if (!state.agenco.connectedIntegrations.includes(integration)) {
+      return { success: false, error: `Integration "${integration}" is not connected` };
+    }
+
+    // Optionally call MCP disconnect-integration tool (non-fatal if unsupported)
+    try {
+      const mcpStatus = await ensureMCPActive(app);
+      if (mcpStatus.ok) {
+        const client = getMCPClient();
+        if (client) {
+          await client.callTool('disconnect-integration', { integrationId: integration });
+        }
+      }
+    } catch {
+      // Non-fatal — MCP tool may not exist
+    }
+
+    // Update state
+    removeConnectedIntegration(integration);
+
+    // Clean up skills
+    try {
+      await onIntegrationDisconnected(integration);
+    } catch (err) {
+      console.error(`[AgenCo] Skill cleanup failed for ${integration}:`, (err as Error).message);
+    }
+
+    const updated = loadState();
+    return {
+      success: true,
+      data: { connectedIntegrations: updated.agenco.connectedIntegrations },
+    };
   });
 
 }

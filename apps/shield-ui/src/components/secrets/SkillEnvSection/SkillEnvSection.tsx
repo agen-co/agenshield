@@ -50,12 +50,12 @@ export function SkillEnvSection({ onAddSecret, disabled }: SkillEnvSectionProps)
             {req.name}
           </Typography>
           {req.required ? (
-            <Chip label="required" size="small" color="warning" sx={{ height: 16, fontSize: '0.6rem' }} />
+            <Chip label="required" size="small" color="warning" variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
           ) : (
-            <Chip label="optional" size="small" color="info" sx={{ height: 16, fontSize: '0.6rem' }} />
+            <Chip label="optional" size="small" color="info" variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
           )}
           {req.sensitive && (
-            <Chip label="sensitive" size="small" color="error" sx={{ height: 16, fontSize: '0.6rem' }} />
+            <Chip label="sensitive" size="small" color="error" variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
           )}
         </Box>
         {req.purpose && (

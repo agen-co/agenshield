@@ -10,6 +10,7 @@ import type { PolicyExecutionContext } from '@agenshield/ipc';
 
 export class FetchInterceptor extends BaseInterceptor {
   private originalFetch: typeof fetch | null = null;
+  private _checking = false;
 
   constructor(options: BaseInterceptorOptions) {
     super(options);
@@ -49,6 +50,22 @@ export class FetchInterceptor extends BaseInterceptor {
     this.installed = false;
   }
 
+  /**
+   * Check if a URL targets localhost (any port).
+   * All localhost traffic is allowed without RPC policy checks — policy checks
+   * are for external network access. This covers broker, gateway, proxy ports, etc.
+   */
+  private isLocalUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname === 'localhost'
+        || parsed.hostname === '127.0.0.1'
+        || parsed.hostname === '::1';
+    } catch {
+      return false;
+    }
+  }
+
   private async interceptedFetch(
     input: RequestInfo | URL,
     init?: RequestInit
@@ -67,16 +84,22 @@ export class FetchInterceptor extends BaseInterceptor {
       url = input.url;
     }
 
-    const isBroker = this.isBrokerUrl(url);
-    debugLog(`fetch ENTER url=${url} isBroker=${isBroker}`);
+    // Allow all localhost traffic without policy check (broker, gateway, proxies, etc.)
+    if (this.isLocalUrl(url)) {
+      debugLog(`fetch ALLOW localhost url=${url}`);
+      return this.originalFetch(input, init);
+    }
 
-    // Skip localhost broker communication
-    if (isBroker) {
+    // Re-entrancy guard: if we're already inside a policy check (e.g. AsyncClient
+    // HTTP fallback calling fetch), pass through to avoid infinite recursion.
+    if (this._checking) {
+      debugLog(`fetch SKIP (re-entrancy) url=${url}`);
       return this.originalFetch(input, init);
     }
 
     // Check policy with execution context
     debugLog(`fetch checkPolicy START url=${url}`);
+    this._checking = true;
     try {
       await this.checkPolicy('http_request', url, this.getPolicyExecutionContext());
       debugLog(`fetch checkPolicy DONE url=${url}`);
@@ -90,6 +113,8 @@ export class FetchInterceptor extends BaseInterceptor {
         return this.originalFetch(input, init);
       }
       throw error;
+    } finally {
+      this._checking = false;
     }
 
     // Policy allowed — make request directly (no broker proxy)

@@ -14,6 +14,7 @@ import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { SyncClient } from '../client/sync-client.js';
 import { PolicyDeniedError } from '../errors.js';
 import { ProfileManager } from '../seatbelt/profile-manager.js';
+import { filterEnvByAllowlist } from '../seatbelt/env-allowlist.js';
 import { debugLog } from '../debug-log.js';
 import type { PolicyExecutionContext, SandboxConfig } from '@agenshield/ipc';
 import type { PolicyCheckResult } from '../policy/evaluator.js';
@@ -165,6 +166,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       deniedBinaries: [],
       envInjection: {},
       envDeny: [],
+      envAllow: [],
     };
   }
 
@@ -215,8 +217,9 @@ export class ChildProcessInterceptor extends BaseInterceptor {
     const profileContent = this.profileManager.generateProfile(sandbox);
     const profilePath = this.profileManager.getOrCreateProfile(profileContent);
 
-    // Apply env injection and denial
-    const env = { ...(options?.env as Record<string, string> || process.env) };
+    // Build filtered environment: allowlist → inject → deny
+    const sourceEnv = (options?.env as Record<string, string>) || (process.env as Record<string, string>);
+    const env = filterEnvByAllowlist(sourceEnv, sandbox.envAllow);
     if (sandbox.envInjection) {
       Object.assign(env, sandbox.envInjection);
     }
@@ -225,6 +228,9 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         delete env[key];
       }
     }
+    // // Belt-and-suspenders: NODE_OPTIONS is not in the base allowlist,
+    // // but strip it explicitly in case a policy envAllow re-introduces it.
+    // delete env['NODE_OPTIONS'];
 
     return {
       command: '/usr/bin/sandbox-exec',
@@ -258,8 +264,9 @@ export class ChildProcessInterceptor extends BaseInterceptor {
     const profileContent = this.profileManager.generateProfile(sandbox);
     const profilePath = this.profileManager.getOrCreateProfile(profileContent);
 
-    // Apply env injection and denial
-    const env = { ...(options?.env as Record<string, string> || process.env) };
+    // Build filtered environment: allowlist → inject → deny
+    const sourceEnv = (options?.env as Record<string, string>) || (process.env as Record<string, string>);
+    const env = filterEnvByAllowlist(sourceEnv, sandbox.envAllow);
     if (sandbox.envInjection) {
       Object.assign(env, sandbox.envInjection);
     }
@@ -268,6 +275,9 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         delete env[key];
       }
     }
+    // // Belt-and-suspenders: NODE_OPTIONS is not in the base allowlist,
+    // // but strip it explicitly in case a policy envAllow re-introduces it.
+    // delete env['NODE_OPTIONS'];
 
     return {
       command: `/usr/bin/sandbox-exec -f ${profilePath} ${command}`,
@@ -597,7 +607,8 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       // because fork uses an internal IPC channel that sandbox-exec would break.
       if (policyResult?.sandbox) {
         const sandbox = policyResult.sandbox;
-        const env = { ...(options?.env || process.env) };
+        const sourceEnv = (options?.env || process.env) as Record<string, string>;
+        const env = filterEnvByAllowlist(sourceEnv, sandbox.envAllow);
         if (sandbox.envInjection) {
           Object.assign(env, sandbox.envInjection);
         }
@@ -606,6 +617,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
             delete env[key];
           }
         }
+        // delete env['NODE_OPTIONS'];
         options = { ...options, env };
       }
 

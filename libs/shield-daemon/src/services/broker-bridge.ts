@@ -48,7 +48,7 @@ export async function isBrokerAvailable(): Promise<boolean> {
  */
 export async function installSkillViaBroker(
   slug: string,
-  files: Array<{ name: string; content: string }>,
+  files: Array<{ name: string; content: string; mode?: number }>,
   options: {
     createWrapper?: boolean;
     agentHome?: string;
@@ -62,6 +62,7 @@ export async function installSkillViaBroker(
     name: file.name,
     content: file.content,
     base64: false,
+    ...(file.mode !== undefined ? { mode: file.mode } : {}),
   }));
 
   const result = await client.skillInstall({

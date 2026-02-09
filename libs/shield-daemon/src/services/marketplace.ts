@@ -321,20 +321,22 @@ export function storeDownloadedSkill(
 
   fs.mkdirSync(filesDir, { recursive: true });
 
-  // Preserve existing source if not explicitly set (don't overwrite 'watcher' with undefined)
+  // Preserve existing source and analysis if not explicitly provided
   let source = meta.source;
-  if (!source) {
+  let analysis = meta.analysis;
+  if (!source || !analysis) {
     try {
       const existingMetaPath = path.join(dir, 'metadata.json');
       if (fs.existsSync(existingMetaPath)) {
         const existing = JSON.parse(fs.readFileSync(existingMetaPath, 'utf-8')) as DownloadedSkillMeta;
-        source = existing.source;
+        if (!source) source = existing.source;
+        if (!analysis) analysis = existing.analysis;
       }
     } catch { /* best-effort */ }
   }
 
   // Write metadata
-  const fullMeta: DownloadedSkillMeta = { ...meta, source, downloadedAt: new Date().toISOString() };
+  const fullMeta: DownloadedSkillMeta = { ...meta, source, analysis, downloadedAt: new Date().toISOString() };
   fs.writeFileSync(path.join(dir, 'metadata.json'), JSON.stringify(fullMeta, null, 2), 'utf-8');
 
   // Write each file

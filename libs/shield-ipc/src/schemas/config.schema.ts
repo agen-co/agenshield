@@ -95,6 +95,7 @@ export const ShieldConfigSchema = z.object({
   version: z.string(),
   daemon: DaemonConfigSchema,
   policies: z.array(PolicyConfigSchema).default([]),
+  defaultAction: z.enum(['allow', 'deny']).optional(),
   vault: VaultConfigSchema.optional(),
 });
 

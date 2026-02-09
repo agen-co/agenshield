@@ -165,7 +165,7 @@ AgenShield is a security framework for AI agents that provides network isolation
 ### User Directories
 
 ```
-/Users/clawagent/
+/Users/ash_default_agent/
 ├── bin/                     # Broker wrappers
 │   ├── shieldctl            # Control CLI
 │   ├── curl                 # curl wrapper
@@ -177,7 +177,7 @@ AgenShield is a security framework for AI agents that provides network isolation
 │   └── node                 # node wrapper
 ├── workspace/               # Working directory (setgid)
 │   └── ...                  # Agent files
-└── .openclaw-pkg/           # OpenClaw package
+
 ```
 
 ---

@@ -37,12 +37,15 @@ export class AsyncClient {
   private httpHost: string;
   private httpPort: number;
   private timeout: number;
+  /** Captured at construction time to avoid using the intercepted globalThis.fetch */
+  private _fetch: typeof fetch;
 
   constructor(options: AsyncClientOptions) {
     this.socketPath = options.socketPath;
     this.httpHost = options.httpHost;
     this.httpPort = options.httpPort;
     this.timeout = options.timeout;
+    this._fetch = globalThis.fetch;
   }
 
   /**
@@ -149,7 +152,7 @@ export class AsyncClient {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      const response = await fetch(url, {
+      const response = await this._fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),

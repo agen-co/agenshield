@@ -144,14 +144,12 @@ function readSkillDescription(skillDir: string): string | undefined {
  * Accepts any analysis-like object (SkillAnalysis or marketplace analysis). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildAnalysisSummary(name: string, rawAnalysis?: any): SkillAnalysisSummary | undefined {
-  if (isInstallInProgress(name)) {
-    return { status: 'installing' };
-  }
+  const installing = isInstallInProgress(name);
   if (!rawAnalysis || !['complete', 'pending', 'analyzing', 'error'].includes(rawAnalysis.status)) {
-    return undefined;
+    return installing ? { status: 'installing' } : undefined;
   }
   return {
-    status: rawAnalysis.status as SkillAnalysisSummary['status'],
+    status: installing ? 'installing' : rawAnalysis.status as SkillAnalysisSummary['status'],
     vulnerabilityLevel: rawAnalysis.status === 'complete' ? rawAnalysis.vulnerability?.level : undefined,
     error: rawAnalysis.status === 'error' ? rawAnalysis.error : undefined,
     commands: rawAnalysis.status === 'complete' && Array.isArray(rawAnalysis.commands)
@@ -166,14 +164,12 @@ function buildAnalysisSummary(name: string, rawAnalysis?: any): SkillAnalysisSum
 /** Full analysis for detail view — includes all rich fields from Vercel analyzer */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildFullAnalysis(name: string, rawAnalysis?: any): object | undefined {
-  if (isInstallInProgress(name)) {
-    return { status: 'installing' };
-  }
+  const installing = isInstallInProgress(name);
   if (!rawAnalysis || !['complete', 'pending', 'analyzing', 'error'].includes(rawAnalysis.status)) {
-    return undefined;
+    return installing ? { status: 'installing' } : undefined;
   }
   return {
-    status: rawAnalysis.status,
+    status: installing ? 'installing' : rawAnalysis.status,
     vulnerabilityLevel: rawAnalysis.vulnerability?.level,
     error: rawAnalysis.error,
     vulnerability: rawAnalysis.vulnerability,

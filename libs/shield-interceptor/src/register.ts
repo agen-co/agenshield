@@ -9,6 +9,10 @@
 import { installInterceptors } from './installer.js';
 
 // Install interceptors immediately
-installInterceptors();
-
-console.log('[AgenShield] Interceptors registered via ESM loader');
+try {
+  installInterceptors();
+  console.log('[AgenShield] Interceptors registered via ESM loader');
+} catch (error) {
+  console.error('[AgenShield] FATAL: Failed to install interceptors:', (error as Error).message);
+  console.error('[AgenShield] Stack:', (error as Error).stack);
+}

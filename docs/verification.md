@@ -77,8 +77,8 @@ ls -la /var/log/agenshield/
 # Expected: broker.log, broker.error.log, audit.log
 
 # Agent directories
-ls -la /Users/clawagent/
-# Expected: bin/, workspace/, .openclaw-pkg/
+ls -la /Users/ash_default_agent/
+# Expected: bin/, .openclaw/, ./homebrew
 
 ls -la /Users/clawagent/bin/
 # Expected: shieldctl, curl, wget, git, npm, pip, python, node

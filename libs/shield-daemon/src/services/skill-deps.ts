@@ -173,9 +173,21 @@ export async function executeSkillInstallSteps(options: {
             break;
           }
           onLog(`Installing npm package: ${pkg}`);
+          const npmGlobalDir = `${agentHome}/.npm-global`;
+
+          // Ensure npm global dir exists (may already exist from sandbox setup)
+          try {
+            await execWithProgress(
+              `sudo -H -u ${agentUsername} /bin/mkdir -p "${npmGlobalDir}"`,
+              () => {},
+              { timeout: 5_000, cwd: '/' },
+            );
+          } catch { /* best-effort — dir may already exist */ }
+
           const npmCmd = [
             `export HOME="${agentHome}"`,
-            `export PATH="${agentHome}/bin:${SYSTEM_PATH}:$PATH"`,
+            `export NPM_CONFIG_PREFIX="${npmGlobalDir}"`,
+            `export PATH="${npmGlobalDir}/bin:${agentHome}/bin:${SYSTEM_PATH}:$PATH"`,
             `source "${agentHome}/.nvm/nvm.sh" 2>/dev/null || true`,
             `npm install -g ${pkg}`,
           ].join(' && ');
@@ -230,7 +242,7 @@ export async function executeSkillInstallSteps(options: {
       try {
         const checkCmd = [
           `export HOME="${agentHome}"`,
-          `export PATH="${agentHome}/homebrew/bin:${agentHome}/bin:${SYSTEM_PATH}:$PATH"`,
+          `export PATH="${agentHome}/.npm-global/bin:${agentHome}/homebrew/bin:${agentHome}/bin:${SYSTEM_PATH}:$PATH"`,
           `source "${agentHome}/.nvm/nvm.sh" 2>/dev/null || true`,
           `which ${bin}`,
         ].join(' && ');

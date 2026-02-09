@@ -29,34 +29,15 @@ function isValidSlug(slug: string): boolean {
 }
 
 /**
- * Create wrapper script content for a skill
+ * Create wrapper script content for a skill.
+ * Routes through shield-client for policy-enforced execution.
  */
-function createWrapperContent(slug: string, skillDir: string): string {
+function createWrapperContent(slug: string): string {
   return `#!/bin/bash
-# Auto-generated wrapper for skill: ${slug}
-# This script runs the skill via openclaw-pkg
-
-set -e
-
-SKILL_DIR="${skillDir}"
-
-# Check if skill directory exists
-if [ ! -d "$SKILL_DIR" ]; then
-  echo "Error: Skill directory not found: $SKILL_DIR" >&2
-  exit 1
-fi
-
-# Find and execute the main skill file
-if [ -f "$SKILL_DIR/skill.md" ]; then
-  exec openclaw-pkg run "$SKILL_DIR/skill.md" "$@"
-elif [ -f "$SKILL_DIR/index.js" ]; then
-  exec node "$SKILL_DIR/index.js" "$@"
-elif [ -f "$SKILL_DIR/main.py" ]; then
-  exec python3 "$SKILL_DIR/main.py" "$@"
-else
-  echo "Error: No entry point found in $SKILL_DIR" >&2
-  exit 1
-fi
+# ${slug} skill wrapper - policy-enforced execution
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+exec /opt/agenshield/bin/shield-client skill run "${slug}" "$@"
 `;
 }
 
@@ -162,7 +143,7 @@ export async function handleSkillInstall(
       await fs.mkdir(binDir, { recursive: true });
 
       // Write wrapper
-      const wrapperContent = createWrapperContent(slug, skillDir);
+      const wrapperContent = createWrapperContent(slug);
       await fs.writeFile(wrapperPath, wrapperContent, { mode: 0o755 });
 
       // Wrapper is already 755 from writeFile above and owned by broker:socketGroup

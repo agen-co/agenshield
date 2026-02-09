@@ -184,14 +184,16 @@ export class ProfileManager {
         // Specific hosts/ports allowed
         lines.push(';; Allow specific network targets');
         for (const host of sandbox.allowedHosts) {
-          lines.push(`(allow network-outbound (remote tcp "${this.escapeSbpl(host)}:*"))`);
+          // macOS seatbelt only accepts 'localhost' or '*' — not raw IPs like 127.0.0.1
+          const sbplHost = (host === '127.0.0.1' || host === '::1') ? 'localhost' : host;
+          lines.push(`(allow network-outbound (remote tcp "${this.escapeSbpl(sbplHost)}:*"))`);
         }
         for (const port of sandbox.allowedPorts) {
           lines.push(`(allow network-outbound (remote tcp "*:${port}"))`);
         }
         // DNS resolution — skip if localhost-only (proxy handles DNS externally)
         const isLocalhostOnly = sandbox.allowedHosts.length > 0 &&
-          sandbox.allowedHosts.every(h => h === 'localhost' || h === '127.0.0.1');
+          sandbox.allowedHosts.every(h => h === 'localhost' || h === '127.0.0.1' || h === '::1');
         if (!isLocalhostOnly) {
           lines.push('(allow network-outbound (remote udp "*:53") (remote tcp "*:53"))');
         }
@@ -206,10 +208,12 @@ export class ProfileManager {
 
     // Unix socket for broker communication (always allowed).
     // Also allow file access to the socket path itself.
+    const brokerPort = sandbox.brokerHttpPort || 5201;
     lines.push(
-      ';; Broker / local unix sockets',
+      ';; Broker / local unix sockets + HTTP fallback',
       '(allow network-outbound (remote unix))',
       '(allow network-inbound (local unix))',
+      `(allow network-outbound (remote tcp "localhost:${brokerPort}"))`,
       '(allow file-read* file-write*',
       '  (subpath "/var/run/agenshield")',
       '  (subpath "/private/var/run/agenshield"))',

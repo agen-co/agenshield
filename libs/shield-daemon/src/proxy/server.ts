@@ -20,7 +20,8 @@ import { checkUrlPolicy } from '../policy/url-matcher';
  * - Plain HTTP requests: checks full URL against URL policies, forwards if allowed
  */
 export function createPerRunProxy(
-  urlPolicies: PolicyConfig[],
+  getPolicies: () => PolicyConfig[],
+  getDefaultAction: () => 'allow' | 'deny',
   onActivity: () => void,
   logger: (msg: string) => void,
   onBlock?: (method: string, target: string, protocol: 'http' | 'https') => void,
@@ -36,7 +37,7 @@ export function createPerRunProxy(
       return;
     }
 
-    const allowed = checkUrlPolicy(urlPolicies, url);
+    const allowed = checkUrlPolicy(getPolicies(), url, getDefaultAction());
     if (!allowed) {
       logger(`BLOCKED HTTP ${req.method} ${url}`);
       onBlock?.(req.method || 'GET', url, 'http');
@@ -91,7 +92,7 @@ export function createPerRunProxy(
     const port = parseInt(portStr) || 443;
 
     // Check URL policies for this hostname (use https:// since CONNECT is for TLS)
-    const allowed = checkUrlPolicy(urlPolicies, `https://${hostname}`);
+    const allowed = checkUrlPolicy(getPolicies(), `https://${hostname}`, getDefaultAction());
     if (!allowed) {
       logger(`BLOCKED CONNECT ${hostname}:${port}`);
       onBlock?.('CONNECT', `${hostname}:${port}`, 'https');

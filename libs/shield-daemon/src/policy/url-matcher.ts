@@ -155,7 +155,7 @@ export function filterUrlPoliciesForCommand(policies: PolicyConfig[], commandBas
  *
  * Returns true if allowed (including default-allow when no policy matches).
  */
-export function checkUrlPolicy(policies: PolicyConfig[], url: string): boolean {
+export function checkUrlPolicy(policies: PolicyConfig[], url: string, defaultAction: 'allow' | 'deny' = 'deny'): boolean {
   const applicable = policies
     .filter((p) => p.enabled && p.target === 'url')
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
@@ -189,6 +189,6 @@ export function checkUrlPolicy(policies: PolicyConfig[], url: string): boolean {
     }
   }
 
-  // Default: allow (no matching policy)
-  return true;
+  // Default: use configured action
+  return defaultAction === 'allow';
 }

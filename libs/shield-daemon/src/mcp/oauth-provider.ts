@@ -35,7 +35,7 @@ export class VaultOAuthProvider implements OAuthClientProvider {
   }
 
   get redirectUrl(): string {
-    return `http://localhost:${this.daemonPort}/api/agenco/auth/oauth-callback`;
+    return `http://localhost:5200/api/agenco/auth/oauth-callback`;
   }
 
   get clientMetadata(): OAuthClientMetadata {

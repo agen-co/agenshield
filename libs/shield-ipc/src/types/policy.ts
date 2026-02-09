@@ -106,6 +106,10 @@ export interface SandboxConfig {
   envInjection: Record<string, string>;
   /** Environment variable names to strip */
   envDeny: string[];
+  /** Per-policy env var names/patterns to allow (extends base allowlist) */
+  envAllow?: string[];
+  /** Broker HTTP fallback port for localhost seatbelt rules (default: 5201) */
+  brokerHttpPort?: number;
   /** Pre-generated SBPL profile content (overrides dynamic generation) */
   profileContent?: string;
 }

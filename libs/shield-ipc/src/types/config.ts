@@ -99,6 +99,8 @@ export interface ShieldConfig {
   daemon: DaemonConfig;
   broker?: BrokerConfig;
   policies: PolicyConfig[];
+  /** Default action when no policy matches (default: 'deny') */
+  defaultAction?: 'allow' | 'deny';
   vault?: VaultConfig;
   skills?: SkillsConfig;
   soul?: SoulConfig;

@@ -2,7 +2,7 @@
  * Step 6: Migration Execution — shows progress of select-items, migrate, verify
  */
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import {
   Box, Typography, LinearProgress, List, ListItem,
   ListItemIcon, ListItemText,
@@ -22,6 +22,18 @@ export function MigrationExecutionStep() {
     if (!wizardState?.steps) return [];
     return wizardState.steps.filter(s => MIGRATION_STEP_IDS.includes(s.id));
   }, [wizardState]);
+
+  const runningRef = useRef<HTMLLIElement | null>(null);
+  const runningId = migrationSteps.find(s => s.status === 'running')?.id;
+
+  useEffect(() => {
+    if (runningId) {
+      const t = setTimeout(() => {
+        runningRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [runningId]);
 
   const completed = migrationSteps.filter(s => s.status === 'completed').length;
   const total = migrationSteps.length;
@@ -52,6 +64,7 @@ export function MigrationExecutionStep() {
         {migrationSteps.map((step) => (
           <ListItem
             key={step.id}
+            ref={step.id === runningId ? runningRef : undefined}
             sx={{
               borderRadius: 1,
               mb: 0.25,

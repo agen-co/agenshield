@@ -138,6 +138,17 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     // Non-fatal: MCP auto-activation failed, user can connect later
   }
 
+  // Sync AgenCo integration skills at boot
+  try {
+    const { syncAgenCoSkills } = await import('./services/integration-skills.js');
+    const syncResult = await syncAgenCoSkills();
+    if (syncResult.installed.length || syncResult.removed.length || syncResult.updated.length) {
+      app.log.info(`[startup] AgenCo skill sync: installed=${syncResult.installed.length}, removed=${syncResult.removed.length}, updated=${syncResult.updated.length}`);
+    }
+  } catch (err) {
+    app.log.warn(`[startup] AgenCo skill sync failed: ${(err as Error).message}`);
+  }
+
   // Start process health watcher for broker/gateway lifecycle events
   await startProcessHealthWatcher(10000);
 

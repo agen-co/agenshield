@@ -17,7 +17,7 @@ export function ActivityFeed() {
   );
 
   return (
-    <Card>
+    <Card sx={{ overflow: 'hidden' }}>
       <CardContent>
         <Typography variant="h6" gutterBottom fontWeight={600}>
           Activity Feed
@@ -43,7 +43,7 @@ export function ActivityFeed() {
                     <Typography variant="body2" fontWeight={500}>
                       {display.label}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" color="text.secondary" noWrap>
                       {getEventSummary(event)}
                     </Typography>
                   </EventContent>

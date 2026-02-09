@@ -8,6 +8,7 @@
  * - Exec monitoring via SSE events
  */
 
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { HandlerContext, HandlerResult, ExecParams, ExecResult } from '../types.js';
@@ -17,8 +18,15 @@ import { forwardPolicyToDaemon } from '../daemon-forward.js';
 /** Maximum output size (10MB) */
 const MAX_OUTPUT_SIZE = 10 * 1024 * 1024;
 
-/** Default workspace root used when cwd is not provided */
-const DEFAULT_WORKSPACE = '/Users/clawagent/workspace';
+/** Default workspace root used when cwd is not provided.
+ *  Reads AGENSHIELD_AGENT_HOME at runtime; falls back to '/' (always exists). */
+function getDefaultWorkspace(): string {
+  const home = process.env['AGENSHIELD_AGENT_HOME'];
+  if (home) {
+    return `${home}/.openclaw/workspace`;
+  }
+  return '/';
+}
 
 /** Commands whose path arguments must be confined to allowed workspace paths */
 const FS_COMMANDS = new Set([
@@ -107,6 +115,109 @@ function extractUrlFromArgs(args: string[]): string | null {
   return null;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Node.js-native builtins for common filesystem commands.            */
+/*  Avoids spawn failures caused by missing cwd, wrong binary paths,   */
+/*  or sandboxed environments.  Falls back to spawn when not matched.  */
+/* ------------------------------------------------------------------ */
+
+type BuiltinFn = (args: string[], cwd: string) => Promise<ExecResult>;
+
+/** Parse flags and positional args from a command's argument list */
+function parseArgs(args: string[], flagsWithValue: Set<string> = new Set()): {
+  flags: Set<string>;
+  positional: string[];
+} {
+  const flags = new Set<string>();
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith('-')) {
+      // Handle combined flags like -rf → -r, -f
+      if (!arg.startsWith('--') && arg.length > 2) {
+        for (const ch of arg.slice(1)) flags.add(`-${ch}`);
+      } else {
+        flags.add(arg);
+      }
+      if (flagsWithValue.has(arg) && i + 1 < args.length) {
+        positional.push(args[++i]); // value consumed as positional
+      }
+    } else {
+      positional.push(arg);
+    }
+  }
+  return { flags, positional };
+}
+
+function resolvePath(p: string, cwd: string): string {
+  return path.isAbsolute(p) ? path.resolve(p) : path.resolve(cwd, p);
+}
+
+const NODE_BUILTINS: Record<string, BuiltinFn> = {
+  /** mkdir [-p] <path...> */
+  async mkdir(args, cwd) {
+    const { flags, positional } = parseArgs(args);
+    const recursive = flags.has('-p');
+    for (const p of positional) {
+      await fs.mkdir(resolvePath(p, cwd), { recursive });
+    }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  },
+
+  /** rm [-r] [-f] [-rf] <path...> */
+  async rm(args, cwd) {
+    const { flags, positional } = parseArgs(args);
+    const recursive = flags.has('-r') || flags.has('-R');
+    const force = flags.has('-f');
+    for (const p of positional) {
+      await fs.rm(resolvePath(p, cwd), { recursive, force });
+    }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  },
+
+  /** cp [-r|-R] <src> <dst> */
+  async cp(args, cwd) {
+    const { flags, positional } = parseArgs(args);
+    const recursive = flags.has('-r') || flags.has('-R');
+    if (positional.length < 2) {
+      return { exitCode: 1, stdout: '', stderr: 'cp: missing operand' };
+    }
+    const src = resolvePath(positional[0], cwd);
+    const dst = resolvePath(positional[1], cwd);
+    await fs.cp(src, dst, { recursive });
+    return { exitCode: 0, stdout: '', stderr: '' };
+  },
+
+  /** touch <path...> */
+  async touch(args, cwd) {
+    const { positional } = parseArgs(args);
+    const now = new Date();
+    for (const p of positional) {
+      const resolved = resolvePath(p, cwd);
+      try {
+        await fs.utimes(resolved, now, now);
+      } catch {
+        // File doesn't exist — create it
+        await fs.writeFile(resolved, '', { flag: 'a' });
+      }
+    }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  },
+
+  /** chmod <mode> <path...> */
+  async chmod(args, cwd) {
+    const { positional } = parseArgs(args);
+    if (positional.length < 2) {
+      return { exitCode: 1, stdout: '', stderr: 'chmod: missing operand' };
+    }
+    const mode = parseInt(positional[0], 8);
+    for (const p of positional.slice(1)) {
+      await fs.chmod(resolvePath(p, cwd), mode);
+    }
+    return { exitCode: 0, stdout: '', stderr: '' };
+  },
+};
+
 export async function handleExec(
   params: Record<string, unknown>,
   context: HandlerContext,
@@ -142,12 +253,13 @@ export async function handleExec(
     }
 
     const commandBasename = path.basename(resolvedCommand);
-    const effectiveCwd = cwd || DEFAULT_WORKSPACE;
+    const defaultWorkspace = getDefaultWorkspace();
+    const effectiveCwd = cwd || defaultWorkspace;
 
     // FS command workspace enforcement
     if (FS_COMMANDS.has(commandBasename)) {
       const policies = deps.policyEnforcer.getPolicies();
-      const allowedPaths = policies.fsConstraints?.allowedPaths || [DEFAULT_WORKSPACE];
+      const allowedPaths = policies.fsConstraints?.allowedPaths || [defaultWorkspace];
 
       const fsResult = validateFsPaths(args as string[], effectiveCwd, allowedPaths);
       if (!fsResult.valid) {
@@ -198,15 +310,35 @@ export async function handleExec(
       ? { ...(env || {}), ...secretEnv }
       : env;
 
-    // Execute command with resolved absolute path and shell: false forced
-    const result = await executeCommand({
-      command: resolvedCommand,
-      args,
-      cwd: effectiveCwd,
-      env: mergedEnv,
-      timeout: effectiveTimeout,
-      shell: false, // Always force shell: false to prevent injection
-    });
+    // Try Node.js-native builtin for known FS commands (avoids spawn cwd/path issues)
+    const builtin = NODE_BUILTINS[commandBasename];
+    let result: ExecResult;
+
+    if (builtin) {
+      try {
+        result = await builtin(args as string[], effectiveCwd);
+      } catch (builtinErr) {
+        // Builtin failed — fall back to spawn
+        result = await executeCommand({
+          command: resolvedCommand,
+          args,
+          cwd: effectiveCwd,
+          env: mergedEnv,
+          timeout: effectiveTimeout,
+          shell: false,
+        });
+      }
+    } else {
+      // Execute command with resolved absolute path and shell: false forced
+      result = await executeCommand({
+        command: resolvedCommand,
+        args,
+        cwd: effectiveCwd,
+        env: mergedEnv,
+        timeout: effectiveTimeout,
+        shell: false, // Always force shell: false to prevent injection
+      });
+    }
 
     const duration = Date.now() - startTime;
 

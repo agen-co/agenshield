@@ -19,6 +19,7 @@ function makeConfig(overrides: Partial<SandboxConfig> = {}): SandboxConfig {
     deniedBinaries: [],
     envInjection: {},
     envDeny: [],
+    envAllow: [],
     ...overrides,
   };
 }

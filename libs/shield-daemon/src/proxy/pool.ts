@@ -18,7 +18,6 @@ interface ProxyInstance {
   command: string;
   port: number;
   server: http.Server;
-  urlPolicies: PolicyConfig[];
   lastActivity: number;
   idleTimer: NodeJS.Timeout;
 }
@@ -45,7 +44,8 @@ export class ProxyPool {
   async acquire(
     execId: string,
     command: string,
-    urlPolicies: PolicyConfig[]
+    getPolicies: () => PolicyConfig[],
+    getDefaultAction: () => 'allow' | 'deny'
   ): Promise<{ port: number }> {
     if (this.proxies.size >= this.maxConcurrent) {
       // Evict the oldest idle proxy
@@ -88,7 +88,7 @@ export class ProxyPool {
       });
     };
 
-    const server = createPerRunProxy(urlPolicies, onActivity, logger, onBlock);
+    const server = createPerRunProxy(getPolicies, getDefaultAction, onActivity, logger, onBlock);
 
     // Listen on port 0 — OS picks a free port
     const port = await new Promise<number>((resolve, reject) => {
@@ -113,7 +113,6 @@ export class ProxyPool {
       command,
       port,
       server,
-      urlPolicies,
       lastActivity: Date.now(),
       idleTimer,
     });

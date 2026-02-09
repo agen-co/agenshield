@@ -161,7 +161,14 @@ async function buildSandboxConfig(
     deniedBinaries: [],
     envInjection: {},
     envDeny: [],
+    envAllow: [],
+    brokerHttpPort: config.broker?.httpPort,
   };
+
+  // Always strip NODE_OPTIONS from sandboxed children to prevent
+  // the interceptor from loading inside the sandbox (where TCP
+  // to the broker may be blocked by the seatbelt profile).
+  sandbox.envDeny.push('NODE_OPTIONS');
 
   // Wire concrete filesystem deny paths from policies into seatbelt profile
   const concreteDenyPaths = collectDenyPathsFromPolicies(config.policies || []);
@@ -220,11 +227,16 @@ async function buildSandboxConfig(
     const execId = crypto.randomUUID();
     const commandBasename = extractCommandBasename(target || '');
     // Filter URL policies scoped to this command (+ universal policies)
-    const urlPolicies = filterUrlPoliciesForCommand(config.policies || [], commandBasename);
     const pool = getProxyPool();
-    const { port } = await pool.acquire(execId, target || '', urlPolicies);
+    // Pass a getter so the proxy always evaluates the latest policies on each request
+    const { port } = await pool.acquire(
+      execId,
+      target || '',
+      () => filterUrlPoliciesForCommand((loadConfig().policies || []), commandBasename),
+      () => loadConfig().defaultAction ?? 'deny'
+    );
 
-    console.log(`[sandbox] proxy network: port=${port} command=${commandBasename} urlPolicies=${urlPolicies.length} execId=${execId.slice(0, 8)}`);
+    console.log(`[sandbox] proxy network: port=${port} command=${commandBasename} execId=${execId.slice(0, 8)}`);
 
     sandbox.networkAllowed = true;
     sandbox.allowedHosts = ['localhost'];
@@ -344,11 +356,12 @@ async function evaluatePolicyCheck(
     }
   }
 
-  // Default: allow (no matching policy)
-  console.log('[policy_check] no matching policy, allowing by default');
+  // Default: use configured action
+  const defaultAction = config.defaultAction ?? 'deny';
+  console.log(`[policy_check] no matching policy, ${defaultAction} by default`);
   return {
-    allowed: true,
-    // Provide sandbox config for exec operations even with default-allow
+    allowed: defaultAction === 'allow',
+    reason: defaultAction === 'deny' ? 'No matching allow policy' : undefined,
     sandbox: operation === 'exec'
       ? await buildSandboxConfig(config, undefined, context, target)
       : undefined,

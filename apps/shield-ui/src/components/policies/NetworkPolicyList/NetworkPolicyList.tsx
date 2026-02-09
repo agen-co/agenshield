@@ -98,14 +98,16 @@ const NetworkRow = memo(function NetworkRow({
         >
           <Pencil size={14} />
         </IconButton>
-        <IconButton
-          size="small"
-          color="error"
-          onClick={(e) => { e.stopPropagation(); onDelete(policy.id); }}
-          disabled={busy}
-        >
-          <Trash2 size={14} />
-        </IconButton>
+        {!policy.preset && (
+          <IconButton
+            size="small"
+            color="error"
+            onClick={(e) => { e.stopPropagation(); onDelete(policy.id); }}
+            disabled={busy}
+          >
+            <Trash2 size={14} />
+          </IconButton>
+        )}
       </Box>
     </PolicyRow>
   );

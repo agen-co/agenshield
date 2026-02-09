@@ -39,104 +39,113 @@ export function installInterceptors(
     return;
   }
 
-  const config = createConfig(configOverrides);
+  try {
+    const config = createConfig(configOverrides);
 
-  // Dump full config to stderr when debug is enabled
-  if (config.logLevel === 'debug') {
-    try {
-      const safeConfig = { ...config };
-      console.error('[AgenShield:config]', JSON.stringify(safeConfig, null, 2));
-    } catch {}
-  }
+    // Dump full config to stderr when debug is enabled
+    if (config.logLevel === 'debug') {
+      try {
+        const safeConfig = { ...config };
+        console.error('[AgenShield:config]', JSON.stringify(safeConfig, null, 2));
+      } catch {}
+    }
 
-  // Initialize shared components
-  client = new AsyncClient({
-    socketPath: config.socketPath,
-    httpHost: config.httpHost,
-    httpPort: config.httpPort,
-    timeout: config.timeout,
-  });
-
-  policyEvaluator = new PolicyEvaluator({
-    client,
-  });
-
-  eventReporter = new EventReporter({
-    client,
-    logLevel: config.logLevel,
-  });
-
-  installed = {};
-
-  // Install fetch interceptor
-  if (config.interceptFetch) {
-    installed.fetch = new FetchInterceptor({
-      client,
-      policyEvaluator,
-      eventReporter,
-      failOpen: config.failOpen,
-      brokerHttpPort: config.httpPort,
-      config,
+    // Initialize shared components
+    client = new AsyncClient({
+      socketPath: config.socketPath,
+      httpHost: config.httpHost,
+      httpPort: config.httpPort,
+      timeout: config.timeout,
     });
-    installed.fetch.install();
-    log(config, 'debug', 'Installed fetch interceptor');
-  }
 
-  // Install http/https interceptor
-  if (config.interceptHttp) {
-    installed.http = new HttpInterceptor({
+    policyEvaluator = new PolicyEvaluator({
       client,
-      policyEvaluator,
-      eventReporter,
-      failOpen: config.failOpen,
-      brokerHttpPort: config.httpPort,
-      config,
     });
-    installed.http.install();
-    log(config, 'debug', 'Installed http/https interceptor');
-  }
 
-  // Install WebSocket interceptor
-  if (config.interceptWs) {
-    installed.websocket = new WebSocketInterceptor({
+    eventReporter = new EventReporter({
       client,
-      policyEvaluator,
-      eventReporter,
-      failOpen: config.failOpen,
-      brokerHttpPort: config.httpPort,
+      logLevel: config.logLevel,
     });
-    installed.websocket.install();
-    log(config, 'debug', 'Installed WebSocket interceptor');
-  }
 
-  // Install child_process interceptor
-  if (config.interceptExec) {
-    installed.childProcess = new ChildProcessInterceptor({
-      client,
-      policyEvaluator,
-      eventReporter,
-      failOpen: config.failOpen,
-      brokerHttpPort: config.httpPort,
-      config,
-    });
-    installed.childProcess.install();
-    log(config, 'debug', 'Installed child_process interceptor');
-  }
+    installed = {};
 
-  // Install fs interceptor
-  if (config.interceptFs) {
-    installed.fs = new FsInterceptor({
-      client,
-      policyEvaluator,
-      eventReporter,
-      failOpen: config.failOpen,
-      brokerHttpPort: config.httpPort,
-    });
-    installed.fs.install();
-    log(config, 'debug', 'Installed fs interceptor');
-  }
+    // Install fetch interceptor
+    if (config.interceptFetch) {
+      installed.fetch = new FetchInterceptor({
+        client,
+        policyEvaluator,
+        eventReporter,
+        failOpen: config.failOpen,
+        brokerHttpPort: config.httpPort,
+        config,
+      });
+      installed.fetch.install();
+      log(config, 'debug', 'Installed fetch interceptor');
+    }
 
-  log(config, 'info', 'AgenShield interceptors installed');
+    // Install http/https interceptor
+    if (config.interceptHttp) {
+      installed.http = new HttpInterceptor({
+        client,
+        policyEvaluator,
+        eventReporter,
+        failOpen: config.failOpen,
+        brokerHttpPort: config.httpPort,
+        config,
+      });
+      installed.http.install();
+      log(config, 'debug', 'Installed http/https interceptor');
+    }
+
+    // Install WebSocket interceptor
+    if (config.interceptWs) {
+      installed.websocket = new WebSocketInterceptor({
+        client,
+        policyEvaluator,
+        eventReporter,
+        failOpen: config.failOpen,
+        brokerHttpPort: config.httpPort,
+      });
+      installed.websocket.install();
+      log(config, 'debug', 'Installed WebSocket interceptor');
+    }
+
+    // Install child_process interceptor
+    if (config.interceptExec) {
+      installed.childProcess = new ChildProcessInterceptor({
+        client,
+        policyEvaluator,
+        eventReporter,
+        failOpen: config.failOpen,
+        brokerHttpPort: config.httpPort,
+        config,
+      });
+      installed.childProcess.install();
+      log(config, 'debug', 'Installed child_process interceptor');
+    }
+
+    // Install fs interceptor
+    if (config.interceptFs) {
+      installed.fs = new FsInterceptor({
+        client,
+        policyEvaluator,
+        eventReporter,
+        failOpen: config.failOpen,
+        brokerHttpPort: config.httpPort,
+      });
+      installed.fs.install();
+      log(config, 'debug', 'Installed fs interceptor');
+    }
+
+    log(config, 'info', 'AgenShield interceptors installed');
+  } catch (error) {
+    installed = null;
+    client = null;
+    policyEvaluator = null;
+    eventReporter = null;
+    console.error('[AgenShield] Failed to install interceptors:', (error as Error).message);
+    throw error;
+  }
 }
 
 /**

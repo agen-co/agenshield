@@ -73,9 +73,29 @@ export async function handlePolicyCheck(
   const result = await deps.policyEnforcer.check(operation, checkParams, context);
 
   if (result.allowed) {
-    // Broker allowed — return immediately (fast path).
-    // This matches the pattern in server.ts / http-fallback.ts which only
-    // forward to daemon on broker denial.
+    // For exec operations, always forward to daemon to acquire sandbox config
+    // (proxy port, seatbelt profile, env injection). Without this, child
+    // processes run unsandboxed and cannot reach the network through the proxy.
+    if (operation === 'exec') {
+      const daemonUrl = deps.daemonUrl || DEFAULT_DAEMON_URL;
+      const daemonResult = await forwardPolicyToDaemon(
+        operation, target || '', daemonUrl, execContext
+      );
+      if (daemonResult) {
+        return {
+          success: true,
+          data: {
+            allowed: daemonResult.allowed,
+            policyId: daemonResult.policyId || result.policyId,
+            reason: daemonResult.reason || result.reason,
+            sandbox: daemonResult.sandbox,
+            executionContext: daemonResult.executionContext,
+          },
+        };
+      }
+    }
+
+    // Non-exec fast path — broker allowed, no sandbox needed.
     return {
       success: true,
       data: {

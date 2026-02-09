@@ -102,6 +102,7 @@ export AGENSHIELD_INTERCEPT_HTTP=true
 export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_WS=true
 export AGENSHIELD_CONTEXT_TYPE=agent
+export AGENSHIELD_LOG_LEVEL="\${AGENSHIELD_LOG_LEVEL:-debug}"
 
 # Wait for broker socket (up to 30 seconds)
 SOCKET_WAIT=0
@@ -179,6 +180,8 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
         <string>true</string>
         <key>AGENSHIELD_CONTEXT_TYPE</key>
         <string>agent</string>
+        <key>AGENSHIELD_LOG_LEVEL</key>
+        <string>debug</string>
     </dict>
 
     <key>RunAtLoad</key>
@@ -267,6 +270,8 @@ export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): stri
         <string>true</string>
         <key>AGENSHIELD_CONTEXT_TYPE</key>
         <string>agent</string>
+        <key>AGENSHIELD_LOG_LEVEL</key>
+        <string>debug</string>
     </dict>
 
     <key>RunAtLoad</key>
@@ -580,8 +585,8 @@ export async function getOpenClawDashboardUrl(): Promise<{ success: boolean; url
 
     const version = detectHostOpenClawVersion();
     const url = hasOpenClawFeature(version, 'hashTokenAuth')
-      ? `http://127.0.0.1:${port}/#token=${token}`
-      : `http://127.0.0.1:${port}/?token=${token}`;
+      ? `http://127.0.0.1:${port}/overview#token=${token}`
+      : `http://127.0.0.1:${port}/overview?token=${token}`;
     return { success: true, url };
   } catch (error) {
     return { success: false, error: `Failed to get dashboard URL: ${(error as Error).message}` };

@@ -10,6 +10,7 @@ import type {
   UpdateConfigResponse,
   UpdateConfigRequest,
 } from '@agenshield/ipc';
+import { OPENCLAW_PRESET } from '@agenshield/ipc';
 import { loadConfig, updateConfig, saveConfig, getDefaultConfig } from '../config/index';
 import { getDefaultState, loadState, saveState } from '../state/index';
 import { getVault } from '../vault';
@@ -70,6 +71,16 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
     '/config',
     async (request): Promise<UpdateConfigResponse> => {
       try {
+        // Ensure preset policies cannot be deleted — re-inject any that are missing
+        if (request.body.policies) {
+          for (const presetPolicy of OPENCLAW_PRESET.policies) {
+            const exists = request.body.policies.some((p) => p.id === presetPolicy.id);
+            if (!exists) {
+              request.body.policies.push(presetPolicy);
+            }
+          }
+        }
+
         const oldPolicies = loadConfig().policies;
         const updated = updateConfig(request.body);
 
