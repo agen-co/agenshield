@@ -645,7 +645,12 @@ export function handleSkillSSEEvent(type: string, rawEvent: Record<string, unkno
     }
     case 'skills:installed': {
       updateSkill(name, { actionState: 'installed', origin: 'installed' });
-      notify.success(`Skill "${name}" installed`);
+      const depsWarnings = payload.depsWarnings as string[] | undefined;
+      if (depsWarnings?.length) {
+        notify.warning(`Skill "${name}" installed with dependency warnings`);
+      } else {
+        notify.success(`Skill "${name}" installed`);
+      }
       fetchInstalledSkills();
       break;
     }

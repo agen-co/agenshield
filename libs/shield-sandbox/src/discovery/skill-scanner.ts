@@ -7,7 +7,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type {
   SkillMetadata,
   OpenClawSkillMetadata,
@@ -298,4 +298,36 @@ export function scanSkills(
   }
 
   return results.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Strip env-related fields from SKILL.md frontmatter.
+ *
+ * OpenClaw reads `requires.env` / `metadata.openclaw.requires.env` / `metadata.openclaw.primaryEnv`
+ * from SKILL.md and prompts the user for those env vars. AgenShield handles secrets via its own
+ * vault/broker, so we strip these fields before writing to the agent's skill directory.
+ */
+export function stripEnvFromSkillMd(content: string): string {
+  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
+  if (!match) return content;
+
+  try {
+    const metadata = parseYaml(match[1]);
+    if (!metadata || typeof metadata !== 'object') return content;
+
+    // Strip top-level requires.env
+    if (metadata.requires?.env) delete metadata.requires.env;
+
+    // Strip metadata.openclaw.requires.env + primaryEnv
+    if (metadata.metadata?.openclaw?.requires?.env) delete metadata.metadata.openclaw.requires.env;
+    if (metadata.metadata?.openclaw?.primaryEnv) delete metadata.metadata.openclaw.primaryEnv;
+
+    // Strip metadata.clawdbot.requires.env + primaryEnv
+    if (metadata.metadata?.clawdbot?.requires?.env) delete metadata.metadata.clawdbot.requires.env;
+    if (metadata.metadata?.clawdbot?.primaryEnv) delete metadata.metadata.clawdbot.primaryEnv;
+
+    return `---\n${stringifyYaml(metadata).trimEnd()}\n---\n${match[2]}`;
+  } catch {
+    return content;
+  }
 }

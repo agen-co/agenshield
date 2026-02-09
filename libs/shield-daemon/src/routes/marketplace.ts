@@ -46,6 +46,7 @@ import {
   isBrokerAvailable,
   installSkillViaBroker,
 } from '../services/broker-bridge';
+import { stripEnvFromSkillMd } from '@agenshield/sandbox';
 import { addSkillEntry, syncOpenClawFromPolicies } from '../services/openclaw-config';
 import { executeSkillInstallSteps } from '../services/skill-deps';
 import { loadConfig } from '../config/index';
@@ -357,6 +358,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
         name: string;
         analysis?: Awaited<ReturnType<typeof analyzeSkillBundle>>['analysis'];
         logs: string[];
+        depsSuccess?: boolean;
       }> => {
         const logs: string[] = [];
         let analysisResult: Awaited<ReturnType<typeof analyzeSkillBundle>>['analysis'] | undefined;
@@ -407,7 +409,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
               error: 'Critical vulnerability detected',
               analysis: analysisResult,
             });
-            return { success: false, name: slug, analysis: analysisResult, logs };
+            return { success: false, name: slug, analysis: analysisResult, logs, depsSuccess: undefined };
           }
 
           // 4. Download skill files (only after analysis passes)
@@ -419,7 +421,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
               name: slug,
               error: 'No files available for installation',
             });
-            return { success: false, name: slug, analysis: analysisResult, logs };
+            return { success: false, name: slug, analysis: analysisResult, logs, depsSuccess: undefined };
           }
           const publisher = skill.author;
           logs.push('Downloaded skill files');
@@ -446,9 +448,13 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
 
           const brokerAvailable = await isBrokerAvailable();
           if (brokerAvailable) {
+            const sanitizedFiles = files.map((f) => ({
+              name: f.name,
+              content: /SKILL\.md$/i.test(f.name) ? stripEnvFromSkillMd(f.content) : f.content,
+            }));
             const brokerResult = await installSkillViaBroker(
               slug,
-              files.map((f) => ({ name: f.name, content: f.content })),
+              sanitizedFiles,
               { createWrapper: true, agentHome, socketGroup }
             );
 
@@ -477,7 +483,8 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
               if (fileDir !== skillDir) {
                 sudoMkdir(fileDir, agentUsername);
               }
-              sudoWriteFile(filePath, file.content, agentUsername);
+              const content = /SKILL\.md$/i.test(file.name) ? stripEnvFromSkillMd(file.content) : file.content;
+              sudoWriteFile(filePath, content, agentUsername);
             }
 
             createSkillWrapper(slug, binDir);
@@ -487,6 +494,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           }
 
           // 7b. Execute dependency install steps from skill metadata
+          let depsSuccess = true;
           emitSkillInstallProgress(slug, 'deps', 'Installing skill dependencies');
           try {
             const depsResult = await executeSkillInstallSteps({
@@ -500,6 +508,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
               logs.push(`Dependencies installed: ${depsResult.installed.join(', ')}`);
             }
             if (depsResult.errors.length > 0) {
+              depsSuccess = false;
               for (const err of depsResult.errors) {
                 emitSkillInstallProgress(slug, 'warning', `Dependency warning: ${err}`);
                 logs.push(`Dependency warning: ${err}`);
@@ -507,6 +516,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
             }
           } catch (err) {
             // Dependency install failure is a warning, not a fatal error
+            depsSuccess = false;
             const msg = `Dependency installation failed: ${(err as Error).message}`;
             emitSkillInstallProgress(slug, 'warning', msg);
             logs.push(msg);
@@ -529,10 +539,11 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
 
           // 14. Clear install flag BEFORE broadcast so GET /skills never returns stale 'installing'
           installInProgress.delete(slug);
-          daemonEvents.broadcast('skills:installed', { name: slug, analysis: analysisResult });
+          const depsWarnings = depsSuccess ? undefined : logs.filter(l => l.startsWith('Dependency'));
+          daemonEvents.broadcast('skills:installed', { name: slug, analysis: analysisResult, depsWarnings });
           logs.push('Installation complete');
 
-          return { success: true, name: slug, analysis: analysisResult, logs };
+          return { success: true, name: slug, analysis: analysisResult, logs, depsSuccess };
         } catch (err) {
           // Cleanup on failure
           try {
@@ -548,7 +559,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           installInProgress.delete(slug);
           daemonEvents.broadcast('skills:install_failed', { name: slug, error: errorMsg });
           console.error('[Marketplace] Install failed:', errorMsg);
-          return { success: false, name: slug, analysis: analysisResult, logs: [...logs, `Error: ${errorMsg}`] };
+          return { success: false, name: slug, analysis: analysisResult, logs: [...logs, `Error: ${errorMsg}`], depsSuccess: undefined };
         } finally {
           installInProgress.delete(slug);
         }

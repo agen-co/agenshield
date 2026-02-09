@@ -233,6 +233,106 @@ describe('filesystem policy enforcement', () => {
     });
   });
 
+  // ─── Directory Trailing-Slash Patterns ────────────────────────────────────
+
+  describe('directory trailing-slash patterns', () => {
+    it('trailing / matches file inside directory', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block Documents',
+          action: 'deny',
+          target: 'filesystem',
+          patterns: ['/home/user/Documents/'],
+        }),
+      ]);
+
+      const result = await policyCheck('file_read', '/home/user/Documents/file.txt');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('trailing / matches nested file', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block Documents',
+          action: 'deny',
+          target: 'filesystem',
+          patterns: ['/home/user/Documents/'],
+        }),
+      ]);
+
+      const result = await policyCheck('file_read', '/home/user/Documents/sub/deep/file.txt');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('trailing / does NOT match sibling directory', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block Documents',
+          action: 'deny',
+          target: 'filesystem',
+          patterns: ['/home/user/Documents/'],
+        }),
+      ]);
+
+      const result = await policyCheck('file_read', '/home/user/Desktop/file.txt');
+      expect(result.allowed).toBe(true);
+    });
+
+    it('trailing / does NOT match parent directory', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block Documents',
+          action: 'deny',
+          target: 'filesystem',
+          patterns: ['/home/user/Documents/'],
+        }),
+      ]);
+
+      const result = await policyCheck('file_read', '/home/user/file.txt');
+      expect(result.allowed).toBe(true);
+    });
+
+    it('allow with trailing / in deny-all setup', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block All Files',
+          action: 'deny',
+          target: 'filesystem',
+          patterns: ['/**'],
+          priority: 0,
+        }),
+        makePolicy({
+          name: 'Allow Workspace',
+          action: 'allow',
+          target: 'filesystem',
+          patterns: ['/workspace/'],
+          priority: 10,
+        }),
+      ]);
+
+      const result = await policyCheck('file_read', '/workspace/src/index.ts');
+      expect(result.allowed).toBe(true);
+    });
+
+    it('trailing / with operations filter restricts only specified ops', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'No Writing Secrets',
+          action: 'deny',
+          target: 'filesystem',
+          patterns: ['/secrets/'],
+          operations: ['file_write'],
+        }),
+      ]);
+
+      const write = await policyCheck('file_write', '/secrets/key.pem');
+      expect(write.allowed).toBe(false);
+
+      const read = await policyCheck('file_read', '/secrets/key.pem');
+      expect(read.allowed).toBe(true);
+    });
+  });
+
   // ─── All Three Operations ──────────────────────────────────────────────────
 
   describe('all three operations', () => {

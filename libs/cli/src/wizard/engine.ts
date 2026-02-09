@@ -1246,6 +1246,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
         lines.push(`${user} ALL=(${agentUsername}) NOPASSWD: /bin/mkdir -p ${agentHome}/.openclaw/*`);
         lines.push(`${user} ALL=(${agentUsername}) NOPASSWD: /usr/bin/tee ${agentHome}/bin/*`);
         lines.push(`${user} ALL=(${agentUsername}) NOPASSWD: /bin/mkdir -p ${agentHome}/bin`);
+        lines.push(`${user} ALL=(${agentUsername}) NOPASSWD: /bin/bash --norc --noprofile -c *`);
       }
       lines.push('');
       lines.push('# AgenShield: allow broker (and host user) to manage openclaw gateway LaunchDaemon');

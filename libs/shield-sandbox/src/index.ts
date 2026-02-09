@@ -193,6 +193,7 @@ export {
   parseSkillMd,
   extractSkillInfo,
   classifyDirectory,
+  stripEnvFromSkillMd,
 } from './discovery';
 
 // Homebrew, OpenClaw Install, and OpenClaw LaunchDaemon have been

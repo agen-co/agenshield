@@ -16,6 +16,9 @@ const SUPPORTED_KINDS = new Set(['brew', 'npm', 'pip']);
 /** Characters allowed in formula/package names (prevent shell injection) */
 const SAFE_PACKAGE_RE = /^[a-zA-Z0-9@/_.\-]+$/;
 
+/** Standard system paths — ensures brew/npm/pip/binaries are reachable even when the daemon's inherited PATH is restricted */
+const SYSTEM_PATH = '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+
 /**
  * Recursively search for SKILL.md or README.md in a directory tree.
  * (Same logic as findSkillMdRecursive in routes/skills.ts)
@@ -120,7 +123,7 @@ export async function executeSkillInstallSteps(options: {
           onLog(`Installing brew formula: ${formula}`);
           const brewCmd = [
             `export HOME="${agentHome}"`,
-            `export PATH="${agentHome}/homebrew/bin:${agentHome}/bin:$PATH"`,
+            `export PATH="${agentHome}/homebrew/bin:${agentHome}/bin:${SYSTEM_PATH}:$PATH"`,
             `brew install ${formula}`,
           ].join(' && ');
 
@@ -146,7 +149,7 @@ export async function executeSkillInstallSteps(options: {
           onLog(`Installing npm package: ${pkg}`);
           const npmCmd = [
             `export HOME="${agentHome}"`,
-            `export PATH="${agentHome}/bin:$PATH"`,
+            `export PATH="${agentHome}/bin:${SYSTEM_PATH}:$PATH"`,
             `source "${agentHome}/.nvm/nvm.sh" 2>/dev/null || true`,
             `npm install -g ${pkg}`,
           ].join(' && ');
@@ -173,7 +176,7 @@ export async function executeSkillInstallSteps(options: {
           onLog(`Installing pip package: ${pkg}`);
           const pipCmd = [
             `export HOME="${agentHome}"`,
-            `export PATH="${agentHome}/bin:$PATH"`,
+            `export PATH="${agentHome}/bin:${SYSTEM_PATH}:$PATH"`,
             `pip install ${pkg}`,
           ].join(' && ');
 
@@ -201,7 +204,7 @@ export async function executeSkillInstallSteps(options: {
       try {
         const checkCmd = [
           `export HOME="${agentHome}"`,
-          `export PATH="${agentHome}/homebrew/bin:${agentHome}/bin:$PATH"`,
+          `export PATH="${agentHome}/homebrew/bin:${agentHome}/bin:${SYSTEM_PATH}:$PATH"`,
           `source "${agentHome}/.nvm/nvm.sh" 2>/dev/null || true`,
           `which ${bin}`,
         ].join(' && ');

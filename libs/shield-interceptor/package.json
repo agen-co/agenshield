@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/interceptor",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
   "description": "Node.js runtime interception via ESM loader and CJS preload",
   "main": "./dist/index.js",
@@ -28,7 +28,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@agenshield/ipc": "0.7.0"
+    "@agenshield/ipc": "0.7.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

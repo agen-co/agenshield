@@ -18,4 +18,5 @@ export {
   extractCommands,
   extractSkillInfo,
   getApprovalStatus,
+  stripEnvFromSkillMd,
 } from './skill-scanner';

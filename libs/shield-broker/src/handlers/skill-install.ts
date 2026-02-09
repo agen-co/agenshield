@@ -75,7 +75,7 @@ export async function handleSkillInstall(
     const {
       slug,
       files,
-      createWrapper = true,
+      createWrapper = false,
       agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent',
       socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default',
     } = params as unknown as SkillInstallParams;

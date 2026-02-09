@@ -296,7 +296,7 @@ Policies are stored in `/opt/agenshield/policies/` and can be managed through th
 **Permission denied errors**
 ```bash
 # Setup requires sudo
-sudo npx agenshield@latest setup
+npx agenshield@latest setup
 
 # Check file ownership
 ls -la /var/run/agenshield/

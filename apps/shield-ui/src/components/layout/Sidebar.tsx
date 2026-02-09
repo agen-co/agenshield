@@ -230,17 +230,32 @@ export function Sidebar({
           </Button>
         </Box>
       ) : (
-        <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="caption" color="text.secondary">
-            AgenShield v0.1.0
-          </Typography>
-          {status?.data && (
-            <Chip
-              label={status.data.running ? 'Running' : 'Stopped'}
-              color={status.data.running ? 'success' : 'error'}
-              size="small"
-              variant="outlined"
-            />
+        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="caption" color="text.secondary">
+              AgenShield v0.1.0
+            </Typography>
+            {status?.data && (
+              <Chip
+                label={status.data.running ? 'Running' : 'Stopped'}
+                color={status.data.running ? 'success' : 'error'}
+                size="small"
+                variant="outlined"
+              />
+            )}
+          </Box>
+          {status?.data?.openclaw && (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="caption" color="text.secondary">
+                OpenClaw Gateway
+              </Typography>
+              <Chip
+                label={status.data.openclaw.gateway?.running ? 'Running' : 'Stopped'}
+                color={status.data.openclaw.gateway?.running ? 'success' : 'error'}
+                size="small"
+                variant="outlined"
+              />
+            </Box>
           )}
         </Box>
       )}

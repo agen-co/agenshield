@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { MarketplaceSkillFile } from '@agenshield/ipc';
-import { parseSkillMd } from '@agenshield/sandbox';
+import { parseSkillMd, stripEnvFromSkillMd } from '@agenshield/sandbox';
 import {
   listApproved,
   listUntrusted,
@@ -849,7 +849,8 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         for (const file of files) {
           const filePath = path.join(skillDir, file.name);
           sudoMkdir(path.dirname(filePath), agentUsername);
-          sudoWriteFile(filePath, file.content, agentUsername);
+          const content = /SKILL\.md$/i.test(file.name) ? stripEnvFromSkillMd(file.content) : file.content;
+          sudoWriteFile(filePath, content, agentUsername);
         }
 
         // 5. Set ownership (root-owned, agent-readable)

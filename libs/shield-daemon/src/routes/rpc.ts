@@ -66,14 +66,22 @@ function matchCommandPattern(pattern: string, target: string): boolean {
 
   // Claude Code-style: ":*" suffix = prefix match with optional args
   if (trimmed.endsWith(':*')) {
-    const prefix = trimmed.slice(0, -2);
+    let prefix = trimmed.slice(0, -2);
+    // Normalize: strip absolute path to basename (same as target normalization)
+    if (prefix.includes('/')) {
+      prefix = prefix.split('/').pop() || prefix;
+    }
     const lowerTarget = normalizedTarget.toLowerCase();
     const lowerPrefix = prefix.toLowerCase();
     return lowerTarget === lowerPrefix || lowerTarget.startsWith(lowerPrefix + ' ');
   }
 
-  // No ":*" = exact match (case-insensitive)
-  return normalizedTarget.toLowerCase() === trimmed.toLowerCase();
+  // No ":*" = exact match (case-insensitive), normalize pattern too
+  let normalizedPattern = trimmed;
+  if (trimmed.includes('/')) {
+    normalizedPattern = trimmed.split('/').pop() || trimmed;
+  }
+  return normalizedTarget.toLowerCase() === normalizedPattern.toLowerCase();
 }
 
 /**
@@ -291,7 +299,12 @@ async function evaluatePolicyCheck(
       } else if (targetType === 'command') {
         matches = matchCommandPattern(pattern, effectiveTarget);
       } else {
-        const regex = globToRegex(pattern);
+        // Directory patterns (ending with /) should match all contents
+        let fsPattern = pattern;
+        if (targetType === 'filesystem' && fsPattern.endsWith('/')) {
+          fsPattern = fsPattern + '**';
+        }
+        const regex = globToRegex(fsPattern);
         matches = regex.test(effectiveTarget);
       }
 

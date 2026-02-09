@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/daemon",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
   "description": "AgenShield HTTP daemon server with embedded UI",
   "main": "./dist/index.js",
@@ -25,10 +25,10 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@agenshield/integrations": "0.7.0",
-    "@agenshield/ipc": "0.7.0",
-    "@agenshield/broker": "0.7.0",
-    "@agenshield/sandbox": "0.7.0",
+    "@agenshield/integrations": "0.7.1",
+    "@agenshield/ipc": "0.7.1",
+    "@agenshield/broker": "0.7.1",
+    "@agenshield/sandbox": "0.7.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "fastify": "^5.7.0",
     "zod": "^4.3.6",

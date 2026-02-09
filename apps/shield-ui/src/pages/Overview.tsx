@@ -132,6 +132,19 @@ export function Overview() {
                     </Typography>
                   </Box>
                 )}
+                {daemonStatus?.openclaw && (
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">OpenClaw Gateway</Typography>
+                    <Box>
+                      <Chip
+                        label={daemonStatus.openclaw.gateway?.running ? 'Running' : 'Stopped'}
+                        color={daemonStatus.openclaw.gateway?.running ? 'success' : 'error'}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Box>
+                  </Box>
+                )}
               </Box>
             </CardContent>
           </Card>

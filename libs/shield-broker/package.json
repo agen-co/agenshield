@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/broker",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
   "description": "AgenShield broker daemon with Unix socket and HTTP fallback",
   "main": "./dist/index.js",
@@ -26,8 +26,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@agenshield/integrations": "0.7.0",
-    "@agenshield/ipc": "0.7.0"
+    "@agenshield/integrations": "0.7.1",
+    "@agenshield/ipc": "0.7.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

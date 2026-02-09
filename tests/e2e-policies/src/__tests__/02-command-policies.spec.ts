@@ -443,6 +443,130 @@ describe('command policy enforcement', () => {
     });
   });
 
+  // ─── Absolute Path Normalization ──────────────────────────────────────────
+
+  describe('absolute path normalization', () => {
+    it('/usr/bin/curl:* matches /usr/bin/curl with args', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block curl',
+          action: 'deny',
+          target: 'command',
+          patterns: ['/usr/bin/curl:*'],
+        }),
+      ]);
+
+      const result = await policyCheck('exec', '/usr/bin/curl https://evil.com');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('/usr/bin/curl:* matches bare curl with args', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block curl',
+          action: 'deny',
+          target: 'command',
+          patterns: ['/usr/bin/curl:*'],
+        }),
+      ]);
+
+      const result = await policyCheck('exec', 'curl https://evil.com');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('curl:* matches /usr/bin/curl with args', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block curl',
+          action: 'deny',
+          target: 'command',
+          patterns: ['curl:*'],
+        }),
+      ]);
+
+      const result = await policyCheck('exec', '/usr/bin/curl https://evil.com');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('/usr/bin/curl exact matches /usr/bin/curl', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block curl exact',
+          action: 'deny',
+          target: 'command',
+          patterns: ['/usr/bin/curl'],
+        }),
+      ]);
+
+      const result = await policyCheck('exec', '/usr/bin/curl');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('/usr/bin/curl exact does NOT match with args (no :*)', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block curl exact',
+          action: 'deny',
+          target: 'command',
+          patterns: ['/usr/bin/curl'],
+        }),
+      ]);
+
+      const result = await policyCheck('exec', '/usr/bin/curl https://evil.com');
+      expect(result.allowed).toBe(true);
+    });
+
+    it('/usr/local/bin/guarded-shell:* matches full path with args', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block guarded-shell',
+          action: 'deny',
+          target: 'command',
+          patterns: ['/usr/local/bin/guarded-shell:*'],
+        }),
+      ]);
+
+      const result = await policyCheck('exec', '/usr/local/bin/guarded-shell -c curl https://facebook.com');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('multiple deny patterns match absolute path target', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block dangerous',
+          action: 'deny',
+          target: 'command',
+          patterns: ['whoami:*', 'curl:*'],
+        }),
+      ]);
+
+      const result = await policyCheck('exec', '/usr/bin/curl -I https://facebook.com');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('deny-all + allow /usr/bin/git:* allows git push', async () => {
+      await setPolicies([
+        makePolicy({
+          name: 'Block All',
+          action: 'deny',
+          target: 'command',
+          patterns: ['*'],
+          priority: 0,
+        }),
+        makePolicy({
+          name: 'Allow git',
+          action: 'allow',
+          target: 'command',
+          patterns: ['/usr/bin/git:*'],
+          priority: 10,
+        }),
+      ]);
+
+      const result = await policyCheck('exec', '/usr/bin/git push');
+      expect(result.allowed).toBe(true);
+    });
+  });
+
   // ─── Operations Filter ────────────────────────────────────────────────────
 
   describe('operations filter', () => {
