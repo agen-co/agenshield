@@ -3,6 +3,7 @@
  * Includes branding, connection status, and theme toggle (no top bar)
  */
 
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Drawer,
@@ -43,6 +44,7 @@ import { useSnapshot } from 'valtio';
 import { eventStore } from '../../state/events';
 import { useStatus, useOpenClawDashboardUrl } from '../../api/hooks';
 import { notify } from '../../stores/notifications';
+import { OpenClawTokenDialog } from '../shared/OpenClawTokenDialog';
 
 const DRAWER_WIDTH = tokens.sidebar.width;
 
@@ -82,6 +84,7 @@ export function Sidebar({
   const { connected: sseConnected } = useSnapshot(eventStore);
   const { data: status } = useStatus();
   const openClawDashboard = useOpenClawDashboardUrl();
+  const [tokenDialog, setTokenDialog] = useState<{ url: string; token: string } | null>(null);
 
   const handleNavigation = (path: string) => {
     navigate(path);
@@ -91,8 +94,8 @@ export function Sidebar({
   const handleOpenClawClick = () => {
     openClawDashboard.mutate(undefined, {
       onSuccess: (data) => {
-        if (data.data?.url) {
-          window.open(data.data.url, '_blank');
+        if (data.data?.url && data.data?.token) {
+          setTokenDialog({ url: data.data.url, token: data.data.token });
         } else {
           notify.error('Could not get OpenClaw dashboard URL');
         }
@@ -299,6 +302,14 @@ export function Sidebar({
       >
         {drawerContent}
       </Drawer>
+
+      {/* OpenClaw token dialog */}
+      <OpenClawTokenDialog
+        open={tokenDialog !== null}
+        url={tokenDialog?.url ?? ''}
+        token={tokenDialog?.token ?? ''}
+        onClose={() => setTokenDialog(null)}
+      />
     </>
   );
 }

@@ -33,6 +33,8 @@ import {
   // Preset system
   getPreset,
   autoDetectPreset,
+  // ES Extension
+  getESExtensionAppPath,
   type MigrationContext,
   type MigrationDirectories,
 } from '@agenshield/sandbox';
@@ -394,7 +396,13 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       sudo('rm -f /etc/sudoers.d/agenshield');
     }
 
-    // 8. Clean up directories
+    // 8. Remove AgenShieldES.app from /Applications
+    if (fs.existsSync('/Applications/AgenShieldES.app')) {
+      logVerbose('[cleanup] Removing /Applications/AgenShieldES.app', context);
+      sudo('rm -rf /Applications/AgenShieldES.app');
+    }
+
+    // 9. Clean up directories
     for (const dir of ['/etc/agenshield', '/var/log/agenshield', '/var/run/agenshield', '/opt/agenshield']) {
       if (fs.existsSync(dir)) {
         logVerbose(`[cleanup] Removing ${dir}`, context);
@@ -1443,6 +1451,232 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
   },
 
   // NOTE: migrate step removed — replaced by install-openclaw + copy-openclaw-config
+
+  'install-es-extension': async (context) => {
+    // Always install the app bundle to /Applications (needed for Login Items attribution
+    // via AssociatedBundleIdentifiers so macOS shows "AgenShield" instead of "NodeJS Foundation")
+    if (!context.options?.dryRun) {
+      const { execSync } = await import('node:child_process');
+      const fs = await import('node:fs');
+      const embeddedApp = getESExtensionAppPath();
+      if (embeddedApp) {
+        const installedApp = '/Applications/AgenShieldES.app';
+        const installedPlist = `${installedApp}/Contents/Info.plist`;
+        const embeddedPlist = `${embeddedApp}/Contents/Info.plist`;
+
+        // Compare CFBundleVersion to avoid unnecessary reinstall
+        let needsInstall = true;
+        if (fs.existsSync(installedPlist)) {
+          try {
+            const installedVersion = execSync(
+              `/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "${installedPlist}"`,
+              { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+            ).trim();
+            const embeddedVersion = execSync(
+              `/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "${embeddedPlist}"`,
+              { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+            ).trim();
+
+            if (installedVersion && embeddedVersion && installedVersion === embeddedVersion) {
+              needsInstall = false;
+              logVerbose(`AgenShieldES.app already up to date (version ${installedVersion}), skipping`, context);
+            } else {
+              logVerbose(`AgenShieldES.app version changed (${installedVersion} → ${embeddedVersion}), reinstalling`, context);
+            }
+          } catch {
+            logVerbose('Could not read AgenShieldES.app version, reinstalling', context);
+          }
+        }
+
+        if (needsInstall) {
+          if (fs.existsSync(installedApp)) {
+            logVerbose('Removing old AgenShieldES.app', context);
+            execSync(`sudo rm -rf "${installedApp}"`, {
+              encoding: 'utf-8',
+              stdio: ['pipe', 'pipe', 'pipe'],
+            });
+          }
+          logVerbose(`Copying AgenShieldES.app to /Applications for Login Items attribution`, context);
+          execSync(`sudo cp -r "${embeddedApp}" "${installedApp}"`, {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+          execSync(`sudo chown -R root:wheel "${installedApp}"`, {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+        }
+      } else {
+        logVerbose('AgenShieldES.app not bundled — Login Items will show NodeJS Foundation', context);
+      }
+    }
+
+    // ES extension activation disabled — pending Apple approval for the system extension.
+    // Once approved, remove this early return to re-enable.
+    logVerbose('ES extension activation disabled — pending Apple approval, skipping', context);
+    context.esExtensionInstalled = { status: 'skipped', message: 'disabled — pending Apple approval' };
+    return { success: true };
+
+    // ES extension is optional — skip in dry-run or if app bundle not found
+    if (context.options?.dryRun) {
+      logVerbose('[dry-run] Would install ES extension', context);
+      context.esExtensionInstalled = { status: 'skipped', message: 'dry-run mode' };
+      return { success: true };
+    }
+
+    const { execSync } = await import('node:child_process');
+    const { existsSync, writeFileSync, mkdirSync } = await import('node:fs');
+
+    // Resolve the embedded .app from the @agenshield/sandbox package
+    const embeddedApp = getESExtensionAppPath();
+    if (!embeddedApp) {
+      logVerbose('ES extension app not bundled in @agenshield/sandbox — skipping (optional)', context);
+      context.esExtensionInstalled = { status: 'skipped', message: 'app bundle not bundled' };
+      return { success: true };
+    }
+
+    // Copy the embedded .app to /Applications for system extension loading
+    logVerbose(`Copying ES extension from ${embeddedApp} to /Applications/AgenShieldES.app`, context);
+    execSync(`sudo cp -r "${embeddedApp}" /Applications/AgenShieldES.app`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    execSync(`sudo chown -R root:wheel /Applications/AgenShieldES.app`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const appBundlePath = '/Applications/AgenShieldES.app';
+    const hostBinary = `${appBundlePath}/Contents/MacOS/AgenShieldES`;
+
+    try {
+      // Step 1: Discover all ash_* agent users and write ES config
+      logVerbose('Discovering agent users for ES extension config...', context);
+      const usersOutput = execSync('dscl . -list /Users | grep "^ash_"', {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+
+      const monitoredUsers: Array<{ uid: number; name: string }> = [];
+      for (const username of usersOutput.split('\n').filter(Boolean)) {
+        try {
+          const uidStr = execSync(`id -u ${username}`, {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          }).trim();
+          monitoredUsers.push({ uid: parseInt(uidStr, 10), name: username });
+          logVerbose(`  Found agent user: ${username} (uid=${uidStr})`, context);
+        } catch {
+          logVerbose(`  Warning: Could not get UID for ${username}`, context);
+        }
+      }
+
+      if (monitoredUsers.length === 0) {
+        logVerbose('No ash_* agent users found — skipping ES extension', context);
+        context.esExtensionInstalled = { status: 'skipped', message: 'no agent users found' };
+        return { success: true };
+      }
+
+      // Write ES config
+      const configDir = '/opt/agenshield/config';
+      if (!existsSync(configDir)) {
+        mkdirSync(configDir, { recursive: true });
+      }
+
+      const esConfig = {
+        monitoredUsers,
+        daemonSocketPath: '/var/run/agenshield/agenshield.sock',
+        daemonHost: '127.0.0.1',
+        daemonPort: 5200,
+        mode: 'monitor',
+        cacheTtlSeconds: 30,
+        cacheMaxEntries: 1024,
+      };
+
+      const configPath = `${configDir}/es-extension.json`;
+      writeFileSync(configPath, JSON.stringify(esConfig, null, 4));
+      execSync(`sudo chmod 644 "${configPath}" && sudo chown root:wheel "${configPath}"`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      logVerbose(`ES config written to ${configPath}`, context);
+
+      // Step 2: Activate the extension as the GUI console user
+      logVerbose('Activating ES extension...', context);
+      const consoleUser = execSync('stat -f "%Su" /dev/console', {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+
+      const consoleUid = execSync(`id -u ${consoleUser}`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+
+      logVerbose(`Console user: ${consoleUser} (uid=${consoleUid})`, context);
+
+      const installOutput = execSync(
+        `launchctl asuser ${consoleUid} sudo -u ${consoleUser} "${hostBinary}" --install-es`,
+        {
+          encoding: 'utf-8',
+          timeout: 30000,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }
+      ).trim();
+
+      logVerbose(`ES extension install output: ${installOutput}`, context);
+
+      if (installOutput.startsWith('OK')) {
+        context.esExtensionInstalled = { status: 'active' };
+        logVerbose('ES extension activated successfully', context);
+      } else if (installOutput === 'NEEDS_APPROVAL') {
+        context.esExtensionInstalled = { status: 'needs_approval' };
+        logVerbose('ES extension needs user approval in System Settings > Privacy & Security', context);
+
+        // Open System Settings
+        try {
+          execSync('open "x-apple.systempreferences:com.apple.preference.security"', {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+        } catch { /* non-fatal */ }
+
+        // Poll for approval (up to 120s)
+        logVerbose('Waiting for user to approve extension in System Settings...', context);
+        const extensionId = 'com.frontegg.AgenShieldES.es-extension';
+        const startTime = Date.now();
+        const maxWait = 120000;
+
+        while (Date.now() - startTime < maxWait) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          try {
+            const listOutput = execSync('systemextensionsctl list', {
+              encoding: 'utf-8',
+              stdio: ['pipe', 'pipe', 'pipe'],
+            });
+            if (listOutput.includes(extensionId) && listOutput.includes('[activated enabled]')) {
+              context.esExtensionInstalled = { status: 'active' };
+              logVerbose('ES extension approved and activated!', context);
+              break;
+            }
+          } catch { /* keep polling */ }
+        }
+      } else if (installOutput.startsWith('ERROR:')) {
+        const errorMsg = installOutput.slice(6);
+        logVerbose(`ES extension install error: ${errorMsg} (non-fatal)`, context);
+        context.esExtensionInstalled = { status: 'error', message: errorMsg };
+        // Non-fatal — basic operation works without ES
+      }
+
+      return { success: true };
+    } catch (err) {
+      // Non-fatal — ES extension is optional
+      const msg = (err as Error).message;
+      logVerbose(`ES extension installation failed (non-fatal): ${msg}`, context);
+      context.esExtensionInstalled = { status: 'error', message: msg };
+      return { success: true };
+    }
+  },
 
   verify: async (context) => {
     if (!context.userConfig) {

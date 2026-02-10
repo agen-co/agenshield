@@ -37,6 +37,7 @@ export type WizardStepId =
   | 'stop-host-openclaw'
   | 'onboard-openclaw'
   | 'verify'
+  | 'install-es-extension'
   | 'start-openclaw'
   | 'setup-passcode'
   | 'open-dashboard'
@@ -277,6 +278,12 @@ export interface WizardContext {
     pid: number;
     running: boolean;
   };
+
+  /** ES extension installation result */
+  esExtensionInstalled?: {
+    status: 'active' | 'needs_approval' | 'skipped' | 'error';
+    message?: string;
+  };
 }
 
 /**
@@ -503,12 +510,20 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
     dependsOn: ['onboard-openclaw'],
   },
   {
+    id: 'install-es-extension',
+    name: 'Install ES Extension',
+    description: 'Install macOS EndpointSecurity system extension (optional)',
+    phase: 'setup',
+    requiresSudo: true,
+    dependsOn: ['verify'],
+  },
+  {
     id: 'start-openclaw',
     name: 'Start OpenClaw',
     description: 'Install and start OpenClaw LaunchDaemons with intercepted Node.js',
     phase: 'setup',
     requiresSudo: true,
-    dependsOn: ['verify'],
+    dependsOn: ['install-es-extension'],
   },
   {
     id: 'setup-passcode',

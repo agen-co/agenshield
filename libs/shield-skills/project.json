@@ -23,8 +23,8 @@
           "libs/shield-skills/README.md",
           "LICENSE",
           "libs/shield-skills/package.json",
-          "libs/shield-skills/skills",
-          "libs/shield-skills/templates"
+          { "input": "libs/shield-skills/skills", "glob": "**/*", "output": "skills" },
+          { "input": "libs/shield-skills/templates", "glob": "**/*", "output": "templates" }
         ],
         "esbuildOptions": {
           "outExtension": { ".js": ".js" },

@@ -362,6 +362,7 @@ function cleanup(): RestoreProgress {
     '/var/run/agenshield',
     '/var/run/agenshield/agenshield.sock', // Socket file (legacy location)
     '/opt/agenshield', // Installation directory
+    '/Applications/AgenShieldES.app', // ES extension app bundle
   ];
 
   const errors: string[] = [];

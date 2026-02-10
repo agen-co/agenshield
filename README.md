@@ -2,7 +2,7 @@
 
 **Open-source security sandbox for AI agents on macOS.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/platform-macOS_12+-lightgrey.svg)]()
 [![Node.js 24](https://img.shields.io/badge/node-24.x-green.svg)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)]()
@@ -586,4 +586,4 @@ yarn registry:stop      # Stop local registry
 
 ## License
 
-[MIT](LICENSE)
+[Apache-2.0](LICENSE)

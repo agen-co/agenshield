@@ -2,7 +2,7 @@
  * Integrations page - AgenCo dashboard and marketplace
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Box, Select, MenuItem } from '@mui/material';
 import { useSnapshot } from 'valtio';
 import { tokens } from '../styles/tokens';
@@ -19,8 +19,12 @@ import {
   useAgenCoConnectedIntegrations,
   useAgenCoLogout,
   useAgenCoConnectIntegration,
+  useAgenCoDisconnectIntegration,
+  useSkills,
+  useAgenCoSyncSkills,
 } from '../api/hooks';
 import { eventStore } from '../state/events';
+import { notify } from '../stores/notifications';
 
 export function Integrations() {
   const [search, setSearch] = useState('');
@@ -28,6 +32,9 @@ export function Integrations() {
   const { startAuth, loading: authLoading, error: authError } = useAgenCoOAuth();
   const logoutMutation = useAgenCoLogout();
   const connectMutation = useAgenCoConnectIntegration();
+  const { data: skillsData } = useSkills();
+  const syncSkills = useAgenCoSyncSkills();
+  const disconnectMutation = useAgenCoDisconnectIntegration();
 
   // Watch SSE events for agenco auth_required (e.g. agent tried to use integration)
   const [agenCoAuthRequired, setAgenCoAuthRequired] = useState<{ authUrl?: string; integration?: string } | null>(null);
@@ -52,11 +59,24 @@ export function Integrations() {
   const integrations = (integrationsData?.data?.integrations ?? []) as IntegrationCardData[];
   const connected = (connectedData?.data?.integrations ?? []) as ConnectedIntegrationData[];
 
-  // Mark integrations that are already connected
+  // Derive which connected integrations have their skills installed
+  const installedSkillIds = useMemo(() => {
+    const skills = skillsData?.data ?? [];
+    const ids = new Set<string>();
+    for (const skill of skills) {
+      if (skill.name.startsWith('agenco-')) {
+        ids.add(skill.name.slice('agenco-'.length));
+      }
+    }
+    return ids;
+  }, [skillsData]);
+
+  // Mark integrations that are already connected and have skills installed
   const connectedIds = new Set(connected.map((c) => c.id));
   const enrichedIntegrations: IntegrationCardData[] = integrations.map((i) => ({
     ...i,
     connected: connectedIds.has(i.id),
+    skillInstalled: installedSkillIds.has(i.id),
   }));
 
   const [connectingId, setConnectingId] = useState<string | null>(null);
@@ -83,6 +103,41 @@ export function Integrations() {
     logoutMutation.mutate();
   }, [logoutMutation]);
 
+  const handleSyncSkills = useCallback(() => {
+    syncSkills.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.data) {
+          const { installed, updated, errors } = data.data;
+          const total = installed.length + updated.length;
+          if (total > 0) {
+            notify.success(`Installed ${total} skill(s)`);
+          }
+          if (errors.length > 0) {
+            notify.error(`Sync errors: ${errors.join(', ')}`);
+          }
+        }
+      },
+      onError: (err) => {
+        notify.error(err.message || 'Skill installation failed');
+      },
+    });
+  }, [syncSkills]);
+
+  const handleInstallSkill = useCallback(() => {
+    handleSyncSkills();
+  }, [handleSyncSkills]);
+
+  const handleRemoveSkill = useCallback((integrationId: string) => {
+    disconnectMutation.mutate(integrationId, {
+      onSuccess: () => {
+        notify.success(`Disconnected ${integrationId} and removed skill`);
+      },
+      onError: (err) => {
+        notify.error(err.message || 'Failed to disconnect integration');
+      },
+    });
+  }, [disconnectMutation]);
+
   return (
     <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       <PageHeader
@@ -97,6 +152,7 @@ export function Integrations() {
           onLogout={handleLogout}
           connecting={authLoading}
           error={authError}
+          connectedCount={connected.length}
         />
         <AgenCoAuthBanner
           authRequired={agenCoAuthRequired}
@@ -109,6 +165,9 @@ export function Integrations() {
         <ConnectedIntegrationsList
           integrations={connected}
           loading={connectedLoading}
+          installedSkillIds={installedSkillIds}
+          onSyncSkills={handleSyncSkills}
+          syncing={syncSkills.isPending}
         />
       </Box>
 
@@ -142,7 +201,10 @@ export function Integrations() {
         integrations={enrichedIntegrations}
         loading={integrationsLoading}
         onConnect={handleConnect}
+        onInstallSkill={handleInstallSkill}
+        onRemoveSkill={handleRemoveSkill}
         connectingId={connectingId}
+        installingSkill={syncSkills.isPending}
       />
     </Box>
   );

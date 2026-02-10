@@ -12,6 +12,7 @@ const execAsync = promisify(exec);
 
 const PLIST_PATH = '/Library/LaunchDaemons/com.agenshield.broker.plist';
 const LABEL = 'com.agenshield.broker';
+const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShieldES';
 
 /**
  * Generate the broker LaunchDaemon plist (with UserConfig)
@@ -38,6 +39,11 @@ export function generateBrokerPlist(
 <dict>
     <key>Label</key>
     <string>${LABEL}</string>
+
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>${AGENSHIELD_HOST_BUNDLE_ID}</string>
+    </array>
 
     <key>ProgramArguments</key>
     <array>
@@ -112,6 +118,11 @@ export function generateBrokerPlistLegacy(options?: {
 <dict>
     <key>Label</key>
     <string>${LABEL}</string>
+
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>${AGENSHIELD_HOST_BUNDLE_ID}</string>
+    </array>
 
     <key>ProgramArguments</key>
     <array>

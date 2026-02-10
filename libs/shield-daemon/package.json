@@ -35,7 +35,7 @@
     "**/*.d.ts.map",
     "ui-assets"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "@agenshield/integrations": "0.7.3",
     "@agenshield/ipc": "0.7.3",

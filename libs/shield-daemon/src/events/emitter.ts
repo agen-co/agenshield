@@ -52,6 +52,7 @@ export type EventType =
   | 'skills:install_failed'
   | 'skills:uninstalled'
   | 'interceptor:event'
+  | 'es:exec'
   | 'daemon:status';
 
 export interface DaemonEvent {
@@ -275,6 +276,24 @@ export function emitSkillUninstalled(skillName: string): void {
  */
 export function emitSkillInstallProgress(skillName: string, step: string, message: string): void {
   daemonEvents.broadcast('skills:install_progress', { name: skillName, step, message });
+}
+
+/**
+ * Helper to emit ES extension exec events
+ */
+export function emitESExecEvent(event: {
+  binary: string;
+  args: string;
+  pid: number;
+  ppid: number;
+  sessionId: number;
+  user: string;
+  allowed: boolean;
+  policyId?: string;
+  reason?: string;
+  sourceLayer: 'es-extension';
+}): void {
+  daemonEvents.broadcast('es:exec', event);
 }
 
 /**

@@ -80,6 +80,7 @@ interface SkillSummary {
   version?: string;
   author?: string;
   tags?: string[];
+  trusted?: boolean;
   analysis?: SkillAnalysisSummary;
 }
 
@@ -218,6 +219,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         const meta = skillsDir ? readSkillMetadata(path.join(skillsDir, a.name)) : {};
         const cached = getCachedAnalysis(a.name);
         const dlMeta = getDownloadedSkillMeta(a.name);
+        const isTrusted = a.name === 'agenco' || a.name.startsWith('agenco-');
         return {
           name: a.name,
           source: 'user' as const,
@@ -228,6 +230,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           version: meta.version,
           author: meta.author ?? a.publisher,
           tags: meta.tags ?? dlMeta?.tags,
+          trusted: isTrusted || undefined,
           analysis: buildAnalysisSummary(a.name, dlMeta?.analysis || cached),
         };
       }),
@@ -709,6 +712,48 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       const skillsDir = getSkillsDir();
       if (!skillsDir) {
         return reply.code(500).send({ error: 'Skills directory not configured' });
+      }
+
+      // AgenCo skills: delegate to integration-skills service for proper cleanup
+      if (name === 'agenco') {
+        try {
+          if (app.skillsManager) {
+            // Use installer directly for agenco-* sub-skills, then master
+            const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+            for (const entry of entries) {
+              if (entry.isDirectory() && entry.name.startsWith('agenco-')) {
+                const { uninstallIntegrationSkill } = await import('../services/integration-skills.js');
+                const integrationId = entry.name.slice('agenco-'.length);
+                await uninstallIntegrationSkill(integrationId);
+              }
+            }
+            const { uninstallMasterSkill } = await import('../services/integration-skills.js');
+            await uninstallMasterSkill();
+          } else {
+            const { uninstallMasterSkill, uninstallIntegrationSkill } = await import('../services/integration-skills.js');
+            const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+            for (const entry of entries) {
+              if (entry.isDirectory() && entry.name.startsWith('agenco-')) {
+                const integrationId = entry.name.slice('agenco-'.length);
+                await uninstallIntegrationSkill(integrationId);
+              }
+            }
+            await uninstallMasterSkill();
+          }
+          return reply.send({ success: true, action: 'disabled', name });
+        } catch (err) {
+          return reply.code(500).send({ error: `Disable failed: ${(err as Error).message}` });
+        }
+      }
+      if (name.startsWith('agenco-')) {
+        const { onIntegrationDisconnected } = await import('../services/integration-skills.js');
+        const integrationId = name.slice('agenco-'.length);
+        try {
+          await onIntegrationDisconnected(integrationId);
+          return reply.send({ success: true, action: 'disabled', name });
+        } catch (err) {
+          return reply.code(500).send({ error: `Disable failed: ${(err as Error).message}` });
+        }
       }
 
       const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';

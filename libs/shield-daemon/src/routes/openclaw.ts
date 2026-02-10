@@ -75,16 +75,16 @@ export async function openclawRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /api/openclaw/dashboard-url
-  app.get('/openclaw/dashboard-url', async (): Promise<ApiResponse<{ url: string }>> => {
+  app.get('/openclaw/dashboard-url', async (): Promise<ApiResponse<{ url: string; token: string }>> => {
     try {
       const sandbox = await getSandbox();
-      const fn = sandbox['getOpenClawDashboardUrl'] as (() => Promise<{ success: boolean; url?: string; error?: string }>) | undefined;
+      const fn = sandbox['getOpenClawDashboardUrl'] as (() => Promise<{ success: boolean; url?: string; token?: string; error?: string }>) | undefined;
       if (!fn) return { success: false, error: { code: 'OPENCLAW_NOT_AVAILABLE', message: 'OpenClaw functions not available in current build' } };
       const result = await fn();
-      if (!result.success || !result.url) {
+      if (!result.success || !result.url || !result.token) {
         return { success: false, error: { code: 'OPENCLAW_DASHBOARD_ERROR', message: result.error || 'Failed to get dashboard URL' } };
       }
-      return { success: true, data: { url: result.url } };
+      return { success: true, data: { url: result.url, token: result.token } };
     } catch (error) {
       return {
         success: false,

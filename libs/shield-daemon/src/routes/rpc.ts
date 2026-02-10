@@ -10,7 +10,7 @@ import * as nodefs from 'node:fs';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { SandboxConfig, PolicyExecutionContext, PolicyConfig, ShieldConfig } from '@agenshield/ipc';
 import { loadConfig } from '../config/index';
-import { emitInterceptorEvent, emitExecDenied } from '../events/emitter';
+import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning } from '../events/emitter';
 import {
   globToRegex,
   normalizeUrlBase,
@@ -270,6 +270,71 @@ async function buildSandboxConfig(
   return sandbox;
 }
 
+/* ---- ES Extension: Execution Chain Tracking ---- */
+
+interface SessionExecRecord {
+  binary: string;
+  args: string;
+  timestamp: number;
+  allowed: boolean;
+  pid: number;
+}
+
+/** Audit session ID → ordered list of execs in that session */
+const sessionChains = new Map<number, SessionExecRecord[]>();
+
+/** Max idle time (ms) before a session is pruned */
+const SESSION_MAX_IDLE_MS = 5 * 60 * 1000;
+
+/** Rapid exec threshold: more than this many execs in 1 second is suspicious */
+const RAPID_EXEC_THRESHOLD = 10;
+
+/**
+ * Record an exec from the ES extension and check for suspicious patterns.
+ */
+function trackESExec(context: PolicyExecutionContext, target: string, allowed: boolean): void {
+  const sessionId = context.esSessionId;
+  if (sessionId == null) return;
+
+  const now = Date.now();
+  const parts = target.split(' ');
+  const binary = parts[0] || target;
+  const args = parts.slice(1).join(' ');
+
+  const record: SessionExecRecord = {
+    binary,
+    args,
+    timestamp: now,
+    allowed,
+    pid: context.esPid ?? 0,
+  };
+
+  // Get or create session chain
+  let chain = sessionChains.get(sessionId);
+  if (!chain) {
+    chain = [];
+    sessionChains.set(sessionId, chain);
+  }
+  chain.push(record);
+
+  // Detect suspicious patterns
+  // 1. Rapid chaining: >RAPID_EXEC_THRESHOLD execs in 1 second
+  const recentExecs = chain.filter(r => now - r.timestamp < 1000);
+  if (recentExecs.length > RAPID_EXEC_THRESHOLD) {
+    emitSecurityWarning(
+      `Rapid exec chain detected: ${recentExecs.length} execs in 1s from session ${sessionId} (user: ${context.esUser || 'unknown'})`
+    );
+  }
+
+  // Prune stale sessions
+  for (const [sid, records] of sessionChains) {
+    const lastExec = records[records.length - 1];
+    if (lastExec && now - lastExec.timestamp > SESSION_MAX_IDLE_MS) {
+      sessionChains.delete(sid);
+    }
+  }
+}
+
 /**
  * Evaluate a policy check against loaded config policies
  */
@@ -475,6 +540,25 @@ async function handlePolicyCheck(params: Record<string, unknown>) {
   const context = params['context'] as PolicyExecutionContext | undefined;
 
   const result = await evaluatePolicyCheck(operation, target, context);
+
+  // ES extension: track exec chain and emit dedicated event
+  if (context?.sourceLayer === 'es-extension' && operation === 'exec') {
+    trackESExec(context, target, result.allowed);
+
+    const parts = target.split(' ');
+    emitESExecEvent({
+      binary: parts[0] || target,
+      args: parts.slice(1).join(' '),
+      pid: context.esPid ?? 0,
+      ppid: context.esPpid ?? 0,
+      sessionId: context.esSessionId ?? 0,
+      user: context.esUser ?? 'unknown',
+      allowed: result.allowed,
+      policyId: result.policyId,
+      reason: result.reason,
+      sourceLayer: 'es-extension',
+    });
+  }
 
   // Emit SSE events so policy check results appear in the Activity Feed immediately
   if (!result.allowed) {

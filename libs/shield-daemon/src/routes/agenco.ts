@@ -19,8 +19,11 @@ import { getVault } from '../vault';
 import { loadState, updateAgenCoState, addConnectedIntegration, removeConnectedIntegration } from '../state';
 import { getMCPClient, activateMCP, deactivateMCP, getMCPState, finishMCPAuth, MCPUnauthorizedError } from '../mcp';
 import { emitAgenCoAuthRequired } from '../events/emitter';
-import { onIntegrationConnected, onIntegrationDisconnected } from '../services/integration-skills';
+import { onIntegrationConnected, onIntegrationDisconnected, syncAgenCoSkills } from '../services/integration-skills';
 import { INTEGRATION_CATALOG, type IntegrationDetails } from '../data/integration-catalog';
+import { getSkillsDir, listApproved } from '../watchers/skills';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /**
  * Extract parsed JSON from an MCP tool result.
@@ -599,7 +602,12 @@ export async function agencoRoutes(app: FastifyInstance): Promise<void> {
       if (parsed.status === 'already_connected' || parsed.status === 'connected') {
         addConnectedIntegration(integration);
         try {
-          await onIntegrationConnected(integration);
+          // Use SkillsManager for sync if available, fallback to legacy
+          if (app.skillsManager) {
+            await app.skillsManager.syncSource('mcp', 'openclaw');
+          } else {
+            await onIntegrationConnected(integration);
+          }
         } catch (err) {
           console.error(`[AgenCo] Skill provisioning failed for ${integration}:`, (err as Error).message);
         }
@@ -644,9 +652,13 @@ export async function agencoRoutes(app: FastifyInstance): Promise<void> {
     // Update state
     removeConnectedIntegration(integration);
 
-    // Clean up skills
+    // Clean up skills — use SkillsManager if available, fallback to legacy
     try {
-      await onIntegrationDisconnected(integration);
+      if (app.skillsManager) {
+        await app.skillsManager.syncSource('mcp', 'openclaw');
+      } else {
+        await onIntegrationDisconnected(integration);
+      }
     } catch (err) {
       console.error(`[AgenCo] Skill cleanup failed for ${integration}:`, (err as Error).message);
     }
@@ -656,6 +668,71 @@ export async function agencoRoutes(app: FastifyInstance): Promise<void> {
       success: true,
       data: { connectedIntegrations: updated.agenco.connectedIntegrations },
     };
+  });
+
+  // ===== SKILL ROUTES =====
+
+  /**
+   * Get AgenCo skill installation status.
+   * Checks if the master 'agenco' skill is installed on disk and approved.
+   */
+  app.get('/agenco/skills/status', async () => {
+    const skillsDir = getSkillsDir();
+    const onDisk = skillsDir ? fs.existsSync(path.join(skillsDir, 'agenco')) : false;
+    const approved = listApproved().some((s) => s.name === 'agenco');
+
+    return {
+      success: true,
+      data: { installed: onDisk && approved, skillName: 'agenco' },
+    };
+  });
+
+  /**
+   * Manually trigger AgenCo skill sync.
+   * Installs missing skills, removes orphaned ones, and updates the master skill.
+   * First refreshes local state from MCP to pick up externally-connected integrations.
+   */
+  app.post('/agenco/skills/sync', async () => {
+    try {
+      // Refresh local state from MCP before syncing — the source of truth
+      // for connected integrations is the remote MCP server, not local state.
+      const mcpStatus = await ensureMCPActive(app);
+      if (mcpStatus.ok) {
+        const client = getMCPClient();
+        if (client) {
+          try {
+            const mcpResult = await client.callTool('list-connected-integrations', {});
+            const raw = extractToolResult(mcpResult);
+            const mapped = mapConnectedIntegrations(raw);
+            const state = loadState();
+            const remoteIds = mapped.integrations.map(i => i.id);
+            const currentIds = state.agenco.connectedIntegrations;
+            for (const id of remoteIds) {
+              if (!currentIds.includes(id)) addConnectedIntegration(id);
+            }
+            for (const id of currentIds) {
+              if (!remoteIds.includes(id)) removeConnectedIntegration(id);
+            }
+          } catch {
+            // MCP call failed — proceed with existing local state
+          }
+        }
+      }
+
+      // Use SkillsManager if available, fallback to legacy sync
+      let result;
+      if (app.skillsManager) {
+        result = await app.skillsManager.syncSource('mcp', 'openclaw');
+      } else {
+        result = await syncAgenCoSkills();
+      }
+      if (result.errors.length > 0 && result.installed.length === 0 && result.updated.length === 0) {
+        return { success: false, error: result.errors.join('; ') };
+      }
+      return { success: true, data: result };
+    } catch (error) {
+      return { success: false, error: (error as Error).message };
+    }
   });
 
 }

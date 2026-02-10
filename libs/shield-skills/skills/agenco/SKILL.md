@@ -10,6 +10,7 @@ command-arg-mode: single
 requires:
   bins:
     - agenco
+    - openclaw
 
 agenshield:
   policy: builtin-agenco

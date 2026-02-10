@@ -26,7 +26,7 @@
       "default": "./dist/require.cjs"
     }
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "@agenshield/ipc": "0.7.3"
   },

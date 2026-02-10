@@ -14,7 +14,7 @@
       "default": "./dist/index.js"
     }
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "zod": "^4.3.6"
   }

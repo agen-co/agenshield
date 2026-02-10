@@ -11,10 +11,21 @@ interface IntegrationsGridProps {
   integrations: IntegrationCardData[];
   loading: boolean;
   onConnect: (id: string) => void;
+  onInstallSkill?: (id: string) => void;
+  onRemoveSkill?: (id: string) => void;
   connectingId?: string | null;
+  installingSkill?: boolean;
 }
 
-export function IntegrationsGrid({ integrations, loading, onConnect, connectingId }: IntegrationsGridProps) {
+export function IntegrationsGrid({
+  integrations,
+  loading,
+  onConnect,
+  onInstallSkill,
+  onRemoveSkill,
+  connectingId,
+  installingSkill,
+}: IntegrationsGridProps) {
   if (loading) {
     return (
       <Grid container spacing={2}>
@@ -45,7 +56,14 @@ export function IntegrationsGrid({ integrations, loading, onConnect, connectingI
       <Grid container spacing={2}>
         {integrations.map((integration) => (
           <Grid item xs={12} sm={6} md={4} key={integration.id}>
-            <IntegrationCard integration={integration} onConnect={onConnect} connecting={connectingId === integration.id} />
+            <IntegrationCard
+              integration={integration}
+              onConnect={onConnect}
+              onInstallSkill={onInstallSkill}
+              onRemoveSkill={onRemoveSkill}
+              connecting={connectingId === integration.id}
+              installingSkill={installingSkill}
+            />
           </Grid>
         ))}
       </Grid>

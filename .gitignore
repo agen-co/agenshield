@@ -37,6 +37,15 @@ yarn-error.log
 
 .claude
 
+# Xcode
+*.xcuserdata
+xcuserdata/
+*.xcscmblueprint
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+
 # Verdaccio local registry
 scripts/registry/.verdaccio-storage/
 scripts/registry/.verdaccio-htpasswd

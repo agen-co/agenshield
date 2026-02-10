@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "AgenShield Web UI Dashboard",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "@agenshield/ipc": "0.1.0",
     "@emotion/react": "^11.14.0",

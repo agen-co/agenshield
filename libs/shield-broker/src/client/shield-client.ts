@@ -5,6 +5,10 @@
  * Command-line client for interacting with the broker daemon.
  */
 
+import { spawn } from 'child_process';
+import { existsSync } from 'fs';
+import { join } from 'path';
+
 import { BrokerClient } from './broker-client.js';
 
 const client = new BrokerClient({
@@ -52,6 +56,10 @@ async function main(): Promise<void> {
         await handleCheckExec(args.slice(1));
         break;
 
+      case 'skill':
+        await handleSkill(args.slice(1));
+        break;
+
       default:
         console.error(`Unknown command: ${command}`);
         printHelp();
@@ -79,6 +87,7 @@ Commands:
   open <url>                         Open a URL in the browser
   secret get <name>                  Get a secret value
   check-exec <command>               Check if a command is allowed by policy
+  skill run <name> [args...]         Run a skill with policy-enforced context
 
 Environment:
   AGENSHIELD_SOCKET      Unix socket path (default: /var/run/agenshield/agenshield.sock)
@@ -243,6 +252,83 @@ async function handleCheckExec(args: string[]): Promise<void> {
   } else {
     process.exit(126); // "command cannot execute" convention
   }
+}
+
+async function handleSkill(args: string[]): Promise<void> {
+  const subcommand = args[0];
+
+  if (subcommand !== 'run') {
+    console.error('Usage: shield-client skill run <name> [args...]');
+    process.exit(1);
+  }
+
+  await handleSkillRun(args.slice(1));
+}
+
+async function handleSkillRun(args: string[]): Promise<void> {
+  const slug = args[0];
+  if (!slug) {
+    console.error('Usage: shield-client skill run <name> [args...]');
+    process.exit(1);
+  }
+
+  const remainingArgs = args.slice(1);
+  const binaryPath = findSkillBinary(slug);
+
+  if (!binaryPath) {
+    console.error(`Error: Could not find binary for skill "${slug}"`);
+    process.exit(1);
+  }
+
+  const child = spawn(binaryPath, remainingArgs, {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      AGENSHIELD_CONTEXT_TYPE: 'skill',
+      AGENSHIELD_SKILL_SLUG: slug,
+    },
+  });
+
+  child.on('error', (err) => {
+    console.error(`Error executing skill "${slug}": ${err.message}`);
+    process.exit(1);
+  });
+
+  child.on('exit', (code, signal) => {
+    if (signal) {
+      process.kill(process.pid, signal);
+    } else {
+      process.exit(code ?? 1);
+    }
+  });
+
+  // Keep the process alive while the child runs
+  await new Promise<void>(() => {});
+}
+
+function findSkillBinary(slug: string): string | null {
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+  const wrapperDir = join(agentHome, 'bin');
+
+  // 1. Check brew-originals directory first
+  const brewOriginal = join(wrapperDir, '.brew-originals', slug);
+  if (existsSync(brewOriginal)) {
+    return brewOriginal;
+  }
+
+  // 2. Search PATH, excluding the wrapper directory to avoid infinite recursion
+  const pathDirs = (process.env['PATH'] || '').split(':');
+  for (const dir of pathDirs) {
+    if (dir === wrapperDir) {
+      continue;
+    }
+    const candidate = join(dir, slug);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 main().catch((error) => {

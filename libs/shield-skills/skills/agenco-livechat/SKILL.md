@@ -1,0 +1,54 @@
+---
+name: agenco-livechat
+description: "LiveChat actions available through AgenCo"
+user-invocable: false
+disable-model-invocation: false
+---
+
+# LiveChat
+
+Actions available through AgenCo secure gateway. All credentials are stored in the cloud vault — never exposed locally.
+
+## Actions
+
+| Action | Description |
+|--------|-------------|
+| list_chats | Retrieves chat conversations |
+| get_chat | Fetches chat transcript |
+| start_chat | Initiates new chat sessions |
+| end_chat | Closes active chats |
+| list_agents | Retrieves agent accounts |
+| list_customers | Gets customer records |
+| get_reports | Retrieves chat analytics |
+
+## How to Use
+
+**Always search first** to discover exact tool names and their input schemas, then call the tool.
+
+### Step 1: Search for the tool
+
+```bash
+agenco search-tools '{"queries":["livechat list chats"]}'
+```
+
+The response includes `toolName` (exact name) and `inputSchema` (required/optional parameters).
+
+### Step 2: Call the tool
+
+Use the exact `toolName` and match the `inputSchema` from the search results:
+
+```bash
+agenco call-tool '{"toolName":"<toolName from search>","input":{...}}'
+```
+
+### Example
+
+```bash
+# Find the right tool
+agenco search-tools '{"queries":["livechat list chats"]}'
+
+# Call it (use the exact toolName and schema from the search result)
+agenco call-tool '{"toolName":"livechat_list_chats","input":{...}}'
+```
+
+> If LiveChat is not connected, run `agenco list-connected-integrations` to check, then connect it via the Shield UI.

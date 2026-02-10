@@ -75,10 +75,10 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
     };
   }, [healthError, healthLoading, isSuccess]);
 
-  // Keep wizard visible while daemon restarts after setup completes
+  // Keep the wizard visible while the daemon restarts after setup completes
   const { phase: setupPhase } = useSnapshot(setupStore);
 
-  // Setup mode: render full-screen wizard, bypass all auth gates
+  // Setup mode: render a full-screen wizard, bypass all auth gates
   if (serverMode === 'setup' || setupPhase === 'complete') {
     return <SetupWizard />;
   }

@@ -5,14 +5,13 @@
 import {
   Card,
   CardContent,
-  CardActions,
   Typography,
   Box,
   Button,
   Chip,
   CircularProgress,
 } from '@mui/material';
-import { Plug, ExternalLink } from 'lucide-react';
+import { Plug, Download, Trash2 } from 'lucide-react';
 
 export interface IntegrationCardData {
   id: string;
@@ -21,34 +20,84 @@ export interface IntegrationCardData {
   category: string;
   toolsCount: number;
   connected?: boolean;
+  skillInstalled?: boolean;
 }
 
 interface IntegrationCardProps {
   integration: IntegrationCardData;
   onConnect: (id: string) => void;
+  onInstallSkill?: (id: string) => void;
+  onRemoveSkill?: (id: string) => void;
   connecting?: boolean;
+  installingSkill?: boolean;
 }
 
-export function IntegrationCard({ integration, onConnect, connecting }: IntegrationCardProps) {
+export function IntegrationCard({
+  integration,
+  onConnect,
+  onInstallSkill,
+  onRemoveSkill,
+  connecting,
+  installingSkill,
+}: IntegrationCardProps) {
   return (
     <Card sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <CardContent sx={{ flex: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Plug size={18} />
-            <Typography variant="subtitle1" fontWeight={600}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+            <Plug size={18} style={{ flexShrink: 0 }} />
+            <Typography variant="subtitle1" fontWeight={600} noWrap>
               {integration.name}
             </Typography>
           </Box>
+          {integration.connected ? (
+            integration.skillInstalled ? (
+              <Button
+                size="small"
+                color="error"
+                variant="outlined"
+                onClick={() => onRemoveSkill?.(integration.id)}
+                disabled={installingSkill}
+                startIcon={<Trash2 size={14} />}
+                sx={{ flexShrink: 0 }}
+              >
+                Remove
+              </Button>
+            ) : (
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => onInstallSkill?.(integration.id)}
+                disabled={installingSkill}
+                startIcon={installingSkill ? <CircularProgress size={14} color="inherit" /> : <Download size={14} />}
+                sx={{ flexShrink: 0 }}
+              >
+                {installingSkill ? 'Installing...' : 'Add Skill'}
+              </Button>
+            )
+          ) : (
+            <Button
+              size="small"
+              variant="contained"
+              onClick={() => onConnect(integration.id)}
+              disabled={connecting}
+              startIcon={connecting ? <CircularProgress size={14} color="inherit" /> : undefined}
+              sx={{ flexShrink: 0 }}
+            >
+              {connecting ? 'Connecting...' : 'Connect'}
+            </Button>
+          )}
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+          <Chip
+            label={integration.category}
+            size="small"
+            sx={{ textTransform: 'capitalize' }}
+          />
           {integration.connected && (
             <Chip label="Connected" color="success" size="small" variant="outlined" />
           )}
         </Box>
-        <Chip
-          label={integration.category}
-          size="small"
-          sx={{ mb: 1, textTransform: 'capitalize' }}
-        />
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           {integration.description}
         </Typography>
@@ -56,23 +105,6 @@ export function IntegrationCard({ integration, onConnect, connecting }: Integrat
           {integration.toolsCount} tool{integration.toolsCount !== 1 ? 's' : ''} available
         </Typography>
       </CardContent>
-      <CardActions sx={{ px: 2, pb: 2 }}>
-        {integration.connected ? (
-          <Button size="small" variant="outlined" startIcon={<ExternalLink size={14} />} disabled>
-            Connected
-          </Button>
-        ) : (
-          <Button
-            size="small"
-            variant="contained"
-            onClick={() => onConnect(integration.id)}
-            disabled={connecting}
-            startIcon={connecting ? <CircularProgress size={14} color="inherit" /> : undefined}
-          >
-            {connecting ? 'Connecting...' : 'Connect'}
-          </Button>
-        )}
-      </CardActions>
     </Card>
   );
 }

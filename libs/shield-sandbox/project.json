@@ -33,9 +33,21 @@
         }
       }
     },
-    "build": {
+    "bundle-es": {
       "executor": "nx:run-commands",
       "dependsOn": ["build-cjs"],
+      "options": {
+        "commands": [
+          "rm -rf libs/shield-sandbox/dist/es-extension",
+          "mkdir -p libs/shield-sandbox/dist/es-extension",
+          "if [ -d dist/apps/shield-macos/Release/AgenShieldES.app ]; then cp -r dist/apps/shield-macos/Release/AgenShieldES.app libs/shield-sandbox/dist/es-extension/AgenShieldES.app; elif [ -d libs/shield-sandbox/es-extension/AgenShieldES.app ]; then cp -r libs/shield-sandbox/es-extension/AgenShieldES.app libs/shield-sandbox/dist/es-extension/AgenShieldES.app; else echo 'WARNING: No AgenShieldES.app found'; fi"
+        ],
+        "parallel": false
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-cjs", "bundle-es"],
       "options": {
         "command": "node scripts/strip-dist-from-pkg.js libs/shield-sandbox/dist/package.json"
       }

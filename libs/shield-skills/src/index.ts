@@ -29,3 +29,28 @@ export type {
   ExecuteResult,
   ValidationResult,
 } from './types.js';
+
+// ─── Adapter types ────────────────────────────────────────────
+export type {
+  SkillSourceAdapter,
+  SkillDefinition,
+  SkillFile,
+  DiscoveredTool,
+  RequiredBinary,
+  BinaryInstallMethod,
+  AdapterInstructions,
+  ToolQuery,
+  AdapterSyncResult,
+  InstalledSkillVersion,
+  SkillVersionStore,
+  SkillInstaller,
+  InstallOptions,
+  UninstallOptions,
+  SkillsManagerEvent,
+  TargetPlatform,
+} from './adapters/types.js';
+
+// ─── Sources & Manager ───────────────────────────────────────
+export { StaticSkillSource } from './adapters/static-source.js';
+export { SkillsManager, computeSkillDefinitionSha } from './manager.js';
+export type { SkillsManagerOptions } from './manager.js';

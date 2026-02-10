@@ -6,6 +6,7 @@
  * proper permissions with direct-fs fallback for development.
  */
 
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BUILTIN_SKILLS_DIR } from '@agenshield/skills';
@@ -33,13 +34,27 @@ import { loadConfig, updateConfig } from '../config';
 import { syncCommandPolicies } from '../command-sync';
 
 const MASTER_SKILL_NAME = 'agenco';
-const INTEGRATION_SKILL_PREFIX = 'integration-';
+const INTEGRATION_SKILL_PREFIX = 'agenco-';
 
 export interface SyncResult {
   installed: string[];
   removed: string[];
   updated: string[];
   errors: string[];
+}
+
+// ─── Metadata generators ────────────────────────────────────────────────────
+
+/**
+ * Generate _meta.json content matching the OpenClaw skill metadata format.
+ */
+function generateMetaJson(slug: string, version = '1.0.0'): string {
+  return JSON.stringify({
+    ownerId: 'agenshield',
+    slug,
+    version,
+    publishedAt: Date.now(),
+  }, null, 2);
 }
 
 // ─── Content generators ─────────────────────────────────────────────────────
@@ -92,13 +107,17 @@ function generateIntegrationSkillMd(integrationId: string): string | null {
 
   const lines: string[] = [
     '---',
-    `name: integration-${integrationId}`,
+    `name: agenco-${integrationId}`,
     `description: ${details.description}`,
     'user-invocable: false',
     'disable-model-invocation: false',
     '',
+    'requires:',
+    '  bins:',
+    '    - agenco',
+    '',
     'agenshield:',
-    `  policy: builtin-integration-${integrationId}`,
+    `  policy: builtin-agenco-${integrationId}`,
     '  required-approval: false',
     '  audit-level: info',
     '  security-level: high',
@@ -128,6 +147,21 @@ function generateIntegrationSkillMd(integrationId: string): string | null {
   return lines.join('\n');
 }
 
+/**
+ * Compute a SHA-256 hash from an array of { name, content } objects.
+ * Mirrors the logic in computeSkillHash (watchers/skills.ts) but works
+ * from in-memory file arrays instead of reading from disk.
+ */
+function computeExpectedHash(files: Array<{ name: string; content: string }>): string {
+  const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name));
+  const hash = crypto.createHash('sha256');
+  for (const file of sorted) {
+    hash.update(file.name);
+    hash.update(file.content);
+  }
+  return hash.digest('hex');
+}
+
 // ─── Install / Uninstall helpers ────────────────────────────────────────────
 
 /**
@@ -151,6 +185,7 @@ async function installMasterSkill(connectedIds: string[]): Promise<void> {
 
   const files: Array<{ name: string; content: string; mode?: number }> = [
     { name: 'SKILL.md', content: skillMd },
+    { name: '_meta.json', content: generateMetaJson(MASTER_SKILL_NAME) },
   ];
 
   if (fs.existsSync(binPath)) {
@@ -245,7 +280,10 @@ async function installIntegrationSkill(integrationId: string): Promise<void> {
 
   skillMdContent = stripEnvFromSkillMd(skillMdContent);
   const taggedContent = await injectInstallationTag(skillMdContent);
-  const files = [{ name: 'SKILL.md', content: taggedContent }];
+  const files = [
+    { name: 'SKILL.md', content: taggedContent },
+    { name: '_meta.json', content: generateMetaJson(skillName) },
+  ];
 
   addToApprovedList(skillName);
 
@@ -300,7 +338,7 @@ async function installIntegrationSkill(integrationId: string): Promise<void> {
 /**
  * Uninstall a per-integration skill.
  */
-async function uninstallIntegrationSkill(integrationId: string): Promise<void> {
+export async function uninstallIntegrationSkill(integrationId: string): Promise<void> {
   const skillsDir = getSkillsDir();
   if (!skillsDir) return;
 
@@ -332,7 +370,7 @@ async function uninstallIntegrationSkill(integrationId: string): Promise<void> {
 /**
  * Uninstall the master skill.
  */
-async function uninstallMasterSkill(): Promise<void> {
+export async function uninstallMasterSkill(): Promise<void> {
   const skillsDir = getSkillsDir();
   if (!skillsDir) return;
 
@@ -391,7 +429,7 @@ export async function syncAgenCoSkills(): Promise<SyncResult> {
   const state = loadState();
   const connectedIds = state.agenco.connectedIntegrations ?? [];
 
-  // Scan for existing integration-* directories
+  // Scan for existing agenco-* directories
   const existingIntegrationSkills = new Set<string>();
   try {
     const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
@@ -400,20 +438,58 @@ export async function syncAgenCoSkills(): Promise<SyncResult> {
         existingIntegrationSkills.add(entry.name.slice(INTEGRATION_SKILL_PREFIX.length));
       }
     }
+
+    // Migration: remove old integration-* prefixed skills
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name.startsWith('integration-')) {
+        const oldDir = path.join(skillsDir, entry.name);
+        try {
+          const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+          await sudoRm(oldDir, path.basename(agentHome));
+          removeFromApprovedList(entry.name);
+          removeSkillPolicy(entry.name);
+          console.log(`[IntegrationSkills] Migrated away old skill: ${entry.name}`);
+        } catch { /* best-effort */ }
+      }
+    }
   } catch {
     // Skills directory may not exist yet
   }
 
   const connectedSet = new Set(connectedIds);
 
-  // Install missing per-integration skills
+  // Install missing or update stale per-integration skills
   for (const id of connectedIds) {
+    const skillName = `${INTEGRATION_SKILL_PREFIX}${id}`;
+
     if (!existingIntegrationSkills.has(id)) {
+      // New skill — install
       try {
         await installIntegrationSkill(id);
-        result.installed.push(`${INTEGRATION_SKILL_PREFIX}${id}`);
+        result.installed.push(skillName);
       } catch (err) {
-        result.errors.push(`install ${INTEGRATION_SKILL_PREFIX}${id}: ${(err as Error).message}`);
+        result.errors.push(`install ${skillName}: ${(err as Error).message}`);
+      }
+    } else {
+      // Existing skill — check if content changed (SHA comparison)
+      try {
+        const expectedContent = generateIntegrationSkillMd(id);
+        if (expectedContent) {
+          const strippedContent = stripEnvFromSkillMd(expectedContent);
+          const taggedContent = await injectInstallationTag(strippedContent);
+          const expectedFiles = [
+            { name: 'SKILL.md', content: taggedContent },
+            { name: '_meta.json', content: generateMetaJson(skillName) },
+          ];
+          const expectedHash = computeExpectedHash(expectedFiles);
+          const currentHash = computeSkillHash(path.join(skillsDir, skillName));
+          if (currentHash !== expectedHash) {
+            await installIntegrationSkill(id);
+            result.updated.push(skillName);
+          }
+        }
+      } catch (err) {
+        result.errors.push(`update ${skillName}: ${(err as Error).message}`);
       }
     }
   }

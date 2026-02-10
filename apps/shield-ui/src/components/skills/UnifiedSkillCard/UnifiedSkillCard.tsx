@@ -50,6 +50,14 @@ export function UnifiedSkillCard({ skill, selected = false, readOnly = false, on
             <Typography variant="body2" fontWeight={600} noWrap>
               {skill.name}
             </Typography>
+            {(skill.name === 'agenco' || skill.name.startsWith('agenco-')) && (
+              <Chip
+                label="AgenCo"
+                size="small"
+                color="info"
+                sx={{ fontWeight: 500, height: 18, fontSize: '0.625rem' }}
+              />
+            )}
             {chipConfig && (
               <Chip
                 label={chipConfig.label}

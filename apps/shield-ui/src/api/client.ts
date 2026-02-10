@@ -274,6 +274,20 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ integration, scopes }),
       }),
+
+    disconnectIntegration: (integration: string) =>
+      request<{ success: boolean; data: { connectedIntegrations: string[] } }>('/agenco/integrations/disconnect', {
+        method: 'POST',
+        body: JSON.stringify({ integration }),
+      }),
+
+    getSkillStatus: () =>
+      request<{ success: boolean; data: { installed: boolean; skillName: string } }>('/agenco/skills/status'),
+
+    syncSkills: () =>
+      request<{ success: boolean; data: { installed: string[]; removed: string[]; updated: string[]; errors: string[] } }>('/agenco/skills/sync', {
+        method: 'POST',
+      }),
   },
 
   // OpenClaw gateway lifecycle
@@ -287,7 +301,7 @@ export const api = {
     restart: () =>
       request<{ success: boolean; data: { message: string } }>('/openclaw/restart', { method: 'POST' }),
     getDashboardUrl: () =>
-      request<{ success: boolean; data: { url: string } }>('/openclaw/dashboard-url'),
+      request<{ success: boolean; data: { url: string; token: string } }>('/openclaw/dashboard-url'),
   },
 
   // Factory reset

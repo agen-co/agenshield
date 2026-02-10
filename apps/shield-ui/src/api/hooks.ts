@@ -21,6 +21,7 @@ export const queryKeys = {
   agencoMCPStatus: ['agenco', 'mcp-status'] as const,
   agencoIntegrations: ['agenco', 'integrations'] as const,
   agencoConnected: ['agenco', 'connected'] as const,
+  agencoSkillStatus: ['agenco', 'skill-status'] as const,
   fsBrowse: (dirPath: string) => ['fs', 'browse', dirPath] as const,
 };
 
@@ -280,6 +281,43 @@ export function useAgenCoConnectIntegration() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.agencoConnected });
       queryClient.invalidateQueries({ queryKey: queryKeys.agencoIntegrations });
+    },
+  });
+}
+
+export function useAgenCoDisconnectIntegration() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (integration: string) =>
+      api.agenco.disconnectIntegration(integration),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.agencoConnected });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agencoIntegrations });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agencoSkillStatus });
+      queryClient.invalidateQueries({ queryKey: queryKeys.skills });
+    },
+  });
+}
+
+export function useAgenCoSkillStatus() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.agencoSkillStatus,
+    queryFn: api.agenco.getSkillStatus,
+    enabled: healthy,
+    refetchInterval: healthy ? 15000 : false,
+  });
+}
+
+export function useAgenCoSyncSkills() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.agenco.syncSkills(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.agencoSkillStatus });
+      queryClient.invalidateQueries({ queryKey: queryKeys.skills });
     },
   });
 }

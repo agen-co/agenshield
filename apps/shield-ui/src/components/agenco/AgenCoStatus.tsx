@@ -20,9 +20,10 @@ interface AgenCoStatusProps {
   onLogout: () => void;
   connecting?: boolean;
   error?: string | null;
+  connectedCount?: number;
 }
 
-export function AgenCoStatus({ onConnect, onLogout, connecting, error }: AgenCoStatusProps) {
+export function AgenCoStatus({ onConnect, onLogout, connecting, error, connectedCount = 0 }: AgenCoStatusProps) {
   const { data: authData, isLoading: authLoading } = useAgenCoStatus();
   const { data: mcpData, isLoading: mcpLoading } = useAgenCoMCPStatus();
 
@@ -75,9 +76,9 @@ export function AgenCoStatus({ onConnect, onLogout, connecting, error }: AgenCoS
                 MCP: {mcp.state} {mcp.active ? '(active)' : ''}
               </Typography>
             )}
-            {(auth?.connectedIntegrations?.length ?? 0) > 0 && (
+            {connectedCount > 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                {auth!.connectedIntegrations.length} integration{auth!.connectedIntegrations.length !== 1 ? 's' : ''} connected
+                {connectedCount} integration{connectedCount !== 1 ? 's' : ''} connected
               </Typography>
             )}
             <Box sx={{ mt: 2 }}>

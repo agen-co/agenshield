@@ -13,8 +13,6 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { hasOpenClawFeature } from '@agenshield/ipc';
-import { detectHostOpenClawVersion } from './openclaw-install';
 
 const execAsync = promisify(exec);
 
@@ -26,6 +24,7 @@ const OPENCLAW_DAEMON_PLIST = '/Library/LaunchDaemons/com.agenshield.openclaw.da
 const OPENCLAW_GATEWAY_PLIST = '/Library/LaunchDaemons/com.agenshield.openclaw.gateway.plist';
 const OPENCLAW_LAUNCHER_PATH = '/opt/agenshield/bin/openclaw-launcher.sh';
 const BROKER_LABEL = 'com.agenshield.broker';
+const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShieldES';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -143,6 +142,11 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
     <key>Label</key>
     <string>${OPENCLAW_DAEMON_LABEL}</string>
 
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>${AGENSHIELD_HOST_BUNDLE_ID}</string>
+    </array>
+
     <key>ProgramArguments</key>
     <array>
         <string>${OPENCLAW_LAUNCHER_PATH}</string>
@@ -232,6 +236,11 @@ export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): stri
 <dict>
     <key>Label</key>
     <string>${OPENCLAW_GATEWAY_LABEL}</string>
+
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>${AGENSHIELD_HOST_BUNDLE_ID}</string>
+    </array>
 
     <key>ProgramArguments</key>
     <array>
@@ -551,7 +560,7 @@ export function getOpenClawStatusSync(): OpenClawStatus {
  *
  * Constructs the URL from gateway.port and gateway.auth.token fields.
  */
-export async function getOpenClawDashboardUrl(): Promise<{ success: boolean; url?: string; error?: string }> {
+export async function getOpenClawDashboardUrl(): Promise<{ success: boolean; url?: string; token?: string; error?: string }> {
   try {
     const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
     const configPath = path.join(agentHome, '.openclaw', 'openclaw.json');
@@ -583,11 +592,8 @@ export async function getOpenClawDashboardUrl(): Promise<{ success: boolean; url
       return { success: false, error: 'Gateway port or auth token not found in openclaw.json' };
     }
 
-    const version = detectHostOpenClawVersion();
-    const url = hasOpenClawFeature(version, 'hashTokenAuth')
-      ? `http://127.0.0.1:${port}/overview#token=${token}`
-      : `http://127.0.0.1:${port}/overview?token=${token}`;
-    return { success: true, url };
+    const url = `http://127.0.0.1:${port}/overview`;
+    return { success: true, url, token };
   } catch (error) {
     return { success: false, error: `Failed to get dashboard URL: ${(error as Error).message}` };
   }

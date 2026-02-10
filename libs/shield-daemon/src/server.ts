@@ -2,6 +2,14 @@
  * Fastify server setup for AgenShield daemon
  */
 
+import type { SkillsManager as SkillsManagerType } from '@agenshield/skills';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    skillsManager: SkillsManagerType;
+  }
+}
+
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -18,6 +26,14 @@ import { getVault, getInstallationKey } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
 import { getActivityLog } from './services/activity-log';
 import { shutdownProxyPool } from './proxy/pool';
+import { SkillsManager } from '@agenshield/skills';
+import {
+  DaemonSkillInstaller,
+  DaemonVersionStore,
+  MCPSkillSource,
+  createAgenCoConnection,
+  RemoteSkillSource,
+} from './adapters';
 
 /**
  * Create and configure the Fastify server
@@ -143,15 +159,59 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     // Non-fatal: MCP auto-activation failed, user can connect later
   }
 
-  // Sync AgenCo integration skills at boot
+  // Initialize Skills Manager with adapters
+  const versionStore = new DaemonVersionStore();
+  const installer = new DaemonSkillInstaller();
+  const skillsManager = new SkillsManager({
+    versionStore,
+    installer,
+    onEvent: (e) => {
+      console.log(`[SkillsManager] ${e.type}`, 'skillId' in e ? (e as { skillId: string }).skillId : '');
+    },
+  });
+
+  // Register MCP source with AgenCo connection
+  const mcpSource = new MCPSkillSource();
+  const { loadState: loadStateForManager } = await import('./state/index.js');
+  await mcpSource.addConnection(createAgenCoConnection({
+    getConnectedIntegrations: () => loadStateForManager().agenco.connectedIntegrations ?? [],
+  }));
+  await skillsManager.registerSource(mcpSource);
+
+  // Register remote source (wraps marketplace.ts)
+  const {
+    searchMarketplace,
+    getMarketplaceSkill,
+    downloadAndExtractZip,
+    listDownloadedSkills,
+  } = await import('./services/marketplace.js');
+  const remoteSource = new RemoteSkillSource({
+    searchMarketplace,
+    getMarketplaceSkill,
+    downloadAndExtractZip,
+    listDownloadedSkills,
+  });
+  await skillsManager.registerSource(remoteSource);
+
+  // Decorate app so routes can access the manager
+  app.decorate('skillsManager', skillsManager);
+
+  // Sync AgenCo integration skills at boot (via manager)
   try {
-    const { syncAgenCoSkills } = await import('./services/integration-skills.js');
-    const syncResult = await syncAgenCoSkills();
+    const syncResult = await skillsManager.syncSource('mcp', 'openclaw');
     if (syncResult.installed.length || syncResult.removed.length || syncResult.updated.length) {
       app.log.info(`[startup] AgenCo skill sync: installed=${syncResult.installed.length}, removed=${syncResult.removed.length}, updated=${syncResult.updated.length}`);
     }
   } catch (err) {
     app.log.warn(`[startup] AgenCo skill sync failed: ${(err as Error).message}`);
+  }
+
+  // Also run legacy sync for migration from old integration-* prefix
+  try {
+    const { syncAgenCoSkills } = await import('./services/integration-skills.js');
+    await syncAgenCoSkills();
+  } catch {
+    // Non-fatal: legacy sync may fail if already migrated
   }
 
   // Start process health watcher for broker/gateway lifecycle events

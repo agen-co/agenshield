@@ -1,13 +1,14 @@
 {
   "name": "@agen-co/source",
   "version": "1.0.0",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": "https://github.com/agen-co/agenshield",
   "engines": {
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "nx run-many -t build --outputStyle stream",
+    "build": "nx run-many -t build --exclude='tag:native' --outputStyle stream",
+    "build:native": "nx run-many -t build --projects='tag:native' --outputStyle stream",
     "test": "nx run-many -t test --outputStyle stream --skip-nx-cache",
     "test:cached": "nx run-many -t test --outputStyle stream",
     "lint": "nx run-many -t lint --outputStyle stream",

@@ -199,6 +199,9 @@ export {
 // Homebrew, OpenClaw Install, and OpenClaw LaunchDaemon have been
 // moved to @agenshield/integrations to break circular dependency with broker.
 
+// ES Extension (embedded .app path resolver)
+export { getESExtensionAppPath } from './es-extension';
+
 // Skill Injector (AgenCo skill injection)
 export {
   injectAgenCoSkill,
