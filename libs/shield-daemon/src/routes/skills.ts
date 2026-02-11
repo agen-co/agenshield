@@ -191,7 +191,9 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
   /**
    * GET /skills - List all skills as normalized SkillSummary[]
    */
-  app.get('/skills', async (_request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/skills', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { shieldContext: ctx } = request;
+    request.log.info({ targetId: ctx.targetId }, 'Listing skills');
     const approved = listApproved();
     const untrusted = listUntrusted();
     const skillsDir = getSkillsDir();
@@ -523,13 +525,16 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       // Determine if this is a downloaded marketplace skill (has a slug)
       const dlMeta = getDownloadedSkillMeta(name);
 
+      // Capture logger for use in async callback
+      const log = request.log;
+
       // Run analysis asynchronously — Vercel analysis preferred for comprehensive results
       setImmediate(async () => {
         let completed = false;
         // Safety net: if analysis hasn't completed in 5 minutes, mark as error
         const safetyTimeout = setTimeout(() => {
           if (!completed) {
-            console.error(`[Skills] Analysis timed out for ${name}, marking as error`);
+            log.error({ skill: name }, 'Analysis timed out, marking as error');
             setCachedAnalysis(name, {
               status: 'error',
               analyzerId: 'agenshield',
@@ -579,23 +584,23 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
             if (dlMeta) {
               try { updateDownloadedAnalysis(name, analysis); } catch { /* best-effort */ }
             }
-            console.log(`[Skills] Vercel analysis complete for: ${name}`);
+            log.info({ skill: name }, 'Vercel analysis complete');
             emitSkillAnalyzed(name, getCachedAnalysis(name));
           } else {
             // Fallback to local analysis
             analyzeSkill(name, content, metadata);
-            console.log(`[Skills] Local analysis complete for: ${name}`);
+            log.info({ skill: name }, 'Local analysis complete');
             emitSkillAnalyzed(name, getCachedAnalysis(name));
           }
         } catch (err) {
           // Fallback to local analysis on Vercel failure
-          console.warn(`[Skills] Vercel analysis failed for ${name}, falling back to local:`, (err as Error).message);
+          log.warn({ skill: name, err: (err as Error).message }, 'Vercel analysis failed, falling back to local');
           try {
             analyzeSkill(name, content, metadata);
-            console.log(`[Skills] Local analysis complete for: ${name}`);
+            log.info({ skill: name }, 'Local analysis complete');
             emitSkillAnalyzed(name, getCachedAnalysis(name));
           } catch (localErr) {
-            console.error(`[Skills] All analysis failed for ${name}:`, (localErr as Error).message);
+            log.error({ skill: name, err: (localErr as Error).message }, 'All analysis failed');
             setCachedAnalysis(name, {
               status: 'error',
               analyzerId: 'agenshield',
@@ -782,11 +787,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           // Preserve marketplace cache for re-enable; mark as previously installed
           try { markDownloadedAsInstalled(name); } catch { /* best-effort */ }
 
-          console.log(`[Skills] Disabled marketplace skill: ${name}`);
+          request.log.info({ skill: name }, 'Disabled marketplace skill');
           emitSkillUninstalled(name);
           return reply.send({ success: true, action: 'disabled', name });
         } catch (err) {
-          console.error('[Skills] Disable failed:', (err as Error).message);
+          request.log.error({ skill: name, err: (err as Error).message }, 'Disable failed');
           return reply.code(500).send({ error: `Disable failed: ${(err as Error).message}` });
         }
       } else {
@@ -798,7 +803,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           removeFromApprovedList(name);
           removeSkillWrapper(name, binDir);
           await removeBrewBinaryWrappers(name);
-          console.log(`[Skills] Cleaned up orphaned skill entry: ${name}`);
+          request.log.info({ skill: name }, 'Cleaned up orphaned skill entry');
           emitSkillUninstalled(name);
           return reply.send({ success: true, action: 'disabled', name });
         }
@@ -835,7 +840,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
             }
             if (brokerResult.warnings?.length) {
               for (const warning of brokerResult.warnings) {
-                console.warn(`[Skills] Enable warning for ${name}: ${warning}`);
+                request.log.warn({ skill: name, warning }, 'Enable warning');
               }
             }
           } else {
@@ -865,7 +870,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           // Mark marketplace cache as installed (preserves metadata for re-enable)
           try { markDownloadedAsInstalled(name); } catch { /* best-effort */ }
 
-          console.log(`[Skills] Enabled marketplace skill: ${name}`);
+          request.log.info({ skill: name }, 'Enabled marketplace skill');
           return reply.send({ success: true, action: 'enabled', name });
         } catch (err) {
           // Cleanup on failure
@@ -878,7 +883,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
             // Best-effort cleanup
           }
 
-          console.error('[Skills] Enable failed:', (err as Error).message);
+          request.log.error({ skill: name, err: (err as Error).message }, 'Enable failed');
           return reply.code(500).send({ error: `Enable failed: ${(err as Error).message}` });
         }
       }
@@ -978,7 +983,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           // Best-effort cleanup
         }
 
-        console.error('[Skills] Install failed:', (err as Error).message);
+        request.log.error({ skill: name, err: (err as Error).message }, 'Install failed');
         return reply.code(500).send({
           error: `Installation failed: ${(err as Error).message}`,
         });
@@ -1054,7 +1059,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           }
           if (brokerResult.warnings?.length) {
             for (const warning of brokerResult.warnings) {
-              console.warn(`[Skills] Unblock warning for ${name}: ${warning}`);
+              request.log.warn({ skill: name, warning }, 'Unblock warning');
             }
           }
         } else {
@@ -1083,12 +1088,12 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         // Mark marketplace cache as installed (preserves metadata for re-enable)
         try { markDownloadedAsInstalled(name); } catch { /* best-effort */ }
 
-        console.log(`[Skills] Unblocked and installed skill: ${name}`);
+        request.log.info({ skill: name }, 'Unblocked and installed skill');
         return reply.send({ success: true, message: `Skill "${name}" approved and installed` });
       } catch (err) {
         // Cleanup on failure
         try { removeFromApprovedList(name); } catch { /* */ }
-        console.error('[Skills] Unblock install failed:', (err as Error).message);
+        request.log.error({ skill: name, err: (err as Error).message }, 'Unblock install failed');
         return reply.code(500).send({ error: (err as Error).message });
       }
     }
@@ -1156,10 +1161,10 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           tags: tags ?? [],
         }, files);
 
-        console.log(`[Skills] Uploaded skill to local cache: ${slug}`);
+        request.log.info({ skill: name, slug }, 'Uploaded skill to local cache');
         return reply.send({ success: true, data: { name, slug } });
       } catch (err) {
-        console.error('[Skills] Upload failed:', (err as Error).message);
+        request.log.error({ skill: name, err: (err as Error).message }, 'Upload failed');
         return reply.code(500).send({ error: `Upload failed: ${(err as Error).message}` });
       }
     }

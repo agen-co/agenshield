@@ -39,6 +39,10 @@ function getAuthToken(): string | null {
 function buildHeaders(extra?: HeadersInit, hasBody?: boolean): HeadersInit {
   const headers: Record<string, string> = {};
 
+  // Shield context headers
+  headers['x-shield-source'] = 'ui';
+  headers['x-shield-trace-id'] = crypto.randomUUID();
+
   if (hasBody !== false) {
     headers['Content-Type'] = 'application/json';
   }

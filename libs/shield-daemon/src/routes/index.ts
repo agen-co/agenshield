@@ -23,11 +23,15 @@ import { openclawRoutes } from './openclaw';
 import { rpcRoutes } from './rpc';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
+import { registerShieldContext } from '../context';
 
 /**
  * Register all API routes under the /api prefix
  */
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
+  // Register context extraction before all routes
+  registerShieldContext(app);
+
   // Register SSE routes at root level (not under /api)
   await app.register(sseRoutes);
 
@@ -57,7 +61,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const ms = Math.round(duration);
       const status = reply.statusCode;
       const color = status >= 400 ? '\x1b[31m' : status >= 300 ? '\x1b[33m' : '\x1b[32m';
-      console.log(`${color}${request.method}\x1b[0m ${request.url} \x1b[2m${status} ${ms}ms\x1b[0m`);
+      const traceId = request.shieldContext?.traceId ?? '-';
+      console.log(`${color}${request.method}\x1b[0m ${request.url} \x1b[2m${status} ${ms}ms [${traceId}]\x1b[0m`);
 
       // Include request/response bodies for non-GET, non-auth routes
       const isAuthRoute = request.url.includes('/auth/');

@@ -2,13 +2,8 @@
  * Fastify server setup for AgenShield daemon
  */
 
-import type { SkillsManager as SkillsManagerType } from '@agenshield/skills';
-
-declare module 'fastify' {
-  interface FastifyInstance {
-    skillsManager: SkillsManagerType;
-  }
-}
+// Fastify type augmentations live in context/request-context.ts
+import './context/request-context';
 
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';

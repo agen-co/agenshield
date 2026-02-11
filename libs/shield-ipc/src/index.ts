@@ -131,3 +131,6 @@ export * from './activity/index';
 export * from './commands/index';
 export * from './storage/index';
 export * from './policy-graph/index';
+
+// Request context (multi-tenancy)
+export * from './context/index';
