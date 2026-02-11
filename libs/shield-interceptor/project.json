@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/shield-interceptor/src",
   "projectType": "library",
-  "tags": [],
+  "tags": ["versioning:synchronized"],
   "targets": {
     "test": {
       "executor": "@nx/jest:jest",

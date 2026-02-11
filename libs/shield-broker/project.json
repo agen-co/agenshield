@@ -3,7 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/shield-broker/src",
   "projectType": "library",
-  "tags": [],
+  "tags": ["versioning:synchronized"],
   "targets": {
     "build-cjs": {
       "executor": "@nx/esbuild:esbuild",
