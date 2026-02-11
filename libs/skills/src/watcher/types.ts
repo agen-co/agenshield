@@ -19,6 +19,16 @@ export interface WatcherOptions {
   defaultPolicy?: Partial<WatcherPolicy>;
   /** Per-installation policy overrides keyed by installation ID */
   installationPolicies?: Record<string, Partial<WatcherPolicy>>;
+  /** Skills directory to scan for new/unknown skills (filesystem scan) */
+  skillsDir?: string;
+}
+
+/** Callback for when a new skill is detected during filesystem scan */
+export interface SkillScanCallbacks {
+  /** Called when a skill is auto-approved (has valid installation tag) */
+  onAutoApproved?: (slug: string) => void;
+  /** Called when a skill is quarantined (no valid installation tag) */
+  onQuarantined?: (slug: string, reason: string) => void;
 }
 
 /** Fully resolved policy with no optional fields */

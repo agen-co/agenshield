@@ -21,8 +21,6 @@ import { syncSecrets } from '../secret-sync';
 import { syncOpenClawFromPolicies } from '../services/openclaw-config';
 import { installShieldExec, createUserConfig } from '@agenshield/sandbox';
 import { generatePolicyMarkdown } from '../services/policy-markdown';
-import { listApproved, listUntrusted } from '../watchers/skills';
-import { listDownloadedSkills } from '../services/marketplace';
 
 /**
  * Resolve the agent username from state, falling back to AGENSHIELD_AGENT_HOME env.
@@ -47,12 +45,11 @@ function getAgentUsername(): string | null {
   return null;
 }
 
-/** Collect all known skill names (approved + untrusted + downloaded). */
-function getKnownSkillNames(): Set<string> {
+/** Collect all known skill names from the SQLite-backed repository. */
+function getKnownSkillNames(app: FastifyInstance): Set<string> {
+  const repo = app.skillManager.getRepository();
   const names = new Set<string>();
-  for (const s of listApproved()) names.add(s.name);
-  for (const s of listUntrusted()) names.add(s.name);
-  for (const s of listDownloadedSkills()) names.add(s.name);
+  for (const s of repo.getAll()) names.add(s.slug);
   return names;
 }
 
@@ -121,7 +118,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         try {
           const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
           const instructionsPath = path.join(agentHome, '.openclaw', 'policy-instructions.md');
-          const markdown = generatePolicyMarkdown(updated.policies, getKnownSkillNames());
+          const markdown = generatePolicyMarkdown(updated.policies, getKnownSkillNames(app));
           fs.mkdirSync(path.dirname(instructionsPath), { recursive: true });
           fs.writeFileSync(instructionsPath, markdown, 'utf-8');
           app.log.info(`[config] wrote policy instructions to ${instructionsPath}`);
@@ -151,7 +148,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/config/policies/instructions', async (_request: FastifyRequest, reply: FastifyReply) => {
     const config = loadConfig();
-    const markdown = generatePolicyMarkdown(config.policies, getKnownSkillNames());
+    const markdown = generatePolicyMarkdown(config.policies, getKnownSkillNames(app));
     return reply.type('text/markdown').send(markdown);
   });
 

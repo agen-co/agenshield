@@ -19,11 +19,8 @@ import { getVault } from '../vault';
 import { loadState, updateAgenCoState, addConnectedIntegration, removeConnectedIntegration } from '../state';
 import { getMCPClient, activateMCP, deactivateMCP, getMCPState, finishMCPAuth, MCPUnauthorizedError } from '../mcp';
 import { emitAgenCoAuthRequired } from '../events/emitter';
-import { onIntegrationConnected, onIntegrationDisconnected, syncAgenCoSkills } from '../services/integration-skills';
+import { syncAgenCoSkills } from '../services/integration-skills';
 import { INTEGRATION_CATALOG, type IntegrationDetails } from '../data/integration-catalog';
-import { getSkillsDir, listApproved } from '../watchers/skills';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 /**
  * Extract parsed JSON from an MCP tool result.
@@ -602,12 +599,7 @@ export async function agencoRoutes(app: FastifyInstance): Promise<void> {
       if (parsed.status === 'already_connected' || parsed.status === 'connected') {
         addConnectedIntegration(integration);
         try {
-          // Use SkillsManager for sync if available, fallback to legacy
-          if (app.skillsManager) {
-            await app.skillsManager.syncSource('mcp', 'openclaw');
-          } else {
-            await onIntegrationConnected(integration);
-          }
+          await app.skillsManager?.syncSource('mcp', 'openclaw');
         } catch (err) {
           console.error(`[AgenCo] Skill provisioning failed for ${integration}:`, (err as Error).message);
         }
@@ -652,13 +644,9 @@ export async function agencoRoutes(app: FastifyInstance): Promise<void> {
     // Update state
     removeConnectedIntegration(integration);
 
-    // Clean up skills — use SkillsManager if available, fallback to legacy
+    // Clean up skills via SkillsManager sync
     try {
-      if (app.skillsManager) {
-        await app.skillsManager.syncSource('mcp', 'openclaw');
-      } else {
-        await onIntegrationDisconnected(integration);
-      }
+      await app.skillsManager?.syncSource('mcp', 'openclaw');
     } catch (err) {
       console.error(`[AgenCo] Skill cleanup failed for ${integration}:`, (err as Error).message);
     }
@@ -674,16 +662,16 @@ export async function agencoRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * Get AgenCo skill installation status.
-   * Checks if the master 'agenco' skill is installed on disk and approved.
+   * Checks if the master 'agenco' skill is installed and active via SkillManager.
    */
   app.get('/agenco/skills/status', async () => {
-    const skillsDir = getSkillsDir();
-    const onDisk = skillsDir ? fs.existsSync(path.join(skillsDir, 'agenco')) : false;
-    const approved = listApproved().some((s) => s.name === 'agenco');
+    const result = app.skillManager.getSkillBySlug('agenco');
+    const installed = result !== null
+      && result.installations.some((i) => i.status === 'active');
 
     return {
       success: true,
-      data: { installed: onDisk && approved, skillName: 'agenco' },
+      data: { installed, skillName: 'agenco' },
     };
   });
 
@@ -719,7 +707,7 @@ export async function agencoRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      // Use SkillsManager if available, fallback to legacy sync
+      // Use SkillsManager for sync, fallback to legacy if not available
       let result;
       if (app.skillsManager) {
         result = await app.skillsManager.syncSource('mcp', 'openclaw');

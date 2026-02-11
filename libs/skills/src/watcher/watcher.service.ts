@@ -2,12 +2,13 @@
  * Skill watcher service — polling-based integrity monitor for deployed skills
  */
 
+import * as fs from 'node:fs';
 import * as crypto from 'node:crypto';
 import type { EventEmitter } from 'node:events';
 import type { SkillsRepository } from '@agenshield/storage';
 import type { SkillEvent } from '../events';
 import type { DeployService } from '../deploy';
-import type { WatcherOptions, WatcherPolicy, ResolvedWatcherPolicy, WatcherAction } from './types';
+import type { WatcherOptions, WatcherPolicy, ResolvedWatcherPolicy, WatcherAction, SkillScanCallbacks } from './types';
 
 const DEFAULT_POLL_INTERVAL = 30_000;
 const DEFAULT_POLICY: ResolvedWatcherPolicy = { onModified: 'quarantine', onDeleted: 'quarantine' };
@@ -19,6 +20,8 @@ export class SkillWatcherService {
   private readonly pollIntervalMs: number;
   private readonly defaultPolicy: ResolvedWatcherPolicy;
   private readonly installationPolicies: Map<string, Partial<WatcherPolicy>>;
+  private readonly skillsDir: string | null;
+  private scanCallbacks: SkillScanCallbacks = {};
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(skills: SkillsRepository, deployer: DeployService, emitter: EventEmitter, options?: WatcherOptions) {
@@ -26,6 +29,7 @@ export class SkillWatcherService {
     this.deployer = deployer;
     this.emitter = emitter;
     this.pollIntervalMs = options?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL;
+    this.skillsDir = options?.skillsDir ?? null;
     this.defaultPolicy = {
       onModified: options?.defaultPolicy?.onModified ?? DEFAULT_POLICY.onModified,
       onDeleted: options?.defaultPolicy?.onDeleted ?? DEFAULT_POLICY.onDeleted,
@@ -33,6 +37,11 @@ export class SkillWatcherService {
     this.installationPolicies = new Map(
       options?.installationPolicies ? Object.entries(options.installationPolicies) : [],
     );
+  }
+
+  /** Set callbacks for filesystem scan events */
+  setScanCallbacks(cbs: SkillScanCallbacks): void {
+    this.scanCallbacks = cbs;
   }
 
   private emit(event: SkillEvent): void {
@@ -63,7 +72,11 @@ export class SkillWatcherService {
   start(): void {
     if (this.timer) return;
     this.emit({ type: 'watcher:started', pollIntervalMs: this.pollIntervalMs });
-    this.timer = setInterval(() => { this.poll().catch(() => { /* handled internally */ }); }, this.pollIntervalMs);
+    this.timer = setInterval(() => {
+      this.poll().catch(() => {
+        /* handled internally */
+      });
+    }, this.pollIntervalMs);
   }
 
   /** Stop the polling loop */
@@ -79,10 +92,65 @@ export class SkillWatcherService {
     return this.timer !== null;
   }
 
+  /**
+   * Scan the skills directory for new/unknown skill directories.
+   * Compares filesystem against known skills in DB.
+   * Unknown skills are recorded as quarantined.
+   */
+  scanForNewSkills(): void {
+    if (!this.skillsDir) return;
+
+    try {
+      if (!fs.existsSync(this.skillsDir)) return;
+
+      const entries = fs.readdirSync(this.skillsDir, { withFileTypes: true });
+      const knownSlugs = new Set(this.skills.getAll().map((s) => s.slug));
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const slug = entry.name;
+        if (knownSlugs.has(slug)) continue;
+
+        // Unknown skill on disk — create as quarantined in DB
+        const skill = this.skills.create({
+          name: slug,
+          slug,
+          author: 'unknown',
+          source: 'watcher',
+          tags: [],
+        });
+
+        this.skills.addVersion({
+          skillId: skill.id,
+          version: '0.0.0',
+          folderPath: `${this.skillsDir}/${slug}`,
+          contentHash: '',
+          hashUpdatedAt: new Date().toISOString(),
+          approval: 'quarantined',
+          trusted: false,
+          analysisStatus: 'pending',
+          requiredBins: [],
+          requiredEnv: [],
+          extractedCommands: [],
+        });
+
+        this.scanCallbacks.onQuarantined?.(slug, 'Skill not in approved list');
+        this.emit({ type: 'watcher:error', error: `Unknown skill detected and quarantined: ${slug}` });
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      this.emit({ type: 'watcher:error', error: `Filesystem scan error: ${errorMsg}` });
+    }
+  }
+
   /** Execute a single integrity scan cycle */
   async poll(): Promise<void> {
     const operationId = crypto.randomUUID();
     this.emit({ type: 'watcher:poll-started', operationId });
+
+    // Scan for new skills on disk before integrity checks
+    this.scanForNewSkills();
 
     try {
       const checks = await this.deployer.checkAllIntegrity();

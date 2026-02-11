@@ -7,7 +7,7 @@
 
 import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { SkillsManager as SkillsManagerType } from '@agenshield/skills';
+import type { SkillManager } from '@agentshield/skills';
 import {
   type ShieldContext,
   type ShieldRequestSource,
@@ -21,7 +21,13 @@ declare module 'fastify' {
     shieldContext: ShieldContext;
   }
   interface FastifyInstance {
-    skillsManager: SkillsManagerType;
+    skillManager: SkillManager;
+    /** @deprecated Use skillManager instead — legacy SkillsManager for AgenCo sync */
+    skillsManager?: {
+      syncSource(source: string, connectionId: string): Promise<{ installed: string[]; removed: string[]; updated: string[] }>;
+      registerSource(source: unknown): Promise<void>;
+      [key: string]: unknown;
+    };
   }
 }
 

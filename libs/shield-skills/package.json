@@ -1,5 +1,5 @@
 {
-  "name": "@agenshield/skills-old",
+  "name": "@agenshield/skills",
   "version": "0.7.3",
   "type": "module",
   "description": "OpenClaw-compatible skills with Soul integration for AgenShield",

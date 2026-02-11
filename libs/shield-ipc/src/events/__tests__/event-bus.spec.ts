@@ -1,5 +1,4 @@
-import { EventBus } from '../event-bus';
-import type { EventRegistry, EventType } from '../event-registry';
+import { EventBus } from '@agenshield/ipc';
 
 // Ensure augmentations are loaded
 import '../core.events';

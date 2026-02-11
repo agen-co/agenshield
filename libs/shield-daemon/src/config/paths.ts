@@ -57,3 +57,13 @@ export function getQuarantineDir(): string {
   }
   return '/opt/agenshield/quarantine/skills';
 }
+
+/**
+ * Get the agent's skills directory path.
+ * Returns empty string if AGENSHIELD_AGENT_HOME is not set.
+ */
+export function getSkillsDir(): string {
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
+  if (agentHome) return path.join(agentHome, '.openclaw', 'workspace', 'skills');
+  return '';
+}

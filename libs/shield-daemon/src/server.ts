@@ -6,25 +6,27 @@
 import './context/request-context';
 
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import type { DaemonConfig } from '@agenshield/ipc';
+import { initStorage } from '@agenshield/storage';
+import { SkillManager } from '@agentshield/skills';
 import { registerRoutes } from './routes/index';
 import { getUiAssetsPath } from './static';
 import { startSecurityWatcher, stopSecurityWatcher } from './watchers/security';
-import { startSkillsWatcher, stopSkillsWatcher, ensureSkillWrappers } from './watchers/skills';
 import { startProcessHealthWatcher, stopProcessHealthWatcher } from './watchers/process-health';
-import { emitSkillUntrustedDetected, emitSkillApproved, emitProcessStarted, emitProcessStopped } from './events/emitter';
+import { emitSkillUntrustedDetected, emitProcessStarted, emitProcessStopped, eventBus } from './events/emitter';
 import { getVault, getInstallationKey } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
 import { getActivityLog } from './services/activity-log';
 import { shutdownProxyPool } from './proxy/pool';
-import { SkillsManager } from '@agenshield/skills';
+import { getConfigDir } from './config/paths';
+import { DaemonDeployAdapter } from './adapters/daemon-deploy-adapter';
+import { migrateSkillsToSqlite } from './migration/skill-migration';
 import {
-  DaemonSkillInstaller,
-  DaemonVersionStore,
   MCPSkillSource,
   createAgenCoConnection,
   RemoteSkillSource,
@@ -80,22 +82,19 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // Start security watcher for real-time monitoring
   startSecurityWatcher(10000); // Check every 10 seconds
 
-  // Start skills watcher for quarantine enforcement
-  // Default skills dir: agent home is derived from config or uses fallback
+  // Derive paths
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
   const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
-
-  // Ensure skills directory exists with proper permissions before starting watcher
   const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
+
+  // Ensure skills directory exists with proper permissions
   if (!fs.existsSync(skillsDir)) {
     fs.mkdirSync(skillsDir, { recursive: true, mode: 0o2775 });
-    // Fix ownership — daemon runs as root but skills dir must be group-writable
     try {
       execSync(`chown -R root:${socketGroup} "${skillsDir}"`, { stdio: 'pipe' });
     } catch { /* best-effort — may not be root */ }
     console.log(`[Daemon] Created skills directory: ${skillsDir}`);
   } else {
-    // Self-heal: fix permissions on existing skills directory
     try {
       const stat = fs.statSync(skillsDir);
       if ((stat.mode & 0o7777) !== 0o2775) {
@@ -112,15 +111,97 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     console.warn('[Daemon] Failed to initialize installation key:', (err as Error).message);
   }
 
-  startSkillsWatcher(skillsDir, {
-    onUntrustedDetected: (info) => emitSkillUntrustedDetected(info.name, info.reason),
-    onApproved: (name) => emitSkillApproved(name),
-  }, 30000); // Check every 30 seconds
+  // ─── Initialize SQLite storage ───────────────────────────────
+  const dbPath = path.join(getConfigDir(), 'agenshield.db');
+  const storage = initStorage(dbPath);
+  console.log(`[Daemon] Storage initialized: ${dbPath}`);
 
-  // Ensure wrappers exist for all approved skills (covers reinstall/upgrade scenarios)
-  ensureSkillWrappers().catch((err) => {
-    console.warn('[Daemon] Failed to ensure skill wrappers:', (err as Error).message);
+  // ─── Run one-time JSON → SQLite migration ────────────────────
+  migrateSkillsToSqlite(storage, skillsDir);
+
+  // ─── Initialize SkillManager (new SQLite-backed) ─────────────
+  const deployAdapter = new DaemonDeployAdapter({
+    skillsDir,
+    agentHome,
+    socketGroup,
+    binDir: path.join(agentHome, 'bin'),
   });
+
+  const skillManager = new SkillManager(storage, {
+    deployers: [deployAdapter],
+    watcher: { pollIntervalMs: 30000, skillsDir },
+    autoStartWatcher: true,
+    eventBus,
+  });
+
+  // Wire watcher scan callbacks to emit daemon events
+  skillManager.watcher.setScanCallbacks({
+    onQuarantined: (slug, reason) => emitSkillUntrustedDetected(slug, reason),
+  });
+
+  // Decorate app so routes can access the manager
+  app.decorate('skillManager', skillManager);
+
+  // ─── Legacy SkillsManager for AgenCo sync (kept during migration) ──
+  try {
+    const { SkillsManager } = await import('@agenshield/skills');
+    const { DaemonSkillInstaller, DaemonVersionStore } = await import('./adapters/index.js');
+    const versionStore = new DaemonVersionStore();
+    const installer = new DaemonSkillInstaller();
+    const skillsManager = new SkillsManager({
+      versionStore,
+      installer,
+      onEvent: (e: { type: string; skillId?: string }) => {
+        console.log(`[SkillsManager] ${e.type}`, e.skillId ?? '');
+      },
+    });
+
+    // Register MCP source with AgenCo connection
+    const mcpSource = new MCPSkillSource();
+    const { loadState: loadStateForManager } = await import('./state/index.js');
+    await mcpSource.addConnection(createAgenCoConnection({
+      getConnectedIntegrations: () => loadStateForManager().agenco.connectedIntegrations ?? [],
+    }));
+    await skillsManager.registerSource(mcpSource);
+
+    // Register remote source (wraps marketplace.ts)
+    const {
+      searchMarketplace,
+      getMarketplaceSkill,
+      downloadAndExtractZip,
+      listDownloadedSkills,
+    } = await import('./services/marketplace.js');
+    const remoteSource = new RemoteSkillSource({
+      searchMarketplace,
+      getMarketplaceSkill,
+      downloadAndExtractZip,
+      listDownloadedSkills,
+    });
+    await skillsManager.registerSource(remoteSource);
+
+    // Keep legacy manager on app for AgenCo sync
+    app.decorate('skillsManager', skillsManager as unknown as typeof app.skillsManager);
+
+    // Sync AgenCo integration skills at boot (via legacy manager)
+    try {
+      const syncResult = await skillsManager.syncSource('mcp', 'openclaw');
+      if (syncResult.installed.length || syncResult.removed.length || syncResult.updated.length) {
+        app.log.info(`[startup] AgenCo skill sync: installed=${syncResult.installed.length}, removed=${syncResult.removed.length}, updated=${syncResult.updated.length}`);
+      }
+    } catch (err) {
+      app.log.warn(`[startup] AgenCo skill sync failed: ${(err as Error).message}`);
+    }
+  } catch (err) {
+    app.log.warn(`[startup] Legacy SkillsManager init failed: ${(err as Error).message}`);
+  }
+
+  // Also run legacy sync for migration from old integration-* prefix
+  try {
+    const { syncAgenCoSkills } = await import('./services/integration-skills.js');
+    await syncAgenCoSkills();
+  } catch {
+    // Non-fatal: legacy sync may fail if already migrated
+  }
 
   // Start persistent activity log
   const activityLog = getActivityLog();
@@ -154,61 +235,6 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     // Non-fatal: MCP auto-activation failed, user can connect later
   }
 
-  // Initialize Skills Manager with adapters
-  const versionStore = new DaemonVersionStore();
-  const installer = new DaemonSkillInstaller();
-  const skillsManager = new SkillsManager({
-    versionStore,
-    installer,
-    onEvent: (e) => {
-      console.log(`[SkillsManager] ${e.type}`, 'skillId' in e ? (e as { skillId: string }).skillId : '');
-    },
-  });
-
-  // Register MCP source with AgenCo connection
-  const mcpSource = new MCPSkillSource();
-  const { loadState: loadStateForManager } = await import('./state/index.js');
-  await mcpSource.addConnection(createAgenCoConnection({
-    getConnectedIntegrations: () => loadStateForManager().agenco.connectedIntegrations ?? [],
-  }));
-  await skillsManager.registerSource(mcpSource);
-
-  // Register remote source (wraps marketplace.ts)
-  const {
-    searchMarketplace,
-    getMarketplaceSkill,
-    downloadAndExtractZip,
-    listDownloadedSkills,
-  } = await import('./services/marketplace.js');
-  const remoteSource = new RemoteSkillSource({
-    searchMarketplace,
-    getMarketplaceSkill,
-    downloadAndExtractZip,
-    listDownloadedSkills,
-  });
-  await skillsManager.registerSource(remoteSource);
-
-  // Decorate app so routes can access the manager
-  app.decorate('skillsManager', skillsManager);
-
-  // Sync AgenCo integration skills at boot (via manager)
-  try {
-    const syncResult = await skillsManager.syncSource('mcp', 'openclaw');
-    if (syncResult.installed.length || syncResult.removed.length || syncResult.updated.length) {
-      app.log.info(`[startup] AgenCo skill sync: installed=${syncResult.installed.length}, removed=${syncResult.removed.length}, updated=${syncResult.updated.length}`);
-    }
-  } catch (err) {
-    app.log.warn(`[startup] AgenCo skill sync failed: ${(err as Error).message}`);
-  }
-
-  // Also run legacy sync for migration from old integration-* prefix
-  try {
-    const { syncAgenCoSkills } = await import('./services/integration-skills.js');
-    await syncAgenCoSkills();
-  } catch {
-    // Non-fatal: legacy sync may fail if already migrated
-  }
-
   // Start process health watcher for broker/gateway lifecycle events
   await startProcessHealthWatcher(10000);
 
@@ -216,7 +242,7 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   app.addHook('onClose', async () => {
     emitProcessStopped('daemon', { pid: process.pid });
     stopSecurityWatcher();
-    stopSkillsWatcher();
+    skillManager.stopWatcher();
     stopProcessHealthWatcher();
     activityLog.stop();
     shutdownProxyPool();

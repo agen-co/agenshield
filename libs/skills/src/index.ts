@@ -36,14 +36,33 @@ export { UpdateService } from './update';
 
 // Deploy
 export { DeployService, OpenClawDeployAdapter } from './deploy';
-export type { DeployAdapter, DeployContext, DeployResult, IntegrityCheckResult, OpenClawDeployAdapterOptions } from './deploy';
+export type {
+  DeployAdapter,
+  DeployContext,
+  DeployResult,
+  IntegrityCheckResult,
+  OpenClawDeployAdapterOptions,
+} from './deploy';
 
 // Watcher
 export { SkillWatcherService } from './watcher';
-export type { WatcherPolicy, WatcherAction, WatcherOptions, ResolvedWatcherPolicy } from './watcher';
+export type {
+  WatcherPolicy,
+  WatcherAction,
+  WatcherOptions,
+  ResolvedWatcherPolicy,
+  SkillScanCallbacks,
+} from './watcher';
 
 // Errors
-export { SkillsError, SkillNotFoundError, VersionNotFoundError, RemoteSkillNotFoundError, RemoteApiError, AnalysisError } from './errors';
+export {
+  SkillsError,
+  SkillNotFoundError,
+  VersionNotFoundError,
+  RemoteSkillNotFoundError,
+  RemoteApiError,
+  AnalysisError,
+} from './errors';
 
 // Events
 export type { SkillEvent, ProgressInfo } from './events';

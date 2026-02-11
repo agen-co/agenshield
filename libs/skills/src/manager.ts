@@ -4,7 +4,16 @@
 
 import { EventEmitter } from 'node:events';
 import type { Storage } from '@agenshield/storage';
-import type { Skill, SkillVersion, SkillInstallation, SkillSearchResult, AnalysisResult, UpdateCheckResult, UpdateResult, EventBus } from '@agenshield/ipc';
+import type {
+  Skill,
+  SkillVersion,
+  SkillInstallation,
+  SkillSearchResult,
+  AnalysisResult,
+  UpdateCheckResult,
+  UpdateResult,
+  EventBus,
+} from '@agenshield/ipc';
 import type { RemoteSkillClient } from './remote/types';
 import type { AnalyzeAdapter } from './analyze/types';
 import type { DeployAdapter } from './deploy/types';
@@ -55,10 +64,13 @@ export class SkillManager extends EventEmitter {
   readonly deployer: DeployService;
   readonly watcher: SkillWatcherService;
 
+  private readonly skills: import('@agenshield/storage').SkillsRepository;
+
   constructor(storage: Storage, options?: SkillManagerOptions) {
     super();
 
     const skills = storage.skills;
+    this.skills = skills;
 
     // Build remote client
     let remote: RemoteSkillClient | null = null;
@@ -67,8 +79,8 @@ export class SkillManager extends EventEmitter {
     }
 
     // Build analyzer adapters
-    const analyzerAdapters: AnalyzeAdapter[] = options?.analyzers
-      ?? (options?.analyzer ? [options.analyzer] : [new BasicAnalyzeAdapter()]);
+    const analyzerAdapters: AnalyzeAdapter[] =
+      options?.analyzers ?? (options?.analyzer ? [options.analyzer] : [new BasicAnalyzeAdapter()]);
 
     // Build search adapters
     const searchAdapters: SearchAdapter[] = [new LocalSearchAdapter(skills)];
@@ -176,5 +188,137 @@ export class SkillManager extends EventEmitter {
   /** Stop the integrity watcher */
   stopWatcher(): void {
     this.watcher.stop();
+  }
+
+  // ---- High-level workflow methods (used by daemon routes) ----
+
+  /**
+   * Approve a quarantined skill: approve its version, install, and deploy.
+   */
+  async approveSkill(slug: string, opts?: { targetId?: string; userUsername?: string }): Promise<SkillInstallation> {
+    const skill = this.skills.getBySlug(slug);
+    if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
+
+    const version = this.skills.getLatestVersion(skill.id);
+    if (!version) throw new (await import('./errors')).VersionNotFoundError('latest', { skillSlug: slug });
+
+    // Approve the version
+    this.skills.approveVersion(version.id);
+
+    // Install and deploy
+    return this.installer.install({
+      skillId: skill.id,
+      targetId: opts?.targetId,
+      userUsername: opts?.userUsername,
+    });
+  }
+
+  /**
+   * Revoke an approved skill: uninstall active installation, quarantine the version.
+   */
+  async revokeSkill(slug: string): Promise<void> {
+    const skill = this.skills.getBySlug(slug);
+    if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
+
+    // Find active installations
+    const installations = this.skills.getInstallations();
+    const versions = this.skills.getVersions(skill.id);
+    const versionIds = new Set(versions.map((v) => v.id));
+
+    for (const inst of installations) {
+      if (versionIds.has(inst.skillVersionId) && inst.status === 'active') {
+        await this.installer.uninstall(inst.id);
+      }
+    }
+
+    // Quarantine the latest version
+    const version = this.skills.getLatestVersion(skill.id);
+    if (version) {
+      this.skills.quarantineVersion(version.id);
+    }
+  }
+
+  /**
+   * Reject a skill: delete the skill entirely (cascades to versions, files, installations).
+   */
+  async rejectSkill(slug: string): Promise<void> {
+    const skill = this.skills.getBySlug(slug);
+    if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
+
+    // Uninstall any active installations first
+    const installations = this.skills.getInstallations();
+    const versions = this.skills.getVersions(skill.id);
+    const versionIds = new Set(versions.map((v) => v.id));
+
+    for (const inst of installations) {
+      if (versionIds.has(inst.skillVersionId)) {
+        await this.installer.uninstall(inst.id).catch(() => {
+          /* best-effort */
+        });
+      }
+    }
+
+    this.skills.delete(skill.id);
+  }
+
+  /**
+   * Toggle a skill on/off. Returns whether it was enabled or disabled.
+   */
+  async toggleSkill(
+    slug: string,
+    opts?: { targetId?: string; userUsername?: string },
+  ): Promise<{ action: 'enabled' | 'disabled' }> {
+    const skill = this.skills.getBySlug(slug);
+    if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
+
+    // Check for active installations
+    const installations = this.skills.getInstallations();
+    const versions = this.skills.getVersions(skill.id);
+    const versionIds = new Set(versions.map((v) => v.id));
+    const activeInst = installations.find((i) => versionIds.has(i.skillVersionId) && i.status === 'active');
+
+    if (activeInst) {
+      // Disable: uninstall
+      await this.installer.uninstall(activeInst.id);
+      return { action: 'disabled' };
+    } else {
+      // Enable: install latest approved version
+      const version = this.skills.getLatestVersion(skill.id);
+      if (!version) throw new (await import('./errors')).VersionNotFoundError('latest', { skillSlug: slug });
+
+      // Approve if not already
+      if (version.approval !== 'approved') {
+        this.skills.approveVersion(version.id);
+      }
+
+      await this.installer.install({
+        skillId: skill.id,
+        targetId: opts?.targetId,
+        userUsername: opts?.userUsername,
+      });
+      return { action: 'enabled' };
+    }
+  }
+
+  /**
+   * Get a skill by slug with all its versions and installations.
+   */
+  getSkillBySlug(slug: string): { skill: Skill; versions: SkillVersion[]; installations: SkillInstallation[] } | null {
+    const skill = this.skills.getBySlug(slug);
+    if (!skill) return null;
+
+    const versions = this.skills.getVersions(skill.id);
+    const allInstallations = this.skills.getInstallations();
+    const versionIds = new Set(versions.map((v) => v.id));
+    const installations = allInstallations.filter((i) => versionIds.has(i.skillVersionId));
+
+    return { skill, versions, installations };
+  }
+
+  /**
+   * Get the underlying SkillsRepository for direct DB access.
+   */
+  getRepository(): import('@agenshield/storage').SkillsRepository {
+    return this.skills;
   }
 }

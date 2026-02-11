@@ -5,9 +5,7 @@
  * agen.co vulnerability analysis, and local skill installation.
  */
 
-import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type {
   MarketplaceSkillFile,
@@ -22,34 +20,15 @@ import {
   getDownloadedSkillFiles,
   getDownloadedSkillMeta,
   updateDownloadedAnalysis,
-  downloadAndExtractZip,
-  storeDownloadedSkill,
   inlineImagesInMarkdown,
   markDownloadedAsInstalled,
 } from '../services/marketplace';
 import { setCachedAnalysis } from '../services/skill-analyzer';
-import {
-  createSkillWrapper,
-  addSkillPolicy,
-  sudoMkdir,
-  sudoWriteFile,
-} from '../services/skill-lifecycle';
-import {
-  getSkillsDir,
-  addToApprovedList,
-  removeFromApprovedList,
-  listApproved,
-  computeSkillHash,
-  updateApprovedHash,
-} from '../watchers/skills';
 import { daemonEvents, emitSkillInstallProgress, emitSkillAnalyzed, emitSkillAnalysisFailed } from '../events/emitter';
-import {
-  isBrokerAvailable,
-  installSkillViaBroker,
-} from '../services/broker-bridge';
 import { stripEnvFromSkillMd } from '@agenshield/sandbox';
 import { injectInstallationTag } from '../services/skill-tag-injector';
 import { executeSkillInstallSteps } from '../services/skill-deps';
+import { getSkillsDir } from '../config/paths';
 
 /* ── Install-in-progress tracking ───────────────────────── */
 const installInProgress = new Set<string>();
@@ -76,11 +55,11 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         const results = await searchMarketplace(q);
-        const approved = listApproved();
-        const approvedSlugs = new Set(approved.map(a => a.name));
+        const installedSkills = app.skillManager.getRepository().getInstalledSkills();
+        const installedSlugs = new Set(installedSkills.map(s => s.slug));
         const enriched = results.map(skill => ({
           ...skill,
-          installed: approvedSlugs.has(skill.slug),
+          installed: installedSlugs.has(skill.slug),
         }));
         return reply.send({ data: enriched });
       } catch (err) {
@@ -362,7 +341,8 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
       }> => {
         const logs: string[] = [];
         let analysisResult: Awaited<ReturnType<typeof analyzeSkillBundle>>['analysis'] | undefined;
-        let skillDir = '';
+        const skillsDir = getSkillsDir();
+        let skillDir = skillsDir ? path.join(skillsDir, slug) : '';
 
         try {
           // 1. Emit start event
@@ -375,7 +355,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           analysisResult = analyzeResponse.analysis;
           logs.push('Analysis complete');
 
-          // 2b. Cache analysis immediately so GET /skills/:name returns it
+          // 2b. Cache analysis in legacy stores so GET /skills/:name returns it
           //     (even if install is rejected due to critical vulnerability)
           {
             const a = analysisResult;
@@ -426,26 +406,8 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           const publisher = skill.author;
           logs.push('Downloaded skill files');
 
-          // 5. Prepare directories
-          const skillsDir = getSkillsDir();
-          if (!skillsDir) {
-            throw new Error('Skills directory not configured');
-          }
-
-          const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-          const agentUsername = path.basename(agentHome);
-          const binDir = path.join(agentHome, 'bin');
-          const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
-          skillDir = path.join(skillsDir, slug);
-
-          // 6. Pre-approve to prevent race with watcher quarantining
-          emitSkillInstallProgress(slug, 'approve', 'Pre-approving skill');
-          addToApprovedList(slug, publisher, undefined, slug);
-          logs.push('Skill pre-approved');
-
-          // 7. Prepare files: strip env vars and inject installation tag
-          emitSkillInstallProgress(slug, 'copy', 'Writing skill files');
-
+          // 5. Strip env vars and inject installation tag BEFORE uploading to DB
+          emitSkillInstallProgress(slug, 'copy', 'Preparing skill files');
           const taggedFiles = await Promise.all(files.map(async (f) => {
             let content = f.content;
             if (/SKILL\.md$/i.test(f.name)) {
@@ -455,68 +417,63 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
             return { ...f, content };
           }));
 
-          // Install files via broker or directly (dev fallback)
-          const brokerAvailable = await isBrokerAvailable();
-          if (brokerAvailable) {
-            const brokerResult = await installSkillViaBroker(
-              slug,
-              taggedFiles.map((f) => ({ name: f.name, content: f.content })),
-              { createWrapper: true, agentHome, socketGroup }
-            );
+          // 6. Upload files to SQLite via SkillManager
+          emitSkillInstallProgress(slug, 'approve', 'Registering skill');
+          const manager = app.skillManager;
+          manager.uploadFiles({
+            name: skill.name ?? slug,
+            slug,
+            version: skill.version ?? '0.0.0',
+            author: publisher,
+            description: skill.description,
+            tags: skill.tags,
+            files: taggedFiles.map((f) => ({
+              relativePath: f.name,
+              content: Buffer.from(f.content, 'utf-8'),
+            })),
+          });
+          logs.push('Skill registered in database');
 
-            if (!brokerResult.installed) {
-              throw new Error('Broker failed to install skill files');
+          // 6b. Store analysis in DB version
+          const repo = manager.getRepository();
+          const dbSkill = repo.getBySlug(slug);
+          if (dbSkill) {
+            const version = repo.getLatestVersion(dbSkill.id);
+            if (version) {
+              repo.updateAnalysis(version.id, {
+                status: analysisResult.status === 'complete' ? 'complete' : 'error',
+                json: analysisResult,
+                analyzedAt: new Date().toISOString(),
+              });
             }
-
-            skillDir = brokerResult.skillDir;
-            logs.push(`Files written via broker: ${brokerResult.filesWritten} files`);
-            if (brokerResult.wrapperPath) {
-              logs.push(`Wrapper created: ${brokerResult.wrapperPath}`);
-            }
-            if (brokerResult.warnings?.length) {
-              for (const warning of brokerResult.warnings) {
-                emitSkillInstallProgress(slug, 'warning', warning);
-                logs.push(`Warning: ${warning}`);
-              }
-            }
-          } else {
-            console.log(`[Marketplace] Broker unavailable, installing ${slug} directly`);
-            await sudoMkdir(skillDir, agentUsername);
-
-            for (const file of taggedFiles) {
-              const filePath = path.join(skillDir, file.name);
-              const fileDir = path.dirname(filePath);
-              if (fileDir !== skillDir) {
-                await sudoMkdir(fileDir, agentUsername);
-              }
-              await sudoWriteFile(filePath, file.content, agentUsername);
-            }
-
-            await createSkillWrapper(slug, binDir);
-
-            logs.push(`Files written directly: ${taggedFiles.length} files`);
-            logs.push(`Wrapper created: ${path.join(binDir, slug)}`);
           }
 
-          // 7b. Execute dependency install steps from skill metadata
+          // 7. Approve + Deploy (DaemonDeployAdapter handles: broker/sudo, wrapper, policy, file ownership)
+          emitSkillInstallProgress(slug, 'copy', 'Deploying skill files');
+          const installation = await manager.approveSkill(slug);
+          logs.push('Skill approved and deployed');
+          if (installation.wrapperPath) {
+            logs.push(`Wrapper created: ${installation.wrapperPath}`);
+          }
+
+          // 8. Execute dependency install steps from skill metadata
           let depsSuccess = true;
           emitSkillInstallProgress(slug, 'deps', 'Installing skill dependencies');
+          const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+          const agentUsername = path.basename(agentHome);
+          skillDir = skillsDir ? path.join(skillsDir, slug) : '';
+
           try {
-            // Debounce dep logs: batch noisy output (brew/npm/pip), emit every 3s
             let depsLineCount = 0;
             let depsLastEmit = Date.now();
-            let depsLastLine = '';
             const DEPS_DEBOUNCE_MS = 3000;
             const depsOnLog = (msg: string) => {
               depsLineCount++;
-              depsLastLine = msg;
-              // Always emit milestone lines (e.g. "Installing brew formula: ...")
               if (/^(Installing|Found|Verifying)\s/.test(msg)) {
                 emitSkillInstallProgress(slug, 'deps', msg);
                 depsLastEmit = Date.now();
                 return;
               }
-              // Batch the rest: emit a summary periodically
               const now = Date.now();
               if (now - depsLastEmit >= DEPS_DEBOUNCE_MS) {
                 emitSkillInstallProgress(slug, 'deps', `Installing... (${depsLineCount} lines)`);
@@ -532,7 +489,6 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
               onLog: depsOnLog,
             });
 
-            // Emit final summary
             if (depsLineCount > 0) {
               emitSkillInstallProgress(slug, 'deps', `Dependency install complete (${depsLineCount} lines processed)`);
             }
@@ -548,28 +504,27 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
               }
             }
           } catch (err) {
-            // Dependency install failure is a warning, not a fatal error
             depsSuccess = false;
             const msg = `Dependency installation failed: ${(err as Error).message}`;
             emitSkillInstallProgress(slug, 'warning', msg);
             logs.push(msg);
           }
 
-          // 8. Add policy rule
-          addSkillPolicy(slug);
-          logs.push('Policy rule added');
-
-          // 12. Compute and record integrity hash
-          const hash = computeSkillHash(skillDir);
-          if (hash) {
-            updateApprovedHash(slug, hash);
-            logs.push('Integrity hash recorded');
+          // 9. Recompute integrity hash in DB
+          if (dbSkill) {
+            const version = repo.getLatestVersion(dbSkill.id);
+            if (version) {
+              try {
+                repo.recomputeContentHash(version.id);
+                logs.push('Integrity hash recorded');
+              } catch { /* best-effort */ }
+            }
           }
 
-          // 13. Mark marketplace cache as installed (preserves metadata for re-enable)
+          // 10. Mark marketplace cache as installed (preserves metadata for re-enable)
           try { markDownloadedAsInstalled(slug); } catch { /* best-effort */ }
 
-          // 14. Clear install flag BEFORE broadcast so GET /skills never returns stale 'installing'
+          // 11. Clear install flag BEFORE broadcast so GET /skills never returns stale 'installing'
           installInProgress.delete(slug);
           const depsWarnings = depsSuccess ? undefined : logs.filter(l => l.startsWith('Dependency'));
           daemonEvents.broadcast('skills:installed', { name: slug, analysis: analysisResult, depsWarnings });
@@ -577,14 +532,11 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
 
           return { success: true, name: slug, analysis: analysisResult, logs, depsSuccess };
         } catch (err) {
-          // Cleanup on failure
+          // Cleanup on failure: revoke skill in DB (removes installation, quarantines version)
           try {
-            if (skillDir && fs.existsSync(skillDir)) {
-              fs.rmSync(skillDir, { recursive: true, force: true });
-            }
-            removeFromApprovedList(slug);
+            await app.skillManager.revokeSkill(slug);
           } catch {
-            // Best-effort cleanup
+            // Best-effort cleanup — skill may not exist in DB yet
           }
 
           const errorMsg = (err as Error).message;

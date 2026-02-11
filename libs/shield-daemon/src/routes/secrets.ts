@@ -8,9 +8,8 @@ import { isSecretEnvVar } from '@agenshield/sandbox';
 import { getVault } from '../vault';
 import { loadConfig } from '../config/index';
 import { syncSecrets } from '../secret-sync';
-import { getCachedAnalysis } from '../services/skill-analyzer';
 import { getDownloadedSkillMeta } from '../services/marketplace';
-import { listApproved, getSkillsDir } from '../watchers/skills';
+import { getSkillsDir } from '../config/paths';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
@@ -76,7 +75,7 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
 
   // Aggregate env variables required by installed skills
   app.get('/secrets/skill-env', async () => {
-    const approved = listApproved();
+    const repo = app.skillManager.getRepository();
     const vault = getVault();
     const secrets = (await vault.get('secrets')) ?? [];
 
@@ -86,33 +85,21 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
       secretByName.set(s.name, s);
     }
 
-    // Collect all skill names (approved + workspace on-disk)
-    const approvedNames = new Set(approved.map((a) => a.name));
-    const skillsDir = getSkillsDir();
-    let workspaceNames: string[] = [];
-    if (skillsDir) {
-      try {
-        workspaceNames = fs.readdirSync(skillsDir, { withFileTypes: true })
-          .filter((d) => d.isDirectory())
-          .map((d) => d.name)
-          .filter((n) => !approvedNames.has(n));
-      } catch {
-        // Skills directory may not exist yet
-      }
-    }
-
-    // Aggregate env vars from cached analyses
+    // Aggregate env vars from DB skill analyses + marketplace download metadata
     const envMap = new Map<string, SkillEnvRequirement>();
 
-    const allSkills = [
-      ...approved.map((a) => ({ name: a.name, slug: a.slug })),
-      ...workspaceNames.map((n) => ({ name: n, slug: undefined })),
-    ];
+    // All skills from DB
+    const allDbSkills = repo.getAll();
+    const knownSlugs = new Set<string>();
 
-    for (const skill of allSkills) {
-      const cached = getCachedAnalysis(skill.name);
-      const dlMeta = getDownloadedSkillMeta(skill.slug || skill.name);
-      const analysis = dlMeta?.analysis || cached;
+    for (const skill of allDbSkills) {
+      knownSlugs.add(skill.slug);
+      const version = repo.getLatestVersion(skill.id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const analysisJson = version?.analysisJson as any;
+      const dlMeta = getDownloadedSkillMeta(skill.slug);
+      const analysis = analysisJson ?? dlMeta?.analysis;
+
       if (!analysis || analysis.status !== 'complete' || !Array.isArray(analysis.envVariables)) {
         continue;
       }
@@ -120,8 +107,7 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
       for (const ev of analysis.envVariables) {
         const existing = envMap.get(ev.name);
         if (existing) {
-          // Merge: aggregate requiredBy, escalate required/sensitive
-          existing.requiredBy.push({ skillName: skill.name });
+          existing.requiredBy.push({ skillName: skill.slug });
           if (ev.required) existing.required = true;
           if (ev.sensitive) existing.sensitive = true;
           if (!existing.purpose && ev.purpose) existing.purpose = ev.purpose;
@@ -132,12 +118,55 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
             required: ev.required,
             sensitive: ev.sensitive,
             purpose: ev.purpose ?? '',
-            requiredBy: [{ skillName: skill.name }],
+            requiredBy: [{ skillName: skill.slug }],
             fulfilled: !!vaultSecret,
             existingSecretScope: vaultSecret ? resolveScope(vaultSecret) : undefined,
             existingSecretId: vaultSecret?.id,
           });
         }
+      }
+    }
+
+    // Also check workspace on-disk skills not yet in DB
+    const skillsDir = getSkillsDir();
+    if (skillsDir) {
+      try {
+        const onDiskNames = fs.readdirSync(skillsDir, { withFileTypes: true })
+          .filter((d) => d.isDirectory())
+          .map((d) => d.name)
+          .filter((n) => !knownSlugs.has(n));
+
+        for (const name of onDiskNames) {
+          const dlMeta = getDownloadedSkillMeta(name);
+          const analysis = dlMeta?.analysis;
+          if (!analysis || analysis.status !== 'complete' || !Array.isArray(analysis.envVariables)) {
+            continue;
+          }
+
+          for (const ev of analysis.envVariables) {
+            const existing = envMap.get(ev.name);
+            if (existing) {
+              existing.requiredBy.push({ skillName: name });
+              if (ev.required) existing.required = true;
+              if (ev.sensitive) existing.sensitive = true;
+              if (!existing.purpose && ev.purpose) existing.purpose = ev.purpose;
+            } else {
+              const vaultSecret = secretByName.get(ev.name);
+              envMap.set(ev.name, {
+                name: ev.name,
+                required: ev.required,
+                sensitive: ev.sensitive,
+                purpose: ev.purpose ?? '',
+                requiredBy: [{ skillName: name }],
+                fulfilled: !!vaultSecret,
+                existingSecretScope: vaultSecret ? resolveScope(vaultSecret) : undefined,
+                existingSecretId: vaultSecret?.id,
+              });
+            }
+          }
+        }
+      } catch {
+        // Skills directory may not exist yet
       }
     }
 

@@ -17,12 +17,16 @@ import {
   computeSkillHash,
   updateApprovedHash,
 } from '../watchers/skills';
+import { installSkillViaBroker, uninstallSkillViaBroker, isBrokerAvailable } from './broker-bridge';
 import {
-  installSkillViaBroker,
-  uninstallSkillViaBroker,
-  isBrokerAvailable,
-} from './broker-bridge';
-import { addSkillPolicy, removeSkillPolicy, createSkillWrapper, removeSkillWrapper, sudoMkdir, sudoWriteFile, sudoRm } from './skill-lifecycle';
+  addSkillPolicy,
+  removeSkillPolicy,
+  createSkillWrapper,
+  removeSkillWrapper,
+  sudoMkdir,
+  sudoWriteFile,
+  sudoRm,
+} from './skill-lifecycle';
 import { injectInstallationTag } from './skill-tag-injector';
 import { storeDownloadedSkill, markDownloadedAsInstalled } from './marketplace';
 import { stripEnvFromSkillMd } from '@agenshield/sandbox';
@@ -49,12 +53,16 @@ export interface SyncResult {
  * Generate _meta.json content matching the OpenClaw skill metadata format.
  */
 function generateMetaJson(slug: string, version = '1.0.0'): string {
-  return JSON.stringify({
-    ownerId: 'agenshield',
-    slug,
-    version,
-    publishedAt: Date.now(),
-  }, null, 2);
+  return JSON.stringify(
+    {
+      ownerId: 'agenshield',
+      slug,
+      version,
+      publishedAt: Date.now(),
+    },
+    null,
+    2,
+  );
 }
 
 // ─── Content generators ─────────────────────────────────────────────────────
@@ -68,11 +76,7 @@ function generateMasterSkillMd(connectedIds: string[]): string {
   let template = fs.readFileSync(templatePath, 'utf-8');
 
   // Build the connected integrations section
-  const lines: string[] = [
-    '',
-    '## Currently Connected Integrations',
-    '',
-  ];
+  const lines: string[] = ['', '## Currently Connected Integrations', ''];
 
   if (connectedIds.length === 0) {
     lines.push('No integrations are currently connected. Connect integrations from the Shield UI dashboard.');
@@ -83,7 +87,9 @@ function generateMasterSkillMd(connectedIds: string[]): string {
       const details = INTEGRATION_CATALOG[id];
       if (details) {
         const actionCount = details.actions.length;
-        lines.push(`- **${details.title}** (\`${id}\`) — ${actionCount} action${actionCount !== 1 ? 's' : ''} available`);
+        lines.push(
+          `- **${details.title}** (\`${id}\`) — ${actionCount} action${actionCount !== 1 ? 's' : ''} available`,
+        );
       } else {
         lines.push(`- **${id}**`);
       }
@@ -141,7 +147,9 @@ function generateIntegrationSkillMd(integrationId: string): string | null {
   lines.push('## Usage');
   lines.push('');
   lines.push(`Use the \`agenco\` skill to interact with ${details.title}.`);
-  lines.push(`Search for tools with queries like: \`"${details.actions[0]?.name?.replace(/_/g, ' ') || `use ${integrationId}`}"\``);
+  lines.push(
+    `Search for tools with queries like: \`"${details.actions[0]?.name?.replace(/_/g, ' ') || `use ${integrationId}`}"\``,
+  );
   lines.push('');
 
   return lines.join('\n');
@@ -226,7 +234,7 @@ async function installMasterSkill(connectedIds: string[]): Promise<void> {
   const config = loadConfig();
   let changed = false;
   for (const presetPolicy of AGENCO_PRESET.policies) {
-    if (!config.policies.some(p => p.id === presetPolicy.id)) {
+    if (!config.policies.some((p) => p.id === presetPolicy.id)) {
       config.policies.push(presetPolicy);
       changed = true;
     }
@@ -246,15 +254,19 @@ async function installMasterSkill(connectedIds: string[]): Promise<void> {
 
   // Store in marketplace cache so GET /api/skills returns full metadata
   try {
-    storeDownloadedSkill(MASTER_SKILL_NAME, {
-      name: 'AgenCo Secure Integrations',
-      slug: MASTER_SKILL_NAME,
-      author: 'agenshield',
-      version: '1.0.0',
-      description: 'Execute third-party integration tools through AgenCo secure cloud gateway',
-      tags: ['integrations', 'agenco'],
-      source: 'marketplace',
-    }, files.map(f => ({ name: f.name, type: 'text/plain', content: f.content })));
+    storeDownloadedSkill(
+      MASTER_SKILL_NAME,
+      {
+        name: 'AgenCo Secure Integrations',
+        slug: MASTER_SKILL_NAME,
+        author: 'agenshield',
+        version: '1.0.0',
+        description: 'Execute third-party integration tools through AgenCo secure cloud gateway',
+        tags: ['integrations', 'agenco'],
+        source: 'marketplace',
+      },
+      files.map((f) => ({ name: f.name, type: 'text/plain', content: f.content })),
+    );
     markDownloadedAsInstalled(MASTER_SKILL_NAME);
   } catch (err) {
     console.warn(`[IntegrationSkills] Failed to store marketplace cache for master skill: ${(err as Error).message}`);
@@ -317,15 +329,19 @@ async function installIntegrationSkill(integrationId: string): Promise<void> {
   // Store in marketplace cache so GET /api/skills returns full metadata
   const details = INTEGRATION_CATALOG[integrationId];
   try {
-    storeDownloadedSkill(skillName, {
-      name: details?.title ?? skillName,
-      slug: skillName,
-      author: 'agenshield',
-      version: '1.0.0',
-      description: details?.description ?? `AgenCo integration for ${integrationId}`,
-      tags: ['integrations', 'agenco', integrationId],
-      source: 'marketplace',
-    }, files.map(f => ({ name: f.name, type: 'text/plain', content: f.content })));
+    storeDownloadedSkill(
+      skillName,
+      {
+        name: details?.title ?? skillName,
+        slug: skillName,
+        author: 'agenshield',
+        version: '1.0.0',
+        description: details?.description ?? `AgenCo integration for ${integrationId}`,
+        tags: ['integrations', 'agenco', integrationId],
+        source: 'marketplace',
+      },
+      files.map((f) => ({ name: f.name, type: 'text/plain', content: f.content })),
+    );
     markDownloadedAsInstalled(skillName);
   } catch (err) {
     console.warn(`[IntegrationSkills] Failed to store marketplace cache for ${skillName}: ${(err as Error).message}`);
@@ -400,8 +416,8 @@ export async function uninstallMasterSkill(): Promise<void> {
 
   // Remove AgenCo preset policies
   const config = loadConfig();
-  const agencoIds = new Set(AGENCO_PRESET.policies.map(p => p.id));
-  const filtered = config.policies.filter(p => !agencoIds.has(p.id));
+  const agencoIds = new Set(AGENCO_PRESET.policies.map((p) => p.id));
+  const filtered = config.policies.filter((p) => !agencoIds.has(p.id));
   if (filtered.length !== config.policies.length) {
     updateConfig({ policies: filtered });
     syncCommandPolicies(filtered);
@@ -449,7 +465,9 @@ export async function syncAgenCoSkills(): Promise<SyncResult> {
           removeFromApprovedList(entry.name);
           removeSkillPolicy(entry.name);
           console.log(`[IntegrationSkills] Migrated away old skill: ${entry.name}`);
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
       }
     }
   } catch {
