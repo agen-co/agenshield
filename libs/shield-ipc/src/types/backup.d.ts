@@ -71,8 +71,8 @@ export declare const BACKUP_CONFIG: {
     readonly configDir: "/etc/agenshield";
     /** Backup file path */
     readonly backupPath: "/etc/agenshield/backup.json";
-    /** Directory permissions (root only) */
-    readonly dirMode: 448;
+    /** Directory permissions (readable by all, writable by root) */
+    readonly dirMode: 493;
     /** File permissions (root only) */
     readonly fileMode: 384;
 };

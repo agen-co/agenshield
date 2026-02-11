@@ -1,7 +1,7 @@
 /**
  * API types for AgenShield daemon communication
  */
-import type { DaemonStatus } from './daemon';
+import type { DaemonStatus, OpenClawServiceStatus } from './daemon';
 import type { ShieldConfig } from './config';
 export interface ApiResponse<T> {
     success: boolean;
@@ -47,5 +47,17 @@ export type HealthResponse = ApiResponse<{
     mode?: 'daemon' | 'setup' | 'update';
 }>;
 export type GetSecurityStatusResponse = ApiResponse<SecurityStatusData>;
+export interface FsBrowseEntry {
+    name: string;
+    path: string;
+    type: 'file' | 'directory';
+}
+export type FsBrowseResponse = ApiResponse<{
+    entries: FsBrowseEntry[];
+}>;
+export type GetOpenClawStatusResponse = ApiResponse<OpenClawServiceStatus>;
+export type OpenClawActionResponse = ApiResponse<{
+    message: string;
+}>;
 export type UpdateConfigRequest = Partial<ShieldConfig>;
 //# sourceMappingURL=api.d.ts.map

@@ -21,7 +21,7 @@ export class AuditLogger {
   private maxFileSize: number;
   private maxFiles: number;
   private writeStream: fs.WriteStream | null = null;
-  private currentSize: number = 0;
+  private currentSize = 0;
 
   private readonly levelPriority: Record<string, number> = {
     debug: 0,

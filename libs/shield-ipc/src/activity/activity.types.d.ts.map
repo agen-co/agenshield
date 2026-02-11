@@ -1,0 +1,1 @@
+{"version":3,"file":"activity.types.d.ts","sourceRoot":"","sources":["activity.types.ts"],"names":[],"mappings":"AAAA;;;;GAIG;AAEH,MAAM,WAAW,aAAa;IAC5B,EAAE,EAAE,MAAM,CAAC;IACX,QAAQ,CAAC,EAAE,MAAM,CAAC;IAClB,IAAI,EAAE,MAAM,CAAC;IACb,SAAS,EAAE,MAAM,CAAC;IAClB,IAAI,EAAE,OAAO,CAAC;IACd,SAAS,EAAE,MAAM,CAAC;CACnB"}

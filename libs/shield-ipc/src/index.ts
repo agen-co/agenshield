@@ -120,3 +120,11 @@ export * from './constants';
 
 // Version-based feature flags
 export * from './version-features';
+
+// Domain types & schemas
+export * from './targets/index';
+export * from './skills/index';
+export * from './activity/index';
+export * from './commands/index';
+export * from './storage/index';
+export * from './policy-graph/index';

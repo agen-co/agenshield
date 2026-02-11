@@ -1,0 +1,45 @@
+{
+  "name": "storage",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/storage/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/storage/jest.config.ts",
+        "passWithNoTests": true
+      }
+    },
+    "build-cjs": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["^build"],
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "libs/storage/dist",
+        "main": "libs/storage/src/index.ts",
+        "tsConfig": "libs/storage/tsconfig.lib.json",
+        "format": ["esm"],
+        "declaration": true,
+        "declarationRootDir": "libs/storage/src",
+        "bundle": true,
+        "thirdParty": false,
+        "platform": "node",
+        "assets": ["libs/storage/package.json"],
+        "esbuildOptions": {
+          "outExtension": { ".js": ".js" },
+          "external": ["better-sqlite3", "@agenshield/ipc", "zod"]
+        }
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-cjs"],
+      "options": {
+        "command": "node scripts/strip-dist-from-pkg.js libs/storage/dist/package.json"
+      }
+    }
+  }
+}
