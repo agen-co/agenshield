@@ -1,1 +1,0 @@
-{"version":3,"file":"storage.types.d.ts","sourceRoot":"","sources":["storage.types.ts"],"names":[],"mappings":"AAAA;;;;GAIG;AAEH,MAAM,WAAW,WAAW;IAC1B,QAAQ,CAAC,EAAE,MAAM,GAAG,IAAI,CAAC;IACzB,YAAY,CAAC,EAAE,MAAM,GAAG,IAAI,CAAC;CAC9B;AAED,MAAM,WAAW,SAAS;IACxB,GAAG,EAAE,MAAM,CAAC;IACZ,KAAK,EAAE,MAAM,CAAC;CACf"}
