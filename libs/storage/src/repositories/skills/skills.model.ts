@@ -17,6 +17,8 @@ export function mapSkill(row: DbSkillRow): Skill {
     homepage: row.homepage ?? undefined,
     tags: JSON.parse(row.tags),
     source: row.source as Skill['source'],
+    remoteId: row.remote_id ?? undefined,
+    isPublic: row.is_public === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -65,6 +67,8 @@ export function mapInstallation(row: DbSkillInstallationRow): SkillInstallation 
     userUsername: row.user_username ?? undefined,
     status: row.status as SkillInstallation['status'],
     wrapperPath: row.wrapper_path ?? undefined,
+    autoUpdate: row.auto_update === 1,
+    pinnedVersion: row.pinned_version ?? undefined,
     installedAt: row.installed_at,
     updatedAt: row.updated_at,
   };

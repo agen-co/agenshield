@@ -8,6 +8,7 @@ import type Database from 'better-sqlite3';
 import type { Migration } from './types';
 import { InitialSchemaMigration } from './001-initial-schema';
 import { ImportJsonMigration } from './002-import-json';
+import { SkillsManagerColumnsMigration } from './003-skills-manager-columns';
 
 export type { Migration };
 
@@ -16,6 +17,7 @@ const TABLE = '_migrations';
 export const ALL_MIGRATIONS: Migration[] = [
   new InitialSchemaMigration(),
   new ImportJsonMigration(),
+  new SkillsManagerColumnsMigration(),
 ];
 
 /**

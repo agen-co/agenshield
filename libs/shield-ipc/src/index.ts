@@ -115,6 +115,9 @@ export type { PolicyPreset } from './presets';
 // Catalog
 export { COMMAND_CATALOG, searchCatalog } from './catalog';
 
+// Typed event system (EventRegistry + EventBus)
+export * from './events/index';
+
 // Constants
 export * from './constants';
 

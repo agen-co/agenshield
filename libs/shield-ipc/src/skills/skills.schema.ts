@@ -13,6 +13,8 @@ export const SkillSchema = z.object({
   homepage: z.string().url().optional(),
   tags: z.array(z.string()).default([]),
   source: z.enum(['marketplace', 'watcher', 'manual', 'integration', 'unknown']).default('unknown'),
+  remoteId: z.string().optional(),
+  isPublic: z.boolean().default(true),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -58,6 +60,8 @@ export const SkillInstallationSchema = z.object({
   userUsername: z.string().optional(),
   status: z.enum(['active', 'disabled', 'quarantined', 'pending']).default('active'),
   wrapperPath: z.string().optional(),
+  autoUpdate: z.boolean().default(true),
+  pinnedVersion: z.string().optional(),
   installedAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

@@ -33,6 +33,7 @@
       "@agenshield/skills": ["libs/shield-skills/src/index.ts"],
       "@agenshield/integrations": ["libs/shield-integrations/src/index.ts"],
       "@agenshield/storage": ["libs/storage/src/index.ts"],
+      "@agentshield/skills": ["libs/skills/src/index.ts"],
       "@agenshield/ui": ["apps/shield-ui/src/index.ts"]
     }
   },

@@ -10,3 +10,14 @@ export type {
 } from './skills.types';
 
 export * from './skills.schema';
+
+export type {
+  SkillSearchResult,
+  RemoteSkillDescriptor,
+  AnalysisResult,
+  UpdateCheckResult,
+  UpdateResult,
+  UploadMetadata,
+  RemoteSearchResponse,
+  VersionCheckResult,
+} from './skills-manager.types';

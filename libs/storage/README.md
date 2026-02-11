@@ -61,7 +61,7 @@ Access via `storage.<property>` for base scope, or `storage.for(scope).<property
 | `config` | `ConfigRepository` | **Merge** — NULL values inherit from parent level |
 | `policies` | `PolicyRepository` | **Union** — additive across all scope levels |
 | `vault` | `VaultRepository` | **Most-specific-wins** per secret name |
-| `skills` | `SkillsRepository` | Installed skills by scope |
+| `skills` | `SkillsRepository` | **Hierarchical** — global + matching target + target+user |
 | `policyGraph` | `PolicyGraphRepository` | Nodes and edges filtered by scope |
 
 ## Scoped Access
@@ -100,6 +100,21 @@ const policies = storage.for({ targetId: 't1' }).policies.getAll();
 // If 'API_KEY' exists at base and target level, target-level value is returned
 const secret = storage.for({ targetId: 't1' }).vault.getSecretByName({ name: 'API_KEY' });
 ```
+
+**Skills (hierarchical):** Installation queries return global + matching hierarchy levels:
+
+```typescript
+// Returns: global installs + target 't1' installs (not t2, not t1+otherUser)
+const installs = storage.for({ targetId: 't1' }).skills.getInstallations();
+
+// With user scope: global + t1 + t1+alice (not t1+bob)
+const userInstalls = storage.for({ targetId: 't1', userUsername: 'alice' }).skills.getInstallations();
+
+// getInstallationById() is NOT scope-filtered (direct PK lookup)
+const inst = storage.for({ targetId: 't1' }).skills.getInstallationById('some-id');
+```
+
+Scope-aware methods: `getInstallations()`, `getAutoUpdatable()`, `getInstalledSkills()`.
 
 **Unscoped** access (`storage.config`, `storage.policies`, etc.) returns base-level data only.
 
@@ -230,16 +245,18 @@ storage.vault.deleteKv(params: { key: string }): boolean
 
 ### SkillsRepository
 
-Skill registry with versions, files, and installations.
+Skill registry with versions, files, and installations. Installation queries are scope-aware when accessed via `storage.for(scope).skills`.
 
 ```typescript
 // Skills
 storage.skills.create(input: CreateSkillInput): Skill
 storage.skills.getById(id: string): Skill | null
 storage.skills.getBySlug(slug: string): Skill | null
+storage.skills.getByRemoteId(remoteId: string): Skill | null
 storage.skills.getAll(filter?: { source?: string }): Skill[]
 storage.skills.update(id: string, input: UpdateSkillInput): Skill | null
 storage.skills.delete(id: string): boolean
+storage.skills.search(query: string): Skill[]
 
 // Versions
 storage.skills.addVersion(input: CreateSkillVersionInput): SkillVersion
@@ -257,11 +274,18 @@ storage.skills.getFiles(versionId: string): SkillFile[]
 storage.skills.updateFileHash(params: { fileId: string; newHash: string }): void
 storage.skills.recomputeContentHash(versionId: string): string
 
-// Installations
+// Installations (scope-aware: getInstallations, getAutoUpdatable, getInstalledSkills)
 storage.skills.install(input: CreateSkillInstallationInput): SkillInstallation
 storage.skills.uninstall(installationId: string): boolean
+storage.skills.getInstallationById(id: string): SkillInstallation | null  // NOT scope-filtered
 storage.skills.getInstallations(filter?: SkillInstallationsFilter): SkillInstallation[]
+storage.skills.getAutoUpdatable(skillId: string): SkillInstallation[]
 storage.skills.updateInstallationStatus(id: string, input: { status: string }): void
+storage.skills.setAutoUpdate(installationId: string, enabled: boolean): void
+storage.skills.updateInstallationVersion(installationId: string, newVersionId: string): void
+storage.skills.updateWrapperPath(installationId: string, wrapperPath: string): void
+storage.skills.pinVersion(installationId: string, version: string): void
+storage.skills.unpinVersion(installationId: string): void
 storage.skills.getInstalledSkills(): Array<Skill & { version: SkillVersion }>
 ```
 
@@ -368,6 +392,12 @@ import { StorageLockedError, ValidationError, PasscodeError } from '@agenshield/
 
 Migrations run automatically on `Storage.open()` / `initStorage()`. They are applied in order within a single transaction.
 
+| Version | Name | Description |
+|---------|------|-------------|
+| 1 | `001-initial-schema` | Core tables: state, config, policies, vault, skills, targets, activity, commands, policy graph |
+| 2 | `002-import-json` | Import JSON data support |
+| 3 | `003-skills-manager-columns` | Adds `remote_id`, `is_public` to skills; `auto_update`, `pinned_version` to installations |
+
 ### Version checking
 
 ```typescript
@@ -386,8 +416,8 @@ import type { Migration } from '@agenshield/storage';
 import type Database from 'better-sqlite3';
 
 export class MyMigration implements Migration {
-  readonly version = 3;
-  readonly name = '003-my-changes';
+  readonly version = 4;
+  readonly name = '004-my-changes';
 
   up(db: Database.Database, encryptionKey: Buffer | null): void {
     db.exec(`ALTER TABLE ...`);
@@ -420,7 +450,8 @@ libs/storage/src/
 │   ├── types.ts                # Migration interface
 │   ├── index.ts                # Runner + registry
 │   ├── 001-initial-schema.ts
-│   └── 002-import-json.ts
+│   ├── 002-import-json.ts
+│   └── 003-skills-manager-columns.ts
 └── repositories/
     ├── base.repository.ts      # Abstract base (validation, encryption, IDs)
     ├── config/
@@ -446,4 +477,4 @@ Each repository domain follows the same file convention:
 - **`query.ts`** — SQL queries as prepared statement factories
 - **`repository.ts`** — Public CRUD API
 
-See [CLAUDE.md](./CLAUDE.md) for contributor conventions. Each repository has an `ARCHITECTURE.md` with domain-specific details.
+See [CLAUDE.md](./CLAUDE.md) for contributor conventions.

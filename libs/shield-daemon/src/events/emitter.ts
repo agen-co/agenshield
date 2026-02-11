@@ -3,57 +3,28 @@
  */
 
 import { EventEmitter } from 'node:events';
-import type { DaemonStatus } from '@agenshield/ipc';
+import {
+  EventBus,
+  type EventType,
+  type EventRegistry,
+  type DaemonStatus,
+  type SecurityStatusPayload,
+  type ApiRequestPayload,
+  type ApiOutboundPayload,
+  type BrokerRequestPayload,
+  type BrokerResponsePayload,
+  type ExecMonitoredPayload,
+  type ExecDeniedPayload,
+  type InterceptorEventPayload,
+  type ESExecPayload,
+  type AgenCoAuthRequiredPayload,
+  type AgenCoErrorPayload,
+  type SkillInstallProgressPayload,
+  type ProcessEventPayload,
+} from '@agenshield/ipc';
 
-export type EventType =
-  | 'security:status'
-  | 'security:warning'
-  | 'security:critical'
-  | 'security:alert'
-  | 'process:started'
-  | 'process:stopped'
-  | 'process:broker_started'
-  | 'process:broker_stopped'
-  | 'process:broker_restarted'
-  | 'process:gateway_started'
-  | 'process:gateway_stopped'
-  | 'process:gateway_restarted'
-  | 'process:daemon_started'
-  | 'process:daemon_stopped'
-  | 'api:request'
-  | 'api:outbound'
-  | 'broker:request'
-  | 'broker:response'
-  | 'config:changed'
-  | 'heartbeat'
-  | 'wrappers:installed'
-  | 'wrappers:uninstalled'
-  | 'wrappers:updated'
-  | 'wrappers:custom_added'
-  | 'wrappers:custom_removed'
-  | 'wrappers:synced'
-  | 'wrappers:regenerated'
-  | 'skills:quarantined'
-  | 'skills:untrusted_detected'
-  | 'skills:approved'
-  | 'exec:monitored'
-  | 'exec:denied'
-  | 'agenco:connected'
-  | 'agenco:disconnected'
-  | 'agenco:auth_required'
-  | 'agenco:auth_completed'
-  | 'agenco:tool_executed'
-  | 'agenco:error'
-  | 'skills:analyzed'
-  | 'skills:analysis_failed'
-  | 'skills:install_started'
-  | 'skills:install_progress'
-  | 'skills:installed'
-  | 'skills:install_failed'
-  | 'skills:uninstalled'
-  | 'interceptor:event'
-  | 'es:exec'
-  | 'daemon:status';
+// Re-export for internal daemon consumers that import from this file
+export type { EventType, EventRegistry } from '@agenshield/ipc';
 
 export interface DaemonEvent {
   type: EventType;
@@ -100,29 +71,33 @@ class DaemonEventEmitter extends EventEmitter {
 export const daemonEvents = DaemonEventEmitter.getInstance();
 
 /**
- * Helper to emit security status changes
+ * Typed EventBus singleton — new event system.
+ * Runs alongside legacy daemonEvents for SSE compatibility.
  */
-export function emitSecurityStatus(status: unknown): void {
-  daemonEvents.broadcast('security:status', status);
-}
+export const eventBus = new EventBus({ maxListeners: 100 });
 
 /**
- * Helper to emit security warnings
+ * Typed broadcast: emits to both the new EventBus and the legacy SSE emitter.
  */
+function broadcast<T extends EventType>(type: T, data: EventRegistry[T]): void {
+  eventBus.emit(type, data);
+  daemonEvents.broadcast(type, data as unknown);
+}
+
+// ===== Typed event helpers =====
+
+export function emitSecurityStatus(status: SecurityStatusPayload): void {
+  broadcast('security:status', status);
+}
+
 export function emitSecurityWarning(warning: string): void {
-  daemonEvents.broadcast('security:warning', { message: warning });
+  broadcast('security:warning', { message: warning });
 }
 
-/**
- * Helper to emit critical security issues
- */
 export function emitSecurityCritical(issue: string): void {
-  daemonEvents.broadcast('security:critical', { message: issue });
+  broadcast('security:critical', { message: issue });
 }
 
-/**
- * Helper to emit API request events
- */
 export function emitApiRequest(
   method: string,
   path: string,
@@ -131,233 +106,134 @@ export function emitApiRequest(
   requestBody?: unknown,
   responseBody?: unknown,
 ): void {
-  daemonEvents.broadcast('api:request', {
+  const payload: ApiRequestPayload = {
     method,
     path,
     statusCode,
     duration,
     ...(requestBody !== undefined && { requestBody }),
     ...(responseBody !== undefined && { responseBody }),
-  });
+  };
+  broadcast('api:request', payload);
 }
 
-/**
- * Helper to emit outbound API request events (external fetch calls)
- */
-export function emitApiOutbound(data: {
-  context: string;
-  url: string;
-  method: string;
-  statusCode: number;
-  duration: number;
-  requestBody?: string;
-  responseBody?: string;
-  success: boolean;
-}): void {
-  daemonEvents.broadcast('api:outbound', data);
+export function emitApiOutbound(data: ApiOutboundPayload): void {
+  broadcast('api:outbound', data);
 }
 
-/**
- * Helper to emit broker request events
- */
 export function emitBrokerRequest(operation: string, args: unknown): void {
-  daemonEvents.broadcast('broker:request', { operation, args });
+  broadcast('broker:request', { operation, args });
 }
 
-/**
- * Helper to emit broker response events
- */
 export function emitBrokerResponse(operation: string, success: boolean, duration: number): void {
-  daemonEvents.broadcast('broker:response', { operation, success, duration });
+  broadcast('broker:response', { operation, success, duration });
 }
 
-/**
- * Helper to emit skill quarantined events
- */
 export function emitSkillQuarantined(skillName: string, reason: string): void {
-  daemonEvents.broadcast('skills:quarantined', { name: skillName, reason });
+  broadcast('skills:quarantined', { name: skillName, reason });
 }
 
-/**
- * Helper to emit untrusted skill detection events
- */
 export function emitSkillUntrustedDetected(name: string, reason: string): void {
-  daemonEvents.broadcast('skills:untrusted_detected', { name, reason });
+  broadcast('skills:untrusted_detected', { name, reason });
 }
 
-/**
- * Helper to emit skill approved events
- */
 export function emitSkillApproved(skillName: string): void {
-  daemonEvents.broadcast('skills:approved', { name: skillName });
+  broadcast('skills:approved', { name: skillName });
 }
 
-/**
- * Helper to emit exec monitored events (every exec operation)
- */
-export function emitExecMonitored(event: {
-  command: string;
-  args: string[];
-  cwd?: string;
-  exitCode: number;
-  allowed: boolean;
-  duration: number;
-}): void {
-  daemonEvents.broadcast('exec:monitored', event);
+export function emitExecMonitored(event: ExecMonitoredPayload): void {
+  broadcast('exec:monitored', event);
 }
 
-/**
- * Helper to emit exec denied events (blocked exec operations)
- */
 export function emitExecDenied(command: string, reason: string): void {
-  daemonEvents.broadcast('exec:denied', { command, reason });
+  broadcast('exec:denied', { command, reason });
 }
 
 // ===== AgenCo event helpers =====
 
-/**
- * Helper to emit agenco auth required event
- */
 export function emitAgenCoAuthRequired(authUrl: string, integration?: string): void {
-  daemonEvents.broadcast('agenco:auth_required', { authUrl, integration });
+  const payload: AgenCoAuthRequiredPayload = { authUrl, ...(integration !== undefined && { integration }) };
+  broadcast('agenco:auth_required', payload);
 }
 
-/**
- * Helper to emit agenco auth completed event
- */
 export function emitAgenCoAuthCompleted(): void {
-  daemonEvents.broadcast('agenco:auth_completed', {});
+  broadcast('agenco:auth_completed', {} as Record<string, never>);
 }
 
-/**
- * Helper to emit agenco connected event
- */
 export function emitAgenCoConnected(): void {
-  daemonEvents.broadcast('agenco:connected', {});
+  broadcast('agenco:connected', {} as Record<string, never>);
 }
 
-/**
- * Helper to emit agenco disconnected event
- */
 export function emitAgenCoDisconnected(): void {
-  daemonEvents.broadcast('agenco:disconnected', {});
+  broadcast('agenco:disconnected', {} as Record<string, never>);
 }
 
-/**
- * Helper to emit agenco error event
- */
 export function emitAgenCoError(code: string, message: string): void {
-  daemonEvents.broadcast('agenco:error', { code, message });
+  broadcast('agenco:error', { code, message });
 }
 
-/**
- * Helper to emit skill analysis complete
- */
 export function emitSkillAnalyzed(name: string, analysis: unknown): void {
-  daemonEvents.broadcast('skills:analyzed', { name, analysis });
+  broadcast('skills:analyzed', { name, analysis });
 }
 
-/**
- * Helper to emit skill analysis failed
- */
 export function emitSkillAnalysisFailed(name: string, error: string): void {
-  daemonEvents.broadcast('skills:analysis_failed', { name, error });
+  broadcast('skills:analysis_failed', { name, error });
 }
 
-/**
- * Helper to emit skill uninstalled/disabled
- */
 export function emitSkillUninstalled(skillName: string): void {
-  daemonEvents.broadcast('skills:uninstalled', { name: skillName });
+  broadcast('skills:uninstalled', { name: skillName });
 }
 
-/**
- * Helper to emit skill install progress
- */
 export function emitSkillInstallProgress(skillName: string, step: string, message: string): void {
-  daemonEvents.broadcast('skills:install_progress', { name: skillName, step, message });
+  broadcast('skills:install_progress', { name: skillName, step, message });
 }
 
-/**
- * Helper to emit ES extension exec events
- */
-export function emitESExecEvent(event: {
-  binary: string;
-  args: string;
-  pid: number;
-  ppid: number;
-  sessionId: number;
-  user: string;
-  allowed: boolean;
-  policyId?: string;
-  reason?: string;
-  sourceLayer: 'es-extension';
-}): void {
-  daemonEvents.broadcast('es:exec', event);
+export function emitESExecEvent(event: ESExecPayload): void {
+  broadcast('es:exec', event);
 }
 
-/**
- * Helper to emit interceptor events (from events_batch RPC)
- */
-export function emitInterceptorEvent(event: {
-  type: string;
-  operation: string;
-  target: string;
-  timestamp: string;
-  duration?: number;
-  policyId?: string;
-  error?: string;
-}): void {
-  daemonEvents.broadcast('interceptor:event', event);
+export function emitInterceptorEvent(event: InterceptorEventPayload): void {
+  broadcast('interceptor:event', event);
 }
 
-/**
- * Helper to emit daemon status over SSE
- */
 export function emitDaemonStatus(status: DaemonStatus): void {
-  daemonEvents.broadcast('daemon:status', status);
+  broadcast('daemon:status', status);
 }
 
 /**
- * Generic event emitter for custom events
+ * Generic typed event emitter
  */
-export function emitEvent(type: EventType, data: unknown): void {
-  daemonEvents.broadcast(type, data);
+export function emitEvent<T extends EventType>(type: T, data: EventRegistry[T]): void {
+  broadcast(type, data);
 }
 
 // ===== Process lifecycle event helpers =====
 
 export type ProcessName = 'broker' | 'gateway' | 'daemon';
 
-/**
- * Helper to emit process started events
- */
 export function emitProcessStarted(processName: ProcessName, data: { pid?: number }): void {
-  daemonEvents.broadcast(`process:${processName}_started` as EventType, {
+  const payload: ProcessEventPayload = {
     process: processName,
     action: 'started',
     ...data,
-  });
+  };
+  broadcast(`process:${processName}_started` as EventType, payload);
 }
 
-/**
- * Helper to emit process stopped events
- */
 export function emitProcessStopped(processName: ProcessName, data: { pid?: number; lastExitStatus?: number }): void {
-  daemonEvents.broadcast(`process:${processName}_stopped` as EventType, {
+  const payload: ProcessEventPayload = {
     process: processName,
     action: 'stopped',
     ...data,
-  });
+  };
+  broadcast(`process:${processName}_stopped` as EventType, payload);
 }
 
-/**
- * Helper to emit process restarted events (PID changed while running)
- */
 export function emitProcessRestarted(processName: ProcessName, data: { pid?: number; previousPid?: number; lastExitStatus?: number }): void {
-  daemonEvents.broadcast(`process:${processName}_restarted` as EventType, {
+  const payload: ProcessEventPayload = {
     process: processName,
     action: 'restarted',
     ...data,
-  });
+  };
+  broadcast(`process:${processName}_restarted` as EventType, payload);
 }

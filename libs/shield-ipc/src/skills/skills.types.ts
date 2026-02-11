@@ -20,6 +20,8 @@ export interface Skill {
   homepage?: string;
   tags: string[];
   source: SkillSource;
+  remoteId?: string;
+  isPublic: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,6 +73,8 @@ export interface SkillInstallation {
   userUsername?: string;
   status: InstallationStatus;
   wrapperPath?: string;
+  autoUpdate: boolean;
+  pinnedVersion?: string;
   installedAt: string;
   updatedAt: string;
 }
