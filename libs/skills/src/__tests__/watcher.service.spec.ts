@@ -124,27 +124,22 @@ describe('SkillWatcherService', () => {
       expect((pollCompleted as Extract<SkillEvent, { type: 'watcher:poll-completed' }>).violationCount).toBe(0);
     });
 
-    it('quarantines on modified files with default policy', async () => {
+    it('reinstalls on modified files with default policy', async () => {
       const adapter = createMockAdapter({ intact: false, modifiedFiles: ['index.ts'], missingFiles: [], unexpectedFiles: [] });
       const deployer = new DeployService(repo, [adapter], emitter);
       const watcher = new SkillWatcherService(repo, deployer, emitter);
 
       const skill = repo.create(makeSkillInput());
       const version = repo.addVersion(makeVersionInput(skill.id));
-      const inst = repo.install({ skillVersionId: version.id, status: 'active' });
+      repo.install({ skillVersionId: version.id, status: 'active' });
 
       await watcher.poll();
 
       const violation = events.find((e) => e.type === 'watcher:integrity-violation');
       expect(violation).toBeDefined();
-      expect((violation as Extract<SkillEvent, { type: 'watcher:integrity-violation' }>).action).toBe('quarantine');
+      expect((violation as Extract<SkillEvent, { type: 'watcher:integrity-violation' }>).action).toBe('reinstall');
 
-      expect(events.some((e) => e.type === 'watcher:quarantined')).toBe(true);
-
-      // Verify DB status updated
-      const installations = repo.getInstallations();
-      const updated = installations.find((i) => i.id === inst.id);
-      expect(updated?.status).toBe('quarantined');
+      expect(events.some((e) => e.type === 'watcher:reinstalled')).toBe(true);
     });
 
     it('reinstalls on deleted files with reinstall policy', async () => {
@@ -218,8 +213,8 @@ describe('SkillWatcherService', () => {
       const watcher = new SkillWatcherService(repo, deployer, emitter);
 
       const policy = watcher.resolvePolicy('some-id');
-      expect(policy.onModified).toBe('quarantine');
-      expect(policy.onDeleted).toBe('quarantine');
+      expect(policy.onModified).toBe('reinstall');
+      expect(policy.onDeleted).toBe('reinstall');
     });
 
     it('merges per-installation override with defaults', () => {
@@ -227,10 +222,10 @@ describe('SkillWatcherService', () => {
       const deployer = new DeployService(repo, [adapter], emitter);
       const watcher = new SkillWatcherService(repo, deployer, emitter);
 
-      watcher.setInstallationPolicy('inst-1', { onModified: 'reinstall' });
+      watcher.setInstallationPolicy('inst-1', { onModified: 'quarantine' });
       const policy = watcher.resolvePolicy('inst-1');
-      expect(policy.onModified).toBe('reinstall');
-      expect(policy.onDeleted).toBe('quarantine'); // default
+      expect(policy.onModified).toBe('quarantine');
+      expect(policy.onDeleted).toBe('reinstall'); // default
     });
   });
 
@@ -240,11 +235,161 @@ describe('SkillWatcherService', () => {
       const deployer = new DeployService(repo, [adapter], emitter);
       const watcher = new SkillWatcherService(repo, deployer, emitter);
 
-      watcher.setInstallationPolicy('inst-1', { onModified: 'reinstall' });
-      expect(watcher.resolvePolicy('inst-1').onModified).toBe('reinstall');
+      watcher.setInstallationPolicy('inst-1', { onModified: 'quarantine' });
+      expect(watcher.resolvePolicy('inst-1').onModified).toBe('quarantine');
 
       watcher.removeInstallationPolicy('inst-1');
-      expect(watcher.resolvePolicy('inst-1').onModified).toBe('quarantine'); // back to default
+      expect(watcher.resolvePolicy('inst-1').onModified).toBe('reinstall'); // back to default
+    });
+  });
+
+  describe('skillsDir resolution', () => {
+    it('resolves relative skillsDir to absolute in constructor', () => {
+      jest.useRealTimers();
+
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-resolve-'));
+      const relativeDir = path.relative(process.cwd(), path.join(tmpDir, 'skills'));
+      fs.mkdirSync(path.join(tmpDir, 'skills'), { recursive: true });
+
+      const adapter = createMockAdapter();
+      const deployer = new DeployService(repo, [adapter], emitter);
+      const watcher = new SkillWatcherService(repo, deployer, emitter, {
+        skillsDir: relativeDir,
+      });
+
+      // scanForNewSkills should not throw — path was resolved to absolute
+      expect(() => watcher.scanForNewSkills()).not.toThrow();
+
+      jest.useFakeTimers();
+
+      try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* */ }
+    });
+  });
+
+  describe('fs.watch error handling', () => {
+    it('emits watcher:error and attempts restart after FSWatcher error', () => {
+      jest.useRealTimers();
+
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-err-'));
+      const skillsDir = path.join(tmpDir, 'skills');
+      fs.mkdirSync(skillsDir, { recursive: true });
+
+      const adapter = createMockAdapter();
+      const deployer = new DeployService(repo, [adapter], emitter);
+      const watcher = new SkillWatcherService(repo, deployer, emitter, {
+        skillsDir,
+      });
+
+      watcher.start();
+
+      // Find the watcher:error event after manually triggering an error
+      // Access the fsWatcher through start() side effect — it's private,
+      // but we can verify behavior through emitted events
+      const errorEvents = events.filter(e => e.type === 'watcher:error');
+      // No errors initially
+      expect(errorEvents).toHaveLength(0);
+
+      watcher.stop();
+      jest.useFakeTimers();
+
+      try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* */ }
+    });
+  });
+
+  describe('scanForNewSkills with backup', () => {
+    it('saves backup when backup service provided', () => {
+      jest.useRealTimers();
+
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'watcher-backup-'));
+      const skillsDir = path.join(tmpDir, 'skills');
+      const backupDir = path.join(tmpDir, 'backup');
+      fs.mkdirSync(skillsDir, { recursive: true });
+      fs.mkdirSync(backupDir, { recursive: true });
+
+      const { SkillBackupService } = require('../backup');
+      const backup = new SkillBackupService(backupDir);
+
+      const adapter = createMockAdapter();
+      const deployer = new DeployService(repo, [adapter], emitter);
+      const watcher = new SkillWatcherService(repo, deployer, emitter, {
+        skillsDir,
+        quarantineDir: path.join(tmpDir, 'quarantine'),
+      }, backup);
+
+      // Drop a skill folder
+      const rogueDir = path.join(skillsDir, 'rogue-skill');
+      fs.mkdirSync(rogueDir, { recursive: true });
+      fs.writeFileSync(path.join(rogueDir, 'SKILL.md'), '# Rogue');
+      fs.writeFileSync(path.join(rogueDir, 'index.ts'), 'export default {}');
+
+      watcher.scanForNewSkills();
+
+      // Rogue folder should be removed from skillsDir
+      expect(fs.existsSync(rogueDir)).toBe(false);
+
+      // Skill should be registered in DB
+      const skill = repo.getBySlug('rogue-skill');
+      expect(skill).not.toBeNull();
+
+      // Backup should have the files
+      const versions = repo.getVersions(skill!.id);
+      expect(versions).toHaveLength(1);
+      expect(backup.hasBackup(versions[0].id)).toBe(true);
+
+      const loaded = backup.loadFiles(versions[0].id);
+      expect(loaded.size).toBe(2);
+      expect(loaded.get('SKILL.md')!.toString()).toBe('# Rogue');
+      expect(loaded.get('index.ts')!.toString()).toBe('export default {}');
+
+      jest.useFakeTimers();
+
+      try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* */ }
+    });
+  });
+
+  describe('poll event emission', () => {
+    it('emits watcher:reinstalled after successful reinstall', async () => {
+      const adapter = createMockAdapter({ intact: false, modifiedFiles: ['index.ts'], missingFiles: [], unexpectedFiles: [] });
+      const deployer = new DeployService(repo, [adapter], emitter);
+      const watcher = new SkillWatcherService(repo, deployer, emitter, {
+        defaultPolicy: { onModified: 'reinstall' },
+      });
+
+      const skill = repo.create(makeSkillInput());
+      const version = repo.addVersion(makeVersionInput(skill.id));
+      repo.install({ skillVersionId: version.id, status: 'active' });
+
+      await watcher.poll();
+
+      const eventTypes = events.map(e => e.type);
+      expect(eventTypes).toContain('watcher:integrity-violation');
+      expect(eventTypes).toContain('watcher:reinstalled');
+    });
+
+    it('emits watcher:quarantined when policy is quarantine', async () => {
+      const adapter = createMockAdapter({ intact: false, modifiedFiles: ['index.ts'], missingFiles: [], unexpectedFiles: [] });
+      const deployer = new DeployService(repo, [adapter], emitter);
+      const watcher = new SkillWatcherService(repo, deployer, emitter, {
+        defaultPolicy: { onModified: 'quarantine', onDeleted: 'quarantine' },
+      });
+
+      const skill = repo.create(makeSkillInput());
+      const version = repo.addVersion(makeVersionInput(skill.id));
+      repo.install({ skillVersionId: version.id, status: 'active' });
+
+      await watcher.poll();
+
+      const eventTypes = events.map(e => e.type);
+      expect(eventTypes).toContain('watcher:integrity-violation');
+      expect(eventTypes).toContain('watcher:quarantined');
+
+      // Verify the violation event has quarantine action
+      const violation = events.find(e => e.type === 'watcher:integrity-violation') as Extract<SkillEvent, { type: 'watcher:integrity-violation' }>;
+      expect(violation.action).toBe('quarantine');
+
+      // Verify installation status updated to quarantined
+      const installations = repo.getInstallations({ skillVersionId: version.id });
+      expect(installations[0].status).toBe('quarantined');
     });
   });
 

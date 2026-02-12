@@ -66,3 +66,32 @@ export {
 
 // Events
 export type { SkillEvent, ProgressInfo } from './events';
+
+// Sync (source adapters, sync service)
+export { SyncService, StaticSkillSource, computeSkillDefinitionSha } from './sync';
+export type {
+  SyncServiceOptions,
+  TargetPlatform,
+  SourceSkillFile,
+  DiscoveredTool,
+  ToolQuery,
+  BinaryInstallMethod,
+  RequiredBinary,
+  SkillDefinition,
+  AdapterInstructions,
+  AdapterSyncResult,
+  InstalledSkillVersion,
+  SkillVersionStore,
+  InstallOptions as SyncInstallOptions,
+  UninstallOptions as SyncUninstallOptions,
+  SkillInstaller,
+  SkillsManagerEvent,
+  SkillSourceAdapter,
+} from './sync';
+
+// Backup
+export { SkillBackupService } from './backup';
+
+// Soul
+export { SoulInjector, DefaultSoulContent, getSoulContent } from './soul';
+export type { SoulConfig, InjectionContext } from './soul';

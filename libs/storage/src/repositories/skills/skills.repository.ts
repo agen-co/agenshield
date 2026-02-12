@@ -144,6 +144,10 @@ export class SkillsRepository extends BaseRepository {
     this.db.prepare(Q.quarantineVersion).run({ id: versionId, now: this.now() });
   }
 
+  deleteVersion(id: string): boolean {
+    return this.db.prepare(Q.deleteVersion).run(id).changes > 0;
+  }
+
   // ---- Files ----
 
   registerFiles(params: RegisterFilesParams): SkillFile[] {

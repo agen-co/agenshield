@@ -18,6 +18,7 @@ const SKILL_ENV_EVENTS = new Set([
   'skills:installed',
   'skills:uninstalled',
   'skills:analyzed',
+  'skills:integrity_restored',
 ]);
 
 export function useSSE(enabled = true, token?: string | null) {

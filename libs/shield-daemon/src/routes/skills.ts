@@ -20,6 +20,7 @@ import {
   inlineImagesInMarkdown,
   analyzeSkillBySlug,
   analyzeSkillBundle,
+  updateDownloadedAnalysis,
 } from '../services/marketplace';
 import { emitSkillAnalyzed, emitSkillAnalysisFailed, emitSkillUninstalled } from '../events/emitter';
 
@@ -44,6 +45,7 @@ interface SkillSummary {
   author?: string;
   tags?: string[];
   trusted?: boolean;
+  installationId?: string;
   analysis?: SkillAnalysisSummary;
 }
 
@@ -151,10 +153,8 @@ function mapToSummary(
   const isDisabled = installation?.status === 'disabled';
   const isTrusted = skill.slug === 'agenco' || skill.slug.startsWith('agenco-');
 
-  // Read on-disk metadata (may augment DB data)
   const onDiskDir = path.join(skillsDir, skill.slug);
   const hasDiskPresence = fs.existsSync(onDiskDir);
-  const diskMeta = hasDiskPresence ? readSkillMetadata(onDiskDir) : {};
 
   let source: SkillSummary['source'];
   let status: SkillSummary['status'];
@@ -186,11 +186,12 @@ function mapToSummary(
     status,
     path: isActive || hasDiskPresence ? onDiskDir : '',
     publisher: skill.author,
-    description: diskMeta.description ?? skill.description,
-    version: diskMeta.version ?? version?.version,
-    author: diskMeta.author ?? skill.author,
-    tags: diskMeta.tags ?? skill.tags,
+    description: skill.description,
+    version: version?.version,
+    author: skill.author,
+    tags: skill.tags,
     trusted: isTrusted || undefined,
+    installationId: installation?.id,
     analysis: buildAnalysisSummary(skill.slug, analysisJson),
   };
 }
@@ -296,13 +297,27 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       request: FastifyRequest<{ Params: { name: string } }>,
       reply: FastifyReply,
     ) => {
-      const { name } = request.params;
+      const { name: rawName } = request.params;
 
-      if (!name || typeof name !== 'string') {
+      if (!rawName || typeof rawName !== 'string') {
         return reply.code(400).send({ error: 'Skill name is required' });
       }
 
+      // Resolve installationId (UUID) → skill slug
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawName);
       const manager = app.skillManager;
+      let name = rawName;
+
+      if (isUUID) {
+        const repo = manager.getRepository();
+        const inst = repo.getInstallationById(rawName);
+        if (inst) {
+          const ver = repo.getVersionById(inst.skillVersionId);
+          const sk = ver ? repo.getById(ver.skillId) : null;
+          if (sk) name = sk.slug;
+        }
+      }
+
       const result = manager.getSkillBySlug(name);
       const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
       const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
@@ -318,7 +333,6 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         // Build detailed summary (same shape as list but with full analysis)
         const onDiskDir = path.join(skillsDir, skill.slug);
         const hasDiskPresence = fs.existsSync(onDiskDir);
-        const diskMeta = hasDiskPresence ? readSkillMetadata(onDiskDir) : {};
         const dlMeta = getDownloadedSkillMeta(name);
 
         const isActive = installation?.status === 'active';
@@ -342,10 +356,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           status,
           path: isActive || hasDiskPresence ? onDiskDir : '',
           publisher: skill.author,
-          description: diskMeta.description ?? skill.description,
-          version: diskMeta.version ?? version?.version,
-          author: diskMeta.author ?? skill.author,
-          tags: diskMeta.tags ?? skill.tags,
+          description: skill.description,
+          version: version?.version,
+          author: skill.author,
+          tags: skill.tags,
+          installationId: installation?.id,
           analysis: buildFullAnalysis(name, analysisJson) as SkillSummary['analysis'],
         };
       } else {
@@ -384,17 +399,30 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      // Read content (readme) from disk
+      // Read content (readme) from trusted backup first, then fall back
       let content = '';
-      const dirToRead = summary.path || path.join(skillsDir, name);
-      if (dirToRead) {
-        try {
-          const mdPath = findSkillMdRecursive(dirToRead);
-          if (mdPath) content = fs.readFileSync(mdPath, 'utf-8');
-        } catch { /* */ }
+
+      // 1. Try backup service (trusted, tamper-proof)
+      if (result) {
+        const version = result.versions[0];
+        if (version && manager.backup) {
+          const backupContent = manager.backup.loadSkillMd(version.id);
+          if (backupContent) content = backupContent;
+        }
       }
 
-      // Fall back to marketplace download cache for readme
+      // 2. Fall back to disk only for workspace skills without DB backing
+      if (!content) {
+        const dirToRead = summary.path || path.join(skillsDir, name);
+        if (dirToRead) {
+          try {
+            const mdPath = findSkillMdRecursive(dirToRead);
+            if (mdPath) content = fs.readFileSync(mdPath, 'utf-8');
+          } catch { /* */ }
+        }
+      }
+
+      // 3. Fall back to marketplace download cache
       if (!content) {
         try {
           const localFiles = getDownloadedSkillFiles(name);
@@ -439,27 +467,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
       const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
 
-      // Try to find version in DB to use the library's analyzer
-      const skill = repo.getBySlug(name);
-      if (skill) {
-        const version = repo.getLatestVersion(skill.id);
-        if (version) {
-          // Reset and re-analyze using the library
-          try {
-            // Fire-and-forget analysis
-            manager.analyzer.reanalyze(version.id).then((result) => {
-              emitSkillAnalyzed(name, result);
-            }).catch((err) => {
-              emitSkillAnalysisFailed(name, (err as Error).message);
-            });
-            return reply.send({ success: true, data: { status: 'pending' } });
-          } catch {
-            // Fall through to legacy analysis
-          }
-        }
-      }
-
-      // Legacy analysis path — for skills not yet in DB
+      // Resolve content for analysis (disk → download cache → marketplace)
       if (!content) {
         const possibleDirs = [
           path.join(skillsDir, name),
@@ -543,9 +551,18 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
           if (vercelResult) {
             const analysis = vercelResult.analysis;
-            // Update DB if skill exists
-            if (skill) {
-              const version = repo.getLatestVersion(skill.id);
+
+            // Persist to marketplace metadata.json (always available)
+            try {
+              updateDownloadedAnalysis(name, analysis);
+            } catch (persistErr) {
+              log.warn({ skill: name, err: (persistErr as Error).message }, 'Failed to persist analysis to metadata.json');
+            }
+
+            // Persist to DB if skill exists (re-query to avoid stale closure)
+            const freshSkill = repo.getBySlug(name);
+            if (freshSkill) {
+              const version = repo.getLatestVersion(freshSkill.id);
               if (version) {
                 repo.updateAnalysis(version.id, {
                   status: analysis.status === 'complete' ? 'complete' : 'error',
@@ -554,6 +571,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
                 });
               }
             }
+
             emitSkillAnalyzed(name, analysis);
           }
         } catch (err) {
@@ -658,30 +676,12 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Skill name is required' });
       }
 
-      // AgenCo skills: delegate to integration-skills service for proper cleanup
-      if (name === 'agenco') {
+      // AgenCo skills: revoke via SkillManager, then re-sync to clean up
+      if (name === 'agenco' || name.startsWith('agenco-')) {
         try {
-          const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-          const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
-          const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
-          const { uninstallMasterSkill, uninstallIntegrationSkill } = await import('../services/integration-skills.js');
-          for (const entry of entries) {
-            if (entry.isDirectory() && entry.name.startsWith('agenco-')) {
-              const integrationId = entry.name.slice('agenco-'.length);
-              await uninstallIntegrationSkill(integrationId);
-            }
-          }
-          await uninstallMasterSkill();
-          return reply.send({ success: true, action: 'disabled', name });
-        } catch (err) {
-          return reply.code(500).send({ error: `Disable failed: ${(err as Error).message}` });
-        }
-      }
-      if (name.startsWith('agenco-')) {
-        const { onIntegrationDisconnected } = await import('../services/integration-skills.js');
-        const integrationId = name.slice('agenco-'.length);
-        try {
-          await onIntegrationDisconnected(integrationId);
+          await app.skillManager.revokeSkill(name);
+          // Re-sync to let the source adapter reconcile state
+          await app.skillManager.syncSource('mcp', 'openclaw');
           return reply.send({ success: true, action: 'disabled', name });
         } catch (err) {
           return reply.code(500).send({ error: `Disable failed: ${(err as Error).message}` });
@@ -734,11 +734,23 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           slug,
           version: '0.0.0',
           author: publisher,
+          source: 'marketplace',
           files: files.map((f) => ({
             relativePath: f.name,
             content: Buffer.from(f.content, 'utf-8'),
           })),
         });
+
+        // Write files to workspace/skills/{slug}/ so deploy adapter can read them
+        const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+        const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
+        const destDir = path.join(skillsDir, slug);
+        fs.mkdirSync(destDir, { recursive: true });
+        for (const f of files) {
+          const filePath = path.join(destDir, f.name);
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, f.content, 'utf-8');
+        }
 
         // Approve and install
         const installation = await app.skillManager.approveSkill(slug, {

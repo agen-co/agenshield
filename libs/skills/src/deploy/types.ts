@@ -10,6 +10,8 @@ export interface DeployContext {
   version: SkillVersion;
   files: SkillFile[];
   installation: SkillInstallation;
+  /** Backup file content keyed by relativePath. Fallback when disk files are missing. */
+  fileContents?: Map<string, Buffer>;
 }
 
 /** Result of a successful deployment */

@@ -21,3 +21,23 @@ export type {
   RemoteSearchResponse,
   VersionCheckResult,
 } from './skills-manager.types';
+
+// Adapter types (used by sync service, daemon adapters)
+export type {
+  TargetPlatform,
+  SourceSkillFile,
+  DiscoveredTool,
+  ToolQuery,
+  BinaryInstallMethod,
+  RequiredBinary,
+  SkillDefinition,
+  AdapterInstructions,
+  AdapterSyncResult,
+  InstalledSkillVersion,
+  SkillVersionStore,
+  InstallOptions,
+  UninstallOptions,
+  SkillInstaller,
+  SkillsManagerEvent,
+  SkillSourceAdapter,
+} from './adapter.types';

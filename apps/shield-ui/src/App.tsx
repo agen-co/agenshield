@@ -122,7 +122,7 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
             <Route path="/policies" element={<Navigate to="/policies/commands" replace />} />
             <Route path="/policies/:tab" element={<Policies />} />
             <Route path="/skills" element={<Skills />} />
-            <Route path="/skills/:slug" element={<SkillPage />} />
+            <Route path="/skills/:id" element={<SkillPage />} />
             <Route path="/secrets" element={<Secrets />} />
             <Route path="/activity" element={<Activity />} />
             <Route path="/integrations" element={<Integrations />} />

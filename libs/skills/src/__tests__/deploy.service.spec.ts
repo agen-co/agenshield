@@ -114,6 +114,52 @@ describe('DeployService', () => {
       expect(types).toContain('deploy:completed');
     });
 
+    it('passes fileContents from backup to adapter', async () => {
+      const backupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-backup-'));
+      const { SkillBackupService } = require('../backup');
+      const backup = new SkillBackupService(backupDir);
+
+      const adapter = createMockAdapter();
+      const service = new DeployService(repo, [adapter], emitter, backup);
+
+      const skill = repo.create(makeSkillInput());
+      const version = repo.addVersion(makeVersionInput(skill.id));
+      const installation = repo.install({ skillVersionId: version.id, status: 'pending' });
+
+      // Save backup files
+      backup.saveFiles(version.id, [
+        { relativePath: 'index.ts', content: Buffer.from('export default {}') },
+      ]);
+
+      await service.deploy(installation, version, skill);
+
+      // Find the deploy call and check fileContents
+      const deployCall = adapter.calls.find((c) => c.method === 'deploy');
+      expect(deployCall).toBeDefined();
+      const ctx = deployCall!.args[0] as DeployContext;
+      expect(ctx.fileContents).toBeDefined();
+      expect(ctx.fileContents!.size).toBe(1);
+      expect(ctx.fileContents!.get('index.ts')!.toString()).toBe('export default {}');
+
+      try { fs.rmSync(backupDir, { recursive: true }); } catch { /* */ }
+    });
+
+    it('passes undefined fileContents when no backup', async () => {
+      const adapter = createMockAdapter();
+      const service = new DeployService(repo, [adapter], emitter);
+
+      const skill = repo.create(makeSkillInput());
+      const version = repo.addVersion(makeVersionInput(skill.id));
+      const installation = repo.install({ skillVersionId: version.id, status: 'pending' });
+
+      await service.deploy(installation, version, skill);
+
+      const deployCall = adapter.calls.find((c) => c.method === 'deploy');
+      expect(deployCall).toBeDefined();
+      const ctx = deployCall!.args[0] as DeployContext;
+      expect(ctx.fileContents).toBeUndefined();
+    });
+
     it('returns null when no adapter matches', async () => {
       const service = new DeployService(repo, [], emitter);
       const skill = repo.create(makeSkillInput());
@@ -188,6 +234,114 @@ describe('DeployService', () => {
       const results = await service.checkAllIntegrity();
       expect(results).toHaveLength(0);
     });
+  });
+});
+
+describe('DeployService hash sync', () => {
+  let db: Database.Database;
+  let cleanup: () => void;
+  let repo: SkillsRepository;
+  let emitter: EventEmitter;
+  let events: SkillEvent[];
+  let tmpDir: string;
+  let deployDir: string;
+
+  beforeEach(() => {
+    ({ db, cleanup } = createTestDb());
+    repo = new SkillsRepository(db, () => null);
+    emitter = new EventEmitter();
+    events = [];
+    emitter.on('skill-event', (e: SkillEvent) => events.push(e));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hash-sync-'));
+    deployDir = path.join(tmpDir, 'deployed', 'test-skill');
+    fs.mkdirSync(deployDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+    try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* */ }
+  });
+
+  it('updates DB file hashes after adapter modifies content during deploy', async () => {
+    const originalContent = '# Skill\nENV_VAR=secret';
+    const processedContent = '# Skill\n<!-- env stripped -->';
+
+    // Create an adapter that writes processed (different) content
+    const adapter: DeployAdapter = {
+      id: 'processing',
+      displayName: 'Processing',
+      canDeploy: () => true,
+      deploy: async (ctx) => {
+        // Write processed content to deploy dir (simulating env stripping)
+        for (const file of ctx.files) {
+          const filePath = path.join(deployDir, file.relativePath);
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, processedContent);
+        }
+        return { deployedPath: deployDir, deployedHash: 'hash123' };
+      },
+      undeploy: async () => {},
+      checkIntegrity: async () => ({ intact: true, modifiedFiles: [], missingFiles: [], unexpectedFiles: [] }),
+    };
+
+    const service = new DeployService(repo, [adapter], emitter);
+
+    const skill = repo.create(makeSkillInput());
+    const version = repo.addVersion(makeVersionInput(skill.id));
+    const originalHash = crypto.createHash('sha256').update(originalContent).digest('hex');
+    repo.registerFiles({ versionId: version.id, files: [{ relativePath: 'SKILL.md', fileHash: originalHash, sizeBytes: Buffer.byteLength(originalContent) }] });
+    const installation = repo.install({ skillVersionId: version.id, status: 'pending' });
+
+    await service.deploy(installation, version, skill);
+
+    // Assert: DB file hash now matches the processed content, not the original
+    const files = repo.getFiles(version.id);
+    const processedHash = crypto.createHash('sha256').update(processedContent).digest('hex');
+    expect(files[0].fileHash).toBe(processedHash);
+    expect(files[0].fileHash).not.toBe(originalHash);
+  });
+
+  it('does NOT update DB hashes when deployed content matches original', async () => {
+    const content = '# Skill\nNo changes needed';
+    const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+
+    // Create an adapter that writes identical content
+    const adapter: DeployAdapter = {
+      id: 'identity',
+      displayName: 'Identity',
+      canDeploy: () => true,
+      deploy: async (ctx) => {
+        for (const file of ctx.files) {
+          const filePath = path.join(deployDir, file.relativePath);
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, content);
+        }
+        return { deployedPath: deployDir, deployedHash: 'hash123' };
+      },
+      undeploy: async () => {},
+      checkIntegrity: async () => ({ intact: true, modifiedFiles: [], missingFiles: [], unexpectedFiles: [] }),
+    };
+
+    const service = new DeployService(repo, [adapter], emitter);
+
+    const skill = repo.create(makeSkillInput());
+    const version = repo.addVersion(makeVersionInput(skill.id));
+    repo.registerFiles({ versionId: version.id, files: [{ relativePath: 'SKILL.md', fileHash: contentHash, sizeBytes: Buffer.byteLength(content) }] });
+    const installation = repo.install({ skillVersionId: version.id, status: 'pending' });
+
+    // Spy on updateFileHash to confirm it's never called
+    const originalUpdateFileHash = repo.updateFileHash.bind(repo);
+    let updateCalled = false;
+    repo.updateFileHash = (params) => { updateCalled = true; originalUpdateFileHash(params); };
+
+    await service.deploy(installation, version, skill);
+
+    // Assert: updateFileHash was NOT called (hashes match)
+    expect(updateCalled).toBe(false);
+
+    // Assert: DB hash unchanged
+    const files = repo.getFiles(version.id);
+    expect(files[0].fileHash).toBe(contentHash);
   });
 });
 

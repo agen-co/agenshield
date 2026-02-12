@@ -6,13 +6,19 @@ import type { SkillsRepository } from '@agenshield/storage';
 import type { EventEmitter } from 'node:events';
 import type { SkillEvent } from '../events';
 import type { UploadFromZipParams, UploadResult } from './types';
+import type { SkillBackupService } from '../backup';
 import * as crypto from 'node:crypto';
 
 export class UploadService {
+  private readonly backup: SkillBackupService | null;
+
   constructor(
     private readonly skills: SkillsRepository,
     private readonly emitter: EventEmitter,
-  ) {}
+    backup?: SkillBackupService | null,
+  ) {
+    this.backup = backup ?? null;
+  }
 
   private emit(event: SkillEvent): void {
     this.emitter.emit('skill-event', event);
@@ -55,9 +61,15 @@ export class UploadService {
           author: params.author,
           description: params.description,
           tags: params.tags ?? [],
-          source: 'manual',
+          source: params.source ?? 'manual',
         });
         this.emit({ type: 'skill:created', skill });
+      }
+
+      // Delete existing version if present (reinstall case — avoids UNIQUE constraint)
+      const existingVersion = this.skills.getVersion({ skillId: skill.id, version: params.version });
+      if (existingVersion) {
+        this.skills.deleteVersion(existingVersion.id);
       }
 
       // Register files
@@ -88,6 +100,9 @@ export class UploadService {
         versionId: version.id,
         files: fileEntries,
       });
+
+      // Save backup copies of file content for reinstall recovery
+      this.backup?.saveFiles(version.id, params.files);
 
       this.emit({ type: 'version:created', version });
       this.emit({ type: 'upload:completed', operationId, skill, version });

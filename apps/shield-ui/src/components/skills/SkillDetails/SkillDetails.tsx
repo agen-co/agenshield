@@ -1,7 +1,7 @@
 /**
  * Unified skill detail view.
  * Two-column layout: LEFT = metadata, RIGHT = analysis accordion + readme markdown.
- * Reads from the valtio skillsStore — skill is found via selectedSlug in the skills list.
+ * Reads from the valtio skillsStore — skill is found via selectedId in the skills list.
  */
 
 import {
@@ -25,6 +25,8 @@ import {
   Search,
   ChevronDown,
 } from 'lucide-react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSnapshot } from 'valtio';
 import PrimaryButton from '../../../elements/buttons/PrimaryButton';
 import SecondaryButton from '../../../elements/buttons/SecondaryButton';
@@ -39,9 +41,11 @@ import {
   unblockSkill,
   reinstallUntrustedSkill,
   deleteUntrustedSkill,
+  filterDisplayTags,
 } from '../../../stores/skills';
 import { useGuardedAction } from '../../../hooks/useGuardedAction';
 import { VulnBadge } from '../../shared/VulnBadge';
+import { ConfirmDialog } from '../../shared/ConfirmDialog';
 import { Root, ContentGrid, MetadataColumn, ReadmeCard, MetadataSection } from './SkillDetails.styles';
 
 const vulnColors: Record<string, 'success' | 'info' | 'warning' | 'error'> = {
@@ -62,9 +66,13 @@ const originChipConfig: Record<string, { label: string; color: 'warning' | 'defa
 export function SkillDetails() {
   const snap = useSnapshot(skillsStore);
   const guard = useGuardedAction();
+  const navigate = useNavigate();
+  const [confirmUninstall, setConfirmUninstall] = useState(false);
 
-  // Read from the single list using selectedSlug
-  const skill = snap.skills.find((s) => s.slug === snap.selectedSlug || s.name === snap.selectedSlug);
+  // Read from the single list using selectedId (installationId or slug)
+  const skill = snap.skills.find(
+    (s) => s.installationId === snap.selectedId || s.slug === snap.selectedId || s.name === snap.selectedId,
+  );
   const readme = skill?.readme;
 
   if (!skill) {
@@ -93,6 +101,10 @@ export function SkillDetails() {
   };
 
   const handleAction = () => {
+    if (skill.actionState === 'installed') {
+      setConfirmUninstall(true);
+      return;
+    }
     const label = getActionLabel(skill.actionState);
     guard(async () => {
       if (isUntrustedAnalyzed) {
@@ -106,9 +118,6 @@ export function SkillDetails() {
           break;
         case 'analyzed':
           await installSkill(skill.slug);
-          break;
-        case 'installed':
-          await uninstallSkill(skill.name);
           break;
         case 'blocked':
           await analyzeSkill(skill.slug);
@@ -229,20 +238,23 @@ export function SkillDetails() {
             </MetadataSection>
           )}
 
-          {/* Tags */}
-          {skill.tags && skill.tags.length > 0 && (
-            <MetadataSection>
-              <Typography variant="subtitle2" fontWeight={600}>
-                <Tag size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
-                Tags
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                {skill.tags.map((tag) => (
-                  <Chip key={tag} label={tag} size="small" variant="outlined" />
-                ))}
-              </Box>
-            </MetadataSection>
-          )}
+          {/* Tags (filtered: hide internal agentshield-* tags) */}
+          {(() => {
+            const displayTags = filterDisplayTags(skill.tags);
+            return displayTags.length > 0 ? (
+              <MetadataSection>
+                <Typography variant="subtitle2" fontWeight={600}>
+                  <Tag size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                  Tags
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                  {displayTags.map((tag) => (
+                    <Chip key={tag} label={tag} size="small" variant="outlined" />
+                  ))}
+                </Box>
+              </MetadataSection>
+            ) : null;
+          })()}
         </MetadataColumn>
 
         {/* RIGHT COLUMN: Analysis + Readme */}
@@ -336,6 +348,20 @@ export function SkillDetails() {
           </ReadmeCard>
         </Box>
       </ContentGrid>
+
+      <ConfirmDialog
+        open={confirmUninstall}
+        title="Uninstall Skill"
+        message={`Are you sure you want to uninstall "${skill.name}"? This will remove the skill and its deployed files.`}
+        confirmLabel="Uninstall"
+        variant="danger"
+        onConfirm={async () => {
+          setConfirmUninstall(false);
+          await uninstallSkill(skill.name);
+          navigate('/skills');
+        }}
+        onCancel={() => setConfirmUninstall(false)}
+      />
     </Root>
   );
 }

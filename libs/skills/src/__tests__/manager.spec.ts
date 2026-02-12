@@ -152,6 +152,18 @@ describe('SkillManager', () => {
     }
   });
 
+  it('creates backup service when backupDir is provided', () => {
+    const backupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mgr-backup-'));
+    const manager = new SkillManager(storage, { offlineMode: true, backupDir });
+    expect(manager.backup).not.toBeNull();
+    try { fs.rmSync(backupDir, { recursive: true }); } catch { /* */ }
+  });
+
+  it('backup is null when backupDir omitted', () => {
+    const manager = new SkillManager(storage, { offlineMode: true });
+    expect(manager.backup).toBeNull();
+  });
+
   it('deployer and watcher default to empty when no options', () => {
     const manager = new SkillManager(storage, { offlineMode: true });
     expect(manager.deployer).toBeDefined();

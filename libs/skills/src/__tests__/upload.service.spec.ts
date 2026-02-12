@@ -96,6 +96,35 @@ describe('UploadService', () => {
     expect(versions).toHaveLength(2);
   });
 
+  it('uploadFromFiles saves backup when backup service provided', () => {
+    const backupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'upload-backup-'));
+    const { SkillBackupService } = require('../backup');
+    const backup = new SkillBackupService(backupDir);
+    const svcWithBackup = new UploadService(repo, emitter, backup);
+
+    const files = [
+      { relativePath: 'index.ts', content: Buffer.from('console.log("hello")') },
+      { relativePath: 'lib/util.ts', content: Buffer.from('export const x = 1') },
+    ];
+
+    const result = svcWithBackup.uploadFromFiles({
+      name: 'Backup Test',
+      slug: 'backup-test',
+      version: '1.0.0',
+      author: 'tester',
+      files,
+    });
+
+    // Verify backup files exist on disk with correct content
+    expect(backup.hasBackup(result.version.id)).toBe(true);
+    const loaded = backup.loadFiles(result.version.id);
+    expect(loaded.size).toBe(2);
+    expect(loaded.get('index.ts')!.toString()).toBe('console.log("hello")');
+    expect(loaded.get('lib/util.ts')!.toString()).toBe('export const x = 1');
+
+    try { fs.rmSync(backupDir, { recursive: true }); } catch { /* */ }
+  });
+
   it('uploadFromFiles generates deterministic content hash', () => {
     const files = [
       { relativePath: 'b.ts', content: Buffer.from('b-content') },

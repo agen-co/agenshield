@@ -2,7 +2,7 @@
  * Centralized valtio store for all skills state.
  *
  * Single-list architecture: all skill data lives in `skills[]`.
- * `selectedSlug` points into the list — no separate selectedSkill copy.
+ * `selectedId` points into the list — no separate selectedSkill copy.
  * Detail fetches update entries in-place via `upsertSkill`.
  */
 
@@ -51,6 +51,7 @@ export interface UnifiedSkill {
   version: string;
   origin: SkillOrigin;
   actionState: SkillActionState;
+  installationId?: string;
   analysis?: AnalysisResult | null;
   analysisStatus?: 'pending' | 'complete' | 'error' | null;
   tags?: string[];
@@ -70,8 +71,8 @@ export interface UnifiedSkill {
 
 export interface SkillsStore {
   skills: UnifiedSkill[];
-  /** Points into skills[] — no separate copy */
-  selectedSlug: string | null;
+  /** Points into skills[] — installationId for installed, slug for others */
+  selectedId: string | null;
   searchQuery: string;
   searchLoading: boolean;
   searchError: string | null;
@@ -83,7 +84,7 @@ export interface SkillsStore {
 
 export const skillsStore = proxy<SkillsStore>({
   skills: [],
-  selectedSlug: null,
+  selectedId: null,
   searchQuery: '',
   searchLoading: false,
   searchError: null,
@@ -177,6 +178,7 @@ function mapDaemonSkill(s: DaemonSkillSummary): UnifiedSkill {
     version: s.version ?? '',
     origin,
     actionState,
+    installationId: s.installationId,
     tags: s.tags ?? [],
     path: s.path,
     source: s.source,
@@ -261,12 +263,12 @@ function mergeSkills(installed: UnifiedSkill[], search: UnifiedSkill[]): Unified
   });
 }
 
-function findSkill(slug: string): UnifiedSkill | undefined {
-  return skillsStore.skills.find((s) => s.slug === slug || s.name === slug);
+function findSkill(id: string): UnifiedSkill | undefined {
+  return skillsStore.skills.find((s) => s.installationId === id || s.slug === id || s.name === id);
 }
 
-function updateSkill(slug: string, updates: Partial<UnifiedSkill>): void {
-  const idx = skillsStore.skills.findIndex((s) => s.slug === slug || s.name === slug);
+function updateSkill(id: string, updates: Partial<UnifiedSkill>): void {
+  const idx = skillsStore.skills.findIndex((s) => s.installationId === id || s.slug === id || s.name === id);
   if (idx !== -1) {
     Object.assign(skillsStore.skills[idx], updates);
   }
@@ -518,7 +520,7 @@ export async function uploadSkillZip(file: File): Promise<void> {
  */
 export async function fetchSkillDetail(slugOrName: string): Promise<void> {
   skillsStore.selectedLoading = true;
-  skillsStore.selectedSlug = slugOrName;
+  skillsStore.selectedId = slugOrName;
 
   try {
     // Daemon returns same shape as list items + content
@@ -564,6 +566,13 @@ export function clearSearch(): void {
   skillsStore.skills = mergeSkills(installedSkillsCache, []);
 }
 
+/** Filter out internal agentshield-* tags for display purposes */
+const INTERNAL_TAG_PREFIX = 'agentshield-';
+export function filterDisplayTags(tags: string[] | readonly string[] | null | undefined): string[] {
+  if (!tags) return [];
+  return (tags as string[]).filter(t => !t.startsWith(INTERNAL_TAG_PREFIX));
+}
+
 /** Filter skills to only trusted (installed/downloaded/local/search/blocked) */
 export function getTrustedSkills(skills: readonly { origin: string }[]): UnifiedSkill[] {
   return skills.filter((s) => s.origin !== 'untrusted') as unknown as UnifiedSkill[];
@@ -593,11 +602,11 @@ export async function deleteUntrustedSkill(name: string): Promise<void> {
   try {
     await deleteSkillDaemon(name);
     // Clear selection if viewing the deleted skill
-    const sel = skillsStore.selectedSlug;
+    const sel = skillsStore.selectedId;
     if (sel) {
       const skill = findSkill(sel);
       if (skill && (skill.name === name || skill.slug === name)) {
-        skillsStore.selectedSlug = null;
+        skillsStore.selectedId = null;
       }
     }
     await fetchInstalledSkills(); // Daemon no longer returns deleted skill
@@ -668,13 +677,28 @@ export function handleSkillSSEEvent(type: string, rawEvent: Record<string, unkno
       break;
     }
     case 'skills:uninstalled': {
-      notify.success(`Skill "${name}" uninstalled`);
+      // Don't notify here — uninstallSkill() already shows a success toast.
+      // SSE handler only refreshes the list.
       fetchInstalledSkills();
       break;
     }
     case 'skills:untrusted_detected': {
       const reason = (payload.reason as string) || 'Skill not in approved list';
       notify.warning(`Untrusted skill detected: "${name}" — ${reason}`);
+      fetchInstalledSkills();
+      break;
+    }
+    case 'skills:integrity_violation': {
+      const action = (payload.action as string) || 'unknown';
+      const modified = (payload.modifiedFiles as string[]) || [];
+      const missing = (payload.missingFiles as string[]) || [];
+      const fileList = [...modified, ...missing].slice(0, 3).join(', ');
+      const suffix = fileList ? `: ${fileList}` : '';
+      notify.warning(`Integrity violation on "${name}" (${action})${suffix}`);
+      break;
+    }
+    case 'skills:integrity_restored': {
+      notify.success(`Skill "${name}" restored to original content`);
       fetchInstalledSkills();
       break;
     }

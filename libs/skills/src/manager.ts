@@ -33,6 +33,10 @@ import { DeployService } from './deploy/deploy.service';
 import { SkillWatcherService } from './watcher/watcher.service';
 import type { WatcherOptions } from './watcher/types';
 import type { SkillEvent } from './events';
+import { SyncService } from './sync/sync.service';
+import type { SyncServiceOptions } from './sync/sync.service';
+import type { AdapterSyncResult, TargetPlatform } from '@agenshield/ipc';
+import { SkillBackupService } from './backup';
 
 /** @deprecated Use AnalyzeAdapter instead */
 export type SkillAnalyzer = AnalyzeAdapter;
@@ -53,6 +57,10 @@ export interface SkillManagerOptions {
   watcher?: WatcherOptions;
   /** Start the watcher automatically on construction (default: false) */
   autoStartWatcher?: boolean;
+  /** Sync service options (event callback) */
+  syncOptions?: SyncServiceOptions;
+  /** Directory for storing backup copies of skill files */
+  backupDir?: string;
 }
 
 export class SkillManager extends EventEmitter {
@@ -63,6 +71,8 @@ export class SkillManager extends EventEmitter {
   readonly updater: UpdateService;
   readonly deployer: DeployService;
   readonly watcher: SkillWatcherService;
+  readonly sync: SyncService;
+  readonly backup: SkillBackupService | null;
 
   private readonly skills: import('@agenshield/storage').SkillsRepository;
 
@@ -86,16 +96,20 @@ export class SkillManager extends EventEmitter {
     const searchAdapters: SearchAdapter[] = [new LocalSearchAdapter(skills)];
     if (remote) searchAdapters.push(new RemoteSearchAdapter(remote));
 
+    // Build backup service (optional)
+    this.backup = options?.backupDir ? new SkillBackupService(options.backupDir) : null;
+
     // Build deploy + watcher services
-    this.deployer = new DeployService(skills, options?.deployers ?? [], this);
-    this.watcher = new SkillWatcherService(skills, this.deployer, this, options?.watcher);
+    this.deployer = new DeployService(skills, options?.deployers ?? [], this, this.backup);
+    this.watcher = new SkillWatcherService(skills, this.deployer, this, options?.watcher, this.backup);
 
     // Construct services
     this.catalog = new CatalogService(skills, searchAdapters);
     this.installer = new InstallService(skills, remote, this, this.deployer);
     this.analyzer = new AnalyzeService(skills, analyzerAdapters, this);
-    this.uploader = new UploadService(skills, this);
+    this.uploader = new UploadService(skills, this, this.backup);
     this.updater = new UpdateService(skills, remote, this);
+    this.sync = new SyncService(this, skills, options?.syncOptions);
 
     // Bridge internal SkillEvents to the typed EventBus
     if (options?.eventBus) {
@@ -126,30 +140,95 @@ export class SkillManager extends EventEmitter {
         case 'analyze:error':
           bus.emit('skills:analysis_failed', { name: event.versionId, error: event.error });
           break;
-        case 'uninstall:completed':
-          bus.emit('skills:uninstalled', { name: event.installationId });
-          break;
+        // uninstall:completed — NOT bridged here; daemon route handlers call
+        // broadcast('skills:uninstalled') which hits both EventBus and SSE.
+        // Bridging here would cause duplicate EventBus emissions.
         case 'deploy:completed':
           bus.emit('skills:deployed', { name: event.installationId, adapterId: event.adapterId });
           break;
         case 'deploy:error':
           bus.emit('skills:deploy_failed', { name: event.installationId, error: event.error });
           break;
-        case 'watcher:integrity-violation':
-          bus.emit('skills:integrity_violation', { name: event.installationId, action: event.action });
+        case 'watcher:integrity-violation': {
+          const slug = this._resolveSlugForInstallation(event.installationId);
+          bus.emit('skills:integrity_violation', {
+            name: event.installationId,
+            slug,
+            action: event.action,
+            modifiedFiles: event.modifiedFiles,
+            missingFiles: event.missingFiles,
+            unexpectedFiles: event.unexpectedFiles,
+          });
+          break;
+        }
+        case 'watcher:reinstalled': {
+          const slug = this._resolveSlugForInstallation(event.installationId);
+          bus.emit('skills:integrity_restored', {
+            name: event.installationId,
+            slug,
+            modifiedFiles: [],
+            missingFiles: [],
+          });
+          break;
+        }
+        case 'watcher:quarantined':
+          bus.emit('skills:quarantined', {
+            name: event.installationId,
+            reason: 'Integrity violation — skill quarantined',
+          });
           break;
       }
     });
   }
 
+  /** Resolve a human-readable slug from an installationId (UUID). Falls back to installationId. */
+  private _resolveSlugForInstallation(installationId: string): string {
+    try {
+      const inst = this.skills.getInstallationById(installationId);
+      if (!inst) return installationId;
+      const version = this.skills.getVersionById(inst.skillVersionId);
+      if (!version) return installationId;
+      const skill = this.skills.getById(version.skillId);
+      return skill?.slug ?? installationId;
+    } catch {
+      return installationId;
+    }
+  }
+
   // ---- Convenience methods (delegate to services) ----
 
   async install(params: InstallParams): Promise<SkillInstallation> {
-    return this.installer.install(params);
+    // Resolve slug before install to suppress watcher
+    let slug: string | undefined;
+    if (params.skillId) {
+      const skill = this.skills.getById(params.skillId);
+      slug = skill?.slug;
+    }
+    if (slug) this.watcher.suppressSlug(slug);
+    try {
+      return await this.installer.install(params);
+    } finally {
+      if (slug) this.watcher.unsuppressSlug(slug);
+    }
   }
 
   async uninstall(installationId: string): Promise<boolean> {
-    return this.installer.uninstall(installationId);
+    // Resolve slug before uninstall to suppress watcher
+    const inst = this.skills.getInstallationById(installationId);
+    let slug: string | undefined;
+    if (inst) {
+      const version = this.skills.getVersionById(inst.skillVersionId);
+      if (version) {
+        const skill = this.skills.getById(version.skillId);
+        slug = skill?.slug;
+      }
+    }
+    if (slug) this.watcher.suppressSlug(slug);
+    try {
+      return await this.installer.uninstall(installationId);
+    } finally {
+      if (slug) this.watcher.unsuppressSlug(slug);
+    }
   }
 
   async search(query: string): Promise<SkillSearchResult[]> {
@@ -180,6 +259,11 @@ export class SkillManager extends EventEmitter {
     return this.catalog.getDetail(id)?.skill ?? null;
   }
 
+  /** Convenience: sync a single source via the SyncService */
+  async syncSource(sourceId: string, target: TargetPlatform): Promise<AdapterSyncResult> {
+    return this.sync.syncSource(sourceId, target);
+  }
+
   /** Start the integrity watcher */
   startWatcher(): void {
     this.watcher.start();
@@ -205,8 +289,8 @@ export class SkillManager extends EventEmitter {
     // Approve the version
     this.skills.approveVersion(version.id);
 
-    // Install and deploy
-    return this.installer.install({
+    // Install and deploy (via this.install for watcher suppression)
+    return this.install({
       skillId: skill.id,
       targetId: opts?.targetId,
       userUsername: opts?.userUsername,
@@ -227,7 +311,7 @@ export class SkillManager extends EventEmitter {
 
     for (const inst of installations) {
       if (versionIds.has(inst.skillVersionId) && inst.status === 'active') {
-        await this.installer.uninstall(inst.id);
+        await this.uninstall(inst.id);
       }
     }
 
@@ -252,7 +336,7 @@ export class SkillManager extends EventEmitter {
 
     for (const inst of installations) {
       if (versionIds.has(inst.skillVersionId)) {
-        await this.installer.uninstall(inst.id).catch(() => {
+        await this.uninstall(inst.id).catch(() => {
           /* best-effort */
         });
       }
@@ -278,8 +362,8 @@ export class SkillManager extends EventEmitter {
     const activeInst = installations.find((i) => versionIds.has(i.skillVersionId) && i.status === 'active');
 
     if (activeInst) {
-      // Disable: uninstall
-      await this.installer.uninstall(activeInst.id);
+      // Disable: uninstall (via this.uninstall for watcher suppression)
+      await this.uninstall(activeInst.id);
       return { action: 'disabled' };
     } else {
       // Enable: install latest approved version
@@ -291,7 +375,7 @@ export class SkillManager extends EventEmitter {
         this.skills.approveVersion(version.id);
       }
 
-      await this.installer.install({
+      await this.install({
         skillId: skill.id,
         targetId: opts?.targetId,
         userUsername: opts?.userUsername,
@@ -320,5 +404,12 @@ export class SkillManager extends EventEmitter {
    */
   getRepository(): import('@agenshield/storage').SkillsRepository {
     return this.skills;
+  }
+
+  /**
+   * Get the watcher service (for external callers that need to suppress/unsuppress slugs).
+   */
+  getWatcher(): SkillWatcherService {
+    return this.watcher;
   }
 }

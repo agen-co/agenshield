@@ -21,6 +21,10 @@ export interface WatcherOptions {
   installationPolicies?: Record<string, Partial<WatcherPolicy>>;
   /** Skills directory to scan for new/unknown skills (filesystem scan) */
   skillsDir?: string;
+  /** Directory to move unregistered skills for quarantine + analysis */
+  quarantineDir?: string;
+  /** Debounce interval for fs.watch events in ms (default: 500) */
+  fsScanDebounceMs?: number;
 }
 
 /** Callback for when a new skill is detected during filesystem scan */

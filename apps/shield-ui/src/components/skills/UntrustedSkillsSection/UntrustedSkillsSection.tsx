@@ -9,7 +9,7 @@ import { SectionRoot, SectionHeader, CountBadge } from './UntrustedSkillsSection
 
 interface UntrustedSkillsSectionProps {
   skills: readonly UnifiedSkill[];
-  onCardClick: (slug: string) => void;
+  onCardClick: (id: string) => void;
   onAction: (skill: UnifiedSkill) => void;
   onDelete: (skill: UnifiedSkill) => void;
 }

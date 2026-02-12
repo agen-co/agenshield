@@ -5,6 +5,7 @@
  * agen.co vulnerability analysis, and local skill installation.
  */
 
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type {
@@ -427,6 +428,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
             author: publisher,
             description: skill.description,
             tags: skill.tags,
+            source: 'marketplace',
             files: taggedFiles.map((f) => ({
               relativePath: f.name,
               content: Buffer.from(f.content, 'utf-8'),
@@ -434,23 +436,45 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           });
           logs.push('Skill registered in database');
 
-          // 6b. Store analysis in DB version
-          const repo = manager.getRepository();
-          const dbSkill = repo.getBySlug(slug);
-          if (dbSkill) {
-            const version = repo.getLatestVersion(dbSkill.id);
-            if (version) {
-              repo.updateAnalysis(version.id, {
-                status: analysisResult.status === 'complete' ? 'complete' : 'error',
-                json: analysisResult,
-                analyzedAt: new Date().toISOString(),
-              });
+          // Suppress watcher during file write + deploy to prevent false "no active installation" alerts
+          manager.getWatcher().suppressSlug(slug);
+          let installation: Awaited<ReturnType<typeof manager.approveSkill>>;
+          try {
+            // Write raw files to workspace/skills/{slug}/ so deploy adapter can read them
+            if (skillsDir) {
+              const destDir = path.join(skillsDir, slug);
+              fs.mkdirSync(destDir, { recursive: true });
+              for (const f of files) {
+                const filePath = path.join(destDir, f.name);
+                fs.mkdirSync(path.dirname(filePath), { recursive: true });
+                fs.writeFileSync(filePath, f.content, 'utf-8');
+              }
             }
-          }
 
-          // 7. Approve + Deploy (DaemonDeployAdapter handles: broker/sudo, wrapper, policy, file ownership)
-          emitSkillInstallProgress(slug, 'copy', 'Deploying skill files');
-          const installation = await manager.approveSkill(slug);
+            // 6b. Store analysis in DB version
+            const repo = manager.getRepository();
+            const dbSkill = repo.getBySlug(slug);
+            if (dbSkill) {
+              const version = repo.getLatestVersion(dbSkill.id);
+              if (version) {
+                repo.updateAnalysis(version.id, {
+                  status: analysisResult.status === 'complete' ? 'complete' : 'error',
+                  json: analysisResult,
+                  analyzedAt: new Date().toISOString(),
+                });
+              }
+            }
+
+            // 7. Approve + Deploy (DaemonDeployAdapter handles: broker/sudo, wrapper, policy, file ownership)
+            emitSkillInstallProgress(slug, 'copy', 'Deploying skill files');
+            const ctx = request.shieldContext;
+            installation = await manager.approveSkill(slug, {
+              targetId: ctx.targetId ?? undefined,
+              userUsername: ctx.userUsername ?? undefined,
+            });
+          } finally {
+            manager.getWatcher().unsuppressSlug(slug);
+          }
           logs.push('Skill approved and deployed');
           if (installation.wrapperPath) {
             logs.push(`Wrapper created: ${installation.wrapperPath}`);
@@ -511,13 +535,17 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           }
 
           // 9. Recompute integrity hash in DB
-          if (dbSkill) {
-            const version = repo.getLatestVersion(dbSkill.id);
-            if (version) {
-              try {
-                repo.recomputeContentHash(version.id);
-                logs.push('Integrity hash recorded');
-              } catch { /* best-effort */ }
+          {
+            const repo = manager.getRepository();
+            const dbSkill = repo.getBySlug(slug);
+            if (dbSkill) {
+              const version = repo.getLatestVersion(dbSkill.id);
+              if (version) {
+                try {
+                  repo.recomputeContentHash(version.id);
+                  logs.push('Integrity hash recorded');
+                } catch { /* best-effort */ }
+              }
             }
           }
 

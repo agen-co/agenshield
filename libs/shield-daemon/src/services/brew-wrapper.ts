@@ -15,6 +15,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { PROXIED_COMMANDS, BASIC_SYSTEM_COMMANDS } from '@agenshield/sandbox';
 import { writeFileViaBroker, copyFileViaBroker, mkdirViaBroker, isBrokerAvailable } from './broker-bridge';
+import { isDevMode } from '../config/paths';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -149,10 +150,10 @@ export function discoverBrewBinaries(options: {
       `brew list ${formula}`,
     ].join(' && ');
 
-    const output = execSync(
-      `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${brewCmd}'`,
-      { encoding: 'utf-8', timeout: 10_000, cwd: '/' },
-    );
+    const brewExec = isDevMode()
+      ? `/bin/bash --norc --noprofile -c '${brewCmd}'`
+      : `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${brewCmd}'`;
+    const output = execSync(brewExec, { encoding: 'utf-8', timeout: 10_000, cwd: '/' });
 
     const homebrewBinDir = path.join(agentHome, 'homebrew', 'bin') + '/';
     for (const line of output.split('\n')) {
@@ -348,12 +349,14 @@ export async function installBrewWrapper(options: {
     }
   }
 
-  // Set ownership: root:<socketGroup>
-  try {
-    execSync(`chown root:${socketGroup} "${wrapperPath}"`, { stdio: 'pipe' });
-    execSync(`chmod 755 "${wrapperPath}"`, { stdio: 'pipe' });
-  } catch {
-    // May fail if not root — acceptable in development
+  // Set ownership: root:<socketGroup> (skip in dev mode — no system user)
+  if (!isDevMode()) {
+    try {
+      execSync(`chown root:${socketGroup} "${wrapperPath}"`, { stdio: 'pipe' });
+      execSync(`chmod 755 "${wrapperPath}"`, { stdio: 'pipe' });
+    } catch {
+      // May fail if not root — acceptable in development
+    }
   }
 }
 
@@ -578,10 +581,10 @@ export async function uninstallBrewBinaryWrappers(options: {
           `brew uninstall ${formula} 2>/dev/null || true`,
         ].join(' && ');
 
-        execSync(
-          `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${brewCmd}'`,
-          { timeout: 30_000, cwd: '/', stdio: 'pipe' },
-        );
+        const brewExec = isDevMode()
+          ? `/bin/bash --norc --noprofile -c '${brewCmd}'`
+          : `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${brewCmd}'`;
+        execSync(brewExec, { timeout: 30_000, cwd: '/', stdio: 'pipe' });
         onLog(`Uninstalled brew formula: ${formula}`);
       } catch (err) {
         errors.push(`Failed to uninstall formula ${formula}: ${(err as Error).message}`);

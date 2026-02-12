@@ -5,22 +5,20 @@
  * MCP server. Implements tool discovery, skill generation, binary
  * requirements, and security instructions using the integration catalog.
  *
- * All skill generation logic (master + per-integration) lives here,
- * extracted from services/integration-skills.ts.
+ * All skill generation logic (master + per-integration) lives here.
+ * Content is generated entirely in-memory — no bundled templates on disk.
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { BUILTIN_SKILLS_DIR, computeSkillDefinitionSha } from '@agenshield/skills';
+import * as crypto from 'node:crypto';
 import type {
+  SourceSkillFile,
   SkillDefinition,
-  SkillFile,
   DiscoveredTool,
   RequiredBinary,
   AdapterInstructions,
   TargetPlatform,
   ToolQuery,
-} from '@agenshield/skills';
+} from '@agenshield/ipc';
 import { AGENCO_PRESET } from '@agenshield/ipc';
 import { INTEGRATION_CATALOG } from '../data/integration-catalog';
 import type { MCPConnectionConfig } from './mcp-source';
@@ -28,6 +26,21 @@ import type { MCPConnectionConfig } from './mcp-source';
 const MASTER_SKILL_NAME = 'agenco';
 const INTEGRATION_SKILL_PREFIX = 'agenco-';
 const SOURCE_ID = 'mcp';
+
+// ─── Helpers ─────────────────────────────────────────────────────
+
+/**
+ * Compute SHA-256 from an array of SourceSkillFile objects.
+ */
+function computeSkillDefinitionSha(files: SourceSkillFile[]): string {
+  const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name));
+  const hash = crypto.createHash('sha256');
+  for (const file of sorted) {
+    hash.update(file.name);
+    hash.update(file.content);
+  }
+  return hash.digest('hex');
+}
 
 // ─── Content Generators ──────────────────────────────────────────
 
@@ -44,14 +57,32 @@ function generateMetaJson(slug: string, version = '1.0.0'): string {
 }
 
 /**
- * Generate the master SKILL.md by reading the bundled template and appending
- * a dynamic "Currently Connected Integrations" section.
+ * Generate the master SKILL.md entirely in-memory with a dynamic
+ * "Currently Connected Integrations" section.
  */
 function generateMasterSkillMd(connectedIds: string[]): string {
-  const templatePath = path.join(BUILTIN_SKILLS_DIR, MASTER_SKILL_NAME, 'SKILL.md');
-  let template = fs.readFileSync(templatePath, 'utf-8');
-
   const lines: string[] = [
+    '---',
+    'name: agenco',
+    "description: 'Execute third-party integration tools through AgenCo secure cloud gateway'",
+    'user-invocable: false',
+    'disable-model-invocation: false',
+    '',
+    'requires:',
+    '  bins:',
+    '    - agenco',
+    '',
+    'agenshield:',
+    '  policy: builtin-agenco',
+    '  required-approval: false',
+    '  audit-level: info',
+    '  security-level: high',
+    '---',
+    '',
+    '# AgenCo Secure Integrations',
+    '',
+    'Execute third-party integration tools through the AgenCo secure cloud gateway.',
+    'All tool calls are routed through the AgenShield policy engine for audit and enforcement.',
     '',
     '## Currently Connected Integrations',
     '',
@@ -74,8 +105,7 @@ function generateMasterSkillMd(connectedIds: string[]): string {
   }
 
   lines.push('');
-  template = template.trimEnd() + '\n' + lines.join('\n');
-  return template;
+  return lines.join('\n');
 }
 
 /**
@@ -135,21 +165,10 @@ function generateIntegrationSkillMd(integrationId: string): string | null {
 function buildMasterSkillDef(connectedIds: string[], _target: TargetPlatform): SkillDefinition {
   const skillMd = generateMasterSkillMd(connectedIds);
 
-  const files: SkillFile[] = [
+  const files: SourceSkillFile[] = [
     { name: 'SKILL.md', content: skillMd },
     { name: '_meta.json', content: generateMetaJson(MASTER_SKILL_NAME) },
   ];
-
-  // Include static bundled files (bin, config)
-  const binPath = path.join(BUILTIN_SKILLS_DIR, MASTER_SKILL_NAME, 'bin', 'agenco.mjs');
-  const configPath = path.join(BUILTIN_SKILLS_DIR, MASTER_SKILL_NAME, 'config', 'mcp-template.json');
-
-  if (fs.existsSync(binPath)) {
-    files.push({ name: 'bin/agenco.mjs', content: fs.readFileSync(binPath, 'utf-8'), mode: 0o755 });
-  }
-  if (fs.existsSync(configPath)) {
-    files.push({ name: 'config/mcp-template.json', content: fs.readFileSync(configPath, 'utf-8') });
-  }
 
   return {
     skillId: MASTER_SKILL_NAME,
@@ -180,7 +199,7 @@ function buildIntegrationSkillDef(integrationId: string, target: TargetPlatform)
   const skillName = `${INTEGRATION_SKILL_PREFIX}${integrationId}`;
   const details = INTEGRATION_CATALOG[integrationId];
 
-  const files: SkillFile[] = [
+  const files: SourceSkillFile[] = [
     { name: 'SKILL.md', content: skillMdContent },
     { name: '_meta.json', content: generateMetaJson(skillName) },
   ];

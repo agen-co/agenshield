@@ -38,7 +38,8 @@ declare module '@agenshield/ipc' {
     'skills:uninstalled': SkillNamePayload;
     'skills:deployed': { name: string; adapterId: string };
     'skills:deploy_failed': { name: string; error: string };
-    'skills:integrity_violation': { name: string; action: string };
+    'skills:integrity_violation': { name: string; slug: string; action: string; modifiedFiles: string[]; missingFiles: string[]; unexpectedFiles: string[] };
+    'skills:integrity_restored': { name: string; slug: string; modifiedFiles: string[]; missingFiles: string[] };
   }
 }
 
@@ -56,6 +57,7 @@ export const SKILL_EVENT_TYPES = [
   'skills:deployed',
   'skills:deploy_failed',
   'skills:integrity_violation',
+  'skills:integrity_restored',
 ] as const;
 
 registerEventTypes(SKILL_EVENT_TYPES);

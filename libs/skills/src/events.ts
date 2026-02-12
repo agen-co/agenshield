@@ -96,4 +96,6 @@ export type SkillEvent =
   | { type: 'watcher:quarantined'; operationId: string; installationId: string }
   | { type: 'watcher:reinstalled'; operationId: string; installationId: string }
   | { type: 'watcher:action-error'; operationId: string; installationId: string; action: string; error: string }
+  | { type: 'watcher:skill-detected'; operationId: string; slug: string; version: string; quarantinePath: string; reason: string }
+  | { type: 'watcher:fs-change'; slug: string }
   | { type: 'watcher:error'; error: string };

@@ -12,24 +12,28 @@ import { SkillDetails } from '../components/skills/SkillDetails';
 import { skillsStore, fetchSkillDetail } from '../stores/skills';
 
 export function SkillPage() {
-  const { slug } = useParams<{ slug: string }>();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const snap = useSnapshot(skillsStore);
 
   useEffect(() => {
-    if (slug) {
-      skillsStore.selectedSlug = slug;
+    if (id) {
+      skillsStore.selectedId = id;
       // Fetch detail if not already loaded
-      const existing = skillsStore.skills.find((s) => s.slug === slug || s.name === slug);
+      const existing = skillsStore.skills.find(
+        (s) => s.installationId === id || s.slug === id || s.name === id,
+      );
       if (!existing?.detailLoaded) {
-        fetchSkillDetail(slug);
+        fetchSkillDetail(id);
       }
     }
-  }, [slug]);
+  }, [id]);
 
-  const selectedSkill = snap.skills.find((s) => s.slug === snap.selectedSlug || s.name === snap.selectedSlug);
+  const selectedSkill = snap.skills.find(
+    (s) => s.installationId === snap.selectedId || s.slug === snap.selectedId || s.name === snap.selectedId,
+  );
 
-  if (!slug) return null;
+  if (!id) return null;
 
   return (
     <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>

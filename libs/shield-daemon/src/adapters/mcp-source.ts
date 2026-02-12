@@ -17,7 +17,7 @@ import type {
   AdapterInstructions,
   TargetPlatform,
   ToolQuery,
-} from '@agenshield/skills';
+} from '@agenshield/ipc';
 
 /**
  * Configuration for a single MCP connection within the MCPSkillSource.

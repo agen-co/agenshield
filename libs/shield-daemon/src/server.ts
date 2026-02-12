@@ -18,12 +18,12 @@ import { registerRoutes } from './routes/index';
 import { getUiAssetsPath } from './static';
 import { startSecurityWatcher, stopSecurityWatcher } from './watchers/security';
 import { startProcessHealthWatcher, stopProcessHealthWatcher } from './watchers/process-health';
-import { emitSkillUntrustedDetected, emitProcessStarted, emitProcessStopped, eventBus } from './events/emitter';
+import { emitSkillUntrustedDetected, emitProcessStarted, emitProcessStopped, eventBus, daemonEvents } from './events/emitter';
 import { getVault, getInstallationKey } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
 import { getActivityLog } from './services/activity-log';
 import { shutdownProxyPool } from './proxy/pool';
-import { getConfigDir } from './config/paths';
+import { getConfigDir, getQuarantineDir, getSkillBackupDir, isDevMode } from './config/paths';
 import { DaemonDeployAdapter } from './adapters/daemon-deploy-adapter';
 import { migrateSkillsToSqlite } from './migration/skill-migration';
 import {
@@ -84,23 +84,33 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
 
   // Derive paths
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-  const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
+  const skillsDir = path.resolve(`${agentHome}/.openclaw/workspace/skills`);
   const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
+
+  const devMode = isDevMode();
 
   // Ensure skills directory exists with proper permissions
   if (!fs.existsSync(skillsDir)) {
-    fs.mkdirSync(skillsDir, { recursive: true, mode: 0o2775 });
-    try {
-      execSync(`chown -R root:${socketGroup} "${skillsDir}"`, { stdio: 'pipe' });
-    } catch { /* best-effort — may not be root */ }
+    if (devMode) {
+      fs.mkdirSync(skillsDir, { recursive: true });
+    } else {
+      fs.mkdirSync(skillsDir, { recursive: true, mode: 0o2775 });
+      try {
+        execSync(`chown -R root:${socketGroup} "${skillsDir}"`, { stdio: 'pipe' });
+      } catch { /* best-effort — may not be root */ }
+    }
     console.log(`[Daemon] Created skills directory: ${skillsDir}`);
-  } else {
+  } else if (!devMode) {
     try {
       const stat = fs.statSync(skillsDir);
       if ((stat.mode & 0o7777) !== 0o2775) {
         fs.chmodSync(skillsDir, 0o2775);
       }
     } catch { /* best-effort */ }
+  }
+
+  if (devMode) {
+    console.log(`[Daemon] Running in DEV MODE — agentHome=${agentHome}, skillsDir=${skillsDir}`);
   }
 
   // Initialize installation key (generate if first run, cache for sync access in watcher)
@@ -119,19 +129,33 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // ─── Run one-time JSON → SQLite migration ────────────────────
   migrateSkillsToSqlite(storage, skillsDir);
 
+  // ─── Ensure quarantine directory exists ─────────────────────
+  const quarantineDir = getQuarantineDir();
+  if (!fs.existsSync(quarantineDir)) {
+    fs.mkdirSync(quarantineDir, { recursive: true });
+  }
+
+  // ─── Ensure skill backup directory exists ──────────────────
+  const backupDir = getSkillBackupDir();
+  if (!fs.existsSync(backupDir)) {
+    fs.mkdirSync(backupDir, { recursive: true });
+  }
+
   // ─── Initialize SkillManager (new SQLite-backed) ─────────────
   const deployAdapter = new DaemonDeployAdapter({
     skillsDir,
     agentHome,
     socketGroup,
     binDir: path.join(agentHome, 'bin'),
+    devMode,
   });
 
   const skillManager = new SkillManager(storage, {
     deployers: [deployAdapter],
-    watcher: { pollIntervalMs: 30000, skillsDir },
+    watcher: { pollIntervalMs: 30000, skillsDir, quarantineDir },
     autoStartWatcher: true,
     eventBus,
+    backupDir,
   });
 
   // Wire watcher scan callbacks to emit daemon events
@@ -139,30 +163,49 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     onQuarantined: (slug, reason) => emitSkillUntrustedDetected(slug, reason),
   });
 
+  // Forward watcher events from SkillManager to daemonEvents (SSE + ActivityLog).
+  // The EventBus already receives these via _bridgeToEventBus; posting directly to
+  // daemonEvents.broadcast (not the broadcast() helper) avoids double EventBus emission.
+  skillManager.on('skill-event', (event: import('@agentshield/skills').SkillEvent) => {
+    switch (event.type) {
+      case 'watcher:integrity-violation':
+        daemonEvents.broadcast('skills:integrity_violation', {
+          name: event.installationId,
+          slug: event.installationId, // daemon bridge resolves slug separately in EventBus
+          action: event.action,
+          modifiedFiles: event.modifiedFiles,
+          missingFiles: event.missingFiles,
+          unexpectedFiles: event.unexpectedFiles,
+        });
+        break;
+      case 'watcher:reinstalled':
+        daemonEvents.broadcast('skills:integrity_restored', {
+          name: event.installationId,
+          slug: event.installationId,
+          modifiedFiles: [],
+          missingFiles: [],
+        });
+        break;
+      case 'watcher:quarantined':
+        daemonEvents.broadcast('skills:quarantined', {
+          name: event.installationId,
+          reason: 'Integrity violation — skill quarantined',
+        });
+        break;
+    }
+  });
+
   // Decorate app so routes can access the manager
   app.decorate('skillManager', skillManager);
 
-  // ─── Legacy SkillsManager for AgenCo sync (kept during migration) ──
+  // ─── Register sync sources with SkillManager ─────────────────
   try {
-    const { SkillsManager } = await import('@agenshield/skills');
-    const { DaemonSkillInstaller, DaemonVersionStore } = await import('./adapters/index.js');
-    const versionStore = new DaemonVersionStore();
-    const installer = new DaemonSkillInstaller();
-    const skillsManager = new SkillsManager({
-      versionStore,
-      installer,
-      onEvent: (e: { type: string; skillId?: string }) => {
-        console.log(`[SkillsManager] ${e.type}`, e.skillId ?? '');
-      },
-    });
-
-    // Register MCP source with AgenCo connection
     const mcpSource = new MCPSkillSource();
     const { loadState: loadStateForManager } = await import('./state/index.js');
     await mcpSource.addConnection(createAgenCoConnection({
       getConnectedIntegrations: () => loadStateForManager().agenco.connectedIntegrations ?? [],
     }));
-    await skillsManager.registerSource(mcpSource);
+    await skillManager.sync.registerSource(mcpSource);
 
     // Register remote source (wraps marketplace.ts)
     const {
@@ -177,14 +220,11 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
       downloadAndExtractZip,
       listDownloadedSkills,
     });
-    await skillsManager.registerSource(remoteSource);
+    await skillManager.sync.registerSource(remoteSource);
 
-    // Keep legacy manager on app for AgenCo sync
-    app.decorate('skillsManager', skillsManager as unknown as typeof app.skillsManager);
-
-    // Sync AgenCo integration skills at boot (via legacy manager)
+    // Sync AgenCo integration skills at boot
     try {
-      const syncResult = await skillsManager.syncSource('mcp', 'openclaw');
+      const syncResult = await skillManager.syncSource('mcp', 'openclaw');
       if (syncResult.installed.length || syncResult.removed.length || syncResult.updated.length) {
         app.log.info(`[startup] AgenCo skill sync: installed=${syncResult.installed.length}, removed=${syncResult.removed.length}, updated=${syncResult.updated.length}`);
       }
@@ -192,15 +232,7 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
       app.log.warn(`[startup] AgenCo skill sync failed: ${(err as Error).message}`);
     }
   } catch (err) {
-    app.log.warn(`[startup] Legacy SkillsManager init failed: ${(err as Error).message}`);
-  }
-
-  // Also run legacy sync for migration from old integration-* prefix
-  try {
-    const { syncAgenCoSkills } = await import('./services/integration-skills.js');
-    await syncAgenCoSkills();
-  } catch {
-    // Non-fatal: legacy sync may fail if already migrated
+    app.log.warn(`[startup] Sync source registration failed: ${(err as Error).message}`);
   }
 
   // Start persistent activity log

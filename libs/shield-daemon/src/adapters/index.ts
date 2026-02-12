@@ -4,8 +4,6 @@
 
 export { DaemonDeployAdapter } from './daemon-deploy-adapter';
 export type { DaemonDeployAdapterOptions } from './daemon-deploy-adapter';
-export { DaemonSkillInstaller } from './daemon-installer';
-export { DaemonVersionStore } from './daemon-version-store';
 export { MCPSkillSource } from './mcp-source';
 export type { MCPConnectionConfig } from './mcp-source';
 export { createAgenCoConnection } from './mcp-agenco';

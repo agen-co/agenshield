@@ -50,7 +50,7 @@
     "@agenshield/ipc": "0.7.3",
     "@agenshield/patcher": "0.7.3",
     "@agenshield/sandbox": "0.7.3",
-    "@agenshield/skills": "0.7.3",
+    "@agentshield/skills": "0.7.3",
     "commander": "^14.0.0",
     "ink": "^5.2.0",
     "ink-spinner": "^5.0.0",

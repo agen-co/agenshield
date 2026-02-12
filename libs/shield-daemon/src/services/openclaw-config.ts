@@ -12,6 +12,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { PolicyConfig } from '@agenshield/ipc';
+import { isDevMode } from '../config/paths';
 
 function getOpenClawConfigPath(): string {
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
@@ -37,6 +38,10 @@ export function readOpenClawConfig(): OpenClawConfig {
         return JSON.parse(fs.readFileSync(configPath, 'utf-8')) as OpenClawConfig;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+          if (isDevMode()) {
+            console.warn('[OpenClawConfig] EACCES reading config in dev mode, returning empty config');
+            return {};
+          }
           // File owned by agent user — read via sudo
           const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
           const agentUsername = path.basename(agentHome);
@@ -66,10 +71,14 @@ function writeConfig(config: OpenClawConfig): void {
 
   const configDir = path.dirname(configPath);
   if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true, mode: 0o2775 });
-    // Fix group ownership so agent + broker can both access
-    const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
-    try { execSync(`chown :${socketGroup} "${configDir}"`, { stdio: 'pipe' }); } catch { /* best-effort */ }
+    if (isDevMode()) {
+      fs.mkdirSync(configDir, { recursive: true });
+    } else {
+      fs.mkdirSync(configDir, { recursive: true, mode: 0o2775 });
+      // Fix group ownership so agent + broker can both access
+      const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
+      try { execSync(`chown :${socketGroup} "${configDir}"`, { stdio: 'pipe' }); } catch { /* best-effort */ }
+    }
   }
 
   // Sanitize agents.defaults.workspace — must point to agent home, not the host user.
@@ -98,6 +107,9 @@ function writeConfig(config: OpenClawConfig): void {
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+      if (isDevMode()) {
+        throw new Error(`[OpenClawConfig] EACCES writing config in dev mode: ${configPath}`);
+      }
       // File may have been recreated by openclaw gateway with agent ownership.
       // Write via sudo as the agent user instead (sudoers rule grants NOPASSWD for tee).
       execSync(

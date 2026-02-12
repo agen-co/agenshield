@@ -42,6 +42,7 @@ export const Q = {
 
   approveVersion: `UPDATE ${VERSIONS} SET approval = 'approved', approved_at = @now, updated_at = @now WHERE id = @id`,
   quarantineVersion: `UPDATE ${VERSIONS} SET approval = 'quarantined', updated_at = @now WHERE id = @id`,
+  deleteVersion: `DELETE FROM ${VERSIONS} WHERE id = ?`,
 
   updateContentHash: `UPDATE ${VERSIONS} SET content_hash = @hash, hash_updated_at = @now, updated_at = @now WHERE id = @id`,
 

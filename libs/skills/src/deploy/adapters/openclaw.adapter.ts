@@ -26,7 +26,7 @@ export class OpenClawDeployAdapter implements DeployAdapter {
   private readonly createWrappers: boolean;
 
   constructor(options: OpenClawDeployAdapterOptions) {
-    this.skillsDir = options.skillsDir;
+    this.skillsDir = path.resolve(options.skillsDir);
     this.binDir = options.binDir;
     this.createWrappers = options.createWrappers ?? true;
   }
@@ -36,7 +36,7 @@ export class OpenClawDeployAdapter implements DeployAdapter {
   }
 
   async deploy(context: DeployContext): Promise<DeployResult> {
-    const { skill, version, files } = context;
+    const { skill, version, files, fileContents } = context;
     const destDir = path.join(this.skillsDir, skill.slug);
 
     // Create destination directory
@@ -52,6 +52,12 @@ export class OpenClawDeployAdapter implements DeployAdapter {
 
       if (fs.existsSync(srcPath)) {
         fs.copyFileSync(srcPath, destPath);
+      } else {
+        // Fallback: use backup content when source file is missing
+        const stored = fileContents?.get(file.relativePath);
+        if (stored) {
+          fs.writeFileSync(destPath, stored);
+        }
       }
     }
 
@@ -85,11 +91,7 @@ export class OpenClawDeployAdapter implements DeployAdapter {
   }
 
   async checkIntegrity(installation: SkillInstallation, version: SkillVersion, files: SkillFile[]): Promise<IntegrityCheckResult> {
-    const destDir = path.join(this.skillsDir, version.folderPath.split('/').pop() === version.version
-      ? path.basename(path.dirname(version.folderPath))
-      : path.basename(version.folderPath));
-
-    // We derive the destDir from the skill slug, which we can get from folderPath pattern /skills/{slug}/{version}
+    // We derive the deploy dir from the skill slug via folderPath pattern /skills/{slug}/{version}
     const slugFromPath = version.folderPath.split('/').filter(Boolean);
     const skillSlug = slugFromPath.length >= 2 ? slugFromPath[slugFromPath.length - 2] : slugFromPath[0];
     const deployDir = path.join(this.skillsDir, skillSlug);
@@ -159,6 +161,7 @@ export class OpenClawDeployAdapter implements DeployAdapter {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
 
     for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         results.push(...this.listFilesRecursive(fullPath));

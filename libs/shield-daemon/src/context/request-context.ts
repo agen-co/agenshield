@@ -22,12 +22,6 @@ declare module 'fastify' {
   }
   interface FastifyInstance {
     skillManager: SkillManager;
-    /** @deprecated Use skillManager instead — legacy SkillsManager for AgenCo sync */
-    skillsManager?: {
-      syncSource(source: string, connectionId: string): Promise<{ installed: string[]; removed: string[]; updated: string[] }>;
-      registerSource(source: unknown): Promise<void>;
-      [key: string]: unknown;
-    };
   }
 }
 

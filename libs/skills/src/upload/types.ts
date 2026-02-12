@@ -11,6 +11,7 @@ export interface UploadFromZipParams {
   author?: string;
   description?: string;
   tags?: string[];
+  source?: 'marketplace' | 'watcher' | 'manual' | 'integration' | 'unknown';
   files: Array<{ relativePath: string; content: Buffer }>;
 }
 

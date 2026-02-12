@@ -7,6 +7,7 @@ import { CircularLoader } from '../../../elements/loaders/CircularLoader';
 import { VulnBadge } from '../../shared/VulnBadge';
 import { CardRoot, SkillIcon, Row } from './UnifiedSkillCard.styles';
 import type { UnifiedSkillCardProps } from './UnifiedSkillCard.types';
+import { filterDisplayTags } from '../../../stores/skills';
 
 const originChipConfig: Record<string, { label: string; color: 'warning' | 'default' }> = {
   blocked: { label: 'Blocked', color: 'warning' },
@@ -22,7 +23,8 @@ export function UnifiedSkillCard({ skill, selected = false, readOnly = false, on
   const commands = skill.analysis?.commands;
   const envVars = skill.envVariables ?? skill.analysis?.envVariables;
 
-  const hasTags = skill.tags && skill.tags.length > 0;
+  const displayTags = filterDisplayTags(skill.tags);
+  const hasTags = displayTags.length > 0;
   const hasDescription = !!skill.description;
   const hasCommands = commands && commands.length > 0;
   const hasEnvVars = envVars && envVars.length > 0;
@@ -97,7 +99,7 @@ export function UnifiedSkillCard({ skill, selected = false, readOnly = false, on
           noWrap
           sx={hasTags ? { color: 'text.secondary' } : { opacity: 0.5 }}
         >
-          {hasTags ? skill.tags!.join(', ') : 'No tags'}
+          {hasTags ? displayTags.join(', ') : 'No tags'}
         </Typography>
       </Row>
 

@@ -47,6 +47,8 @@ export interface DaemonDeployAdapterOptions {
   socketGroup: string;
   /** Bin directory for wrapper scripts */
   binDir: string;
+  /** When true, skip broker/sudo/chown and use plain fs operations */
+  devMode?: boolean;
 }
 
 export class DaemonDeployAdapter implements DeployAdapter {
@@ -57,12 +59,14 @@ export class DaemonDeployAdapter implements DeployAdapter {
   private readonly agentHome: string;
   private readonly socketGroup: string;
   private readonly binDir: string;
+  private readonly devMode: boolean;
 
   constructor(options: DaemonDeployAdapterOptions) {
     this.skillsDir = options.skillsDir;
     this.agentHome = options.agentHome;
     this.socketGroup = options.socketGroup;
     this.binDir = options.binDir;
+    this.devMode = options.devMode ?? false;
   }
 
   canDeploy(targetId: string | undefined): boolean {
@@ -70,44 +74,54 @@ export class DaemonDeployAdapter implements DeployAdapter {
   }
 
   async deploy(context: DeployContext): Promise<DeployResult> {
-    const { skill, version, files } = context;
+    const { skill, version, files, fileContents } = context;
     const destDir = path.join(this.skillsDir, skill.slug);
     const agentUsername = path.basename(this.agentHome);
 
     // 1. Process files: strip env vars and inject installation tags
-    const processedFiles = await this.processFiles(files, version);
+    const processedFiles = await this.processFiles(files, version, fileContents);
 
-    // 2. Write files via broker or sudo fallback
-    const brokerAvailable = await isBrokerAvailable();
-
-    if (brokerAvailable) {
-      const brokerResult = await installSkillViaBroker(
-        skill.slug,
-        processedFiles.map((f) => ({ name: f.relativePath, content: f.content })),
-        { createWrapper: true, agentHome: this.agentHome, socketGroup: this.socketGroup },
-      );
-      if (!brokerResult.installed) {
-        throw new Error('Broker failed to install skill files');
-      }
-    } else {
-      // Fallback: direct fs operations with sudo
-      await sudoMkdir(destDir, agentUsername);
+    // 2. Write files via dev fs, broker, or sudo fallback
+    if (this.devMode) {
+      fs.mkdirSync(destDir, { recursive: true });
       for (const file of processedFiles) {
         const filePath = path.join(destDir, file.relativePath);
-        await sudoMkdir(path.dirname(filePath), agentUsername);
-        await sudoWriteFile(filePath, file.content, agentUsername);
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, file.content, 'utf-8');
       }
+      this.createDevWrapper(skill.slug);
+    } else {
+      const brokerAvailable = await isBrokerAvailable();
 
-      // Set ownership
-      try {
-        execSync(`chown -R root:${this.socketGroup} "${destDir}"`, { stdio: 'pipe' });
-        execSync(`chmod -R a+rX,go-w "${destDir}"`, { stdio: 'pipe' });
-      } catch {
-        // May fail if not root — acceptable in development
+      if (brokerAvailable) {
+        const brokerResult = await installSkillViaBroker(
+          skill.slug,
+          processedFiles.map((f) => ({ name: f.relativePath, content: f.content })),
+          { createWrapper: true, agentHome: this.agentHome, socketGroup: this.socketGroup },
+        );
+        if (!brokerResult.installed) {
+          throw new Error('Broker failed to install skill files');
+        }
+      } else {
+        // Fallback: direct fs operations with sudo
+        await sudoMkdir(destDir, agentUsername);
+        for (const file of processedFiles) {
+          const filePath = path.join(destDir, file.relativePath);
+          await sudoMkdir(path.dirname(filePath), agentUsername);
+          await sudoWriteFile(filePath, file.content, agentUsername);
+        }
+
+        // Set ownership
+        try {
+          execSync(`chown -R root:${this.socketGroup} "${destDir}"`, { stdio: 'pipe' });
+          execSync(`chmod -R a+rX,go-w "${destDir}"`, { stdio: 'pipe' });
+        } catch {
+          // May fail if not root — acceptable in development
+        }
+
+        // Create wrapper
+        await createSkillWrapper(skill.slug, this.binDir);
       }
-
-      // Create wrapper
-      await createSkillWrapper(skill.slug, this.binDir);
     }
 
     // 3. Add policy
@@ -132,26 +146,33 @@ export class DaemonDeployAdapter implements DeployAdapter {
     const destDir = path.join(this.skillsDir, skill.slug);
     const agentUsername = path.basename(this.agentHome);
 
-    // 1. Remove files via broker or sudo fallback
-    const brokerAvailable = await isBrokerAvailable();
-    if (brokerAvailable) {
-      try {
-        await uninstallSkillViaBroker(skill.slug, {
-          removeWrapper: true,
-          agentHome: this.agentHome,
-        });
-      } catch {
-        // Fallback to direct removal
+    // 1. Remove files via dev fs, broker, or sudo fallback
+    if (this.devMode) {
+      if (fs.existsSync(destDir)) {
+        fs.rmSync(destDir, { recursive: true, force: true });
+      }
+      removeSkillWrapper(skill.slug, this.binDir);
+    } else {
+      const brokerAvailable = await isBrokerAvailable();
+      if (brokerAvailable) {
+        try {
+          await uninstallSkillViaBroker(skill.slug, {
+            removeWrapper: true,
+            agentHome: this.agentHome,
+          });
+        } catch {
+          // Fallback to direct removal
+          if (fs.existsSync(destDir)) {
+            await sudoRm(destDir, agentUsername);
+          }
+          removeSkillWrapper(skill.slug, this.binDir);
+        }
+      } else {
         if (fs.existsSync(destDir)) {
           await sudoRm(destDir, agentUsername);
         }
         removeSkillWrapper(skill.slug, this.binDir);
       }
-    } else {
-      if (fs.existsSync(destDir)) {
-        await sudoRm(destDir, agentUsername);
-      }
-      removeSkillWrapper(skill.slug, this.binDir);
     }
 
     // 2. Remove policy
@@ -222,9 +243,13 @@ export class DaemonDeployAdapter implements DeployAdapter {
   private async processFiles(
     files: SkillFile[],
     version: SkillVersion,
+    fileContents?: Map<string, Buffer>,
   ): Promise<Array<{ relativePath: string; content: string }>> {
-    const destDir = path.join(this.skillsDir, '..'); // parent of skills dir for reference
     const processed: Array<{ relativePath: string; content: string }> = [];
+
+    // Extract slug from folderPath pattern: /skills/{slug}/{version}
+    const pathParts = version.folderPath.split('/').filter(Boolean);
+    const skillSlug = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : pathParts[0];
 
     for (const file of files) {
       // Read file content from the folder path
@@ -233,12 +258,18 @@ export class DaemonDeployAdapter implements DeployAdapter {
       try {
         content = fs.readFileSync(srcPath, 'utf-8');
       } catch {
-        // If source path doesn't exist, try skills dir
-        const altPath = path.join(this.skillsDir, file.relativePath);
+        // If source path doesn't exist, try skills dir with slug prefix
+        const altPath = path.join(this.skillsDir, skillSlug, file.relativePath);
         try {
           content = fs.readFileSync(altPath, 'utf-8');
         } catch {
-          continue; // Skip unreadable files
+          // Filesystem unavailable — try backup content
+          const stored = fileContents?.get(file.relativePath);
+          if (stored) {
+            content = stored.toString('utf-8');
+          } else {
+            continue; // Skip unreadable files
+          }
         }
       }
 
@@ -287,11 +318,28 @@ export class DaemonDeployAdapter implements DeployAdapter {
     }
   }
 
+  /**
+   * Create a simple dev wrapper script that logs invocations.
+   * Used in dev mode instead of the production `createSkillWrapper`.
+   */
+  private createDevWrapper(slug: string): void {
+    fs.mkdirSync(this.binDir, { recursive: true });
+    const wrapperPath = path.join(this.binDir, slug);
+    const content = [
+      '#!/usr/bin/env bash',
+      `# Dev wrapper for skill: ${slug}`,
+      `echo "[dev-wrapper] ${slug} invoked with args: $@"`,
+      '',
+    ].join('\n');
+    fs.writeFileSync(wrapperPath, content, { mode: 0o755 });
+  }
+
   private listFilesRecursive(dir: string): string[] {
     const results: string[] = [];
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           results.push(...this.listFilesRecursive(fullPath));

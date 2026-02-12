@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import { parseSkillMd, extractSkillInfo } from '@agenshield/sandbox';
 import { execWithProgress } from '@agenshield/sandbox';
 import { installBrewBinaryWrappers } from './brew-wrapper';
+import { isDevMode } from '../config/paths';
 
 /** Supported install step kinds */
 const SUPPORTED_KINDS = new Set(['brew', 'npm', 'pip']);
@@ -130,11 +131,10 @@ export async function executeSkillInstallSteps(options: {
             `brew install ${formula}`,
           ].join(' && ');
 
-          await execWithProgress(
-            `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${brewCmd}'`,
-            onLog,
-            { timeout: 120_000, cwd: '/' },
-          );
+          const brewExec = isDevMode()
+            ? `/bin/bash --norc --noprofile -c '${brewCmd}'`
+            : `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${brewCmd}'`;
+          await execWithProgress(brewExec, onLog, { timeout: 120_000, cwd: '/' });
           installed.push(formula);
 
           // Create policy-enforcing wrappers for brew-installed binaries
@@ -177,11 +177,10 @@ export async function executeSkillInstallSteps(options: {
 
           // Ensure npm global dir exists (may already exist from sandbox setup)
           try {
-            await execWithProgress(
-              `sudo -H -u ${agentUsername} /bin/mkdir -p "${npmGlobalDir}"`,
-              () => {},
-              { timeout: 5_000, cwd: '/' },
-            );
+            const mkdirExec = isDevMode()
+              ? `/bin/mkdir -p "${npmGlobalDir}"`
+              : `sudo -H -u ${agentUsername} /bin/mkdir -p "${npmGlobalDir}"`;
+            await execWithProgress(mkdirExec, () => {}, { timeout: 5_000, cwd: '/' });
           } catch { /* best-effort — dir may already exist */ }
 
           const npmCmd = [
@@ -192,11 +191,10 @@ export async function executeSkillInstallSteps(options: {
             `npm install -g ${pkg}`,
           ].join(' && ');
 
-          await execWithProgress(
-            `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${npmCmd}'`,
-            onLog,
-            { timeout: 60_000, cwd: '/' },
-          );
+          const npmExec = isDevMode()
+            ? `/bin/bash --norc --noprofile -c '${npmCmd}'`
+            : `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${npmCmd}'`;
+          await execWithProgress(npmExec, onLog, { timeout: 60_000, cwd: '/' });
           installed.push(pkg);
           break;
         }
@@ -218,11 +216,10 @@ export async function executeSkillInstallSteps(options: {
             `pip install ${pkg}`,
           ].join(' && ');
 
-          await execWithProgress(
-            `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${pipCmd}'`,
-            onLog,
-            { timeout: 60_000, cwd: '/' },
-          );
+          const pipExec = isDevMode()
+            ? `/bin/bash --norc --noprofile -c '${pipCmd}'`
+            : `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${pipCmd}'`;
+          await execWithProgress(pipExec, onLog, { timeout: 60_000, cwd: '/' });
           installed.push(pkg);
           break;
         }
@@ -246,11 +243,10 @@ export async function executeSkillInstallSteps(options: {
           `source "${agentHome}/.nvm/nvm.sh" 2>/dev/null || true`,
           `which ${bin}`,
         ].join(' && ');
-        await execWithProgress(
-          `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${checkCmd}'`,
-          () => {},
-          { timeout: 5_000, cwd: '/' },
-        );
+        const checkExec = isDevMode()
+          ? `/bin/bash --norc --noprofile -c '${checkCmd}'`
+          : `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${checkCmd}'`;
+        await execWithProgress(checkExec, () => {}, { timeout: 5_000, cwd: '/' });
       } catch {
         errors.push(`Required binary "${bin}" not found in agent PATH after install`);
       }

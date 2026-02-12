@@ -30,7 +30,6 @@
       "@agenshield/broker": ["libs/shield-broker/src/index.ts"],
       "@agenshield/interceptor": ["libs/shield-interceptor/src/index.ts"],
       "@agenshield/patcher": ["libs/shield-patcher/src/index.ts"],
-      "@agenshield/skills": ["libs/shield-skills/src/index.ts"],
       "@agenshield/integrations": ["libs/shield-integrations/src/index.ts"],
       "@agenshield/storage": ["libs/storage/src/index.ts"],
       "@agentshield/skills": ["libs/skills/src/index.ts"],
