@@ -20,6 +20,7 @@ import type {
   ToolQuery,
   SkillsManagerEvent,
 } from '@agenshield/ipc';
+import { prefixSlug, stripSlugPrefix, sourceHasPrefix } from '@agenshield/ipc';
 import type { SkillManager } from '../manager';
 
 export interface SyncServiceOptions {
@@ -133,9 +134,13 @@ export class SyncService {
   }
 
   async getSkillFiles(skillId: string): Promise<SkillDefinition | null> {
+    // Strip source prefix before delegating to adapters — adapters use raw IDs
+    const stripped = stripSlugPrefix(skillId);
+    const rawId = stripped ? stripped.rawSlug : skillId;
+
     for (const source of this.sources.values()) {
       try {
-        const def = await source.getSkillFiles(skillId);
+        const def = await source.getSkillFiles(rawId);
         if (def) return def;
       } catch {
         // Try next source
@@ -191,7 +196,8 @@ export class SyncService {
       return result;
     }
 
-    const desiredMap = new Map(desired.map(d => [d.skillId, d]));
+    // Build desired map with prefixed slugs as keys
+    const desiredMap = new Map(desired.map(d => [prefixSlug(sourceId, d.skillId), d]));
 
     // Find currently installed skills from this source adapter in the DB.
     // Adapter-synced skills use source='integration' + remoteId=sourceId.
@@ -204,15 +210,15 @@ export class SyncService {
     );
 
     // Install new or update stale skills
-    for (const [skillId, def] of desiredMap) {
-      const existingSkill = installedMap.get(skillId);
+    for (const [prefixedSlug, def] of desiredMap) {
+      const existingSkill = installedMap.get(prefixedSlug);
 
       if (!existingSkill) {
         // New skill — upload, approve, install
         try {
           this.manager.uploadFiles({
             name: def.name,
-            slug: def.skillId,
+            slug: prefixedSlug,
             version: def.version,
             author: def.author,
             description: def.description,
@@ -224,7 +230,7 @@ export class SyncService {
           });
 
           // Tag skill with source='integration' + remoteId=sourceId for sync tracking
-          const skill = this.skills.getBySlug(def.skillId);
+          const skill = this.skills.getBySlug(prefixedSlug);
           if (skill) {
             this.skills.update(skill.id, { source: 'integration' as const, remoteId: sourceId });
 
@@ -235,11 +241,11 @@ export class SyncService {
             }
           }
 
-          await this.manager.approveSkill(def.skillId);
-          result.installed.push(skillId);
-          this.emit({ type: 'skill:installed', skillId, sourceId });
+          await this.manager.approveSkill(prefixedSlug);
+          result.installed.push(def.skillId);
+          this.emit({ type: 'skill:installed', skillId: def.skillId, sourceId });
         } catch (err) {
-          result.errors.push(`install ${skillId}: ${(err as Error).message}`);
+          result.errors.push(`install ${def.skillId}: ${(err as Error).message}`);
         }
       } else {
         // Existing skill — check SHA to see if update is needed
@@ -251,7 +257,7 @@ export class SyncService {
           try {
             this.manager.uploadFiles({
               name: def.name,
-              slug: def.skillId,
+              slug: prefixedSlug,
               version: def.version,
               author: def.author,
               description: def.description,
@@ -270,11 +276,11 @@ export class SyncService {
               this.skills.approveVersion(version.id);
             }
 
-            await this.manager.approveSkill(def.skillId);
-            result.updated.push(skillId);
-            this.emit({ type: 'skill:updated', skillId, sourceId });
+            await this.manager.approveSkill(prefixedSlug);
+            result.updated.push(def.skillId);
+            this.emit({ type: 'skill:updated', skillId: def.skillId, sourceId });
           } catch (err) {
-            result.errors.push(`update ${skillId}: ${(err as Error).message}`);
+            result.errors.push(`update ${def.skillId}: ${(err as Error).message}`);
           }
         }
         // else: SHA matches — skip

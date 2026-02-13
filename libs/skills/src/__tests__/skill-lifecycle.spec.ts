@@ -1334,6 +1334,63 @@ describe('Skill Lifecycle Integration', () => {
       }
     }, 15_000);
 
+    it('reinstall uses backup content, not tampered disk content', async () => {
+      manager = createManager(repo, dirs.skillsDir, dirs.quarantineDir, {
+        backupDir: dirs.backupDir,
+      });
+      manager.on('skill-event', (e: SkillEvent) => events.push(e));
+
+      // 1. Upload + install with backup enabled
+      const fileBuffers = Object.entries(SKILL_FILES).map(([name, content]) => ({
+        relativePath: name,
+        content: Buffer.from(content),
+      }));
+      const uploadResult = manager.uploadFiles({
+        name: SKILL_SLUG,
+        slug: SKILL_SLUG,
+        version: SKILL_VERSION,
+        author: 'tester',
+        files: fileBuffers,
+      });
+      repo.approveVersion(uploadResult.version.id);
+      await manager.install({ skillId: uploadResult.skill.id });
+      events.length = 0;
+
+      // 2. Tamper SKILL.md on disk (deployed copy)
+      const deployedSkillMd = path.join(dirs.skillsDir, SKILL_SLUG, 'SKILL.md');
+      fs.writeFileSync(deployedSkillMd, '# HACKED CONTENT');
+
+      // 3. Also tamper the SOURCE copy at version.folderPath
+      //    (simulates worst case: both disk + source are compromised)
+      const sourceSkillMd = path.join(uploadResult.version.folderPath, 'SKILL.md');
+      if (fs.existsSync(sourceSkillMd)) {
+        fs.writeFileSync(sourceSkillMd, '# HACKED SOURCE');
+      }
+
+      // 4. poll() → violation → reinstall
+      await manager.watcher.poll();
+
+      // Assert: integrity-violation was emitted
+      const viol = events.find((e) => e.type === 'watcher:integrity-violation');
+      expect(viol).toBeDefined();
+
+      // Assert: reinstalled event was emitted
+      expect(events.some((e) => e.type === 'watcher:reinstalled')).toBe(true);
+
+      // 5. Assert: deployed SKILL.md matches ORIGINAL content (from backup)
+      const deployedContent = fs.readFileSync(deployedSkillMd, 'utf-8');
+      expect(deployedContent).toBe(SKILL_FILES['SKILL.md']);
+      expect(deployedContent).not.toContain('HACKED');
+
+      // 6. Assert: a second poll() reports 0 violations (clean state)
+      events.length = 0;
+      await manager.watcher.poll();
+      const completed = events.find((e) => e.type === 'watcher:poll-completed') as
+        Extract<SkillEvent, { type: 'watcher:poll-completed' }> | undefined;
+      expect(completed).toBeDefined();
+      expect(completed!.violationCount).toBe(0);
+    }, 15_000);
+
     it('copy-paste skill saves backup for later approval', async () => {
       // Create backup-enabled manager with no installed skills
       manager = createManager(repo, dirs.skillsDir, dirs.quarantineDir, {

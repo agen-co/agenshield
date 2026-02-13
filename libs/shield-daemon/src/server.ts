@@ -26,6 +26,7 @@ import { shutdownProxyPool } from './proxy/pool';
 import { getConfigDir, getQuarantineDir, getSkillBackupDir, isDevMode } from './config/paths';
 import { DaemonDeployAdapter } from './adapters/daemon-deploy-adapter';
 import { migrateSkillsToSqlite } from './migration/skill-migration';
+import { migrateSlugPrefixDisk } from './migration/slug-prefix-disk';
 import {
   MCPSkillSource,
   createAgenCoConnection,
@@ -129,6 +130,9 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // ─── Run one-time JSON → SQLite migration ────────────────────
   migrateSkillsToSqlite(storage, skillsDir);
 
+  // ─── Run one-time slug-prefix disk folder rename ─────────────
+  migrateSlugPrefixDisk(storage, skillsDir);
+
   // ─── Ensure quarantine directory exists ─────────────────────
   const quarantineDir = getQuarantineDir();
   if (!fs.existsSync(quarantineDir)) {
@@ -168,30 +172,36 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // daemonEvents.broadcast (not the broadcast() helper) avoids double EventBus emission.
   skillManager.on('skill-event', (event: import('@agentshield/skills').SkillEvent) => {
     switch (event.type) {
-      case 'watcher:integrity-violation':
+      case 'watcher:integrity-violation': {
+        const slug = skillManager.resolveSlugForInstallation(event.installationId);
         daemonEvents.broadcast('skills:integrity_violation', {
-          name: event.installationId,
-          slug: event.installationId, // daemon bridge resolves slug separately in EventBus
+          name: slug,
+          slug,
           action: event.action,
           modifiedFiles: event.modifiedFiles,
           missingFiles: event.missingFiles,
           unexpectedFiles: event.unexpectedFiles,
         });
         break;
-      case 'watcher:reinstalled':
+      }
+      case 'watcher:reinstalled': {
+        const slug = skillManager.resolveSlugForInstallation(event.installationId);
         daemonEvents.broadcast('skills:integrity_restored', {
-          name: event.installationId,
-          slug: event.installationId,
+          name: slug,
+          slug,
           modifiedFiles: [],
           missingFiles: [],
         });
         break;
-      case 'watcher:quarantined':
+      }
+      case 'watcher:quarantined': {
+        const slug = skillManager.resolveSlugForInstallation(event.installationId);
         daemonEvents.broadcast('skills:quarantined', {
-          name: event.installationId,
+          name: slug,
           reason: 'Integrity violation — skill quarantined',
         });
         break;
+      }
     }
   });
 

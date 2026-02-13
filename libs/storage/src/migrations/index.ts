@@ -9,6 +9,7 @@ import type { Migration } from './types';
 import { InitialSchemaMigration } from './001-initial-schema';
 import { ImportJsonMigration } from './002-import-json';
 import { SkillsManagerColumnsMigration } from './003-skills-manager-columns';
+import { SlugPrefixMigration } from './004-slug-prefix';
 
 export type { Migration };
 
@@ -18,6 +19,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   new InitialSchemaMigration(),
   new ImportJsonMigration(),
   new SkillsManagerColumnsMigration(),
+  new SlugPrefixMigration(),
 ];
 
 /**

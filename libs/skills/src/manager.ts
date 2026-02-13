@@ -150,7 +150,7 @@ export class SkillManager extends EventEmitter {
           bus.emit('skills:deploy_failed', { name: event.installationId, error: event.error });
           break;
         case 'watcher:integrity-violation': {
-          const slug = this._resolveSlugForInstallation(event.installationId);
+          const slug = this.resolveSlugForInstallation(event.installationId);
           bus.emit('skills:integrity_violation', {
             name: event.installationId,
             slug,
@@ -162,7 +162,7 @@ export class SkillManager extends EventEmitter {
           break;
         }
         case 'watcher:reinstalled': {
-          const slug = this._resolveSlugForInstallation(event.installationId);
+          const slug = this.resolveSlugForInstallation(event.installationId);
           bus.emit('skills:integrity_restored', {
             name: event.installationId,
             slug,
@@ -182,7 +182,7 @@ export class SkillManager extends EventEmitter {
   }
 
   /** Resolve a human-readable slug from an installationId (UUID). Falls back to installationId. */
-  private _resolveSlugForInstallation(installationId: string): string {
+  public resolveSlugForInstallation(installationId: string): string {
     try {
       const inst = this.skills.getInstallationById(installationId);
       if (!inst) return installationId;

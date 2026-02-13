@@ -663,13 +663,13 @@ export async function agencoRoutes(app: FastifyInstance): Promise<void> {
    * Checks if the master 'agenco' skill is installed and active via SkillManager.
    */
   app.get('/agenco/skills/status', async () => {
-    const result = app.skillManager.getSkillBySlug('agenco');
+    const result = app.skillManager.getSkillBySlug('ag-agenco');
     const installed = result !== null
       && result.installations.some((i) => i.status === 'active');
 
     return {
       success: true,
-      data: { installed, skillName: 'agenco' },
+      data: { installed, skillName: 'ag-agenco' },
     };
   });
 

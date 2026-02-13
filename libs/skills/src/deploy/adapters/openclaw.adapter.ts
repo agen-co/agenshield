@@ -44,19 +44,19 @@ export class OpenClawDeployAdapter implements DeployAdapter {
 
     // Copy files from version folder to destination
     for (const file of files) {
-      const srcPath = path.join(version.folderPath, file.relativePath);
       const destPath = path.join(destDir, file.relativePath);
 
       // Ensure subdirectories exist
       fs.mkdirSync(path.dirname(destPath), { recursive: true });
 
-      if (fs.existsSync(srcPath)) {
-        fs.copyFileSync(srcPath, destPath);
+      // Prefer backup content (trusted original) when available
+      const stored = fileContents?.get(file.relativePath);
+      if (stored) {
+        fs.writeFileSync(destPath, stored);
       } else {
-        // Fallback: use backup content when source file is missing
-        const stored = fileContents?.get(file.relativePath);
-        if (stored) {
-          fs.writeFileSync(destPath, stored);
+        const srcPath = path.join(version.folderPath, file.relativePath);
+        if (fs.existsSync(srcPath)) {
+          fs.copyFileSync(srcPath, destPath);
         }
       }
     }

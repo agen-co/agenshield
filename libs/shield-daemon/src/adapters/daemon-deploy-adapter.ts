@@ -128,7 +128,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
     addSkillPolicy(skill.slug);
 
     // 4. Handle preset policies for master AgenCo skill
-    if (context.installation.targetId === undefined || context.skill.slug === 'agenco') {
+    if (context.installation.targetId === undefined || context.skill.slug === 'ag-agenco') {
       this.applyPresetPolicies(version);
     }
 
@@ -182,7 +182,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
     await removeBrewBinaryWrappers(skill.slug);
 
     // 4. Handle master skill: remove preset policies
-    if (skill.slug === 'agenco') {
+    if (skill.slug === 'ag-agenco') {
       const config = loadConfig();
       const agencoIds = new Set(AGENCO_PRESET.policies.map((p) => p.id));
       const filtered = config.policies.filter((p) => !agencoIds.has(p.id));
@@ -252,22 +252,23 @@ export class DaemonDeployAdapter implements DeployAdapter {
     const skillSlug = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : pathParts[0];
 
     for (const file of files) {
-      // Read file content from the folder path
-      const srcPath = path.join(version.folderPath, file.relativePath);
       let content: string;
-      try {
-        content = fs.readFileSync(srcPath, 'utf-8');
-      } catch {
-        // If source path doesn't exist, try skills dir with slug prefix
-        const altPath = path.join(this.skillsDir, skillSlug, file.relativePath);
+
+      // Prefer backup content (trusted original) when available
+      const stored = fileContents?.get(file.relativePath);
+      if (stored) {
+        content = stored.toString('utf-8');
+      } else {
+        // Fallback: read from disk
+        const srcPath = path.join(version.folderPath, file.relativePath);
         try {
-          content = fs.readFileSync(altPath, 'utf-8');
+          content = fs.readFileSync(srcPath, 'utf-8');
         } catch {
-          // Filesystem unavailable — try backup content
-          const stored = fileContents?.get(file.relativePath);
-          if (stored) {
-            content = stored.toString('utf-8');
-          } else {
+          // If source path doesn't exist, try skills dir with slug prefix
+          const altPath = path.join(this.skillsDir, skillSlug, file.relativePath);
+          try {
+            content = fs.readFileSync(altPath, 'utf-8');
+          } catch {
             continue; // Skip unreadable files
           }
         }

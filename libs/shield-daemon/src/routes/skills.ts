@@ -151,7 +151,7 @@ function mapToSummary(
   const isActive = installation?.status === 'active';
   const isQuarantined = version?.approval === 'quarantined';
   const isDisabled = installation?.status === 'disabled';
-  const isTrusted = skill.slug === 'agenco' || skill.slug.startsWith('agenco-');
+  const isTrusted = skill.slug === 'ag-agenco' || skill.slug.startsWith('ag-agenco-');
 
   const onDiskDir = path.join(skillsDir, skill.slug);
   const hasDiskPresence = fs.existsSync(onDiskDir);
@@ -677,7 +677,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       }
 
       // AgenCo skills: revoke via SkillManager, then re-sync to clean up
-      if (name === 'agenco' || name.startsWith('agenco-')) {
+      if (name === 'ag-agenco' || name.startsWith('ag-agenco-')) {
         try {
           await app.skillManager.revokeSkill(name);
           // Re-sync to let the source adapter reconcile state

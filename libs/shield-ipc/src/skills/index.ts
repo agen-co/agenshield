@@ -22,6 +22,13 @@ export type {
   VersionCheckResult,
 } from './skills-manager.types';
 
+export {
+  SOURCE_SLUG_PREFIX,
+  prefixSlug,
+  stripSlugPrefix,
+  sourceHasPrefix,
+} from './slug-prefix';
+
 // Adapter types (used by sync service, daemon adapters)
 export type {
   TargetPlatform,

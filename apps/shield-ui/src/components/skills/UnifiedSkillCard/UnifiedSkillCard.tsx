@@ -52,7 +52,7 @@ export function UnifiedSkillCard({ skill, selected = false, readOnly = false, on
             <Typography variant="body2" fontWeight={600} noWrap>
               {skill.name}
             </Typography>
-            {(skill.name === 'agenco' || skill.name.startsWith('agenco-')) && (
+            {(skill.name === 'ag-agenco' || skill.name.startsWith('ag-agenco-')) && (
               <Chip
                 label="AgenCo"
                 size="small"

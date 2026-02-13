@@ -64,8 +64,8 @@ export function Integrations() {
     const skills = skillsData?.data ?? [];
     const ids = new Set<string>();
     for (const skill of skills) {
-      if (skill.name.startsWith('agenco-')) {
-        ids.add(skill.name.slice('agenco-'.length));
+      if (skill.name.startsWith('ag-agenco-')) {
+        ids.add(skill.name.slice('ag-agenco-'.length));
       }
     }
     return ids;
