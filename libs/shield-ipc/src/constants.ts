@@ -45,6 +45,9 @@ export const USERS_DIR = 'users';
 /** Marketplace downloads subdirectory (under CONFIG_DIR) */
 export const MARKETPLACE_DIR = 'marketplace';
 
+/** Skill backup subdirectory (under CONFIG_DIR) */
+export const SKILL_BACKUP_DIR = 'skills/backup';
+
 /** Path to migration state file (root-owned) */
 export const MIGRATION_STATE_PATH = '/etc/agenshield/migrations.json';
 

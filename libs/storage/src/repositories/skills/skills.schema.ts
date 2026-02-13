@@ -45,6 +45,8 @@ export const UpdateSkillSchema = z.object({
   homepage: z.string().url().optional(),
   tags: z.array(z.string()).optional(),
   source: z.enum(['marketplace', 'watcher', 'manual', 'integration', 'unknown']).optional(),
+  remoteId: z.string().optional(),
+  isPublic: z.boolean().optional(),
 });
 export type UpdateSkillInput = z.input<typeof UpdateSkillSchema>;
 
@@ -60,6 +62,8 @@ export const UpdateSkillCodec = z.codec(
       homepage: data.homepage,
       tags: data.tags !== undefined ? JSON.stringify(data.tags) : undefined,
       source: data.source,
+      remote_id: data.remoteId,
+      is_public: data.isPublic !== undefined ? (data.isPublic ? 1 : 0) : undefined,
     }),
   },
 );

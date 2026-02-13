@@ -8,17 +8,17 @@
  * analysis before installation.
  */
 
-import { computeSkillDefinitionSha } from '@agenshield/skills';
+import { computeSkillDefinitionSha } from '@agentshield/skills';
 import type {
   SkillSourceAdapter,
   SkillDefinition,
-  SkillFile,
+  SourceSkillFile,
   DiscoveredTool,
   RequiredBinary,
   AdapterInstructions,
   TargetPlatform,
   ToolQuery,
-} from '@agenshield/skills';
+} from '@agenshield/ipc';
 import type { MarketplaceSkill, MarketplaceSkillFile } from '@agenshield/ipc';
 
 /**
@@ -40,9 +40,9 @@ export interface RemoteSourceDeps {
 }
 
 /**
- * Convert MarketplaceSkillFile[] to SkillFile[] (drop `type` field, keep name/content).
+ * Convert MarketplaceSkillFile[] to SourceSkillFile[] (drop `type` field, keep name/content).
  */
-function toSkillFiles(files: MarketplaceSkillFile[]): SkillFile[] {
+function toSkillFiles(files: MarketplaceSkillFile[]): SourceSkillFile[] {
   return files.map(f => ({
     name: f.name,
     content: f.content,

@@ -12,6 +12,7 @@ import type { PolicyConfig } from '@agenshield/ipc';
 import { loadConfig, updateConfig } from '../config/index';
 import { uninstallBrewBinaryWrappers } from './brew-wrapper';
 import { writeFileViaBroker, mkdirViaBroker, rmViaBroker, isBrokerAvailable } from './broker-bridge';
+import { isDevMode } from '../config/paths';
 
 // ─── Sudo helpers ────────────────────────────────────────────────────────────
 
@@ -28,7 +29,10 @@ export async function sudoMkdir(dir: string, agentUsername: string): Promise<voi
           await mkdirViaBroker(dir);
           return;
         }
-      } catch { /* broker failed, fall through to sudo */ }
+      } catch { /* broker failed, fall through */ }
+      if (isDevMode()) {
+        throw new Error(`EACCES creating directory in dev mode — check ./tmp/ permissions: ${dir}`);
+      }
       execSync(`sudo -H -u ${agentUsername} /bin/mkdir -p "${dir}"`, { cwd: '/', stdio: 'pipe' });
     } else {
       throw err;
@@ -49,7 +53,10 @@ export async function sudoWriteFile(filePath: string, content: string, agentUser
           await writeFileViaBroker(filePath, content, { mode });
           return;
         }
-      } catch { /* broker failed, fall through to sudo */ }
+      } catch { /* broker failed, fall through */ }
+      if (isDevMode()) {
+        throw new Error(`EACCES writing file in dev mode — check ./tmp/ permissions: ${filePath}`);
+      }
       execSync(
         `sudo -H -u ${agentUsername} tee "${filePath}" > /dev/null`,
         { input: content, cwd: '/', stdio: ['pipe', 'pipe', 'pipe'] }
@@ -78,7 +85,10 @@ export async function sudoRm(targetPath: string, agentUsername: string): Promise
           await rmViaBroker(targetPath);
           return;
         }
-      } catch { /* broker failed, fall through to sudo */ }
+      } catch { /* broker failed, fall through */ }
+      if (isDevMode()) {
+        throw new Error(`EACCES removing path in dev mode — check ./tmp/ permissions: ${targetPath}`);
+      }
       execSync(`sudo -H -u ${agentUsername} /bin/rm -rf "${targetPath}"`, { cwd: '/', stdio: 'pipe' });
     } else {
       throw err;
@@ -107,12 +117,14 @@ exec /opt/agenshield/bin/shield-client skill run "${name}" "$@"
 
   await sudoWriteFile(wrapperPath, wrapperContent, agentUsername, 0o755);
 
-  const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
-  try {
-    execSync(`chown root:${socketGroup} "${wrapperPath}"`, { stdio: 'pipe' });
-    execSync(`chmod 755 "${wrapperPath}"`, { stdio: 'pipe' });
-  } catch {
-    // May fail if not root — acceptable in development
+  if (!isDevMode()) {
+    const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
+    try {
+      execSync(`chown root:${socketGroup} "${wrapperPath}"`, { stdio: 'pipe' });
+      execSync(`chmod 755 "${wrapperPath}"`, { stdio: 'pipe' });
+    } catch {
+      // May fail if not root — acceptable in development
+    }
   }
 }
 

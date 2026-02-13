@@ -30,6 +30,7 @@ import {
   deleteUntrustedSkill,
   type UnifiedSkill,
 } from '../stores/skills';
+import { ConfirmDialog } from '../components/shared/ConfirmDialog';
 import { UntrustedSkillsSection } from '../components/skills/UntrustedSkillsSection';
 import { useGuardedAction } from '../hooks/useGuardedAction';
 
@@ -38,6 +39,8 @@ export function Skills() {
   const guard = useGuardedAction();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const [confirmUninstall, setConfirmUninstall] = useState<{ name: string } | null>(null);
 
   // Read search from URL
   const qParam = searchParams.get('q') ?? '';
@@ -76,8 +79,8 @@ export function Skills() {
   }, [debouncedSearch]);
 
   const handleCardClick = useCallback(
-    (slug: string) => {
-      navigate(`/skills/${slug}`);
+    (id: string) => {
+      navigate(`/skills/${id}`);
     },
     [navigate],
   );
@@ -114,8 +117,9 @@ export function Skills() {
             await installSkill(skill.slug);
             break;
           case 'installed':
-            await uninstallSkill(skill.name);
-            break;
+            setConfirmUninstall({ name: skill.name });
+            return; // Don't run inside guard — dialog handles it
+
           case 'blocked':
             await analyzeSkill(skill.slug);
             await unblockSkill(skill.name);
@@ -212,7 +216,7 @@ export function Skills() {
                     <Grid key={skill.slug} size={{ xs: 12, md: 6 }}>
                       <UnifiedSkillCard
                         skill={skill as Parameters<typeof UnifiedSkillCard>[0]['skill']}
-                        onClick={() => handleCardClick(skill.slug)}
+                        onClick={() => handleCardClick(skill.installationId ?? skill.slug)}
                         onAction={() => handleAction(skill)}
                       />
                     </Grid>
@@ -230,6 +234,21 @@ export function Skills() {
           </>
         )}
       </SkillDropZone>
+
+      <ConfirmDialog
+        open={!!confirmUninstall}
+        title="Uninstall Skill"
+        message={`Are you sure you want to uninstall "${confirmUninstall?.name}"? This will remove the skill and its deployed files.`}
+        confirmLabel="Uninstall"
+        variant="danger"
+        onConfirm={async () => {
+          if (confirmUninstall) {
+            await uninstallSkill(confirmUninstall.name);
+          }
+          setConfirmUninstall(null);
+        }}
+        onCancel={() => setConfirmUninstall(null)}
+      />
     </Box>
   );
 }

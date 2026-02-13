@@ -91,6 +91,8 @@ export interface DbSkillRow {
   homepage: string | null;
   tags: string;
   source: string;
+  remote_id: string | null;
+  is_public: number;
   created_at: string;
   updated_at: string;
 }
@@ -133,6 +135,8 @@ export interface DbSkillInstallationRow {
   user_username: string | null;
   status: string;
   wrapper_path: string | null;
+  auto_update: number;
+  pinned_version: string | null;
   installed_at: string;
   updated_at: string;
 }

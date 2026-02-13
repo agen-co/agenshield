@@ -1,6 +1,5 @@
 /**
  * CSS keyframe animations
- * Adapted from frontmcp-dashboard-monorepo/libs/ui/animations
  */
 
 import { keyframes } from '@emotion/react';

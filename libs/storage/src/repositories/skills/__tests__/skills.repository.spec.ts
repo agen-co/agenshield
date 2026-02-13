@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { InitialSchemaMigration } from '../../../migrations/001-initial-schema';
+import { SkillsManagerColumnsMigration } from '../../../migrations/003-skills-manager-columns';
 import { SkillsRepository } from '../skills.repository';
 
 function createTestDb(): { db: Database.Database; cleanup: () => void } {
@@ -16,6 +17,7 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   new InitialSchemaMigration().up(db);
+  new SkillsManagerColumnsMigration().up(db);
   return {
     db,
     cleanup: () => {
@@ -584,6 +586,262 @@ describe('SkillsRepository', () => {
 
       const installed = repo.getInstalledSkills();
       expect(installed).toHaveLength(0);
+    });
+  });
+
+  // ─── New fields (remoteId, isPublic, autoUpdate, pinnedVersion) ─────
+
+  describe('New skill fields', () => {
+    it('create sets isPublic=true by default', () => {
+      const skill = repo.create(makeSkillInput());
+      expect(skill.isPublic).toBe(true);
+    });
+
+    it('create accepts remoteId and isPublic', () => {
+      const skill = repo.create(makeSkillInput({
+        slug: 'remote-skill',
+        remoteId: 'remote-123',
+        isPublic: false,
+      }));
+      expect(skill.remoteId).toBe('remote-123');
+      expect(skill.isPublic).toBe(false);
+    });
+
+    it('getByRemoteId returns the correct skill', () => {
+      repo.create(makeSkillInput({ slug: 'remote-s', remoteId: 'r-abc' }));
+      const found = repo.getByRemoteId('r-abc');
+      expect(found).not.toBeNull();
+      expect(found!.slug).toBe('remote-s');
+    });
+
+    it('getByRemoteId returns null for non-existent', () => {
+      expect(repo.getByRemoteId('no-such')).toBeNull();
+    });
+
+    it('search finds skills by name', () => {
+      repo.create(makeSkillInput({ slug: 'alpha', name: 'Alpha Tool' }));
+      repo.create(makeSkillInput({ slug: 'beta', name: 'Beta Tool' }));
+      repo.create(makeSkillInput({ slug: 'gamma', name: 'Gamma Widget' }));
+
+      const results = repo.search('Tool');
+      expect(results).toHaveLength(2);
+    });
+
+    it('search finds skills by slug', () => {
+      repo.create(makeSkillInput({ slug: 'my-special-skill', name: 'Special' }));
+      repo.create(makeSkillInput({ slug: 'other', name: 'Other' }));
+
+      const results = repo.search('special');
+      expect(results).toHaveLength(1);
+      expect(results[0].slug).toBe('my-special-skill');
+    });
+
+    it('search finds skills by description', () => {
+      repo.create(makeSkillInput({ slug: 's1', name: 'S1', description: 'A filesystem watcher' }));
+      repo.create(makeSkillInput({ slug: 's2', name: 'S2', description: 'A network tool' }));
+
+      const results = repo.search('filesystem');
+      expect(results).toHaveLength(1);
+    });
+
+    it('search returns empty for no matches', () => {
+      repo.create(makeSkillInput());
+      expect(repo.search('zzz-nonexistent')).toEqual([]);
+    });
+
+    it('update can set remoteId and isPublic', () => {
+      const skill = repo.create(makeSkillInput());
+      const updated = repo.update(skill.id, { remoteId: 'r-new', isPublic: false });
+      expect(updated!.remoteId).toBe('r-new');
+      expect(updated!.isPublic).toBe(false);
+    });
+  });
+
+  describe('Installation new fields', () => {
+    let skillId: string;
+    let versionId: string;
+
+    beforeEach(() => {
+      const skill = repo.create(makeSkillInput());
+      skillId = skill.id;
+      const v = repo.addVersion(makeVersionInput(skillId));
+      versionId = v.id;
+    });
+
+    it('install sets autoUpdate=true by default', () => {
+      const inst = repo.install({ skillVersionId: versionId, status: 'active' });
+      expect(inst.autoUpdate).toBe(true);
+      expect(inst.pinnedVersion).toBeUndefined();
+    });
+
+    it('install accepts autoUpdate=false', () => {
+      const inst = repo.install({ skillVersionId: versionId, status: 'active', autoUpdate: false });
+      expect(inst.autoUpdate).toBe(false);
+    });
+
+    it('setAutoUpdate toggles auto_update', () => {
+      const inst = repo.install({ skillVersionId: versionId, status: 'active' });
+      repo.setAutoUpdate(inst.id, false);
+
+      const all = repo.getInstallations();
+      const found = all.find((i) => i.id === inst.id)!;
+      expect(found.autoUpdate).toBe(false);
+
+      repo.setAutoUpdate(inst.id, true);
+      const all2 = repo.getInstallations();
+      expect(all2.find((i) => i.id === inst.id)!.autoUpdate).toBe(true);
+    });
+
+    it('pinVersion / unpinVersion', () => {
+      const inst = repo.install({ skillVersionId: versionId, status: 'active' });
+      repo.pinVersion(inst.id, '1.0.0');
+
+      let all = repo.getInstallations();
+      expect(all.find((i) => i.id === inst.id)!.pinnedVersion).toBe('1.0.0');
+
+      repo.unpinVersion(inst.id);
+      all = repo.getInstallations();
+      expect(all.find((i) => i.id === inst.id)!.pinnedVersion).toBeUndefined();
+    });
+
+    it('updateInstallationVersion changes version id', () => {
+      const inst = repo.install({ skillVersionId: versionId, status: 'active' });
+      const v2 = repo.addVersion(makeVersionInput(skillId, { version: '2.0.0' }));
+
+      repo.updateInstallationVersion(inst.id, v2.id);
+
+      const all = repo.getInstallations();
+      expect(all.find((i) => i.id === inst.id)!.skillVersionId).toBe(v2.id);
+    });
+
+    it('getAutoUpdatable returns only eligible installations', () => {
+      // auto_update=true, no pin → eligible
+      const inst1 = repo.install({ skillVersionId: versionId, status: 'active' });
+      // auto_update=false → not eligible
+      const inst2 = repo.install({ skillVersionId: versionId, status: 'active', autoUpdate: false });
+      // pinned → not eligible
+      const inst3 = repo.install({ skillVersionId: versionId, status: 'active' });
+      repo.pinVersion(inst3.id, '1.0.0');
+      // disabled → not eligible
+      const inst4 = repo.install({ skillVersionId: versionId, status: 'disabled' });
+
+      const eligible = repo.getAutoUpdatable(skillId);
+      expect(eligible).toHaveLength(1);
+      expect(eligible[0].id).toBe(inst1.id);
+    });
+  });
+
+  // ─── Scoped installations ─────────────────────────────────
+
+  describe('Scoped installations', () => {
+    let skillId: string;
+    let versionId: string;
+
+    beforeEach(() => {
+      const skill = repo.create(makeSkillInput());
+      skillId = skill.id;
+      const v = repo.addVersion(makeVersionInput(skillId));
+      versionId = v.id;
+
+      // Insert targets and users for scoping
+      db.prepare(`INSERT INTO targets (id, name, created_at, updated_at) VALUES ('t1', 'Target 1', datetime('now'), datetime('now'))`).run();
+      db.prepare(`INSERT INTO targets (id, name, created_at, updated_at) VALUES ('t2', 'Target 2', datetime('now'), datetime('now'))`).run();
+      db.prepare(`INSERT INTO users (username, uid, type, created_at, home_dir) VALUES ('alice', 1001, 'agent', datetime('now'), '/home/alice')`).run();
+      db.prepare(`INSERT INTO users (username, uid, type, created_at, home_dir) VALUES ('bob', 1002, 'agent', datetime('now'), '/home/bob')`).run();
+    });
+
+    it('getInstallations with scope returns global + matching target only', () => {
+      const global = repo.install({ skillVersionId: versionId, status: 'active' });
+      const t1 = repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active' });
+      const t2 = repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active' });
+
+      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1' });
+      const result = scopedRepo.getInstallations();
+
+      expect(result).toHaveLength(2);
+      const ids = result.map((r) => r.id);
+      expect(ids).toContain(global.id);
+      expect(ids).toContain(t1.id);
+      expect(ids).not.toContain(t2.id);
+    });
+
+    it('getInstallations unscoped returns all (backward compat)', () => {
+      repo.install({ skillVersionId: versionId, status: 'active' });
+      repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active' });
+      repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active' });
+
+      const result = repo.getInstallations();
+      expect(result).toHaveLength(3);
+    });
+
+    it('getAutoUpdatable with scope returns global + matching target only', () => {
+      repo.install({ skillVersionId: versionId, status: 'active', autoUpdate: true });
+      repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active', autoUpdate: true });
+      repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active', autoUpdate: true });
+
+      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1' });
+      const result = scopedRepo.getAutoUpdatable(skillId);
+
+      expect(result).toHaveLength(2);
+      const targetIds = result.map((r) => r.targetId);
+      expect(targetIds).toContain(undefined); // global
+      expect(targetIds).toContain('t1');
+    });
+
+    it('getAutoUpdatable unscoped returns all eligible', () => {
+      repo.install({ skillVersionId: versionId, status: 'active', autoUpdate: true });
+      repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active', autoUpdate: true });
+      repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active', autoUpdate: true });
+
+      const result = repo.getAutoUpdatable(skillId);
+      expect(result).toHaveLength(3);
+    });
+
+    it('getInstallationById ignores scope', () => {
+      const t2Inst = repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active' });
+
+      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1' });
+      const found = scopedRepo.getInstallationById(t2Inst.id);
+
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe(t2Inst.id);
+      expect(found!.targetId).toBe('t2');
+    });
+
+    it('getInstallationById returns null for non-existent id', () => {
+      expect(repo.getInstallationById('non-existent')).toBeNull();
+    });
+
+    it('user-level scope includes global + target + target+user, not other users', () => {
+      const global = repo.install({ skillVersionId: versionId, status: 'active' });
+      const t1Only = repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active' });
+      const t1Alice = repo.install({ skillVersionId: versionId, targetId: 't1', userUsername: 'alice', status: 'active' });
+      const t1Bob = repo.install({ skillVersionId: versionId, targetId: 't1', userUsername: 'bob', status: 'active' });
+
+      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1', userUsername: 'alice' });
+      const result = scopedRepo.getInstallations();
+
+      const ids = result.map((r) => r.id);
+      expect(ids).toContain(global.id);
+      expect(ids).toContain(t1Only.id);
+      expect(ids).toContain(t1Alice.id);
+      expect(ids).not.toContain(t1Bob.id);
+    });
+
+    it('getInstallations scope combines with explicit filter', () => {
+      repo.install({ skillVersionId: versionId, status: 'active' });
+      repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active' });
+      repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active' });
+
+      // Create a second version's installation
+      const v2 = repo.addVersion(makeVersionInput(skillId, { version: '2.0.0' }));
+      repo.install({ skillVersionId: v2.id, targetId: 't1', status: 'active' });
+
+      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1' });
+      // Filter by skillVersionId within scope
+      const result = scopedRepo.getInstallations({ skillVersionId: versionId });
+
+      expect(result).toHaveLength(2); // global + t1 for versionId only
     });
   });
 

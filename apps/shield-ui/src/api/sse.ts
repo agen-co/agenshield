@@ -2,6 +2,8 @@
  * SSE client with automatic reconnection
  */
 
+import { getRegisteredEventTypes } from '@agenshield/ipc';
+
 const SSE_URL = '/sse/events';
 const RECONNECT_DELAY = 3000;
 const MAX_RECONNECT_DELAY = 30000;
@@ -24,54 +26,7 @@ export function createSSEClient(
   let reconnectDelay = RECONNECT_DELAY;
   let intentionalClose = false;
 
-  const eventTypes = [
-    'api:request',
-    'api:outbound',
-    'security:status',
-    'security:warning',
-    'security:critical',
-    'security:alert',
-    'broker:request',
-    'broker:response',
-    'config:changed',
-    'exec:monitored',
-    'exec:denied',
-    'skills:quarantined',
-    'skills:approved',
-    'skills:analyzed',
-    'skills:analysis_failed',
-    'skills:installed',
-    'skills:install_failed',
-    'skills:install_started',
-    'skills:install_progress',
-    'skills:untrusted_detected',
-    'skills:uninstalled',
-    'wrappers:installed',
-    'wrappers:uninstalled',
-    'wrappers:updated',
-    'wrappers:custom_added',
-    'wrappers:custom_removed',
-    'wrappers:synced',
-    'wrappers:regenerated',
-    'agenco:connected',
-    'agenco:disconnected',
-    'agenco:auth_required',
-    'agenco:auth_completed',
-    'agenco:tool_executed',
-    'agenco:error',
-    'process:started',
-    'process:stopped',
-    'process:broker_started',
-    'process:broker_stopped',
-    'process:broker_restarted',
-    'process:gateway_started',
-    'process:gateway_stopped',
-    'process:gateway_restarted',
-    'process:daemon_started',
-    'process:daemon_stopped',
-    'interceptor:event',
-    'daemon:status',
-  ];
+  const eventTypes = getRegisteredEventTypes();
 
   function connect() {
     intentionalClose = false;

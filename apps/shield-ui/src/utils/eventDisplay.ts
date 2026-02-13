@@ -65,6 +65,8 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   'skills:uninstalled': { icon: Trash2, label: 'Skill Uninstalled', color: 'warning' },
   'skills:analyzed': { icon: Search, label: 'Skill Analyzed', color: 'success' },
   'skills:analysis_failed': { icon: Zap, label: 'Skill Analysis Failed', color: 'error' },
+  'skills:integrity_violation': { icon: AlertTriangle, label: 'Integrity Violation', color: 'error' },
+  'skills:integrity_restored': { icon: RefreshCw, label: 'Skill Restored', color: 'success' },
 
   // Wrappers
   'wrappers:installed': { icon: Package, label: 'Wrapper Installed', color: 'success' },
@@ -116,6 +118,7 @@ export const BLOCKED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'exec:denied',
   'skills:quarantined',
   'skills:untrusted_detected',
+  'skills:integrity_violation',
   'security:warning',
   'security:critical',
   'security:alert',
@@ -206,6 +209,19 @@ export function getEventSummary(event: SSEEvent): string {
   }
   if (event.type === 'skills:uninstalled') {
     return String(d.name ?? '');
+  }
+  if (event.type === 'skills:integrity_violation') {
+    const name = String(d.slug ?? d.name ?? '');
+    const action = String(d.action ?? '');
+    const modified = Array.isArray(d.modifiedFiles) ? (d.modifiedFiles as string[]).length : 0;
+    const missing = Array.isArray(d.missingFiles) ? (d.missingFiles as string[]).length : 0;
+    const total = modified + missing;
+    const suffix = total > 0 ? ` (${total} file${total !== 1 ? 's' : ''})` : '';
+    return action ? `${name} — ${action}${suffix}` : name;
+  }
+  if (event.type === 'skills:integrity_restored') {
+    const name = String(d.slug ?? d.name ?? '');
+    return `${name} — files restored`;
   }
 
   if (event.type.startsWith('process:')) {

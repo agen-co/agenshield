@@ -10,6 +10,7 @@ import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { PolicyConfig } from '@agenshield/ipc';
+import { isDevMode } from './config/paths';
 
 interface Logger {
   warn(msg: string, ...args: unknown[]): void;
@@ -81,6 +82,10 @@ export function addUserAcl(
   log: Logger = noop,
   action: 'allow' | 'deny' = 'allow',
 ): void {
+  if (isDevMode()) {
+    log.warn(`[acl] skipping ACL add in dev mode: ${targetPath}`);
+    return;
+  }
   try {
     if (!fs.existsSync(targetPath)) {
       log.warn(`[acl] skipping non-existent path: ${targetPath}`);
@@ -106,6 +111,10 @@ export function addUserAcl(
  * stay valid). This ensures a clean slate before reapplying permissions.
  */
 export function removeUserAcl(targetPath: string, userName: string, log: Logger = noop): void {
+  if (isDevMode()) {
+    log.warn(`[acl] skipping ACL remove in dev mode: ${targetPath}`);
+    return;
+  }
   try {
     if (!fs.existsSync(targetPath)) {
       log.warn(`[acl] skipping non-existent path: ${targetPath}`);

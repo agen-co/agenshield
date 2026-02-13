@@ -41,6 +41,8 @@
     "@agenshield/ipc": "0.7.3",
     "@agenshield/broker": "0.7.3",
     "@agenshield/sandbox": "0.7.3",
+    "@agenshield/storage": "0.7.3",
+    "@agentshield/skills": "0.7.3",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "fastify": "^5.7.0",
     "zod": "^4.3.6",

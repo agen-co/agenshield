@@ -1,8 +1,15 @@
 /**
- * SSE Event types for real-time communication
+ * @deprecated Use the typed event system from `@agenshield/ipc` (`events/` module) instead.
+ *
+ * This file is kept for backward compatibility. The canonical event types,
+ * payloads, and EventBus are now in `events/event-registry.ts` and
+ * `events/event-bus.ts`, re-exported from the package root.
  */
 
-export type EventType =
+/**
+ * @deprecated Use `EventType` from `@agenshield/ipc` (events module) instead.
+ */
+export type LegacyEventType =
   | 'security:status'
   | 'security:warning'
   | 'security:critical'
@@ -15,17 +22,15 @@ export type EventType =
   | 'heartbeat';
 
 /**
- * Base event structure
+ * @deprecated Use typed payloads from `@agenshield/ipc` (events module) instead.
  */
 export interface DaemonEvent<T = unknown> {
-  type: EventType;
+  type: string;
   timestamp: string;
   data: T;
 }
 
-/**
- * Security status event data
- */
+/** @deprecated Use `SecurityStatusPayload` from events module */
 export interface SecurityStatusEventData {
   runningAsRoot: boolean;
   currentUser: string;
@@ -39,23 +44,17 @@ export interface SecurityStatusEventData {
   level: 'secure' | 'partial' | 'unprotected' | 'critical';
 }
 
-/**
- * Security warning event data
- */
+/** @deprecated Use `MessagePayload` from events module */
 export interface SecurityWarningEventData {
   message: string;
 }
 
-/**
- * Security critical event data
- */
+/** @deprecated Use `MessagePayload` from events module */
 export interface SecurityCriticalEventData {
   message: string;
 }
 
-/**
- * API request event data
- */
+/** @deprecated Use `ApiRequestPayload` from events module */
 export interface ApiRequestEventData {
   method: string;
   path: string;
@@ -63,26 +62,20 @@ export interface ApiRequestEventData {
   duration: number;
 }
 
-/**
- * Broker request event data
- */
+/** @deprecated Use `BrokerRequestPayload` from events module */
 export interface BrokerRequestEventData {
   operation: string;
   args: unknown;
 }
 
-/**
- * Broker response event data
- */
+/** @deprecated Use `BrokerResponsePayload` from events module */
 export interface BrokerResponseEventData {
   operation: string;
   success: boolean;
   duration: number;
 }
 
-/**
- * Heartbeat event data
- */
+/** @deprecated Use `HeartbeatPayload` from events module */
 export interface HeartbeatEventData {
   connected?: boolean;
   ping?: boolean;
@@ -90,13 +83,17 @@ export interface HeartbeatEventData {
   filter?: string;
 }
 
-/**
- * Typed event definitions
- */
+/** @deprecated */
 export type SecurityStatusEvent = DaemonEvent<SecurityStatusEventData>;
+/** @deprecated */
 export type SecurityWarningEvent = DaemonEvent<SecurityWarningEventData>;
+/** @deprecated */
 export type SecurityCriticalEvent = DaemonEvent<SecurityCriticalEventData>;
+/** @deprecated */
 export type ApiRequestEvent = DaemonEvent<ApiRequestEventData>;
+/** @deprecated */
 export type BrokerRequestEvent = DaemonEvent<BrokerRequestEventData>;
+/** @deprecated */
 export type BrokerResponseEvent = DaemonEvent<BrokerResponseEventData>;
+/** @deprecated */
 export type HeartbeatEvent = DaemonEvent<HeartbeatEventData>;

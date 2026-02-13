@@ -183,6 +183,7 @@ export interface DaemonSkillSummary {
   author?: string;
   sha?: string;
   tags?: string[];
+  installationId?: string;
   analysis?: {
     status?: 'pending' | 'analyzing' | 'complete' | 'error' | 'installing';
     vulnerabilityLevel?: string;

@@ -9,10 +9,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
-import { createRequire } from 'node:module';
 import type { UserConfig } from '@agenshield/ipc';
-
-const require = createRequire(import.meta.url);
 
 export interface SkillInjectionResult {
   success: boolean;
@@ -42,22 +39,19 @@ export function getSkillsDir(homeDir: string): string {
 }
 
 /**
- * Get the path to the bundled AgenCo skill
+ * Get the path to the AgenCo skill on disk.
+ * The skill is auto-generated and deployed by the daemon at runtime.
  */
 export function getAgenCoSkillPath(): string {
-  // The skill is bundled with the @agenshield/skills package
-  const possiblePaths: string[] = [];
-
-  // npm/npx: resolve via package name
-  try {
-    const pkgPath = require.resolve('@agenshield/skills/package.json');
-    possiblePaths.push(path.join(path.dirname(pkgPath), 'skills', 'agenco'));
-  } catch { /* not installed via npm */ }
-
-  possiblePaths.push(
-    // Global install
+  const possiblePaths: string[] = [
+    // Daemon-deployed location (primary)
+    path.join(
+      process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent',
+      '.openclaw', 'workspace', 'skills', 'agenco',
+    ),
+    // Global install fallback
     '/opt/agenshield/skills/agenco',
-  );
+  ];
 
   for (const p of possiblePaths) {
     if (fs.existsSync(path.join(p, 'SKILL.md'))) {
@@ -65,7 +59,7 @@ export function getAgenCoSkillPath(): string {
     }
   }
 
-  throw new Error('AgenCo skill not found. Please reinstall AgenShield.');
+  throw new Error('AgenCo skill not found. The daemon will generate it when integrations are connected.');
 }
 
 /**

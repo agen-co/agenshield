@@ -4,7 +4,7 @@
 
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { CONFIG_DIR, CONFIG_FILE, PID_FILE, LOG_FILE } from '@agenshield/ipc';
+import { CONFIG_DIR, CONFIG_FILE, PID_FILE, LOG_FILE, SKILL_BACKUP_DIR } from '@agenshield/ipc';
 
 /**
  * Get the configuration directory path
@@ -35,12 +35,20 @@ export function getLogPath(): string {
 }
 
 /**
+ * Whether the daemon is running in dev mode.
+ * Dev mode is signaled by setting AGENSHIELD_AGENT_HOME (e.g. `./tmp/dev-agent`).
+ */
+export function isDevMode(): boolean {
+  return !!process.env['AGENSHIELD_AGENT_HOME'];
+}
+
+/**
  * Get the system-level config directory.
  * In dev mode (AGENSHIELD_AGENT_HOME set), uses ~/.agenshield (user-writable).
  * In production, uses /opt/agenshield/config (root-owned).
  */
 export function getSystemConfigDir(): string {
-  if (process.env['AGENSHIELD_AGENT_HOME']) {
+  if (isDevMode()) {
     return getConfigDir();
   }
   return '/opt/agenshield/config';
@@ -52,8 +60,25 @@ export function getSystemConfigDir(): string {
  * In production, uses /opt/agenshield/quarantine/skills.
  */
 export function getQuarantineDir(): string {
-  if (process.env['AGENSHIELD_AGENT_HOME']) {
+  if (isDevMode()) {
     return path.join(getConfigDir(), 'quarantine', 'skills');
   }
   return '/opt/agenshield/quarantine/skills';
+}
+
+/**
+ * Get the skill backup directory path (under CONFIG_DIR).
+ */
+export function getSkillBackupDir(): string {
+  return path.join(getConfigDir(), SKILL_BACKUP_DIR);
+}
+
+/**
+ * Get the agent's skills directory path.
+ * Returns empty string if AGENSHIELD_AGENT_HOME is not set.
+ */
+export function getSkillsDir(): string {
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
+  if (agentHome) return path.join(agentHome, '.openclaw', 'workspace', 'skills');
+  return '';
 }

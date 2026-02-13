@@ -10,14 +10,17 @@ const INSTALLATIONS = 'skill_installations';
 export const Q = {
   // ---- Skills ----
   insertSkill: `
-    INSERT INTO ${SKILLS} (id, name, slug, author, description, homepage, tags, source, created_at, updated_at)
-    VALUES (@id, @name, @slug, @author, @description, @homepage, @tags, @source, @createdAt, @updatedAt)`,
+    INSERT INTO ${SKILLS} (id, name, slug, author, description, homepage, tags, source, remote_id, is_public, created_at, updated_at)
+    VALUES (@id, @name, @slug, @author, @description, @homepage, @tags, @source, @remoteId, @isPublic, @createdAt, @updatedAt)`,
 
   selectSkillById: `SELECT * FROM ${SKILLS} WHERE id = ?`,
   selectSkillBySlug: `SELECT * FROM ${SKILLS} WHERE slug = ?`,
+  selectSkillByRemoteId: `SELECT * FROM ${SKILLS} WHERE remote_id = ?`,
   selectAllSkills: `SELECT * FROM ${SKILLS} ORDER BY name`,
   selectSkillsBySource: `SELECT * FROM ${SKILLS} WHERE source = ? ORDER BY name`,
   deleteSkill: `DELETE FROM ${SKILLS} WHERE id = ?`,
+
+  searchSkills: `SELECT * FROM ${SKILLS} WHERE name LIKE @query OR slug LIKE @query OR description LIKE @query OR tags LIKE @query ORDER BY name`,
 
   // ---- Versions ----
   insertVersion: `
@@ -39,6 +42,7 @@ export const Q = {
 
   approveVersion: `UPDATE ${VERSIONS} SET approval = 'approved', approved_at = @now, updated_at = @now WHERE id = @id`,
   quarantineVersion: `UPDATE ${VERSIONS} SET approval = 'quarantined', updated_at = @now WHERE id = @id`,
+  deleteVersion: `DELETE FROM ${VERSIONS} WHERE id = ?`,
 
   updateContentHash: `UPDATE ${VERSIONS} SET content_hash = @hash, hash_updated_at = @now, updated_at = @now WHERE id = @id`,
 
@@ -54,11 +58,27 @@ export const Q = {
 
   // ---- Installations ----
   insertInstallation: `
-    INSERT INTO ${INSTALLATIONS} (id, skill_version_id, target_id, user_username, status, wrapper_path, installed_at, updated_at)
-    VALUES (@id, @skillVersionId, @targetId, @userUsername, @status, @wrapperPath, @installedAt, @updatedAt)`,
+    INSERT INTO ${INSTALLATIONS} (id, skill_version_id, target_id, user_username, status, wrapper_path, auto_update, pinned_version, installed_at, updated_at)
+    VALUES (@id, @skillVersionId, @targetId, @userUsername, @status, @wrapperPath, @autoUpdate, @pinnedVersion, @installedAt, @updatedAt)`,
 
+  selectInstallationById: `SELECT * FROM ${INSTALLATIONS} WHERE id = ?`,
   deleteInstallation: `DELETE FROM ${INSTALLATIONS} WHERE id = ?`,
   updateInstallationStatus: `UPDATE ${INSTALLATIONS} SET status = @status, updated_at = @now WHERE id = @id`,
+
+  selectAutoUpdatable: (scopeClause?: string) => `
+    SELECT si.* FROM ${INSTALLATIONS} si
+    JOIN ${VERSIONS} sv ON si.skill_version_id = sv.id
+    WHERE sv.skill_id = @skillId AND si.auto_update = 1 AND si.pinned_version IS NULL AND si.status = 'active'
+    ${scopeClause ? `AND (${scopeClause})` : ''}`,
+
+  setAutoUpdate: `UPDATE ${INSTALLATIONS} SET auto_update = @autoUpdate, updated_at = @now WHERE id = @id`,
+
+  updateInstallationVersion: `UPDATE ${INSTALLATIONS} SET skill_version_id = @versionId, updated_at = @now WHERE id = @id`,
+
+  updateWrapperPath: `UPDATE ${INSTALLATIONS} SET wrapper_path = @wrapperPath, updated_at = @now WHERE id = @id`,
+
+  pinVersion: `UPDATE ${INSTALLATIONS} SET pinned_version = @version, updated_at = @now WHERE id = @id`,
+  unpinVersion: `UPDATE ${INSTALLATIONS} SET pinned_version = NULL, updated_at = @now WHERE id = @id`,
 
   selectInstalledSkills: (scopeConditions: string) => `
     SELECT s.*, sv.id as sv_id, sv.skill_id as sv_skill_id, sv.version as sv_version, sv.folder_path as sv_folder_path,

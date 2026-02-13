@@ -2,63 +2,27 @@
  * Skills Management Routes
  *
  * API endpoints for managing agent skills (approved and quarantined).
+ * Backed by SkillManager + SQLite via @agentshield/skills.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { MarketplaceSkillFile } from '@agenshield/ipc';
+import type { MarketplaceSkillFile, Skill, SkillVersion, SkillInstallation } from '@agenshield/ipc';
 import { parseSkillMd, stripEnvFromSkillMd } from '@agenshield/sandbox';
-import { injectInstallationTag } from '../services/skill-tag-injector';
+import { isInstallInProgress } from './marketplace';
+import { requireAuth } from '../auth/middleware';
 import {
-  listApproved,
-  listUntrusted,
-  approveSkill,
-  rejectSkill,
-  revokeSkill,
-  getSkillsDir,
-  addToApprovedList,
-  removeFromApprovedList,
-  computeSkillHash,
-  updateApprovedHash,
-} from '../watchers/skills';
-import {
-  analyzeSkill,
-  getCachedAnalysis,
-  setCachedAnalysis,
-  clearCachedAnalysis,
-} from '../services/skill-analyzer';
-import {
-  createSkillWrapper,
-  removeSkillWrapper,
-  addSkillPolicy,
-  removeSkillPolicy,
-  removeBrewBinaryWrappers,
-  sudoMkdir,
-  sudoWriteFile,
-} from '../services/skill-lifecycle';
-import {
-  listDownloadedSkills,
   getDownloadedSkillFiles,
   getDownloadedSkillMeta,
   getMarketplaceSkill,
   storeDownloadedSkill,
-  deleteDownloadedSkill,
-  markDownloadedAsInstalled,
   inlineImagesInMarkdown,
-  updateDownloadedAnalysis,
   analyzeSkillBySlug,
   analyzeSkillBundle,
+  updateDownloadedAnalysis,
 } from '../services/marketplace';
-import { isInstallInProgress } from './marketplace';
 import { emitSkillAnalyzed, emitSkillAnalysisFailed, emitSkillUninstalled } from '../events/emitter';
-import { requireAuth } from '../auth/middleware';
-import {
-  isBrokerAvailable,
-  uninstallSkillViaBroker,
-  installSkillViaBroker,
-} from '../services/broker-bridge';
 
 /** Compact analysis for list view — no full details/suggestions */
 interface SkillAnalysisSummary {
@@ -81,23 +45,20 @@ interface SkillSummary {
   author?: string;
   tags?: string[];
   trusted?: boolean;
+  installationId?: string;
   analysis?: SkillAnalysisSummary;
 }
 
 /**
  * Recursively search for SKILL.md or README.md in a directory tree.
- * Marketplace zips often nest files in subdirs (e.g., latest/SKILL.md).
- * Returns the absolute path to the first match, or null if not found.
  */
 function findSkillMdRecursive(dir: string, depth = 0): string | null {
-  if (depth > 3) return null; // don't descend too deep
+  if (depth > 3) return null;
   try {
-    // Check root first
     for (const name of ['SKILL.md', 'skill.md', 'README.md', 'readme.md']) {
       const candidate = path.join(dir, name);
       if (fs.existsSync(candidate)) return candidate;
     }
-    // Check subdirectories
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
@@ -136,13 +97,7 @@ function readSkillMetadata(skillDir: string): {
   }
 }
 
-function readSkillDescription(skillDir: string): string | undefined {
-  return readSkillMetadata(skillDir).description;
-}
-
-/** Build compact SkillAnalysisSummary for frontend consumption.
- * Returns `installing` status when an install is in progress for this skill.
- * Accepts any analysis-like object (SkillAnalysis or marketplace analysis). */
+/** Build compact SkillAnalysisSummary for frontend consumption. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildAnalysisSummary(name: string, rawAnalysis?: any): SkillAnalysisSummary | undefined {
   const installing = isInstallInProgress(name);
@@ -185,233 +140,293 @@ function buildFullAnalysis(name: string, rawAnalysis?: any): object | undefined 
 }
 
 /**
+ * Map DB entities to the SkillSummary shape the UI expects.
+ */
+function mapToSummary(
+  skill: Skill,
+  version: SkillVersion | undefined,
+  installation: SkillInstallation | undefined,
+  skillsDir: string,
+): SkillSummary {
+  const isActive = installation?.status === 'active';
+  const isQuarantined = version?.approval === 'quarantined';
+  const isDisabled = installation?.status === 'disabled';
+  const isTrusted = skill.slug === 'ag-agenco' || skill.slug.startsWith('ag-agenco-');
+
+  const onDiskDir = path.join(skillsDir, skill.slug);
+  const hasDiskPresence = fs.existsSync(onDiskDir);
+
+  let source: SkillSummary['source'];
+  let status: SkillSummary['status'];
+
+  if (isActive) {
+    source = 'user';
+    status = 'active';
+  } else if (isQuarantined) {
+    source = 'untrusted';
+    status = 'untrusted';
+  } else if (isDisabled) {
+    source = 'marketplace';
+    status = 'disabled';
+  } else if (hasDiskPresence && !installation) {
+    source = 'workspace';
+    status = 'workspace';
+  } else {
+    source = 'marketplace';
+    status = 'downloaded';
+  }
+
+  // Build analysis from version.analysisJson or marketplace download meta
+  const dlMeta = getDownloadedSkillMeta(skill.slug);
+  const analysisJson = version?.analysisJson ?? dlMeta?.analysis;
+
+  return {
+    name: skill.slug,
+    source,
+    status,
+    path: isActive || hasDiskPresence ? onDiskDir : '',
+    publisher: skill.author,
+    description: skill.description,
+    version: version?.version,
+    author: skill.author,
+    tags: skill.tags,
+    trusted: isTrusted || undefined,
+    installationId: installation?.id,
+    analysis: buildAnalysisSummary(skill.slug, analysisJson),
+  };
+}
+
+/**
  * Register skills management routes
  */
 export async function skillsRoutes(app: FastifyInstance): Promise<void> {
   /**
    * GET /skills - List all skills as normalized SkillSummary[]
    */
-  app.get('/skills', async (_request: FastifyRequest, reply: FastifyReply) => {
-    const approved = listApproved();
-    const untrusted = listUntrusted();
-    const skillsDir = getSkillsDir();
+  app.get('/skills', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { shieldContext: ctx } = request;
+    request.log.info({ targetId: ctx.targetId }, 'Listing skills');
 
-    // Scan the skills directory on disk to find workspace skills
-    const approvedNames = new Set(approved.map((a) => a.name));
-    const untrustedNames = new Set(untrusted.map((u) => u.name));
-    let onDiskNames: string[] = [];
-    if (skillsDir) {
-      try {
-        onDiskNames = fs.readdirSync(skillsDir, { withFileTypes: true })
-          .filter((d) => d.isDirectory())
-          .map((d) => d.name);
-      } catch {
-        // Skills directory may not exist yet
+    const manager = app.skillManager;
+    const repo = manager.getRepository();
+    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
+
+    // Get all skills from DB
+    const allSkills = repo.getAll();
+    const allInstallations = repo.getInstallations();
+    const installByVersionId = new Map<string, SkillInstallation>();
+    for (const inst of allInstallations) {
+      // Keep the "best" installation: active > disabled > quarantined
+      const existing = installByVersionId.get(inst.skillVersionId);
+      if (!existing || (inst.status === 'active' && existing.status !== 'active')) {
+        installByVersionId.set(inst.skillVersionId, inst);
       }
     }
-    const workspaceNames = onDiskNames.filter(
-      (n) => !approvedNames.has(n) && !untrustedNames.has(n)
-    );
 
-    const data: SkillSummary[] = [
-      // Approved → active (with metadata from SKILL.md + cached analysis)
-      ...approved.map((a) => {
-        const meta = skillsDir ? readSkillMetadata(path.join(skillsDir, a.name)) : {};
-        const cached = getCachedAnalysis(a.name);
-        const dlMeta = getDownloadedSkillMeta(a.name);
-        const isTrusted = a.name === 'agenco' || a.name.startsWith('agenco-');
-        return {
-          name: a.name,
-          source: 'user' as const,
-          status: 'active' as const,
-          path: path.join(skillsDir ?? '', a.name),
-          publisher: a.publisher,
-          description: meta.description,
-          version: meta.version,
-          author: meta.author ?? a.publisher,
-          tags: meta.tags ?? dlMeta?.tags,
-          trusted: isTrusted || undefined,
-          analysis: buildAnalysisSummary(a.name, dlMeta?.analysis || cached),
-        };
-      }),
-      // Untrusted: detected but not approved, stored in marketplace cache
-      ...untrusted.map((u) => {
-        const dlMeta = getDownloadedSkillMeta(u.name);
-        const cached = getCachedAnalysis(u.name);
-        return {
-          name: u.name,
-          source: 'untrusted' as const,
-          status: 'untrusted' as const,
-          path: '',
-          description: dlMeta?.description,
-          version: dlMeta?.version,
-          author: dlMeta?.author,
-          tags: dlMeta?.tags,
-          analysis: buildAnalysisSummary(u.name, dlMeta?.analysis || cached),
-        };
-      }),
-      // Workspace: on disk but not approved or untrusted
-      ...workspaceNames.map((name) => {
-        const meta = skillsDir ? readSkillMetadata(path.join(skillsDir, name)) : {};
-        const dlMeta = getDownloadedSkillMeta(name);
-        const cached = getCachedAnalysis(name);
-        return {
-          name,
-          source: 'workspace' as const,
-          status: 'workspace' as const,
-          path: path.join(skillsDir ?? '', name),
-          description: meta.description ?? dlMeta?.description,
-          version: meta.version ?? dlMeta?.version,
-          author: meta.author ?? dlMeta?.author,
-          tags: meta.tags ?? dlMeta?.tags,
-          analysis: buildAnalysisSummary(name, dlMeta?.analysis || cached),
-        };
-      }),
-      // Disabled: previously installed marketplace skills that are no longer active
-      ...(() => {
-        const allKnown = new Set([
-          ...approvedNames,
-          ...untrustedNames,
-          ...workspaceNames,
-        ]);
-        return listDownloadedSkills()
-          .filter((d) => d.wasInstalled && !allKnown.has(d.slug) && !allKnown.has(d.name))
-          .map((d) => {
-            const cached = getCachedAnalysis(d.slug) || getCachedAnalysis(d.name);
-            return {
-              name: d.slug,
-              source: 'marketplace' as const,
-              status: 'disabled' as const,
-              path: '',
-              publisher: d.author,
-              description: d.description,
-              version: d.version,
-              author: d.author,
-              tags: d.tags,
-              analysis: buildAnalysisSummary(d.slug, d.analysis || cached),
-            };
+    const data: SkillSummary[] = [];
+    const knownSlugs = new Set<string>();
+
+    for (const skill of allSkills) {
+      knownSlugs.add(skill.slug);
+      const version = repo.getLatestVersion(skill.id);
+      const installation = version ? installByVersionId.get(version.id) : undefined;
+      data.push(mapToSummary(skill, version ?? undefined, installation, skillsDir));
+    }
+
+    // Also check for on-disk skills not yet in DB (workspace skills)
+    try {
+      if (fs.existsSync(skillsDir)) {
+        const onDiskNames = fs.readdirSync(skillsDir, { withFileTypes: true })
+          .filter((d) => d.isDirectory())
+          .map((d) => d.name);
+
+        for (const name of onDiskNames) {
+          if (knownSlugs.has(name)) continue;
+          const meta = readSkillMetadata(path.join(skillsDir, name));
+          const dlMeta = getDownloadedSkillMeta(name);
+          data.push({
+            name,
+            source: 'workspace',
+            status: 'workspace',
+            path: path.join(skillsDir, name),
+            description: meta.description ?? dlMeta?.description,
+            version: meta.version ?? dlMeta?.version,
+            author: meta.author ?? dlMeta?.author,
+            tags: meta.tags ?? dlMeta?.tags,
+            analysis: buildAnalysisSummary(name, dlMeta?.analysis),
           });
-      })(),
-    ];
+        }
+      }
+    } catch {
+      // Skills directory may not exist yet
+    }
 
     return reply.send({ data });
   });
 
   /**
-   * GET /skills/quarantined - List untrusted skills (backward-compatible endpoint name)
+   * GET /skills/quarantined - List untrusted skills
    */
   app.get('/skills/quarantined', async (_request: FastifyRequest, reply: FastifyReply) => {
-    const untrusted = listUntrusted();
-    return reply.send({ quarantined: untrusted });
+    const repo = app.skillManager.getRepository();
+    const allSkills = repo.getAll();
+    const quarantined: Array<{ name: string; detectedAt: string; originalPath: string; reason: string }> = [];
+
+    for (const skill of allSkills) {
+      const version = repo.getLatestVersion(skill.id);
+      if (version?.approval === 'quarantined') {
+        quarantined.push({
+          name: skill.slug,
+          detectedAt: version.createdAt,
+          originalPath: version.folderPath,
+          reason: 'Skill not in approved list',
+        });
+      }
+    }
+
+    return reply.send({ quarantined });
   });
 
   /**
-   * GET /skills/:name - Get skill detail.
-   * Returns the same SkillSummary shape as GET /skills items, plus `content` (readme).
+   * GET /skills/:name - Get skill detail
    */
   app.get(
     '/skills/:name',
     async (
       request: FastifyRequest<{ Params: { name: string } }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
-      const { name } = request.params;
+      const { name: rawName } = request.params;
 
-      if (!name || typeof name !== 'string') {
+      if (!rawName || typeof rawName !== 'string') {
         return reply.code(400).send({ error: 'Skill name is required' });
       }
 
-      const approved = listApproved();
-      const untrusted = listUntrusted();
-      const skillsDir = getSkillsDir();
+      // Resolve installationId (UUID) → skill slug
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawName);
+      const manager = app.skillManager;
+      let name = rawName;
 
-      const entry = approved.find((s) => s.name === name);
-      const uEntry = untrusted.find((u) => u.name === name);
-      const dlMeta = getDownloadedSkillMeta(name);
-
-      // Check if on disk but not approved/untrusted (workspace)
-      let isWorkspace = false;
-      if (!entry && !uEntry && skillsDir) {
-        try { isWorkspace = fs.existsSync(path.join(skillsDir, name)); } catch { /* */ }
+      if (isUUID) {
+        const repo = manager.getRepository();
+        const inst = repo.getInstallationById(rawName);
+        if (inst) {
+          const ver = repo.getVersionById(inst.skillVersionId);
+          const sk = ver ? repo.getById(ver.skillId) : null;
+          if (sk) name = sk.slug;
+        }
       }
 
-      // Build SkillSummary — same shape as GET /skills items
+      const result = manager.getSkillBySlug(name);
+      const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+      const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
+
       let summary: SkillSummary;
 
-      if (uEntry) {
+      if (result) {
+        const { skill, versions, installations } = result;
+        const version = versions[0]; // Latest
+        const installation = installations.find((i) => i.status === 'active')
+          ?? installations[0];
+
+        // Build detailed summary (same shape as list but with full analysis)
+        const onDiskDir = path.join(skillsDir, skill.slug);
+        const hasDiskPresence = fs.existsSync(onDiskDir);
+        const dlMeta = getDownloadedSkillMeta(name);
+
+        const isActive = installation?.status === 'active';
+        const isQuarantined = version?.approval === 'quarantined';
+        const isDisabled = installation?.status === 'disabled';
+
+        let source: SkillSummary['source'];
+        let status: SkillSummary['status'];
+
+        if (isActive) { source = 'user'; status = 'active'; }
+        else if (isQuarantined) { source = 'untrusted'; status = 'untrusted'; }
+        else if (isDisabled) { source = 'marketplace'; status = dlMeta?.wasInstalled ? 'disabled' : 'downloaded'; }
+        else if (hasDiskPresence) { source = 'workspace'; status = 'workspace'; }
+        else { source = 'marketplace'; status = 'downloaded'; }
+
+        const analysisJson = version?.analysisJson ?? dlMeta?.analysis;
+
         summary = {
-          name,
-          source: 'untrusted',
-          status: 'untrusted',
-          path: '',
-          description: dlMeta?.description,
-          version: dlMeta?.version,
-          author: dlMeta?.author,
-          tags: dlMeta?.tags,
-          analysis: buildFullAnalysis(name, dlMeta?.analysis || getCachedAnalysis(name)) as SkillSummary['analysis'],
-        };
-      } else if (entry) {
-        const meta = skillsDir ? readSkillMetadata(path.join(skillsDir, name)) : {};
-        const cached = getCachedAnalysis(name);
-        summary = {
-          name,
-          source: 'user',
-          status: 'active',
-          path: skillsDir ? path.join(skillsDir, name) : '',
-          publisher: entry.publisher,
-          description: meta.description,
-          version: meta.version,
-          author: meta.author ?? entry.publisher,
-          tags: meta.tags ?? dlMeta?.tags,
-          analysis: buildFullAnalysis(name, dlMeta?.analysis || cached) as SkillSummary['analysis'],
-        };
-      } else if (isWorkspace) {
-        const meta = skillsDir ? readSkillMetadata(path.join(skillsDir, name)) : {};
-        const wsDlMeta = getDownloadedSkillMeta(name);
-        summary = {
-          name,
-          source: 'workspace',
-          status: 'workspace',
-          path: skillsDir ? path.join(skillsDir, name) : '',
-          description: meta.description ?? wsDlMeta?.description,
-          version: meta.version ?? wsDlMeta?.version,
-          author: meta.author ?? wsDlMeta?.author,
-          tags: meta.tags ?? wsDlMeta?.tags,
-          analysis: buildFullAnalysis(name, wsDlMeta?.analysis || getCachedAnalysis(name)) as SkillSummary['analysis'],
-        };
-      } else if (dlMeta) {
-        const cached = getCachedAnalysis(name);
-        summary = {
-          name: dlMeta.slug ?? name,
-          source: 'marketplace',
-          status: dlMeta.wasInstalled ? 'disabled' : 'downloaded',
-          description: dlMeta.description,
-          path: '',
-          publisher: dlMeta.author,
-          version: dlMeta.version,
-          author: dlMeta.author,
-          tags: dlMeta.tags,
-          analysis: buildFullAnalysis(name, dlMeta.analysis || cached) as SkillSummary['analysis'],
+          name: skill.slug,
+          source,
+          status,
+          path: isActive || hasDiskPresence ? onDiskDir : '',
+          publisher: skill.author,
+          description: skill.description,
+          version: version?.version,
+          author: skill.author,
+          tags: skill.tags,
+          installationId: installation?.id,
+          analysis: buildFullAnalysis(name, analysisJson) as SkillSummary['analysis'],
         };
       } else {
-        return reply.code(404).send({ error: `Skill "${name}" not found` });
+        // Check on disk (workspace) or marketplace cache
+        const onDiskDir = path.join(skillsDir, name);
+        const dlMeta = getDownloadedSkillMeta(name);
+
+        if (fs.existsSync(onDiskDir)) {
+          const meta = readSkillMetadata(onDiskDir);
+          summary = {
+            name,
+            source: 'workspace',
+            status: 'workspace',
+            path: onDiskDir,
+            description: meta.description ?? dlMeta?.description,
+            version: meta.version ?? dlMeta?.version,
+            author: meta.author ?? dlMeta?.author,
+            tags: meta.tags ?? dlMeta?.tags,
+            analysis: buildFullAnalysis(name, dlMeta?.analysis) as SkillSummary['analysis'],
+          };
+        } else if (dlMeta) {
+          summary = {
+            name: dlMeta.slug ?? name,
+            source: 'marketplace',
+            status: dlMeta.wasInstalled ? 'disabled' : 'downloaded',
+            description: dlMeta.description,
+            path: '',
+            publisher: dlMeta.author,
+            version: dlMeta.version,
+            author: dlMeta.author,
+            tags: dlMeta.tags,
+            analysis: buildFullAnalysis(name, dlMeta.analysis) as SkillSummary['analysis'],
+          };
+        } else {
+          return reply.code(404).send({ error: `Skill "${name}" not found` });
+        }
       }
 
-      // Read content (readme) from disk
+      // Read content (readme) from trusted backup first, then fall back
       let content = '';
-      const dirToRead = summary.path || (skillsDir ? path.join(skillsDir, name) : '');
-      if (dirToRead) {
-        try {
-          const mdPath = findSkillMdRecursive(dirToRead);
-          if (mdPath) content = fs.readFileSync(mdPath, 'utf-8');
-        } catch { /* */ }
+
+      // 1. Try backup service (trusted, tamper-proof)
+      if (result) {
+        const version = result.versions[0];
+        if (version && manager.backup) {
+          const backupContent = manager.backup.loadSkillMd(version.id);
+          if (backupContent) content = backupContent;
+        }
       }
 
-      // Fall back to marketplace download cache for readme
+      // 2. Fall back to disk only for workspace skills without DB backing
+      if (!content) {
+        const dirToRead = summary.path || path.join(skillsDir, name);
+        if (dirToRead) {
+          try {
+            const mdPath = findSkillMdRecursive(dirToRead);
+            if (mdPath) content = fs.readFileSync(mdPath, 'utf-8');
+          } catch { /* */ }
+        }
+      }
+
+      // 3. Fall back to marketplace download cache
       if (!content) {
         try {
           const localFiles = getDownloadedSkillFiles(name);
-          const readmeFile = localFiles.find(f => /readme|skill\.md/i.test(f.name));
+          const readmeFile = localFiles.find((f) => /readme|skill\.md/i.test(f.name));
           if (readmeFile?.content) content = readmeFile.content;
         } catch { /* */ }
       }
@@ -425,12 +440,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       }
 
       return reply.send({ data: { ...summary, content } });
-    }
+    },
   );
 
   /**
-   * POST /skills/:name/analyze - Force (re-)analysis of a skill.
-   * Reads content from request body, disk, or marketplace cache.
+   * POST /skills/:name/analyze - Force (re-)analysis of a skill
    */
   app.post(
     '/skills/:name/analyze',
@@ -439,7 +453,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         Params: { name: string };
         Body: { content?: string; metadata?: Record<string, unknown> };
       }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       const { name } = request.params;
       let { content, metadata } = request.body ?? {};
@@ -448,16 +462,16 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Skill name is required' });
       }
 
-      // Clear existing cache (both local and marketplace download)
-      clearCachedAnalysis(name);
-      try { updateDownloadedAnalysis(name, undefined as unknown as Parameters<typeof updateDownloadedAnalysis>[1]); } catch { /* best-effort */ }
+      const manager = app.skillManager;
+      const repo = manager.getRepository();
+      const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+      const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
 
-      // If no content provided, try to read from disk or marketplace cache
+      // Resolve content for analysis (disk → download cache → marketplace)
       if (!content) {
-        const skillsDir = getSkillsDir();
         const possibleDirs = [
-          skillsDir ? path.join(skillsDir, name) : null,
-        ].filter(Boolean) as string[];
+          path.join(skillsDir, name),
+        ];
 
         for (const dir of possibleDirs) {
           try {
@@ -479,7 +493,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         if (!content) {
           try {
             const localFiles = getDownloadedSkillFiles(name);
-            const skillFile = localFiles.find(f => /skill\.md/i.test(f.name));
+            const skillFile = localFiles.find((f) => /skill\.md/i.test(f.name));
             if (skillFile?.content) {
               content = skillFile.content;
               const parsed = parseSkillMd(content);
@@ -487,17 +501,15 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
                 metadata = parsed.metadata as Record<string, unknown>;
               }
             }
-          } catch {
-            // Best-effort
-          }
+          } catch { /* */ }
         }
 
-        // Third fallback: download from marketplace (for search results not yet cached)
+        // Third fallback: download from marketplace
         if (!content) {
           try {
-            await getMarketplaceSkill(name); // downloads ZIP → stores in cache
+            await getMarketplaceSkill(name);
             const freshFiles = getDownloadedSkillFiles(name);
-            const skillFile = freshFiles.find(f => /skill\.md/i.test(f.name));
+            const skillFile = freshFiles.find((f) => /skill\.md/i.test(f.name));
             if (skillFile?.content) {
               content = skillFile.content;
               const parsed = parseSkillMd(content);
@@ -505,7 +517,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
                 metadata = parsed.metadata as Record<string, unknown>;
               }
             }
-          } catch { /* Continue to 404 */ }
+          } catch { /* */ }
         }
       }
 
@@ -513,41 +525,24 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(404).send({ error: 'No skill content found to analyze' });
       }
 
-      // Save "pending" status immediately so GET /skills returns it
-      setCachedAnalysis(name, {
-        status: 'pending',
-        analyzerId: 'agenshield',
-        commands: [],
-      });
-
-      // Determine if this is a downloaded marketplace skill (has a slug)
       const dlMeta = getDownloadedSkillMeta(name);
+      const log = request.log;
 
-      // Run analysis asynchronously — Vercel analysis preferred for comprehensive results
+      // Run analysis asynchronously
       setImmediate(async () => {
         let completed = false;
-        // Safety net: if analysis hasn't completed in 5 minutes, mark as error
         const safetyTimeout = setTimeout(() => {
           if (!completed) {
-            console.error(`[Skills] Analysis timed out for ${name}, marking as error`);
-            setCachedAnalysis(name, {
-              status: 'error',
-              analyzerId: 'agenshield',
-              commands: [],
-              error: 'Analysis timed out',
-            });
+            log.error({ skill: name }, 'Analysis timed out');
             emitSkillAnalysisFailed(name, 'Analysis timed out');
           }
         }, 5 * 60_000);
 
         try {
-          // Try Vercel analysis first (AI-powered, comprehensive)
           let vercelResult;
           if (dlMeta?.slug) {
-            // Marketplace skill — analyze by slug, bypassing Vercel cache
             vercelResult = await analyzeSkillBySlug(dlMeta.slug, dlMeta.name, dlMeta.author, { noCache: true });
           } else {
-            // Local skill — send files to Vercel for analysis
             const localFiles = getDownloadedSkillFiles(name);
             if (localFiles.length > 0) {
               vercelResult = await analyzeSkillBundle(localFiles, name, undefined, { noCache: true });
@@ -555,55 +550,33 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           }
 
           if (vercelResult) {
-            // Use Vercel analysis result (more comprehensive)
             const analysis = vercelResult.analysis;
-            setCachedAnalysis(name, {
-              status: analysis.status === 'complete' ? 'complete' : 'error',
-              analyzerId: 'agenshield',
-              commands: analysis.commands?.map(c => ({
-                name: c.name,
-                source: c.source as 'metadata' | 'analysis',
-                available: c.available,
-                required: c.required,
-              })) ?? [],
-              vulnerability: analysis.vulnerability,
-              envVariables: analysis.envVariables,
-              runtimeRequirements: analysis.runtimeRequirements,
-              installationSteps: analysis.installationSteps,
-              runCommands: analysis.runCommands,
-              securityFindings: analysis.securityFindings,
-              mcpSpecificRisks: analysis.mcpSpecificRisks,
-              error: analysis.status === 'error' ? 'Vercel analysis returned error' : undefined,
-            });
-            // Also update the downloaded metadata
-            if (dlMeta) {
-              try { updateDownloadedAnalysis(name, analysis); } catch { /* best-effort */ }
+
+            // Persist to marketplace metadata.json (always available)
+            try {
+              updateDownloadedAnalysis(name, analysis);
+            } catch (persistErr) {
+              log.warn({ skill: name, err: (persistErr as Error).message }, 'Failed to persist analysis to metadata.json');
             }
-            console.log(`[Skills] Vercel analysis complete for: ${name}`);
-            emitSkillAnalyzed(name, getCachedAnalysis(name));
-          } else {
-            // Fallback to local analysis
-            analyzeSkill(name, content, metadata);
-            console.log(`[Skills] Local analysis complete for: ${name}`);
-            emitSkillAnalyzed(name, getCachedAnalysis(name));
+
+            // Persist to DB if skill exists (re-query to avoid stale closure)
+            const freshSkill = repo.getBySlug(name);
+            if (freshSkill) {
+              const version = repo.getLatestVersion(freshSkill.id);
+              if (version) {
+                repo.updateAnalysis(version.id, {
+                  status: analysis.status === 'complete' ? 'complete' : 'error',
+                  json: analysis,
+                  analyzedAt: new Date().toISOString(),
+                });
+              }
+            }
+
+            emitSkillAnalyzed(name, analysis);
           }
         } catch (err) {
-          // Fallback to local analysis on Vercel failure
-          console.warn(`[Skills] Vercel analysis failed for ${name}, falling back to local:`, (err as Error).message);
-          try {
-            analyzeSkill(name, content, metadata);
-            console.log(`[Skills] Local analysis complete for: ${name}`);
-            emitSkillAnalyzed(name, getCachedAnalysis(name));
-          } catch (localErr) {
-            console.error(`[Skills] All analysis failed for ${name}:`, (localErr as Error).message);
-            setCachedAnalysis(name, {
-              status: 'error',
-              analyzerId: 'agenshield',
-              commands: [],
-              error: (localErr as Error).message,
-            });
-            emitSkillAnalysisFailed(name, (localErr as Error).message);
-          }
+          log.warn({ skill: name, err: (err as Error).message }, 'Analysis failed');
+          emitSkillAnalysisFailed(name, (err as Error).message);
         } finally {
           completed = true;
           clearTimeout(safetyTimeout);
@@ -611,7 +584,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return reply.send({ success: true, data: { status: 'pending' } });
-    }
+    },
   );
 
   /**
@@ -621,7 +594,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
     '/skills/:name/approve',
     async (
       request: FastifyRequest<{ Params: { name: string } }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       const { name } = request.params;
 
@@ -629,16 +602,13 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Skill name is required' });
       }
 
-      const result = approveSkill(name);
-
-      if (!result.success) {
-        return reply.code(404).send({ error: result.error });
+      try {
+        await app.skillManager.approveSkill(name);
+        return reply.send({ success: true, message: `Skill "${name}" approved` });
+      } catch (err) {
+        return reply.code(404).send({ error: (err as Error).message });
       }
-
-      addSkillPolicy(name);
-
-      return reply.send({ success: true, message: `Skill "${name}" approved` });
-    }
+    },
   );
 
   /**
@@ -648,7 +618,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
     '/skills/:name',
     async (
       request: FastifyRequest<{ Params: { name: string } }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       const { name } = request.params;
 
@@ -656,14 +626,13 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Skill name is required' });
       }
 
-      const result = rejectSkill(name);
-
-      if (!result.success) {
-        return reply.code(404).send({ error: result.error });
+      try {
+        await app.skillManager.rejectSkill(name);
+        return reply.send({ success: true, message: `Skill "${name}" rejected and deleted` });
+      } catch (err) {
+        return reply.code(404).send({ error: (err as Error).message });
       }
-
-      return reply.send({ success: true, message: `Skill "${name}" rejected and deleted` });
-    }
+    },
   );
 
   /**
@@ -673,7 +642,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
     '/skills/:name/revoke',
     async (
       request: FastifyRequest<{ Params: { name: string } }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       const { name } = request.params;
 
@@ -681,213 +650,65 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Skill name is required' });
       }
 
-      const result = revokeSkill(name);
-
-      if (!result.success) {
-        return reply.code(500).send({ error: result.error });
+      try {
+        await app.skillManager.revokeSkill(name);
+        emitSkillUninstalled(name);
+        return reply.send({ success: true, message: `Skill "${name}" approval revoked` });
+      } catch (err) {
+        return reply.code(500).send({ error: (err as Error).message });
       }
-
-      emitSkillUninstalled(name);
-      return reply.send({ success: true, message: `Skill "${name}" approval revoked` });
-    }
+    },
   );
 
   /**
-   * PUT /skills/:name/toggle - Enable or disable a marketplace skill.
-   * - If active in workspace → disable (remove from workspace, wrapper, config, approved list)
-   * - If only in download cache → enable (copy to workspace, create wrapper, add to config)
+   * PUT /skills/:name/toggle - Enable or disable a skill
    */
   app.put(
     '/skills/:name/toggle',
     async (
       request: FastifyRequest<{ Params: { name: string } }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       const { name } = request.params;
+      const { shieldContext: ctx } = request;
 
       if (!name || typeof name !== 'string') {
         return reply.code(400).send({ error: 'Skill name is required' });
       }
 
-      const skillsDir = getSkillsDir();
-      if (!skillsDir) {
-        return reply.code(500).send({ error: 'Skills directory not configured' });
-      }
-
-      // AgenCo skills: delegate to integration-skills service for proper cleanup
-      if (name === 'agenco') {
+      // AgenCo skills: revoke via SkillManager, then re-sync to clean up
+      if (name === 'ag-agenco' || name.startsWith('ag-agenco-')) {
         try {
-          if (app.skillsManager) {
-            // Use installer directly for agenco-* sub-skills, then master
-            const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
-            for (const entry of entries) {
-              if (entry.isDirectory() && entry.name.startsWith('agenco-')) {
-                const { uninstallIntegrationSkill } = await import('../services/integration-skills.js');
-                const integrationId = entry.name.slice('agenco-'.length);
-                await uninstallIntegrationSkill(integrationId);
-              }
-            }
-            const { uninstallMasterSkill } = await import('../services/integration-skills.js');
-            await uninstallMasterSkill();
-          } else {
-            const { uninstallMasterSkill, uninstallIntegrationSkill } = await import('../services/integration-skills.js');
-            const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
-            for (const entry of entries) {
-              if (entry.isDirectory() && entry.name.startsWith('agenco-')) {
-                const integrationId = entry.name.slice('agenco-'.length);
-                await uninstallIntegrationSkill(integrationId);
-              }
-            }
-            await uninstallMasterSkill();
-          }
-          return reply.send({ success: true, action: 'disabled', name });
-        } catch (err) {
-          return reply.code(500).send({ error: `Disable failed: ${(err as Error).message}` });
-        }
-      }
-      if (name.startsWith('agenco-')) {
-        const { onIntegrationDisconnected } = await import('../services/integration-skills.js');
-        const integrationId = name.slice('agenco-'.length);
-        try {
-          await onIntegrationDisconnected(integrationId);
+          await app.skillManager.revokeSkill(name);
+          // Re-sync to let the source adapter reconcile state
+          await app.skillManager.syncSource('mcp', 'openclaw');
           return reply.send({ success: true, action: 'disabled', name });
         } catch (err) {
           return reply.code(500).send({ error: `Disable failed: ${(err as Error).message}` });
         }
       }
 
-      const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-      const binDir = path.join(agentHome, 'bin');
-      const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
-      const skillDir = path.join(skillsDir, name);
-      const isInstalled = fs.existsSync(skillDir);
+      try {
+        const result = await app.skillManager.toggleSkill(name, {
+          targetId: ctx.targetId ?? undefined,
+          userUsername: ctx.userUsername ?? undefined,
+        });
 
-      if (isInstalled) {
-        // DISABLE: Remove from workspace via broker (handles root-owned dirs)
-        try {
-          const brokerAvailable = await isBrokerAvailable();
-          if (brokerAvailable) {
-            await uninstallSkillViaBroker(name, {
-              removeWrapper: true,
-              agentHome,
-            });
-          } else {
-            // Fallback: direct fs removal (may fail for root-owned dirs)
-            fs.rmSync(skillDir, { recursive: true, force: true });
-            removeSkillWrapper(name, binDir);
-          }
-          removeSkillPolicy(name);
-          await removeBrewBinaryWrappers(name);
-          removeFromApprovedList(name);
-          // Preserve marketplace cache for re-enable; mark as previously installed
-          try { markDownloadedAsInstalled(name); } catch { /* best-effort */ }
-
-          console.log(`[Skills] Disabled marketplace skill: ${name}`);
+        if (result.action === 'disabled') {
           emitSkillUninstalled(name);
-          return reply.send({ success: true, action: 'disabled', name });
-        } catch (err) {
-          console.error('[Skills] Disable failed:', (err as Error).message);
-          return reply.code(500).send({ error: `Disable failed: ${(err as Error).message}` });
-        }
-      } else {
-        // ENABLE: Copy from download cache to workspace
-        const meta = getDownloadedSkillMeta(name);
-        if (!meta) {
-          // No cache and not on disk — orphaned approved entry. Clean it up.
-          removeSkillPolicy(name);
-          removeFromApprovedList(name);
-          removeSkillWrapper(name, binDir);
-          await removeBrewBinaryWrappers(name);
-          console.log(`[Skills] Cleaned up orphaned skill entry: ${name}`);
-          emitSkillUninstalled(name);
-          return reply.send({ success: true, action: 'disabled', name });
         }
 
-        const files = getDownloadedSkillFiles(name);
-        if (files.length === 0) {
-          return reply.code(404).send({ error: 'No files in download cache for this skill' });
-        }
-
-        try {
-          // Pre-approve with marketplace slug link
-          addToApprovedList(name, meta.author, undefined, meta.slug);
-
-          // Prepare files: strip env vars and inject installation tag
-          const taggedFiles = await Promise.all(files.map(async (f) => {
-            let content = f.content;
-            if (/SKILL\.md$/i.test(f.name)) {
-              content = stripEnvFromSkillMd(content);
-              content = await injectInstallationTag(content);
-            }
-            return { name: f.name, content, type: f.type };
-          }));
-
-          // Install via broker if available (handles mkdir, write, chown, wrapper)
-          const brokerAvailable = await isBrokerAvailable();
-          if (brokerAvailable) {
-            const brokerResult = await installSkillViaBroker(
-              name,
-              taggedFiles.map((f) => ({ name: f.name, content: f.content })),
-              { createWrapper: true, agentHome, socketGroup }
-            );
-            if (!brokerResult.installed) {
-              throw new Error('Broker failed to install skill files');
-            }
-            if (brokerResult.warnings?.length) {
-              for (const warning of brokerResult.warnings) {
-                console.warn(`[Skills] Enable warning for ${name}: ${warning}`);
-              }
-            }
-          } else {
-            // Fallback: direct fs operations
-            fs.mkdirSync(skillDir, { recursive: true });
-            for (const file of taggedFiles) {
-              const filePath = path.join(skillDir, file.name);
-              fs.mkdirSync(path.dirname(filePath), { recursive: true });
-              fs.writeFileSync(filePath, file.content, 'utf-8');
-            }
-            try {
-              execSync(`chown -R root:${socketGroup} "${skillDir}"`, { stdio: 'pipe' });
-              execSync(`chmod -R a+rX,go-w "${skillDir}"`, { stdio: 'pipe' });
-            } catch {
-              // May fail if not root
-            }
-            await createSkillWrapper(name, binDir);
-          }
-
-          // Add policy
-          addSkillPolicy(name);
-
-          // Record integrity hash
-          const hash = computeSkillHash(skillDir);
-          if (hash) updateApprovedHash(name, hash);
-
-          // Mark marketplace cache as installed (preserves metadata for re-enable)
-          try { markDownloadedAsInstalled(name); } catch { /* best-effort */ }
-
-          console.log(`[Skills] Enabled marketplace skill: ${name}`);
-          return reply.send({ success: true, action: 'enabled', name });
-        } catch (err) {
-          // Cleanup on failure
-          try {
-            if (fs.existsSync(skillDir)) {
-              fs.rmSync(skillDir, { recursive: true, force: true });
-            }
-            removeFromApprovedList(name);
-          } catch {
-            // Best-effort cleanup
-          }
-
-          console.error('[Skills] Enable failed:', (err as Error).message);
-          return reply.code(500).send({ error: `Enable failed: ${(err as Error).message}` });
-        }
+        request.log.info({ skill: name, action: result.action }, 'Toggled skill');
+        return reply.send({ success: true, action: result.action, name });
+      } catch (err) {
+        request.log.error({ skill: name, err: (err as Error).message }, 'Toggle failed');
+        return reply.code(500).send({ error: `Toggle failed: ${(err as Error).message}` });
       }
-    }
+    },
   );
 
   /**
    * POST /skills/install - Install a skill (analyze-first, passcode-protected)
-   * Body: { name: string, files: MarketplaceSkillFile[], publisher?: string }
    */
   app.post<{
     Body: { name: string; files: MarketplaceSkillFile[]; publisher?: string };
@@ -904,98 +725,57 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Files array is required' });
       }
 
-      // 1. Analyze the skill content
-      const combinedContent = files.map((f) => f.content).join('\n');
-      const skillMdFile = files.find((f) => f.name === 'SKILL.md');
-      let metadata: Record<string, unknown> | undefined;
-      if (skillMdFile) {
-        const parsed = parseSkillMd(skillMdFile.content);
-        metadata = parsed?.metadata as Record<string, unknown>;
-      }
-      const analysis = analyzeSkill(name, combinedContent, metadata);
-
-      // 2. Reject critical vulnerabilities
-      if (analysis.vulnerability?.level === 'critical') {
-        return reply.code(400).send({ error: 'Critical vulnerability detected', analysis });
-      }
-
-      const skillsDir = getSkillsDir();
-      if (!skillsDir) {
-        return reply.code(500).send({ error: 'Skills directory not configured' });
-      }
-
-      const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-      const agentUsername = path.basename(agentHome);
-      const binDir = path.join(agentHome, 'bin');
-      const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
-      const skillDir = path.join(skillsDir, name);
+      const slug = name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
 
       try {
-        // 3. Pre-approve to prevent watcher quarantine race
-        addToApprovedList(name, publisher);
+        // Upload files to DB
+        const uploadResult = app.skillManager.uploadFiles({
+          name,
+          slug,
+          version: '0.0.0',
+          author: publisher,
+          source: 'marketplace',
+          files: files.map((f) => ({
+            relativePath: f.name,
+            content: Buffer.from(f.content, 'utf-8'),
+          })),
+        });
 
-        // 4. Prepare files: strip env vars and inject installation tag
-        const taggedFiles = await Promise.all(files.map(async (f) => {
-          let content = f.content;
-          if (/SKILL\.md$/i.test(f.name)) {
-            content = stripEnvFromSkillMd(content);
-            content = await injectInstallationTag(content);
-          }
-          return { name: f.name, content };
-        }));
-
-        // 5. Write files to $AGENT_HOME/.openclaw/workspace/skills/<name>/
-        await sudoMkdir(skillDir, agentUsername);
-        for (const file of taggedFiles) {
-          const filePath = path.join(skillDir, file.name);
-          await sudoMkdir(path.dirname(filePath), agentUsername);
-          await sudoWriteFile(filePath, file.content, agentUsername);
+        // Write files to workspace/skills/{slug}/ so deploy adapter can read them
+        const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+        const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
+        const destDir = path.join(skillsDir, slug);
+        fs.mkdirSync(destDir, { recursive: true });
+        for (const f of files) {
+          const filePath = path.join(destDir, f.name);
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, f.content, 'utf-8');
         }
 
-        // 5. Set ownership (root-owned, agent-readable)
-        try {
-          execSync(`chown -R root:${socketGroup} "${skillDir}"`, { stdio: 'pipe' });
-          execSync(`chmod -R a+rX,go-w "${skillDir}"`, { stdio: 'pipe' });
-        } catch {
-          // May fail if not root — acceptable in development
-        }
+        // Approve and install
+        const installation = await app.skillManager.approveSkill(slug, {
+          targetId: request.shieldContext.targetId ?? undefined,
+          userUsername: request.shieldContext.userUsername ?? undefined,
+        });
 
-        // 6. Create wrapper in $AGENT_HOME/bin/<name>
-        await createSkillWrapper(name, binDir);
-
-        // 7. Add policy
-        addSkillPolicy(name);
-
-        return reply.send({ success: true, name, analysis });
+        return reply.send({ success: true, name, installation });
       } catch (err) {
-        // Cleanup on failure
-        try {
-          if (fs.existsSync(skillDir)) {
-            fs.rmSync(skillDir, { recursive: true, force: true });
-          }
-          removeFromApprovedList(name);
-        } catch {
-          // Best-effort cleanup
-        }
-
-        console.error('[Skills] Install failed:', (err as Error).message);
+        request.log.error({ skill: name, err: (err as Error).message }, 'Install failed');
         return reply.code(500).send({
           error: `Installation failed: ${(err as Error).message}`,
         });
       }
-    }
+    },
   );
 
   /**
-   * POST /skills/:name/unblock - Unblock a quarantined skill.
-   * Approves the skill (moves from quarantine → skills dir) and sets up
-   * wrapper, policy, and config entry so it becomes active.
+   * POST /skills/:name/unblock - Unblock a quarantined skill
    */
   app.post(
     '/skills/:name/unblock',
     async (
       request: FastifyRequest<{ Params: { name: string } }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       const { name } = request.params;
 
@@ -1003,101 +783,22 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Skill name is required' });
       }
 
-      // Verify skill is actually untrusted (in marketplace cache, not approved)
-      const untrustedList = listUntrusted();
-      const uEntry = untrustedList.find((u) => u.name === name);
-      if (!uEntry) {
-        return reply.code(404).send({ error: `Skill "${name}" is not in untrusted state` });
-      }
-
-      // Get files from marketplace cache
-      const meta = getDownloadedSkillMeta(name);
-      if (!meta) {
-        return reply.code(404).send({ error: 'Skill not found in marketplace cache' });
-      }
-
-      const files = getDownloadedSkillFiles(name);
-      if (files.length === 0) {
-        return reply.code(404).send({ error: 'No files in marketplace cache for this skill' });
-      }
-
-      // Install from marketplace cache (same flow as toggle-enable)
       try {
-        const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-        const binDir = path.join(agentHome, 'bin');
-        const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
-        const skillDir = path.join(getSkillsDir(), name);
-
-        // Pre-approve with marketplace slug link
-        addToApprovedList(name, meta.author, undefined, meta.slug);
-
-        // Prepare files: strip env vars and inject installation tag
-        const taggedFiles = await Promise.all(files.map(async (f) => {
-          let content = f.content;
-          if (/SKILL\.md$/i.test(f.name)) {
-            content = stripEnvFromSkillMd(content);
-            content = await injectInstallationTag(content);
-          }
-          return { name: f.name, content, type: f.type };
-        }));
-
-        // Install via broker if available
-        const brokerAvailable = await isBrokerAvailable();
-        if (brokerAvailable) {
-          const brokerResult = await installSkillViaBroker(
-            name,
-            taggedFiles.map((f) => ({ name: f.name, content: f.content })),
-            { createWrapper: true, agentHome, socketGroup }
-          );
-          if (!brokerResult.installed) {
-            throw new Error('Broker failed to install skill files');
-          }
-          if (brokerResult.warnings?.length) {
-            for (const warning of brokerResult.warnings) {
-              console.warn(`[Skills] Unblock warning for ${name}: ${warning}`);
-            }
-          }
-        } else {
-          // Fallback: direct fs operations
-          fs.mkdirSync(skillDir, { recursive: true });
-          for (const file of taggedFiles) {
-            const filePath = path.join(skillDir, file.name);
-            fs.mkdirSync(path.dirname(filePath), { recursive: true });
-            fs.writeFileSync(filePath, file.content, 'utf-8');
-          }
-          try {
-            execSync(`chown -R root:${socketGroup} "${skillDir}"`, { stdio: 'pipe' });
-            execSync(`chmod -R a+rX,go-w "${skillDir}"`, { stdio: 'pipe' });
-          } catch {
-            // May fail if not root
-          }
-          await createSkillWrapper(name, binDir);
-        }
-
-        addSkillPolicy(name);
-
-        // Record integrity hash
-        const unblockHash = computeSkillHash(path.join(getSkillsDir(), name));
-        if (unblockHash) updateApprovedHash(name, unblockHash);
-
-        // Mark marketplace cache as installed (preserves metadata for re-enable)
-        try { markDownloadedAsInstalled(name); } catch { /* best-effort */ }
-
-        console.log(`[Skills] Unblocked and installed skill: ${name}`);
+        await app.skillManager.approveSkill(name, {
+          targetId: request.shieldContext.targetId ?? undefined,
+          userUsername: request.shieldContext.userUsername ?? undefined,
+        });
+        request.log.info({ skill: name }, 'Unblocked and installed skill');
         return reply.send({ success: true, message: `Skill "${name}" approved and installed` });
       } catch (err) {
-        // Cleanup on failure
-        try { removeFromApprovedList(name); } catch { /* */ }
-        console.error('[Skills] Unblock install failed:', (err as Error).message);
+        request.log.error({ skill: name, err: (err as Error).message }, 'Unblock install failed');
         return reply.code(500).send({ error: (err as Error).message });
       }
-    }
+    },
   );
 
   /**
-   * POST /skills/upload - Upload skill files to local marketplace cache.
-   * Accepts JSON body: { name, files: MarketplaceSkillFile[], version?, author?, description?, tags? }
-   * Stores in ~/.agenshield/marketplace/<name>/ for later analysis + install.
+   * POST /skills/upload - Upload skill files to local cache
    */
   app.post<{
     Body: {
@@ -1141,28 +842,42 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
             parsedDescription = parsedDescription || (parsed.metadata as Record<string, string>).description;
             parsedVersion = parsedVersion || (parsed.metadata as Record<string, string>).version;
           }
-        } catch {
-          // Best-effort
-        }
+        } catch { /* */ }
       }
 
       try {
-        storeDownloadedSkill(slug, {
+        // Upload to SQLite via SkillManager
+        app.skillManager.uploadFiles({
           name,
           slug,
-          author: author ?? 'local',
           version: parsedVersion ?? '0.0.0',
-          description: parsedDescription ?? '',
-          tags: tags ?? [],
-        }, files);
+          author: author ?? 'local',
+          description: parsedDescription,
+          tags,
+          files: files.map((f) => ({
+            relativePath: f.name,
+            content: Buffer.from(f.content, 'utf-8'),
+          })),
+        });
 
-        console.log(`[Skills] Uploaded skill to local cache: ${slug}`);
+        // Also store in legacy marketplace cache for backward compat
+        try {
+          storeDownloadedSkill(slug, {
+            name,
+            slug,
+            author: author ?? 'local',
+            version: parsedVersion ?? '0.0.0',
+            description: parsedDescription ?? '',
+            tags: tags ?? [],
+          }, files);
+        } catch { /* best-effort */ }
+
+        request.log.info({ skill: name, slug }, 'Uploaded skill');
         return reply.send({ success: true, data: { name, slug } });
       } catch (err) {
-        console.error('[Skills] Upload failed:', (err as Error).message);
+        request.log.error({ skill: name, err: (err as Error).message }, 'Upload failed');
         return reply.code(500).send({ error: `Upload failed: ${(err as Error).message}` });
       }
-    }
+    },
   );
 }
-

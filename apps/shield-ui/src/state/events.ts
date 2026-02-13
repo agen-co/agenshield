@@ -3,12 +3,13 @@
  */
 
 import { proxy } from 'valtio';
+import type { EventType } from '@agenshield/ipc';
 
 const MAX_EVENTS = 10_000;
 
 export interface SSEEvent {
   id: string;
-  type: string;
+  type: EventType | (string & {});
   data: Record<string, unknown>;
   timestamp: number;
 }
