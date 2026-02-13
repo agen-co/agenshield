@@ -12,21 +12,25 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import type { DaemonConfig } from '@agenshield/ipc';
-import { initStorage } from '@agenshield/storage';
+import { getStorage } from '@agenshield/storage';
 import { SkillManager } from '@agentshield/skills';
 import { registerRoutes } from './routes/index';
 import { getUiAssetsPath } from './static';
 import { startSecurityWatcher, stopSecurityWatcher } from './watchers/security';
 import { startProcessHealthWatcher, stopProcessHealthWatcher } from './watchers/process-health';
-import { emitSkillUntrustedDetected, emitProcessStarted, emitProcessStopped, eventBus, daemonEvents } from './events/emitter';
+import { emitSkillUntrustedDetected, emitProcessStarted, emitProcessStopped, emitSecurityLocked, eventBus, daemonEvents } from './events/emitter';
 import { getVault, getInstallationKey } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
-import { getActivityLog } from './services/activity-log';
+import { getActivityWriter } from './services/activity-writer';
+import { getSessionManager } from './auth/session';
 import { shutdownProxyPool } from './proxy/pool';
-import { getConfigDir, getQuarantineDir, getSkillBackupDir, isDevMode } from './config/paths';
+import { getQuarantineDir, getSkillBackupDir, isDevMode } from './config/paths';
+import { verifyConfigIntegrity } from './config/loader';
+import { ConfigTamperError } from './config/errors';
 import { DaemonDeployAdapter } from './adapters/daemon-deploy-adapter';
 import { migrateSkillsToSqlite } from './migration/skill-migration';
 import { migrateSlugPrefixDisk } from './migration/slug-prefix-disk';
+import { migrateSecretsToSqlite } from './migration/secret-migration';
 import {
   MCPSkillSource,
   createAgenCoConnection,
@@ -122,16 +126,41 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     console.warn('[Daemon] Failed to initialize installation key:', (err as Error).message);
   }
 
-  // ─── Initialize SQLite storage ───────────────────────────────
-  const dbPath = path.join(getConfigDir(), 'agenshield.db');
-  const storage = initStorage(dbPath);
-  console.log(`[Daemon] Storage initialized: ${dbPath}`);
+  // ─── Get storage (already initialized in main.ts) ────────
+  const storage = getStorage();
+  const vaultState = storage.isUnlocked() ? 'unlocked' : 'locked (unlock via passcode to manage secrets)';
+  console.log(`[Daemon] Storage ready — vault state: ${vaultState}`);
+
+  // ─── Wire auto-lock handler for idle timeout ──────────────
+  getSessionManager().setAutoLockHandler(() => {
+    try { storage.lock(); } catch { /* already closed */ }
+    import('./services/broker-bridge.js')
+      .then(({ clearBrokerSecrets }) => clearBrokerSecrets())
+      .catch(() => { /* non-fatal */ });
+    emitSecurityLocked('idle_timeout');
+    console.log('[Daemon] Auto-locked vault after idle timeout');
+  });
+
+  // ─── Verify config integrity (HMAC) ──────────────────
+  try {
+    await verifyConfigIntegrity();
+    console.log('[Daemon] Config integrity verified');
+  } catch (err) {
+    if (err instanceof ConfigTamperError) {
+      console.error('[Daemon] CONFIG TAMPER DETECTED — enforcing deny-all policy');
+    } else {
+      console.warn('[Daemon] Config integrity check failed:', (err as Error).message);
+    }
+  }
 
   // ─── Run one-time JSON → SQLite migration ────────────────────
   migrateSkillsToSqlite(storage, skillsDir);
 
   // ─── Run one-time slug-prefix disk folder rename ─────────────
   migrateSlugPrefixDisk(storage, skillsDir);
+
+  // ─── Run one-time secret vault.enc → SQLite migration ───────
+  await migrateSecretsToSqlite(storage);
 
   // ─── Ensure quarantine directory exists ─────────────────────
   const quarantineDir = getQuarantineDir();
@@ -245,9 +274,9 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     app.log.warn(`[startup] Sync source registration failed: ${(err as Error).message}`);
   }
 
-  // Start persistent activity log
-  const activityLog = getActivityLog();
-  activityLog.start();
+  // Start persistent activity writer (SQLite-backed)
+  const activityWriter = getActivityWriter();
+  activityWriter.start();
 
   // Self-heal command wrappers at boot
   try {
@@ -286,9 +315,16 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     stopSecurityWatcher();
     skillManager.stopWatcher();
     stopProcessHealthWatcher();
-    activityLog.stop();
+    activityWriter.stop();
     shutdownProxyPool();
     await deactivateMCP();
+    // Clear broker's in-memory secrets on shutdown
+    try {
+      const { clearBrokerSecrets } = await import('./services/broker-bridge.js');
+      await clearBrokerSecrets();
+    } catch {
+      // Non-fatal
+    }
   });
 
   // Normalize localhost to 127.0.0.1 to avoid IPv6 binding issues on macOS

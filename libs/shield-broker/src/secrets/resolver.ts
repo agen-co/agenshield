@@ -1,17 +1,17 @@
 /**
  * Secret Resolver
  *
- * Reads synced-secrets.json (written by the daemon) and resolves which
- * secrets should be injected as environment variables for each exec operation.
+ * Receives decrypted secrets from the daemon via IPC push (secrets_sync)
+ * and resolves which secrets should be injected as environment variables
+ * for each exec operation.
  *
  * - Global secrets (policyIds=[]) are always injected
  * - Policy-linked secrets are injected when the policy's patterns match
  *   the command being executed
  *
- * Auto-reloads from disk every 30 seconds (same pattern as CommandAllowlist).
+ * No disk I/O — secrets live only in memory and are pushed from the daemon
+ * over the Unix socket (never HTTP).
  */
-
-import * as fs from 'node:fs';
 
 interface SecretPolicyBinding {
   policyId: string;
@@ -52,37 +52,22 @@ const HTTP_FLAGS_WITH_VALUE = new Set([
 ]);
 
 export class SecretResolver {
-  private syncFilePath: string;
   private synced: SyncedSecrets | null = null;
-  private lastLoad: number = 0;
-  private reloadInterval: number = 30000; // 30 seconds
 
-  constructor(syncFilePath: string) {
-    this.syncFilePath = syncFilePath;
-    this.load();
+  /**
+   * Update the in-memory secrets from a daemon push.
+   * Called by the secrets_sync handler over Unix socket.
+   */
+  updateFromPush(payload: SyncedSecrets): void {
+    this.synced = payload;
   }
 
-  /** Load synced secrets from disk */
-  private load(): void {
-    if (!fs.existsSync(this.syncFilePath)) {
-      this.synced = null;
-      this.lastLoad = Date.now();
-      return;
-    }
-    try {
-      const content = fs.readFileSync(this.syncFilePath, 'utf-8');
-      this.synced = JSON.parse(content) as SyncedSecrets;
-      this.lastLoad = Date.now();
-    } catch {
-      this.synced = null;
-      this.lastLoad = Date.now();
-    }
-  }
-
-  private maybeReload(): void {
-    if (Date.now() - this.lastLoad > this.reloadInterval) {
-      this.load();
-    }
+  /**
+   * Clear all in-memory secrets.
+   * Called when the daemon locks or shuts down.
+   */
+  clear(): void {
+    this.synced = null;
   }
 
   /**
@@ -90,7 +75,6 @@ export class SecretResolver {
    * Returns global secrets + any secrets from policies whose patterns match.
    */
   getSecretsForExec(command: string, args: string[]): Record<string, string> {
-    this.maybeReload();
     if (!this.synced) return {};
 
     const result: Record<string, string> = { ...this.synced.globalSecrets };

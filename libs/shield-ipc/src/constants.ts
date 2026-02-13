@@ -15,7 +15,10 @@ export const CUSTOM_HOSTNAME = 'agen.shield';
 /** Configuration directory name */
 export const CONFIG_DIR = '.agenshield';
 
-/** Configuration file name */
+/**
+ * @deprecated Config is now stored in SQLite (agenshield.db).
+ * Retained for migration cleanup of legacy installations.
+ */
 export const CONFIG_FILE = 'config.json';
 
 /** PID file name */
@@ -24,13 +27,19 @@ export const PID_FILE = 'daemon.pid';
 /** Log file name */
 export const LOG_FILE = 'daemon.log';
 
-/** State file name */
+/**
+ * @deprecated State is now stored in SQLite (agenshield.db).
+ * Retained for migration cleanup of legacy installations.
+ */
 export const STATE_FILE = 'state.json';
 
 /** Encrypted vault file name */
 export const VAULT_FILE = 'vault.enc';
 
-/** Synced secrets file name (daemon -> broker) */
+/**
+ * @deprecated Secrets are now pushed to the broker via IPC (secrets_sync).
+ * This constant is retained for migration cleanup of legacy installations.
+ */
 export const SYNCED_SECRETS_FILE = 'synced-secrets.json';
 
 /** AgenCo subdirectory */

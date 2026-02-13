@@ -9,6 +9,7 @@ import {
   type EventRegistry,
   type DaemonStatus,
   type SecurityStatusPayload,
+  type SecurityLockedPayload,
   type ApiRequestPayload,
   type ApiOutboundPayload,
   type BrokerRequestPayload,
@@ -96,6 +97,10 @@ export function emitSecurityWarning(warning: string): void {
 
 export function emitSecurityCritical(issue: string): void {
   broadcast('security:critical', { message: issue });
+}
+
+export function emitSecurityLocked(reason: SecurityLockedPayload['reason']): void {
+  broadcast('security:locked', { reason });
 }
 
 export function emitApiRequest(

@@ -32,3 +32,13 @@ export class PasscodeError extends Error {
     this.name = 'PasscodeError';
   }
 }
+
+export class DatabaseTamperError extends Error {
+  public readonly code = 'DATABASE_TAMPERED';
+
+  constructor(message = 'Database file has an unexpected application_id — it may have been replaced or tampered with.') {
+    super(message);
+    this.name = 'DatabaseTamperError';
+    Error.captureStackTrace?.(this, this.constructor);
+  }
+}

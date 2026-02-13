@@ -9,6 +9,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Storage } from '@agenshield/storage';
+import { META_KEYS } from '@agenshield/storage';
 import { getConfigDir } from '../config/paths';
 
 const MARKER_FILE = '.slug-prefix-disk-migrated';
@@ -18,10 +19,14 @@ const MARKER_FILE = '.slug-prefix-disk-migrated';
  * Safe to call multiple times — skips if marker file exists.
  */
 export function migrateSlugPrefixDisk(storage: Storage, skillsDir: string): void {
+  // Already migrated? Check DB meta first, then fallback to file marker
+  if (storage.getMeta(META_KEYS.SLUG_PREFIX_DISK_MIGRATED)) {
+    return;
+  }
   const configDir = getConfigDir();
   const markerPath = path.join(configDir, MARKER_FILE);
-
   if (fs.existsSync(markerPath)) {
+    storage.setMeta(META_KEYS.SLUG_PREFIX_DISK_MIGRATED, new Date().toISOString());
     return;
   }
 
@@ -63,10 +68,10 @@ export function migrateSlugPrefixDisk(storage: Storage, skillsDir: string): void
     console.log(`[slug-prefix-disk] Renamed ${renamed} skill folder(s)`);
   }
 
-  // Write marker file
+  // Record migration in DB meta
   try {
-    fs.writeFileSync(markerPath, new Date().toISOString(), 'utf-8');
+    storage.setMeta(META_KEYS.SLUG_PREFIX_DISK_MIGRATED, new Date().toISOString());
   } catch (err) {
-    console.warn(`[slug-prefix-disk] Failed to write marker: ${(err as Error).message}`);
+    console.warn(`[slug-prefix-disk] Failed to write migration marker: ${(err as Error).message}`);
   }
 }

@@ -2,8 +2,8 @@
  * State repository — Global singleton system state
  */
 
-import type { SystemState } from '@agenshield/ipc';
-import type { DbStateRow } from '../../types';
+import type { SystemState, UserState, GroupState } from '@agenshield/ipc';
+import type { DbStateRow, DbUserRow, DbGroupRow } from '../../types';
 import { BaseRepository } from '../base.repository';
 import { mapState } from './state.model';
 import { Q } from './state.query';
@@ -19,11 +19,22 @@ import type {
 
 export class StateRepository extends BaseRepository {
   /**
-   * Get the current system state.
+   * Get the current system state (without users/groups — call getUsers/getGroups separately).
    */
   get(): SystemState | null {
     const row = this.db.prepare(Q.selectById).get() as DbStateRow | undefined;
     return row ? mapState(row) : null;
+  }
+
+  /**
+   * Get full state including users and groups from their dedicated tables.
+   */
+  getFull(): SystemState | null {
+    const state = this.get();
+    if (!state) return null;
+    state.users = this.getUsers();
+    state.groups = this.getGroups();
+    return state;
   }
 
   /**
@@ -77,5 +88,72 @@ export class StateRepository extends BaseRepository {
    */
   updateVersion(version: string): void {
     this.db.prepare(Q.updateVersion).run({ version, updatedAt: this.now() });
+  }
+
+  // ── Users ──────────────────────────────────────────
+
+  /** Get all users from the users table. */
+  getUsers(): UserState[] {
+    const rows = this.db.prepare(Q.selectAllUsers).all() as DbUserRow[];
+    return rows.map((r) => ({
+      username: r.username,
+      uid: r.uid,
+      type: r.type as UserState['type'],
+      createdAt: r.created_at,
+      homeDir: r.home_dir,
+    }));
+  }
+
+  /** Upsert a user (insert or replace by username). */
+  addUser(user: UserState): void {
+    this.db.prepare(Q.upsertUser).run({
+      username: user.username,
+      uid: user.uid,
+      type: user.type,
+      createdAt: user.createdAt,
+      homeDir: user.homeDir,
+    });
+  }
+
+  /** Remove a user by username. */
+  removeUser(username: string): void {
+    this.db.prepare(Q.deleteUser).run({ username });
+  }
+
+  // ── Groups ─────────────────────────────────────────
+
+  /** Get all groups from the groups_ table. */
+  getGroups(): GroupState[] {
+    const rows = this.db.prepare(Q.selectAllGroups).all() as DbGroupRow[];
+    return rows.map((r) => ({
+      name: r.name,
+      gid: r.gid,
+      type: r.type as GroupState['type'],
+    }));
+  }
+
+  /** Upsert a group (insert or replace by name). */
+  addGroup(group: GroupState): void {
+    this.db.prepare(Q.upsertGroup).run({
+      name: group.name,
+      gid: group.gid,
+      type: group.type,
+    });
+  }
+
+  /** Remove a group by name. */
+  removeGroup(name: string): void {
+    this.db.prepare(Q.deleteGroup).run({ name });
+  }
+
+  // ── Reset ──────────────────────────────────────────
+
+  /** Delete all state, users, and groups (for factory reset). */
+  resetAll(): void {
+    this.db.transaction(() => {
+      this.db.prepare(Q.deleteAllUsers).run();
+      this.db.prepare(Q.deleteAllGroups).run();
+      this.db.prepare('DELETE FROM state').run();
+    })();
   }
 }

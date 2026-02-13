@@ -114,6 +114,7 @@ export interface DbSkillVersionRow {
   required_bins: string;
   required_env: string;
   extracted_commands: string;
+  backup_hash: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -208,6 +209,15 @@ export interface DbEdgeActivationRow {
   expires_at: string | null;
   process_id: number | null;
   consumed: number;
+}
+
+export interface DbSecretRow {
+  id: string;
+  name: string;
+  value: string | null;
+  value_encrypted: string | null;
+  scope: string;
+  created_at: string;
 }
 
 export interface DbMetaRow {

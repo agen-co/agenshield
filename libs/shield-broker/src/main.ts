@@ -220,12 +220,8 @@ async function main(): Promise<void> {
     '/opt/agenshield/config/allowed-commands.json'
   );
 
-  const secretResolver = new SecretResolver(
-    path.join(
-      path.dirname(config.configPath || '/opt/agenshield/config/shield.json'),
-      'synced-secrets.json'
-    )
-  );
+  // SecretResolver holds secrets in memory — populated via secrets_sync IPC push from daemon
+  const secretResolver = new SecretResolver();
 
   // Ensure proxied command wrappers exist in agent's bin directory
   if (config.agentHome) {

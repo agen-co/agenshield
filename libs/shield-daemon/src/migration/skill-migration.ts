@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { Storage } from '@agenshield/storage';
+import { META_KEYS } from '@agenshield/storage';
 import { getConfigDir } from '../config/paths';
 
 const MARKER_FILE = '.skills-migrated';
@@ -47,11 +48,15 @@ interface LegacyAnalysisEntry {
  * Safe to call multiple times — skips if marker exists.
  */
 export function migrateSkillsToSqlite(storage: Storage, skillsDir: string): void {
+  // Already migrated? Check DB meta first, then fallback to file marker
+  if (storage.getMeta(META_KEYS.SKILLS_MIGRATED)) {
+    return;
+  }
   const configDir = getConfigDir();
   const markerPath = path.join(configDir, MARKER_FILE);
-
-  // Already migrated?
   if (fs.existsSync(markerPath)) {
+    // Legacy marker found — record in DB and skip
+    storage.setMeta(META_KEYS.SKILLS_MIGRATED, new Date().toISOString());
     return;
   }
 
@@ -214,9 +219,9 @@ export function migrateSkillsToSqlite(storage: Storage, skillsDir: string): void
     }
   }
 
-  // 4. Write marker file and rename old files
+  // 4. Record migration in DB meta + rename old files
   try {
-    fs.writeFileSync(markerPath, new Date().toISOString(), 'utf-8');
+    storage.setMeta(META_KEYS.SKILLS_MIGRATED, new Date().toISOString());
 
     // Rename old files to .migrated
     for (const file of ['approved-skills.json', 'skill-versions.json', 'skill-analyses.json']) {
@@ -228,7 +233,7 @@ export function migrateSkillsToSqlite(storage: Storage, skillsDir: string): void
 
     console.log('[Migration] Skill migration complete');
   } catch (err) {
-    console.warn(`[Migration] Failed to write marker: ${(err as Error).message}`);
+    console.warn(`[Migration] Failed to write migration marker: ${(err as Error).message}`);
   }
 }
 

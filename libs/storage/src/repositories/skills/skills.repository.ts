@@ -179,6 +179,10 @@ export class SkillsRepository extends BaseRepository {
     return hash;
   }
 
+  updateBackupHash(versionId: string, hash: string): void {
+    this.db.prepare(Q.updateBackupHash).run({ id: versionId, hash, now: this.now() });
+  }
+
   // ---- Installations ----
 
   install(input: CreateSkillInstallationInput): SkillInstallation {
@@ -317,6 +321,7 @@ export class SkillsRepository extends BaseRepository {
         analysis_json: r.sv_analysis_json as string | null, analyzed_at: r.sv_analyzed_at as string | null,
         required_bins: r.sv_required_bins as string, required_env: r.sv_required_env as string,
         extracted_commands: r.sv_extracted_commands as string,
+        backup_hash: r.sv_backup_hash as string | null ?? null,
         created_at: r.sv_created_at as string, updated_at: r.sv_updated_at as string,
       }),
     }));

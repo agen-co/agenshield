@@ -28,6 +28,7 @@ export {
 export {
   extractToken,
   isAuthenticated,
+  isVaultUnlocked,
   requireAuth,
   decorateWithAuth,
   PUBLIC_ROUTES,
@@ -35,3 +36,5 @@ export {
   isProtectedRoute,
   createAuthHook,
 } from './middleware';
+
+export { redactConfig, redactSecurityStatus } from './redact';

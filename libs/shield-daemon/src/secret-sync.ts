@@ -1,25 +1,19 @@
 /**
  * Secret Policy Sync
  *
- * Syncs vault secrets to the broker's synced-secrets.json file.
- * The broker reads this file to automatically inject secrets as
- * environment variables into spawned processes.
+ * Syncs vault secrets to the broker via IPC push over Unix socket.
+ * The broker holds secrets in-memory only — no secrets ever touch disk.
  *
  * Flow:
- *   1. Read VaultSecret[] from the daemon vault
+ *   1. Read VaultSecret[] from SQLite storage (requires unlocked vault)
  *   2. Separate global secrets (policyIds=[]) from policy-linked
  *   3. For policy-linked: include the policy's target + patterns
- *   4. Write synced-secrets.json for the broker to pick up
- *
- * Follows the same pattern as command-sync.ts.
+ *   4. Push SyncedSecrets payload to broker via secretsSync()
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type { PolicyConfig, VaultSecret, SyncedSecrets, SecretPolicyBinding } from '@agenshield/ipc';
-import { SYNCED_SECRETS_FILE } from '@agenshield/ipc';
-import { getVault } from './vault';
-import { getSystemConfigDir } from './config/paths';
+import { getStorage } from '@agenshield/storage';
+import { pushSecretsToBroker } from './services/broker-bridge';
 
 interface Logger {
   warn(msg: string, ...args: unknown[]): void;
@@ -28,13 +22,8 @@ interface Logger {
 
 const noop: Logger = { warn() { /* no-op */ }, info() { /* no-op */ } };
 
-/** Broker's synced secrets file (dev-aware via getSystemConfigDir) */
-function getSyncedSecretsPath(): string {
-  return path.join(getSystemConfigDir(), SYNCED_SECRETS_FILE);
-}
-
 /**
- * Sync vault secrets to the broker's synced-secrets.json file.
+ * Sync vault secrets to the broker via IPC push.
  *
  * Groups secrets into:
  * 1. Global secrets (policyIds=[]) — always injected into every exec
@@ -48,17 +37,31 @@ export async function syncSecrets(
   logger?: Logger,
 ): Promise<void> {
   const log = logger ?? noop;
-  const vault = getVault();
-  const secrets: VaultSecret[] = (await vault.get('secrets')) ?? [];
 
-  if (secrets.length === 0) {
-    // Write empty sync file so broker knows there are no secrets
-    writeSyncFile({
+  let secrets: VaultSecret[];
+  try {
+    secrets = getStorage().secrets.getAll();
+  } catch {
+    // Vault may be locked — push empty payload so broker has clean state
+    const empty: SyncedSecrets = {
       version: '1.0.0',
       syncedAt: new Date().toISOString(),
       globalSecrets: {},
       policyBindings: [],
-    }, log);
+    };
+    await pushSecretsToBroker(empty);
+    return;
+  }
+
+  if (secrets.length === 0) {
+    // Push empty so broker knows there are no secrets
+    const empty: SyncedSecrets = {
+      version: '1.0.0',
+      syncedAt: new Date().toISOString(),
+      globalSecrets: {},
+      policyBindings: [],
+    };
+    await pushSecretsToBroker(empty);
     return;
   }
 
@@ -122,21 +125,8 @@ export async function syncSecrets(
     policyBindings,
   };
 
-  writeSyncFile(synced, log);
+  await pushSecretsToBroker(synced);
   log.info(
-    `[secret-sync] synced ${Object.keys(globalSecrets).length} global + ${policyBindings.length} policy-bound secret groups`
+    `[secret-sync] pushed ${Object.keys(globalSecrets).length} global + ${policyBindings.length} policy-bound secret groups to broker`
   );
-}
-
-function writeSyncFile(synced: SyncedSecrets, log: Logger): void {
-  const filePath = getSyncedSecretsPath();
-  try {
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(filePath, JSON.stringify(synced, null, 2) + '\n', { mode: 0o600 });
-  } catch {
-    log.warn(`[secret-sync] cannot write to ${filePath}`);
-  }
 }

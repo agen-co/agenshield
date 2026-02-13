@@ -10,8 +10,14 @@ import { InitialSchemaMigration } from './001-initial-schema';
 import { ImportJsonMigration } from './002-import-json';
 import { SkillsManagerColumnsMigration } from './003-skills-manager-columns';
 import { SlugPrefixMigration } from './004-slug-prefix';
+import { SecretsTableMigration } from './005-secrets-table';
+import { DropActivityMigration } from './006-drop-activity';
+import { EncryptSecretsMigration } from './007-encrypt-secrets';
+import { BackupIntegrityMigration } from './008-backup-integrity';
+import { SecretsValueNullableMigration } from './009-secrets-value-nullable';
 
 export type { Migration };
+export { runActivityMigrations, ACTIVITY_MIGRATIONS } from './activity/index';
 
 const TABLE = '_migrations';
 
@@ -20,6 +26,11 @@ export const ALL_MIGRATIONS: Migration[] = [
   new ImportJsonMigration(),
   new SkillsManagerColumnsMigration(),
   new SlugPrefixMigration(),
+  new SecretsTableMigration(),
+  new DropActivityMigration(),
+  new EncryptSecretsMigration(),
+  new BackupIntegrityMigration(),
+  new SecretsValueNullableMigration(),
 ];
 
 /**

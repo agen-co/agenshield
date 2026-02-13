@@ -36,6 +36,11 @@ import {
 } from '../auth/passcode';
 import { getSessionManager } from '../auth/session';
 import { extractToken } from '../auth/middleware';
+import { getStorage } from '@agenshield/storage';
+import { syncSecrets } from '../secret-sync';
+import { clearBrokerSecrets } from '../services/broker-bridge';
+import { emitSecurityLocked } from '../events/emitter';
+import { loadConfig } from '../config/index';
 
 /**
  * Register authentication routes
@@ -113,9 +118,21 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       // Clear failed attempts on success
       clearFailedAttempts();
 
-      // Create session
+      // Unlock storage-level encryption so secrets can be decrypted
+      const storage = getStorage();
+      if (storage.hasPasscode()) {
+        storage.unlock(passcode);
+      } else {
+        // First unlock after migration — initialize storage-level encryption
+        storage.setPasscode(passcode);
+      }
+
+      // Create session (also starts the idle auto-lock timer)
       const sessionManager = getSessionManager();
       const session = sessionManager.createSession();
+
+      // Push decrypted secrets to broker now that vault is accessible
+      syncSecrets(loadConfig().policies).catch(() => { /* non-fatal */ });
 
       return {
         success: true,
@@ -141,6 +158,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
       const sessionManager = getSessionManager();
       const invalidated = sessionManager.invalidateSession(token);
+
+      // If no active sessions remain, lock storage and clear broker's in-memory secrets
+      if (invalidated && sessionManager.getActiveSessions().length === 0) {
+        getStorage().lock();
+        clearBrokerSecrets().catch(() => { /* non-fatal */ });
+        emitSecurityLocked('manual');
+      }
 
       return { success: invalidated };
     }
@@ -174,8 +198,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         };
       }
 
-      // Set passcode
+      // Set passcode (daemon-level)
       await setPasscode(passcode);
+
+      // Initialize storage-level encryption with same passcode
+      const storage = getStorage();
+      if (!storage.hasPasscode()) {
+        storage.setPasscode(passcode);
+      }
 
       // Enable protection if requested
       if (enableProtection) {
@@ -238,8 +268,16 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         clearFailedAttempts();
       }
 
-      // Set new passcode
+      // Set new passcode (daemon-level)
       await setPasscode(newPasscode);
+
+      // Re-encrypt storage with the new passcode
+      const storage = getStorage();
+      if (storage.hasPasscode() && oldPasscode) {
+        storage.changePasscode(oldPasscode, newPasscode);
+      } else if (!storage.hasPasscode()) {
+        storage.setPasscode(newPasscode);
+      }
 
       // Invalidate all existing sessions
       const sessionManager = getSessionManager();

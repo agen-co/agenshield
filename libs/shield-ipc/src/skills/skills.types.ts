@@ -50,6 +50,9 @@ export interface SkillVersion {
   requiredEnv: string[];
   extractedCommands: unknown[];
 
+  /** SHA-256 hash of backup files for tamper detection */
+  backupHash?: string;
+
   createdAt: string;
   updatedAt: string;
 }

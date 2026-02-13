@@ -11,5 +11,6 @@ export { handlePing } from './ping.js';
 export { handleSkillInstall, handleSkillUninstall } from './skill-install.js';
 export { handlePolicyCheck } from './policy-check.js';
 export { handleEventsBatch } from './events-batch.js';
+export { handleSecretsSync } from './secrets-sync.js';
 
 export type { HandlerDependencies } from './types.js';

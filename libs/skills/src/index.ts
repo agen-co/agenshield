@@ -62,6 +62,7 @@ export {
   RemoteSkillNotFoundError,
   RemoteApiError,
   AnalysisError,
+  BackupTamperError,
 } from './errors';
 
 // Events

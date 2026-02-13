@@ -33,6 +33,7 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
     console.log('  \x1b[33m->\x1b[0m Delete any discovered workspace groups (ash_*_workspace)');
     console.log('  \x1b[33m->\x1b[0m Remove guarded shell');
     console.log('  \x1b[33m->\x1b[0m Delete /etc/agenshield configuration');
+    console.log('  \x1b[33m->\x1b[0m Remove databases (main + activity), vault, backups');
     console.log('');
     console.log('\x1b[31mWARNING: This will NOT restore OpenClaw to its original state!\x1b[0m');
     console.log('');
@@ -160,9 +161,25 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
 
       if (deleteData.toLowerCase() === 'y' || deleteData.toLowerCase() === 'yes') {
         fs.rmSync(agenshieldDir, { recursive: true, force: true });
-        console.log(`\x1b[32m✓\x1b[0m Deleted ${agenshieldDir}`);
+        console.log(`\x1b[32m✓\x1b[0m Deleted ${agenshieldDir} (databases, vault, logs)`);
       } else {
-        console.log(`Kept ${agenshieldDir} (contains config, vault, activity logs)`);
+        console.log(`Kept ${agenshieldDir} (contains databases, vault, logs)`);
+      }
+
+      // Clean up legacy system-level files
+      const legacyFiles = [
+        '/opt/agenshield/config/synced-secrets.json',
+        '/opt/agenshield/config/allowed-commands.json',
+      ];
+      for (const legacyFile of legacyFiles) {
+        try {
+          if (fs.existsSync(legacyFile)) {
+            fs.unlinkSync(legacyFile);
+            console.log(`\x1b[32m✓\x1b[0m Removed legacy file ${legacyFile}`);
+          }
+        } catch {
+          // Best effort — may not have permissions
+        }
       }
     }
   } else {

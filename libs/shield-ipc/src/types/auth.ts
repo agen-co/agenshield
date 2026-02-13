@@ -124,6 +124,8 @@ export interface AuthConfig {
   maxFailedAttempts: number;
   /** Lockout duration in milliseconds */
   lockoutDurationMs: number;
+  /** Idle timeout in milliseconds before auto-locking the vault (default: 5 minutes) */
+  autoLockTimeoutMs: number;
 }
 
 /**
@@ -133,4 +135,5 @@ export const DEFAULT_AUTH_CONFIG: AuthConfig = {
   sessionTtlMs: 30 * 60 * 1000, // 30 minutes
   maxFailedAttempts: 5,
   lockoutDurationMs: 15 * 60 * 1000, // 15 minutes
+  autoLockTimeoutMs: 5 * 60 * 1000, // 5 minutes
 };

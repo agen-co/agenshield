@@ -3,6 +3,8 @@
  *
  * Manages authentication sessions with in-memory storage.
  * Sessions are cleared on daemon restart.
+ * Includes idle-timeout auto-lock: after `autoLockTimeoutMs` of inactivity
+ * (no API requests), the vault is locked and all sessions are cleared.
  */
 
 import * as crypto from 'node:crypto';
@@ -15,11 +17,26 @@ import { DEFAULT_AUTH_CONFIG } from '@agenshield/ipc';
 class SessionManager {
   private sessions: Map<string, Session> = new Map();
   private sessionTtlMs: number;
+  private autoLockTimeoutMs: number;
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private onAutoLockHandler?: () => void;
 
-  constructor(sessionTtlMs: number = DEFAULT_AUTH_CONFIG.sessionTtlMs) {
+  constructor(
+    sessionTtlMs: number = DEFAULT_AUTH_CONFIG.sessionTtlMs,
+    autoLockTimeoutMs: number = DEFAULT_AUTH_CONFIG.autoLockTimeoutMs,
+  ) {
     this.sessionTtlMs = sessionTtlMs;
+    this.autoLockTimeoutMs = autoLockTimeoutMs;
     this.startCleanup();
+  }
+
+  /**
+   * Register a callback invoked when the idle timer fires.
+   * The callback should lock storage, clear broker secrets, and emit the SSE event.
+   */
+  setAutoLockHandler(handler: () => void): void {
+    this.onAutoLockHandler = handler;
   }
 
   /**
@@ -45,6 +62,7 @@ class SessionManager {
     };
 
     this.sessions.set(token, session);
+    this.resetIdleTimer();
     return session;
   }
 
@@ -113,6 +131,17 @@ class SessionManager {
    */
   clearAllSessions(): void {
     this.sessions.clear();
+    this.clearIdleTimer();
+  }
+
+  /**
+   * Record API activity to reset the idle auto-lock timer.
+   * Call this on every non-SSE API request.
+   */
+  touchActivity(): void {
+    if (this.getActiveSessions().length > 0) {
+      this.resetIdleTimer();
+    }
   }
 
   /**
@@ -133,6 +162,7 @@ class SessionManager {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
+    this.clearIdleTimer();
   }
 
   /**
@@ -145,6 +175,11 @@ class SessionManager {
         this.sessions.delete(token);
       }
     }
+    // If all sessions expired, auto-lock
+    if (this.sessions.size === 0 && this.idleTimer) {
+      this.clearIdleTimer();
+      this.onAutoLockHandler?.();
+    }
   }
 
   /**
@@ -152,6 +187,30 @@ class SessionManager {
    */
   getSessionCount(): number {
     return this.sessions.size;
+  }
+
+  // ---- Idle auto-lock ----
+
+  private resetIdleTimer(): void {
+    this.clearIdleTimer();
+    if (this.getActiveSessions().length === 0) return;
+
+    this.idleTimer = setTimeout(() => {
+      this.autoLock();
+    }, this.autoLockTimeoutMs);
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+  }
+
+  private autoLock(): void {
+    if (this.sessions.size === 0) return;
+    this.clearAllSessions();
+    this.onAutoLockHandler?.();
   }
 }
 

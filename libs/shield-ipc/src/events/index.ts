@@ -28,6 +28,8 @@ export {
 export {
   type SecurityStatusPayload,
   type MessagePayload,
+  type ConfigTamperedPayload,
+  type SecurityLockedPayload,
   SECURITY_EVENT_TYPES,
 } from './security.events';
 

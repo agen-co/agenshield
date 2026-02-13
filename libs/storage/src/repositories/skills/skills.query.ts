@@ -45,6 +45,7 @@ export const Q = {
   deleteVersion: `DELETE FROM ${VERSIONS} WHERE id = ?`,
 
   updateContentHash: `UPDATE ${VERSIONS} SET content_hash = @hash, hash_updated_at = @now, updated_at = @now WHERE id = @id`,
+  updateBackupHash: `UPDATE ${VERSIONS} SET backup_hash = @hash, updated_at = @now WHERE id = @id`,
 
   // ---- Files ----
   upsertFile: `

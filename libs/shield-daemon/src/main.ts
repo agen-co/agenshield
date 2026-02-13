@@ -4,12 +4,20 @@
  */
 
 import * as fs from 'node:fs';
-import { loadConfig, ensureConfigDir, getPidPath } from './config/index';
+import * as path from 'node:path';
+import { initStorage, DB_FILENAME, ACTIVITY_DB_FILENAME } from '@agenshield/storage';
+import { loadConfig, ensureConfigDir, getConfigDir, getPidPath } from './config/index';
 import { startServer } from './server';
 
 async function main(): Promise<void> {
   // Ensure config directory exists
   ensureConfigDir();
+
+  // Initialize storage before loadConfig (config reads from DB)
+  const configDir = getConfigDir();
+  const dbPath = path.join(configDir, DB_FILENAME);
+  const activityDbPath = path.join(configDir, ACTIVITY_DB_FILENAME);
+  initStorage(dbPath, activityDbPath);
 
   // Load configuration
   const config = loadConfig();

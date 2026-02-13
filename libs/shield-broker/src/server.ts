@@ -285,6 +285,7 @@ export class UnixSocketServer {
       skill_uninstall: handlers.handleSkillUninstall,
       policy_check: handlers.handlePolicyCheck,
       events_batch: handlers.handleEventsBatch,
+      secrets_sync: handlers.handleSecretsSync,
     };
 
     return handlerMap[method];

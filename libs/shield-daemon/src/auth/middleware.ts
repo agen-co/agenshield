@@ -5,8 +5,21 @@
  */
 
 import type { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
+import { getStorage } from '@agenshield/storage';
 import { getSessionManager } from './session';
 import { isProtectionEnabled, isRunningAsRoot } from './passcode';
+
+/**
+ * Check if the vault is currently unlocked.
+ * Returns false if storage is not yet initialized or vault is locked.
+ */
+export function isVaultUnlocked(): boolean {
+  try {
+    return getStorage().isUnlocked();
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Extract token from request
@@ -119,6 +132,9 @@ export const PROTECTED_ROUTES = [
   { method: 'POST', path: '/api/config/factory-reset' },
   { method: 'POST', path: '/api/skills/install' },
   { method: 'GET', path: '/api/openclaw/dashboard-url' },
+  { method: 'GET', path: '/api/config/openclaw' },
+  { method: 'GET', path: '/api/config/openclaw/diff' },
+  { method: 'GET', path: '/api/config/policies/instructions' },
 ];
 
 /**

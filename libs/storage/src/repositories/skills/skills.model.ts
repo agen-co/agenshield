@@ -42,6 +42,7 @@ export function mapVersion(row: DbSkillVersionRow): SkillVersion {
     requiredBins: JSON.parse(row.required_bins),
     requiredEnv: JSON.parse(row.required_env),
     extractedCommands: JSON.parse(row.extracted_commands),
+    backupHash: row.backup_hash ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
