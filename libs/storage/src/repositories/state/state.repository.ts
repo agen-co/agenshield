@@ -100,7 +100,7 @@ export class StateRepository extends BaseRepository {
       uid: r.uid,
       type: r.type as UserState['type'],
       createdAt: r.created_at,
-      homeDir: r.home_dir,
+      homeDir: r.home_dir ?? '',
     }));
   }
 

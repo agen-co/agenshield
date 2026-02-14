@@ -39,12 +39,12 @@ describe('Storage', () => {
   it('has all repository properties', () => {
     expect(storage.config).toBeDefined();
     expect(storage.state).toBeDefined();
-    expect(storage.vault).toBeDefined();
+    expect(storage.secrets).toBeDefined();
     expect(storage.policies).toBeDefined();
     expect(storage.activities).toBeDefined();
     expect(storage.skills).toBeDefined();
     expect(storage.commands).toBeDefined();
-    expect(storage.targets).toBeDefined();
+    expect(storage.profiles).toBeDefined();
     expect(storage.policyGraph).toBeDefined();
   });
 

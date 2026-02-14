@@ -51,15 +51,12 @@ export function extractShieldContext(request: FastifyRequest): ShieldContext {
 
   const traceId =
     (headers[SHIELD_HEADERS.TRACE_ID] as string | undefined) || crypto.randomUUID();
-  const targetId =
-    (headers[SHIELD_HEADERS.TARGET_ID] as string | undefined) || null;
-  const userUsername =
-    (headers[SHIELD_HEADERS.USER] as string | undefined) || null;
+  const profileId =
+    (headers[SHIELD_HEADERS.PROFILE_ID] as string | undefined) || null;
 
   return {
     traceId,
-    targetId,
-    userUsername,
+    profileId,
     requestedAt: new Date().toISOString(),
     source,
   };
@@ -84,8 +81,7 @@ export function registerShieldContext(app: FastifyInstance): void {
     // Enrich the request logger with context fields for structured logging
     request.log = request.log.child({
       traceId: ctx.traceId,
-      targetId: ctx.targetId,
-      user: ctx.userUsername,
+      profileId: ctx.profileId,
     });
 
     done();

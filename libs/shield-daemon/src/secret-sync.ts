@@ -11,7 +11,7 @@
  *   4. Push SyncedSecrets payload to broker via secretsSync()
  */
 
-import type { PolicyConfig, VaultSecret, SyncedSecrets, SecretPolicyBinding } from '@agenshield/ipc';
+import type { PolicyConfig, VaultSecret, SyncedSecrets, SecretPolicyBinding, ScopeFilter } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 import { pushSecretsToBroker } from './services/broker-bridge';
 
@@ -35,12 +35,14 @@ const noop: Logger = { warn() { /* no-op */ }, info() { /* no-op */ } };
 export async function syncSecrets(
   policies: PolicyConfig[],
   logger?: Logger,
+  scope?: ScopeFilter,
 ): Promise<void> {
   const log = logger ?? noop;
 
   let secrets: VaultSecret[];
   try {
-    secrets = getStorage().secrets.getAll();
+    const storage = getStorage();
+    secrets = scope ? storage.for(scope).secrets.getAll() : storage.secrets.getAll();
   } catch {
     // Vault may be locked — push empty payload so broker has clean state
     const empty: SyncedSecrets = {

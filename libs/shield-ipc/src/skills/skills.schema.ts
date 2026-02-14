@@ -56,8 +56,7 @@ export const CreateSkillFileSchema = SkillFileSchema.omit({ id: true, createdAt:
 export const SkillInstallationSchema = z.object({
   id: z.string().uuid(),
   skillVersionId: z.string().uuid(),
-  targetId: z.string().optional(),
-  userUsername: z.string().optional(),
+  profileId: z.string().optional(),
   status: z.enum(['active', 'disabled', 'quarantined', 'pending']).default('active'),
   wrapperPath: z.string().optional(),
   autoUpdate: z.boolean().default(true),

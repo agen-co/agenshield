@@ -469,8 +469,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
             emitSkillInstallProgress(slug, 'copy', 'Deploying skill files');
             const ctx = request.shieldContext;
             installation = await manager.approveSkill(slug, {
-              targetId: ctx.targetId ?? undefined,
-              userUsername: ctx.userUsername ?? undefined,
+              profileId: ctx.profileId ?? undefined,
             });
           } finally {
             manager.getWatcher().unsuppressSlug(slug);

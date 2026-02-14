@@ -205,7 +205,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/skills', async (request: FastifyRequest, reply: FastifyReply) => {
     const { shieldContext: ctx } = request;
-    request.log.info({ targetId: ctx.targetId }, 'Listing skills');
+    request.log.info({ profileId: ctx.profileId }, 'Listing skills');
 
     const manager = app.skillManager;
     const repo = manager.getRepository();
@@ -690,8 +690,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         const result = await app.skillManager.toggleSkill(name, {
-          targetId: ctx.targetId ?? undefined,
-          userUsername: ctx.userUsername ?? undefined,
+          profileId: ctx.profileId ?? undefined,
         });
 
         if (result.action === 'disabled') {
@@ -754,8 +753,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
         // Approve and install
         const installation = await app.skillManager.approveSkill(slug, {
-          targetId: request.shieldContext.targetId ?? undefined,
-          userUsername: request.shieldContext.userUsername ?? undefined,
+          profileId: request.shieldContext.profileId ?? undefined,
         });
 
         return reply.send({ success: true, name, installation });
@@ -785,8 +783,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         await app.skillManager.approveSkill(name, {
-          targetId: request.shieldContext.targetId ?? undefined,
-          userUsername: request.shieldContext.userUsername ?? undefined,
+          profileId: request.shieldContext.profileId ?? undefined,
         });
         request.log.info({ skill: name }, 'Unblocked and installed skill');
         return reply.send({ success: true, message: `Skill "${name}" approved and installed` });

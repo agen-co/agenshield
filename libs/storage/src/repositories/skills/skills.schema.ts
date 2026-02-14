@@ -14,8 +14,7 @@ export interface SkillsGetAllFilter {
 
 export interface SkillInstallationsFilter {
   skillVersionId?: string;
-  targetId?: string;
-  userUsername?: string;
+  profileId?: string;
 }
 
 export interface GetVersionParams {

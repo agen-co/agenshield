@@ -15,7 +15,7 @@ export class ActivitySchemaMigration implements Migration {
     db.exec(`
       CREATE TABLE IF NOT EXISTS activity_events (
         id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        target_id  TEXT,
+        profile_id TEXT,
         type       TEXT NOT NULL,
         timestamp  TEXT NOT NULL,
         data       TEXT NOT NULL,

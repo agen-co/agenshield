@@ -11,8 +11,7 @@ export function mapNode(row: DbPolicyNodeRow): PolicyNode {
   return {
     id: row.id,
     policyId: row.policy_id,
-    targetId: row.target_id ?? undefined,
-    userUsername: row.user_username ?? undefined,
+    profileId: row.profile_id ?? undefined,
     dormant: row.dormant === 1,
     metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
     createdAt: row.created_at,

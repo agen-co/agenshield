@@ -7,6 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { initStorage, DB_FILENAME, ACTIVITY_DB_FILENAME } from '@agenshield/storage';
 import { loadConfig, ensureConfigDir, getConfigDir, getPidPath } from './config/index';
+import { isDevMode } from './config/paths';
 import { startServer } from './server';
 
 async function main(): Promise<void> {
@@ -17,6 +18,17 @@ async function main(): Promise<void> {
   const configDir = getConfigDir();
   const dbPath = path.join(configDir, DB_FILENAME);
   const activityDbPath = path.join(configDir, ACTIVITY_DB_FILENAME);
+
+  // Reset dev database if requested (dev mode safety guard)
+  if (process.env['AGENSHIELD_RESET'] === '1' && isDevMode()) {
+    for (const file of [dbPath, activityDbPath, `${dbPath}-wal`, `${dbPath}-shm`, `${activityDbPath}-wal`, `${activityDbPath}-shm`]) {
+      if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+        console.log(`[Reset] Deleted ${path.basename(file)}`);
+      }
+    }
+  }
+
   initStorage(dbPath, activityDbPath);
 
   // Load configuration

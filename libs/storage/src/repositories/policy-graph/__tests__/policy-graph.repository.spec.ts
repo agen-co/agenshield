@@ -6,8 +6,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../migrations/001-initial-schema';
+import { SchemaMigration } from '../../../migrations/001-schema';
 import { PolicyGraphRepository } from '../policy-graph.repository';
+
+function insertProfile(db: Database.Database, id: string, name?: string): void {
+  db.prepare(
+    `INSERT INTO profiles (id, name, type, created_at, updated_at)
+     VALUES (?, ?, 'target', datetime('now'), datetime('now'))`,
+  ).run(id, name ?? `Profile ${id}`);
+}
 
 function createTestDb(): { db: Database.Database; cleanup: () => void } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'storage-test-'));
@@ -15,7 +22,7 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
+  new SchemaMigration().up(db);
   return {
     db,
     cleanup: () => {
@@ -74,23 +81,16 @@ describe('PolicyGraphRepository', () => {
       expect(node.metadata).toEqual({ label: 'test-node' });
     });
 
-    it('createNode with scope (targetId and userUsername)', () => {
+    it('createNode with scope (profileId)', () => {
       const policyId = insertPolicy(db, 'p1');
-      db.prepare(
-        `INSERT INTO targets (id, name, created_at, updated_at) VALUES ('t1', 'T1', datetime('now'), datetime('now'))`,
-      ).run();
-      db.prepare(
-        `INSERT INTO users (username, uid, type, created_at, home_dir) VALUES ('user1', 1001, 'agent', datetime('now'), '/home/user1')`,
-      ).run();
+      insertProfile(db, 'p1', 'Profile 1');
 
       const node = repo.createNode({
         policyId,
-        targetId: 't1',
-        userUsername: 'user1',
+        profileId: 'p1',
       });
 
-      expect(node.targetId).toBe('t1');
-      expect(node.userUsername).toBe('user1');
+      expect(node.profileId).toBe('p1');
     });
 
     it('getNode returns the correct node', () => {
@@ -134,20 +134,18 @@ describe('PolicyGraphRepository', () => {
     });
 
     it('getNodes filters by scope', () => {
-      db.prepare(
-        `INSERT INTO targets (id, name, created_at, updated_at) VALUES ('t1', 'T1', datetime('now'), datetime('now'))`,
-      ).run();
+      insertProfile(db, 'p-scope', 'Profile Scope');
 
       insertPolicy(db, 'p1');
       insertPolicy(db, 'p2');
 
       // Global node
       repo.createNode({ policyId: 'p1' });
-      // Target-scoped node
-      repo.createNode({ policyId: 'p2', targetId: 't1' });
+      // Profile-scoped node
+      repo.createNode({ policyId: 'p2', profileId: 'p-scope' });
 
-      const scoped = new PolicyGraphRepository(db, () => null, { targetId: 't1' }).getNodes();
-      // Should include global (NULL) + target-scoped
+      const scoped = new PolicyGraphRepository(db, () => null, { profileId: 'p-scope' }).getNodes();
+      // Should include global (NULL) + profile-scoped
       expect(scoped.length).toBeGreaterThanOrEqual(1);
     });
 
@@ -655,19 +653,17 @@ describe('PolicyGraphRepository', () => {
     });
 
     it('loadGraph filters by scope', () => {
-      db.prepare(
-        `INSERT INTO targets (id, name, created_at, updated_at) VALUES ('t1', 'T1', datetime('now'), datetime('now'))`,
-      ).run();
+      insertProfile(db, 'p-scope', 'Profile Scope');
 
       insertPolicy(db, 'p-global');
       insertPolicy(db, 'p-scoped');
 
       const nGlobal = repo.createNode({ policyId: 'p-global' });
-      const nScoped = repo.createNode({ policyId: 'p-scoped', targetId: 't1' });
+      const nScoped = repo.createNode({ policyId: 'p-scoped', profileId: 'p-scope' });
 
       repo.createEdge({ sourceNodeId: nGlobal.id, targetNodeId: nScoped.id, effect: 'activate', lifetime: 'session' });
 
-      const graph = new PolicyGraphRepository(db, () => null, { targetId: 't1' }).loadGraph();
+      const graph = new PolicyGraphRepository(db, () => null, { profileId: 'p-scope' }).loadGraph();
       // Should include both global + scoped
       expect(graph.nodes.length).toBeGreaterThanOrEqual(1);
       expect(graph.edges.length).toBeGreaterThanOrEqual(0);

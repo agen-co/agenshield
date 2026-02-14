@@ -59,6 +59,8 @@ export interface VaultSecret {
    *   policyIds.length === 0 => 'global', else => 'policed'
    */
   scope?: SecretScope;
+  /** Profile ID this secret is scoped to (undefined/null = global) */
+  profileId?: string | null;
 }
 
 /**

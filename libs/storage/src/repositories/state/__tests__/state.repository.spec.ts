@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../migrations/001-initial-schema';
+import { SchemaMigration } from '../../../migrations/001-schema';
 import { StateRepository } from '../state.repository';
 
 function createTestDb(): { db: Database.Database; cleanup: () => void } {
@@ -11,7 +11,7 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
+  new SchemaMigration().up(db);
   return {
     db,
     cleanup: () => {

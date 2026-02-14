@@ -29,14 +29,14 @@ export class DeployService {
     this.emitter.emit('skill-event', event);
   }
 
-  /** Find an adapter that can handle the given target ID */
-  findAdapter(targetId: string | undefined): DeployAdapter | null {
-    return this.adapters.find((a) => a.canDeploy(targetId)) ?? null;
+  /** Find an adapter that can handle the given profile ID */
+  findAdapter(profileId: string | undefined): DeployAdapter | null {
+    return this.adapters.find((a) => a.canDeploy(profileId)) ?? null;
   }
 
   /** Deploy a skill installation using the matching adapter */
   async deploy(installation: SkillInstallation, version: SkillVersion, skill: Skill): Promise<DeployResult | null> {
-    const adapter = this.findAdapter(installation.targetId);
+    const adapter = this.findAdapter(installation.profileId);
     if (!adapter) return null;
 
     const operationId = crypto.randomUUID();
@@ -81,7 +81,7 @@ export class DeployService {
 
   /** Undeploy a skill installation using the matching adapter */
   async undeploy(installation: SkillInstallation, version: SkillVersion, skill: Skill): Promise<void> {
-    const adapter = this.findAdapter(installation.targetId);
+    const adapter = this.findAdapter(installation.profileId);
     if (!adapter) return;
 
     const operationId = crypto.randomUUID();
@@ -120,7 +120,7 @@ export class DeployService {
     const inst = this.skills.getInstallationById(installationId);
     if (!inst || inst.status !== 'active') return null;
 
-    const adapter = this.findAdapter(inst.targetId);
+    const adapter = this.findAdapter(inst.profileId);
     if (!adapter) return null;
 
     const version = this.skills.getVersionById(inst.skillVersionId);
@@ -138,7 +138,7 @@ export class DeployService {
     const results: Array<{ installationId: string; adapterId: string; result: IntegrityCheckResult }> = [];
 
     for (const inst of active) {
-      const adapter = this.findAdapter(inst.targetId);
+      const adapter = this.findAdapter(inst.profileId);
       if (!adapter) continue;
 
       const version = this.skills.getVersionById(inst.skillVersionId);

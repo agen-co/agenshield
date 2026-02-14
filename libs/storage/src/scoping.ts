@@ -1,9 +1,9 @@
 /**
  * Scope resolution for multi-tenant storage
  *
- * Config:   base -> target -> target+user  (merge, NULL = inherit)
+ * Config:   global -> profile  (merge, NULL = inherit)
  * Policies: UNION all matching scopes (additive, priority for conflicts)
- * Secrets:  most specific wins per name (target+user > target > base)
+ * Secrets:  most specific wins per name (profile > global)
  */
 
 import type { ScopeFilter } from '@agenshield/ipc';
@@ -13,31 +13,15 @@ import type { ScopeFilter } from '@agenshield/ipc';
  * Returns { clause, params } to be used in SQL queries.
  */
 export function buildScopeWhere(scope?: ScopeFilter): { clause: string; params: Record<string, unknown> } {
-  if (!scope || (scope.targetId === undefined && scope.userUsername === undefined)) {
+  if (!scope || scope.profileId === undefined) {
     return { clause: '1=1', params: {} };
   }
 
-  const conditions: string[] = [];
-  const params: Record<string, unknown> = {};
-
-  if (scope.targetId === null) {
-    conditions.push('target_id IS NULL');
-  } else if (scope.targetId !== undefined) {
-    conditions.push('target_id = @targetId');
-    params.targetId = scope.targetId;
+  if (scope.profileId === null) {
+    return { clause: 'profile_id IS NULL', params: {} };
   }
 
-  if (scope.userUsername === null) {
-    conditions.push('user_username IS NULL');
-  } else if (scope.userUsername !== undefined) {
-    conditions.push('user_username = @userUsername');
-    params.userUsername = scope.userUsername;
-  }
-
-  return {
-    clause: conditions.length > 0 ? conditions.join(' AND ') : '1=1',
-    params,
-  };
+  return { clause: 'profile_id = @profileId', params: { profileId: scope.profileId } };
 }
 
 /**
@@ -46,15 +30,11 @@ export function buildScopeWhere(scope?: ScopeFilter): { clause: string; params: 
  */
 export function getConfigScopeLevels(scope?: ScopeFilter): ScopeFilter[] {
   const levels: ScopeFilter[] = [
-    { targetId: null, userUsername: null }, // base
+    { profileId: null }, // base/global
   ];
 
-  if (scope?.targetId) {
-    levels.push({ targetId: scope.targetId, userUsername: null }); // target-level
-  }
-
-  if (scope?.targetId && scope?.userUsername) {
-    levels.push({ targetId: scope.targetId, userUsername: scope.userUsername }); // target+user
+  if (scope?.profileId) {
+    levels.push({ profileId: scope.profileId }); // profile-level
   }
 
   return levels;
@@ -62,35 +42,21 @@ export function getConfigScopeLevels(scope?: ScopeFilter): ScopeFilter[] {
 
 /**
  * Build WHERE clause for querying all matching policy scopes (UNION).
- * Returns policies from base + target + target+user scopes.
+ * Returns policies from global + profile scopes.
  */
 export function buildPolicyScopeWhere(scope?: ScopeFilter): { clause: string; params: Record<string, unknown> } {
-  if (!scope || (scope.targetId === undefined && scope.userUsername === undefined)) {
+  if (!scope || scope.profileId === undefined) {
     return { clause: '1=1', params: {} };
   }
 
-  const conditions: string[] = [];
-  const params: Record<string, unknown> = {};
-
-  // Always include base (global) policies
-  conditions.push('(target_id IS NULL AND user_username IS NULL)');
-
-  if (scope.targetId) {
-    // Include target-level policies
-    conditions.push('(target_id = @targetId AND user_username IS NULL)');
-    params.targetId = scope.targetId;
+  if (scope.profileId) {
+    return {
+      clause: 'profile_id IS NULL OR profile_id = @profileId',
+      params: { profileId: scope.profileId },
+    };
   }
 
-  if (scope.targetId && scope.userUsername) {
-    // Include target+user policies
-    conditions.push('(target_id = @targetId AND user_username = @userUsername)');
-    params.userUsername = scope.userUsername;
-  }
-
-  return {
-    clause: conditions.join(' OR '),
-    params,
-  };
+  return { clause: 'profile_id IS NULL', params: {} };
 }
 
 /**
@@ -116,17 +82,17 @@ export function mergeConfigRows<T>(rows: T[]): T | null {
 
 /**
  * For secrets, find the most specific value per name.
- * target+user > target > base
+ * profile > global
  */
-export function resolveSecretScope<T extends { target_id: string | null; user_username: string | null; name: string }>(
+export function resolveSecretScope<T extends { profile_id: string | null; name: string }>(
   rows: T[],
 ): T[] {
   const byName = new Map<string, T>();
 
   // Process from least to most specific — later overwrites earlier
   const sorted = [...rows].sort((a, b) => {
-    const scoreA = (a.target_id ? 1 : 0) + (a.user_username ? 1 : 0);
-    const scoreB = (b.target_id ? 1 : 0) + (b.user_username ? 1 : 0);
+    const scoreA = a.profile_id ? 1 : 0;
+    const scoreB = b.profile_id ? 1 : 0;
     return scoreA - scoreB;
   });
 

@@ -15,9 +15,10 @@ interface LayoutProps {
   disconnected?: boolean;
   onReconnect?: () => void;
   reconnecting?: boolean;
+  fullBleed?: boolean;
 }
 
-export function Layout({ children, darkMode, onToggleDarkMode, disconnected, onReconnect, reconnecting }: LayoutProps) {
+export function Layout({ children, darkMode, onToggleDarkMode, disconnected, onReconnect, reconnecting, fullBleed }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -40,20 +41,23 @@ export function Layout({ children, darkMode, onToggleDarkMode, disconnected, onR
           bgcolor: 'background.default',
           minHeight: '100vh',
           width: { md: `calc(100% - ${tokens.sidebar.width}px)` },
-          px: { xs: 2, sm: 3, md: 3 },
-          py: 3,
+          ...(fullBleed
+            ? { px: 0, py: 0, overflow: 'hidden' }
+            : { px: { xs: 2, sm: 3, md: 3 }, py: 3 }),
         }}
       >
         {/* Mobile menu button */}
-        <IconButton
-          onClick={() => setSidebarOpen(true)}
-          sx={{
-            display: { md: 'none' },
-            mb: 2,
-          }}
-        >
-          <Menu size={20} />
-        </IconButton>
+        {!fullBleed && (
+          <IconButton
+            onClick={() => setSidebarOpen(true)}
+            sx={{
+              display: { md: 'none' },
+              mb: 2,
+            }}
+          >
+            <Menu size={20} />
+          </IconButton>
+        )}
 
         {children}
       </Box>

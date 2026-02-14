@@ -9,8 +9,8 @@ const ACTIVATIONS = 'edge_activations';
 export const Q = {
   // ---- Nodes ----
   insertNode: `
-    INSERT INTO ${NODES} (id, policy_id, target_id, user_username, dormant, metadata, created_at, updated_at)
-    VALUES (@id, @policyId, @targetId, @userUsername, @dormant, @metadata, @createdAt, @updatedAt)`,
+    INSERT INTO ${NODES} (id, policy_id, profile_id, dormant, metadata, created_at, updated_at)
+    VALUES (@id, @policyId, @profileId, @dormant, @metadata, @createdAt, @updatedAt)`,
 
   selectNodeById: `SELECT * FROM ${NODES} WHERE id = ?`,
   selectNodeByPolicyId: `SELECT * FROM ${NODES} WHERE policy_id = ?`,
@@ -34,7 +34,7 @@ export const Q = {
   selectAllEdgesByScope: (scopeClause: string) => `
     SELECT pe.* FROM ${EDGES} pe
     JOIN ${NODES} pn ON pe.source_node_id = pn.id
-    WHERE ${scopeClause.replace(/target_id/g, 'pn.target_id').replace(/user_username/g, 'pn.user_username')}`,
+    WHERE ${scopeClause.replace(/profile_id/g, 'pn.profile_id')}`,
 
   selectTargetNodeIds: `SELECT target_node_id FROM ${EDGES} WHERE source_node_id = ?`,
 

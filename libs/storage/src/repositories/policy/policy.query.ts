@@ -6,9 +6,9 @@ const TABLE = 'policies';
 
 export const Q = {
   insert: `
-    INSERT INTO ${TABLE} (id, target_id, user_username, name, action, target, patterns,
+    INSERT INTO ${TABLE} (id, profile_id, name, action, target, patterns,
       enabled, priority, operations, preset, scope, network_access, created_at, updated_at)
-    VALUES (@id, @targetId, @userUsername, @name, @action, @target, @patterns,
+    VALUES (@id, @profileId, @name, @action, @target, @patterns,
       @enabled, @priority, @operations, @preset, @scope, @networkAccess, @createdAt, @updatedAt)`,
 
   selectById: `SELECT * FROM ${TABLE} WHERE id = ?`,

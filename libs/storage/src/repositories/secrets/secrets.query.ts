@@ -8,8 +8,8 @@ const POLICIES = 'secret_policies';
 export const Q = {
   // ---- Secrets ----
   insertSecret: `
-    INSERT INTO ${SECRETS} (id, name, value_encrypted, scope, created_at)
-    VALUES (@id, @name, @valueEncrypted, @scope, @createdAt)`,
+    INSERT INTO ${SECRETS} (id, profile_id, name, value_encrypted, scope, created_at)
+    VALUES (@id, @profileId, @name, @valueEncrypted, @scope, @createdAt)`,
 
   selectById: `SELECT * FROM ${SECRETS} WHERE id = ?`,
   selectByName: `SELECT * FROM ${SECRETS} WHERE name = ?`,
@@ -17,6 +17,13 @@ export const Q = {
   deleteById: `DELETE FROM ${SECRETS} WHERE id = ?`,
 
   updateValueEncrypted: `UPDATE ${SECRETS} SET value_encrypted = @valueEncrypted WHERE id = @id`,
+
+  // ---- Scoped queries ----
+  selectAllScoped: (clause: string) =>
+    `SELECT * FROM ${SECRETS} WHERE ${clause} ORDER BY created_at`,
+
+  selectByNameScoped: (clause: string) =>
+    `SELECT * FROM ${SECRETS} WHERE name = @name AND (${clause}) ORDER BY created_at`,
 
   // ---- Policy junction ----
   insertPolicy: `

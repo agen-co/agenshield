@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../migrations/001-initial-schema';
+import { SchemaMigration } from '../../../migrations/001-schema';
 import { ConfigRepository } from '../config.repository';
 import type { ConfigData } from '../config.model';
 
@@ -12,7 +12,7 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
+  new SchemaMigration().up(db);
   return {
     db,
     cleanup: () => {
@@ -22,20 +22,12 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   };
 }
 
-/** Insert a target row so we can use it for scoped config. */
-function insertTarget(db: Database.Database, id: string): void {
+/** Insert a profile row so we can use it for scoped config. */
+function insertProfile(db: Database.Database, id: string, name?: string): void {
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO targets (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-  ).run(id, `Target ${id}`, now, now);
-}
-
-/** Insert a user row so we can use it for scoped config. */
-function insertUser(db: Database.Database, username: string): void {
-  db.prepare(
-    `INSERT INTO users (username, uid, type, created_at, home_dir)
-     VALUES (?, ?, 'agent', ?, '/home/test')`,
-  ).run(username, 1000, new Date().toISOString());
+    `INSERT INTO profiles (id, name, type, created_at, updated_at) VALUES (?, ?, 'target', ?, ?)`,
+  ).run(id, name ?? `Profile ${id}`, now, now);
 }
 
 describe('ConfigRepository', () => {
@@ -70,12 +62,9 @@ describe('ConfigRepository', () => {
       expect(repo.get()).toBeNull();
     });
 
-    it('set overwrites existing values via upsert (fully-scoped)', () => {
-      // ON CONFLICT(target_id, user_username) only fires when both columns are
-      // non-null (SQLite treats NULL as distinct for UNIQUE). Use a fully-qualified scope.
-      insertTarget(db, 'upsert-tgt');
-      insertUser(db, 'upsert-user');
-      const scope = { targetId: 'upsert-tgt', userUsername: 'upsert-user' };
+    it('set overwrites existing values via upsert (profile-scoped)', () => {
+      insertProfile(db, 'upsert-profile');
+      const scope = { profileId: 'upsert-profile' };
       const scopedRepo = new ConfigRepository(db, () => null, scope);
       scopedRepo.set({ daemonPort: 5200 });
       scopedRepo.set({ daemonPort: 6969 });
@@ -84,13 +73,10 @@ describe('ConfigRepository', () => {
     });
 
     it('set preserves existing values when new values are null (COALESCE)', () => {
-      // Use a fully-scoped config for reliable upsert with COALESCE semantics
-      insertTarget(db, 'coalesce-tgt');
-      insertUser(db, 'coalesce-user');
-      const scope = { targetId: 'coalesce-tgt', userUsername: 'coalesce-user' };
+      insertProfile(db, 'coalesce-profile');
+      const scope = { profileId: 'coalesce-profile' };
       const scopedRepo = new ConfigRepository(db, () => null, scope);
       scopedRepo.set({ daemonPort: 5200, daemonHost: 'localhost' });
-      // Second set only updates host; port should remain due to COALESCE
       scopedRepo.set({ daemonHost: '0.0.0.0' });
       const result = scopedRepo.getRaw();
       expect(result!.daemonPort).toBe(5200);
@@ -105,7 +91,7 @@ describe('ConfigRepository', () => {
     });
 
     it('getRaw returns null when no row for that scope', () => {
-      const missingRepo = new ConfigRepository(db, () => null, { targetId: 'missing', userUsername: null });
+      const missingRepo = new ConfigRepository(db, () => null, { profileId: 'missing' });
       expect(missingRepo.getRaw()).toBeNull();
     });
 
@@ -161,81 +147,59 @@ describe('ConfigRepository', () => {
   // ---------------------------------------------------------------------------
   describe('Scoping', () => {
     beforeEach(() => {
-      insertTarget(db, 'tgt-1');
-      insertUser(db, 'alice');
+      insertProfile(db, 'prof-1');
     });
 
-    it('target-scoped config overrides base config', () => {
+    it('profile-scoped config overrides base config', () => {
       repo.set({ daemonPort: 5200, daemonHost: 'base-host' });
-      const scopedTgt = new ConfigRepository(db, () => null, { targetId: 'tgt-1', userUsername: null });
-      scopedTgt.set({ daemonPort: 7000 });
+      const scopedProf = new ConfigRepository(db, () => null, { profileId: 'prof-1' });
+      scopedProf.set({ daemonPort: 7000 });
 
-      const scopedGet = new ConfigRepository(db, () => null, { targetId: 'tgt-1' });
-      const merged = scopedGet.get();
+      const merged = scopedProf.get();
       expect(merged).not.toBeNull();
-      // Port overridden by target scope
       expect(merged!.daemonPort).toBe(7000);
-      // Host inherited from base
       expect(merged!.daemonHost).toBe('base-host');
-    });
-
-    it('target+user scoped config overrides target and base', () => {
-      repo.set({ daemonPort: 5200, daemonLogLevel: 'info' });
-      const scopedTgt = new ConfigRepository(db, () => null, { targetId: 'tgt-1', userUsername: null });
-      scopedTgt.set({ daemonPort: 7000 });
-      const scopedUser = new ConfigRepository(db, () => null, { targetId: 'tgt-1', userUsername: 'alice' });
-      scopedUser.set({ daemonPort: 8000 });
-
-      const scopedGet = new ConfigRepository(db, () => null, { targetId: 'tgt-1', userUsername: 'alice' });
-      const merged = scopedGet.get();
-      expect(merged!.daemonPort).toBe(8000);
-      // Log level inherited from base
-      expect(merged!.daemonLogLevel).toBe('info');
     });
 
     it('getRaw returns only the exact scope level', () => {
       repo.set({ daemonPort: 5200 });
-      const scopedTgt = new ConfigRepository(db, () => null, { targetId: 'tgt-1', userUsername: null });
-      scopedTgt.set({ daemonPort: 7000 });
+      const scopedProf = new ConfigRepository(db, () => null, { profileId: 'prof-1' });
+      scopedProf.set({ daemonPort: 7000 });
 
       const baseRaw = repo.getRaw();
       expect(baseRaw!.daemonPort).toBe(5200);
 
-      const targetRaw = scopedTgt.getRaw();
-      expect(targetRaw!.daemonPort).toBe(7000);
+      const profileRaw = scopedProf.getRaw();
+      expect(profileRaw!.daemonPort).toBe(7000);
     });
 
-    it('delete target-scoped config does not affect base config', () => {
+    it('delete profile-scoped config does not affect base config', () => {
       repo.set({ daemonPort: 5200 });
-      const scopedTgt = new ConfigRepository(db, () => null, { targetId: 'tgt-1', userUsername: null });
-      scopedTgt.set({ daemonPort: 7000 });
+      const scopedProf = new ConfigRepository(db, () => null, { profileId: 'prof-1' });
+      scopedProf.set({ daemonPort: 7000 });
 
-      scopedTgt.delete();
-      // Target config gone
-      expect(scopedTgt.getRaw()).toBeNull();
-      // Base still there
+      scopedProf.delete();
+      expect(scopedProf.getRaw()).toBeNull();
       expect(repo.get()!.daemonPort).toBe(5200);
     });
 
     it('get with no scope returns base config only', () => {
       repo.set({ daemonPort: 5200 });
-      const scopedTgt = new ConfigRepository(db, () => null, { targetId: 'tgt-1', userUsername: null });
-      scopedTgt.set({ daemonPort: 7000 });
+      const scopedProf = new ConfigRepository(db, () => null, { profileId: 'prof-1' });
+      scopedProf.set({ daemonPort: 7000 });
       const base = repo.get();
       expect(base!.daemonPort).toBe(5200);
     });
 
-    it('NULL values in child scope inherit from parent', () => {
+    it('NULL values in profile scope inherit from base', () => {
       repo.set({ daemonPort: 5200, daemonHost: 'base-host', daemonLogLevel: 'info' });
-      // Target scope only sets daemonHost; others stay null => inherit from base
-      const scopedTgt = new ConfigRepository(db, () => null, { targetId: 'tgt-1', userUsername: null });
-      scopedTgt.set({ daemonHost: 'target-host' });
+      const scopedProf = new ConfigRepository(db, () => null, { profileId: 'prof-1' });
+      scopedProf.set({ daemonHost: 'profile-host' });
 
-      const scopedGet = new ConfigRepository(db, () => null, { targetId: 'tgt-1' });
-      const merged = scopedGet.get();
-      expect(merged!.daemonPort).toBe(5200);          // inherited
-      expect(merged!.daemonHost).toBe('target-host');  // overridden
-      expect(merged!.daemonLogLevel).toBe('info');     // inherited
+      const merged = scopedProf.get();
+      expect(merged!.daemonPort).toBe(5200);
+      expect(merged!.daemonHost).toBe('profile-host');
+      expect(merged!.daemonLogLevel).toBe('info');
     });
   });
 
@@ -292,16 +256,15 @@ describe('ConfigRepository', () => {
     });
 
     it('1000 scoped get operations with merge and measure ops/sec', () => {
-      insertTarget(db, 'perf-tgt');
+      insertProfile(db, 'perf-prof');
       repo.set({ daemonPort: 5200, daemonHost: 'base' });
-      const scopedTgt = new ConfigRepository(db, () => null, { targetId: 'perf-tgt', userUsername: null });
-      scopedTgt.set({ daemonPort: 7000 });
+      const scopedProf = new ConfigRepository(db, () => null, { profileId: 'perf-prof' });
+      scopedProf.set({ daemonPort: 7000 });
 
-      const scopedGet = new ConfigRepository(db, () => null, { targetId: 'perf-tgt' });
       const count = 1000;
       const start = performance.now();
       for (let i = 0; i < count; i++) {
-        scopedGet.get();
+        scopedProf.get();
       }
       const elapsed = performance.now() - start;
       const opsPerSec = Math.round((count / elapsed) * 1000);

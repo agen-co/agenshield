@@ -72,8 +72,7 @@ export interface SkillFile {
 export interface SkillInstallation {
   id: string;
   skillVersionId: string;
-  targetId?: string;
-  userUsername?: string;
+  profileId?: string;
   status: InstallationStatus;
   wrapperPath?: string;
   autoUpdate: boolean;

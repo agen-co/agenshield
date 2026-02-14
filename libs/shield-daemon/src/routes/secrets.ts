@@ -3,12 +3,16 @@
  *
  * Secrets are encrypted at rest (AES-256-GCM). Write operations (create/update value)
  * require the vault to be unlocked; reads return masked values regardless of lock state.
+ *
+ * Routes use scoped storage derived from the request's ShieldContext headers.
  */
 
-import type { FastifyInstance } from 'fastify';
-import type { VaultSecret, SecretScope, SkillEnvRequirement } from '@agenshield/ipc';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { VaultSecret, SecretScope, SkillEnvRequirement, ScopeFilter } from '@agenshield/ipc';
+import { contextToScope } from '@agenshield/ipc';
 import { isSecretEnvVar } from '@agenshield/sandbox';
 import { getStorage, StorageLockedError } from '@agenshield/storage';
+import type { SecretsRepository } from '@agenshield/storage';
 import { loadConfig } from '../config/index';
 import { syncSecrets } from '../secret-sync';
 import { getDownloadedSkillMeta } from '../services/marketplace';
@@ -40,10 +44,21 @@ function toMasked(secret: VaultSecret): MaskedSecret {
   };
 }
 
+/**
+ * Get a scoped SecretsRepository based on request context headers.
+ */
+function getScopedSecrets(request: FastifyRequest): SecretsRepository {
+  const scope: ScopeFilter = contextToScope(request.shieldContext);
+  if (scope.profileId) {
+    return getStorage().for(scope).secrets;
+  }
+  return getStorage().secrets;
+}
+
 export async function secretsRoutes(app: FastifyInstance): Promise<void> {
   // List all secrets (values masked — works when vault is locked)
-  app.get('/secrets', async () => {
-    const secrets = getStorage().secrets.getAllMasked();
+  app.get('/secrets', async (request) => {
+    const secrets = getScopedSecrets(request).getAllMasked();
     return { data: secrets.map(toMasked) };
   });
 
@@ -70,9 +85,9 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Aggregate env variables required by installed skills (works when locked)
-  app.get('/secrets/skill-env', async () => {
+  app.get('/secrets/skill-env', async (request) => {
     const repo = app.skillManager.getRepository();
-    const secrets = getStorage().secrets.getAllMasked();
+    const secrets = getScopedSecrets(request).getAllMasked();
 
     // Build lookup by name
     const secretByName = new Map<string, VaultSecret>();
@@ -189,7 +204,7 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
       const resolvedScope = scope ?? (policyIds?.length > 0 ? 'policed' : 'global');
 
       try {
-        const newSecret = getStorage().secrets.create({
+        const newSecret = getScopedSecrets(request).create({
           name: name.trim(),
           value,
           scope: resolvedScope,
@@ -220,7 +235,7 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
       const { value, policyIds, scope } = request.body;
 
       try {
-        const updated = getStorage().secrets.update(id, { value, policyIds, scope });
+        const updated = getScopedSecrets(request).update(id, { value, policyIds, scope });
         if (!updated) return { success: false, error: 'Secret not found' };
 
         // Always re-sync (scope/value changes may affect broker)
@@ -242,7 +257,7 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
     '/secrets/:id',
     async (request) => {
       const { id } = request.params;
-      const deleted = getStorage().secrets.delete(id);
+      const deleted = getScopedSecrets(request).delete(id);
 
       if (!deleted) {
         return { success: false, error: 'Secret not found' };

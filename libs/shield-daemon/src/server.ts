@@ -131,6 +131,12 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   const vaultState = storage.isUnlocked() ? 'unlocked' : 'locked (unlock via passcode to manage secrets)';
   console.log(`[Daemon] Storage ready — vault state: ${vaultState}`);
 
+  if (devMode) {
+    // Seed dev data (profiles, preset policies)
+    const { seedDevData } = await import('./dev/seed.js');
+    seedDevData(storage);
+  }
+
   // ─── Wire auto-lock handler for idle timeout ──────────────
   getSessionManager().setAutoLockHandler(() => {
     try { storage.lock(); } catch { /* already closed */ }

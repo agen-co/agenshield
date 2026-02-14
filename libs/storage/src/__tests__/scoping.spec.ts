@@ -8,42 +8,29 @@ describe('scoping', () => {
       expect(params).toEqual({});
     });
 
-    it('filters by targetId', () => {
-      const { clause, params } = buildScopeWhere({ targetId: 'openclaw' });
-      expect(clause).toContain('target_id = @targetId');
-      expect(params).toEqual({ targetId: 'openclaw' });
+    it('filters by profileId', () => {
+      const { clause, params } = buildScopeWhere({ profileId: 'openclaw' });
+      expect(clause).toContain('profile_id = @profileId');
+      expect(params).toEqual({ profileId: 'openclaw' });
     });
 
-    it('filters by null targetId', () => {
-      const { clause } = buildScopeWhere({ targetId: null });
-      expect(clause).toContain('target_id IS NULL');
-    });
-
-    it('filters by both targetId and userUsername', () => {
-      const { clause, params } = buildScopeWhere({ targetId: 'oc', userUsername: 'agent' });
-      expect(clause).toContain('target_id = @targetId');
-      expect(clause).toContain('user_username = @userUsername');
-      expect(params).toEqual({ targetId: 'oc', userUsername: 'agent' });
+    it('filters by null profileId (global scope)', () => {
+      const { clause } = buildScopeWhere({ profileId: null });
+      expect(clause).toContain('profile_id IS NULL');
     });
   });
 
   describe('getConfigScopeLevels', () => {
     it('returns just base for no scope', () => {
       const levels = getConfigScopeLevels();
-      expect(levels).toEqual([{ targetId: null, userUsername: null }]);
+      expect(levels).toEqual([{ profileId: null }]);
     });
 
-    it('returns base + target for target scope', () => {
-      const levels = getConfigScopeLevels({ targetId: 'oc' });
+    it('returns base + profile for profile scope', () => {
+      const levels = getConfigScopeLevels({ profileId: 'openclaw' });
       expect(levels).toHaveLength(2);
-      expect(levels[0]).toEqual({ targetId: null, userUsername: null });
-      expect(levels[1]).toEqual({ targetId: 'oc', userUsername: null });
-    });
-
-    it('returns base + target + target+user for full scope', () => {
-      const levels = getConfigScopeLevels({ targetId: 'oc', userUsername: 'agent' });
-      expect(levels).toHaveLength(3);
-      expect(levels[2]).toEqual({ targetId: 'oc', userUsername: 'agent' });
+      expect(levels[0]).toEqual({ profileId: null });
+      expect(levels[1]).toEqual({ profileId: 'openclaw' });
     });
   });
 
@@ -53,10 +40,10 @@ describe('scoping', () => {
       expect(clause).toBe('1=1');
     });
 
-    it('includes base + target for target scope', () => {
-      const { clause } = buildPolicyScopeWhere({ targetId: 'oc' });
-      expect(clause).toContain('target_id IS NULL AND user_username IS NULL');
-      expect(clause).toContain('target_id = @targetId AND user_username IS NULL');
+    it('includes base + profile for profile scope', () => {
+      const { clause } = buildPolicyScopeWhere({ profileId: 'oc' });
+      expect(clause).toContain('profile_id IS NULL');
+      expect(clause).toContain('profile_id = @profileId');
     });
   });
 
@@ -72,17 +59,9 @@ describe('scoping', () => {
 
     it('overrides non-null values from more specific scope', () => {
       const base = { port: 5200, host: 'localhost', logLevel: 'info' };
-      const target = { port: 6969, host: null, logLevel: null };
-      const merged = mergeConfigRows([base, target]);
+      const profile = { port: 6969, host: null, logLevel: null };
+      const merged = mergeConfigRows([base, profile]);
       expect(merged).toEqual({ port: 6969, host: 'localhost', logLevel: 'info' });
-    });
-
-    it('three-level merge', () => {
-      const base = { a: 1, b: 2, c: 3 };
-      const target = { a: null, b: 20, c: null };
-      const user = { a: null, b: null, c: 300 };
-      const merged = mergeConfigRows([base, target, user]);
-      expect(merged).toEqual({ a: 1, b: 20, c: 300 });
     });
   });
 
@@ -93,14 +72,14 @@ describe('scoping', () => {
 
     it('most specific scope wins per name', () => {
       const rows = [
-        { name: 'DB_URL', target_id: null, user_username: null, value: 'base' },
-        { name: 'DB_URL', target_id: 'oc', user_username: null, value: 'target' },
-        { name: 'API_KEY', target_id: null, user_username: null, value: 'global' },
+        { name: 'DB_URL', profile_id: null, value: 'base' },
+        { name: 'DB_URL', profile_id: 'oc', value: 'profile' },
+        { name: 'API_KEY', profile_id: null, value: 'global' },
       ];
       const resolved = resolveSecretScope(rows);
       expect(resolved).toHaveLength(2);
       const dbUrl = resolved.find((r) => r.name === 'DB_URL');
-      expect(dbUrl?.value).toBe('target');
+      expect(dbUrl?.value).toBe('profile');
     });
   });
 });

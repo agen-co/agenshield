@@ -18,6 +18,7 @@ export function mapSecret(row: DbSecretRow, decryptedValue: string, policyIds: s
     policyIds,
     createdAt: row.created_at,
     scope: row.scope as SecretScope,
+    profileId: row.profile_id ?? undefined,
   };
 }
 
@@ -33,5 +34,6 @@ export function mapSecretMasked(row: DbSecretRow, policyIds: string[]): VaultSec
     policyIds,
     createdAt: row.created_at,
     scope: row.scope as SecretScope,
+    profileId: row.profile_id ?? undefined,
   };
 }

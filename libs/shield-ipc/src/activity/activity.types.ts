@@ -6,7 +6,7 @@
 
 export interface ActivityEvent {
   id: number;
-  targetId?: string;
+  profileId?: string;
   type: string;
   timestamp: string;
   data: unknown;

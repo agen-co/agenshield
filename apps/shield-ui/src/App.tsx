@@ -3,7 +3,7 @@
  */
 
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useSnapshot } from 'valtio';
@@ -17,6 +17,7 @@ import { Secrets } from './pages/Secrets';
 import { Settings } from './pages/Settings';
 import { Integrations } from './pages/Integrations';
 import { Activity } from './pages/Activity';
+import { Canvas } from './components/canvas';
 import { AuthProvider } from './context/AuthContext';
 import { UnlockProvider } from './context/UnlockContext';
 import { LockBanner } from './components/LockBanner';
@@ -108,31 +109,65 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
 
   return (
     <BrowserRouter>
-      <Layout
+      <AppRoutes
         darkMode={darkMode}
         onToggleDarkMode={onToggleDarkMode}
-        disconnected={isConfirmedDisconnected}
-        onReconnect={() => retryHealth()}
-        reconnecting={isFetching}
-      >
-        {isReadOnly && <LockBanner />}
-        <PageTransition>
-          <Routes>
-            <Route path="/" element={<Overview />} />
-            <Route path="/policies" element={<Navigate to="/policies/commands" replace />} />
-            <Route path="/policies/:tab" element={<Policies />} />
-            <Route path="/skills" element={<Skills />} />
-            <Route path="/skills/:id" element={<SkillPage />} />
-            <Route path="/secrets" element={<Secrets />} />
-            <Route path="/activity" element={<Activity />} />
-            <Route path="/integrations" element={<Integrations />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </PageTransition>
-      </Layout>
-
+        isConfirmedDisconnected={isConfirmedDisconnected}
+        retryHealth={retryHealth}
+        isFetching={isFetching}
+        isReadOnly={isReadOnly}
+      />
     </BrowserRouter>
+  );
+}
+
+/**
+ * Inner routing component — needs to be inside BrowserRouter to use useLocation
+ */
+function AppRoutes({
+  darkMode,
+  onToggleDarkMode,
+  isConfirmedDisconnected,
+  retryHealth,
+  isFetching,
+  isReadOnly,
+}: {
+  darkMode: boolean;
+  onToggleDarkMode: () => void;
+  isConfirmedDisconnected: boolean;
+  retryHealth: () => void;
+  isFetching: boolean;
+  isReadOnly: boolean;
+}) {
+  const location = useLocation();
+  const isCanvasRoute = location.pathname === '/canvas';
+
+  return (
+    <Layout
+      darkMode={darkMode}
+      onToggleDarkMode={onToggleDarkMode}
+      disconnected={isConfirmedDisconnected}
+      onReconnect={() => retryHealth()}
+      reconnecting={isFetching}
+      fullBleed={isCanvasRoute}
+    >
+      {isReadOnly && !isCanvasRoute && <LockBanner />}
+      <PageTransition>
+        <Routes>
+          <Route path="/" element={<Overview />} />
+          <Route path="/canvas" element={<Canvas />} />
+          <Route path="/policies" element={<Navigate to="/policies/commands" replace />} />
+          <Route path="/policies/:tab" element={<Policies />} />
+          <Route path="/skills" element={<Skills />} />
+          <Route path="/skills/:id" element={<SkillPage />} />
+          <Route path="/secrets" element={<Secrets />} />
+          <Route path="/activity" element={<Activity />} />
+          <Route path="/integrations" element={<Integrations />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </PageTransition>
+    </Layout>
   );
 }
 

@@ -42,8 +42,7 @@ export class InstallService {
             type: 'install:started',
             operationId,
             skillSlug: descriptor.slug,
-            targetId: params.targetId,
-            userUsername: params.userUsername,
+            profileId: params.profileId,
           });
 
           // Download
@@ -98,8 +97,7 @@ export class InstallService {
         type: 'install:started',
         operationId,
         skillSlug,
-        targetId: params.targetId,
-        userUsername: params.userUsername,
+        profileId: params.profileId,
       });
 
       // Resolve version
@@ -122,12 +120,11 @@ export class InstallService {
       });
 
       // Check if a deployer adapter matches this target
-      const hasDeployer = this.deployer?.findAdapter(params.targetId) != null;
+      const hasDeployer = this.deployer?.findAdapter(params.profileId) != null;
 
       const installation = this.skills.install({
         skillVersionId: version.id,
-        targetId: params.targetId,
-        userUsername: params.userUsername,
+        profileId: params.profileId,
         status: hasDeployer ? 'pending' : 'active',
         autoUpdate: params.autoUpdate ?? true,
       });
