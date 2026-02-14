@@ -23,6 +23,7 @@ export interface Profile {
   brokerUsername?: string;
   brokerUid?: number;
   brokerHomeDir?: string;
+  brokerToken?: string;
   createdAt: string;
   updatedAt: string;
 }

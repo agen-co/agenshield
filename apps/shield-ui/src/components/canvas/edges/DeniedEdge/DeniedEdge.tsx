@@ -10,39 +10,43 @@ function baseEdgeProps(props: EdgeProps) {
   };
 }
 
-const DOT_OFFSETS = [0, 0.33, 0.66];
-
-export const TrafficEdge = memo((props: EdgeProps) => {
+export const DeniedEdge = memo((props: EdgeProps) => {
   const { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition } = props;
   const [edgePath] = getSmoothStepPath({
     sourceX, sourceY, sourcePosition,
     targetX, targetY, targetPosition,
   });
 
+  const markerId = `denied-arrow-${props.id}`;
+
   return (
     <>
+      <defs>
+        <marker
+          id={markerId}
+          markerWidth="10"
+          markerHeight="7"
+          refX="10"
+          refY="3.5"
+          orient="auto"
+          markerUnits="strokeWidth"
+        >
+          <polygon points="0 0, 10 3.5, 0 7" fill="#E1583E" />
+        </marker>
+      </defs>
       <BaseEdge
         {...baseEdgeProps(props)}
         path={edgePath}
+        markerEnd={`url(#${markerId})`}
         style={{
-          stroke: '#6CB685',
+          stroke: '#E1583E',
           strokeWidth: 2,
-          filter: 'drop-shadow(0 0 2px rgba(108, 182, 133, 0.3))',
+          strokeDasharray: '8 4',
+          opacity: 0.8,
           ...(props.style ?? {}),
         }}
       />
-      {/* 3 staggered ambient particle dots */}
-      {DOT_OFFSETS.map((delay, i) => (
-        <circle key={i} r="3" fill="#6CB685" filter="url(#canvas-glow-green)">
-          <animateMotion
-            dur="2s"
-            repeatCount="indefinite"
-            path={edgePath}
-            begin={`${delay * 2}s`}
-          />
-        </circle>
-      ))}
     </>
   );
 });
-TrafficEdge.displayName = 'TrafficEdge';
+DeniedEdge.displayName = 'DeniedEdge';

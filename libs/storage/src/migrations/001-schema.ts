@@ -35,9 +35,11 @@ export class SchemaMigration implements Migration {
         broker_username  TEXT,
         broker_uid       INTEGER,
         broker_home_dir  TEXT,
+        broker_token     TEXT,
         created_at       TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
       );
+      CREATE UNIQUE INDEX idx_profiles_broker_token ON profiles(broker_token);
 
       -- Config (scoped: global -> profile)
       CREATE TABLE config (

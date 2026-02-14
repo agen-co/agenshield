@@ -19,6 +19,7 @@ export function mapProfile(row: DbProfileRow): Profile {
     brokerUsername: row.broker_username ?? undefined,
     brokerUid: row.broker_uid ?? undefined,
     brokerHomeDir: row.broker_home_dir ?? undefined,
+    brokerToken: row.broker_token ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

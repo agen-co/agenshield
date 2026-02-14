@@ -22,6 +22,12 @@ export interface ExecMonitorEvent {
   injectedSecretNames?: string[];
 }
 
+export interface BrokerAuth {
+  profileId?: string;
+  token?: string;
+  daemonSocketPath?: string;
+}
+
 export interface HandlerDependencies {
   policyEnforcer: PolicyEnforcer;
   auditLogger: AuditLogger;
@@ -31,4 +37,5 @@ export interface HandlerDependencies {
   onExecMonitor?: (event: ExecMonitorEvent) => void;
   onExecDenied?: (command: string, reason: string) => void;
   daemonUrl?: string;
+  brokerAuth?: BrokerAuth;
 }

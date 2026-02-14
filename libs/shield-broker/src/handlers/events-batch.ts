@@ -9,6 +9,7 @@
 import type { HandlerContext, HandlerResult, AuditEntry } from '../types.js';
 import type { HandlerDependencies } from './types.js';
 import type { OperationType } from '@agenshield/ipc';
+import { forwardEventsToDaemon } from '../daemon-forward.js';
 
 interface EventsBatchParams {
   events: Array<Record<string, unknown>>;
@@ -41,16 +42,7 @@ export async function handleEventsBatch(
   if (eventList.length > 0) {
     const daemonUrl = deps.daemonUrl || 'http://127.0.0.1:5200';
     setImmediate(() => {
-      fetch(`${daemonUrl}/rpc`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: `broker-events-${Date.now()}`,
-          method: 'events_batch',
-          params: { events: eventList },
-        }),
-      }).catch(() => { /* fire-and-forget */ });
+      forwardEventsToDaemon(eventList, daemonUrl, deps.brokerAuth);
     });
   }
 

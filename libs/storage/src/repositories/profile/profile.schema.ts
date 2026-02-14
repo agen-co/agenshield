@@ -23,6 +23,7 @@ export const UpdateProfileSchema = z.object({
   brokerUsername: z.string().max(100).optional(),
   brokerUid: z.number().int().nonnegative().optional(),
   brokerHomeDir: z.string().max(500).optional(),
+  brokerToken: z.string().length(64).regex(/^[a-f0-9]+$/).optional(),
 });
 export type UpdateProfileInput = z.input<typeof UpdateProfileSchema>;
 
@@ -43,6 +44,7 @@ export const UpdateProfileCodec = z.codec(
       broker_username: data.brokerUsername,
       broker_uid: data.brokerUid,
       broker_home_dir: data.brokerHomeDir,
+      broker_token: data.brokerToken,
     }),
   },
 );

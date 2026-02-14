@@ -31,6 +31,7 @@ export interface DaemonEvent {
   type: EventType;
   timestamp: string;
   data: unknown;
+  profileId?: string;
 }
 
 class DaemonEventEmitter extends EventEmitter {
@@ -51,11 +52,12 @@ class DaemonEventEmitter extends EventEmitter {
   /**
    * Emit a typed event to all SSE subscribers
    */
-  broadcast(type: EventType, data: unknown): void {
+  broadcast(type: EventType, data: unknown, profileId?: string): void {
     const event: DaemonEvent = {
       type,
       timestamp: new Date().toISOString(),
       data,
+      ...(profileId !== undefined && { profileId }),
     };
     this.emit('event', event);
   }
@@ -80,27 +82,27 @@ export const eventBus = new EventBus({ maxListeners: 100 });
 /**
  * Typed broadcast: emits to both the new EventBus and the legacy SSE emitter.
  */
-function broadcast<T extends EventType>(type: T, data: EventRegistry[T]): void {
+function broadcast<T extends EventType>(type: T, data: EventRegistry[T], profileId?: string): void {
   eventBus.emit(type, data);
-  daemonEvents.broadcast(type, data as unknown);
+  daemonEvents.broadcast(type, data as unknown, profileId);
 }
 
 // ===== Typed event helpers =====
 
-export function emitSecurityStatus(status: SecurityStatusPayload): void {
-  broadcast('security:status', status);
+export function emitSecurityStatus(status: SecurityStatusPayload, profileId?: string): void {
+  broadcast('security:status', status, profileId);
 }
 
-export function emitSecurityWarning(warning: string): void {
-  broadcast('security:warning', { message: warning });
+export function emitSecurityWarning(warning: string, profileId?: string): void {
+  broadcast('security:warning', { message: warning }, profileId);
 }
 
-export function emitSecurityCritical(issue: string): void {
-  broadcast('security:critical', { message: issue });
+export function emitSecurityCritical(issue: string, profileId?: string): void {
+  broadcast('security:critical', { message: issue }, profileId);
 }
 
-export function emitSecurityLocked(reason: SecurityLockedPayload['reason']): void {
-  broadcast('security:locked', { reason });
+export function emitSecurityLocked(reason: SecurityLockedPayload['reason'], profileId?: string): void {
+  broadcast('security:locked', { reason }, profileId);
 }
 
 export function emitApiRequest(
@@ -110,6 +112,7 @@ export function emitApiRequest(
   duration: number,
   requestBody?: unknown,
   responseBody?: unknown,
+  profileId?: string,
 ): void {
   const payload: ApiRequestPayload = {
     method,
@@ -119,39 +122,39 @@ export function emitApiRequest(
     ...(requestBody !== undefined && { requestBody }),
     ...(responseBody !== undefined && { responseBody }),
   };
-  broadcast('api:request', payload);
+  broadcast('api:request', payload, profileId);
 }
 
-export function emitApiOutbound(data: ApiOutboundPayload): void {
-  broadcast('api:outbound', data);
+export function emitApiOutbound(data: ApiOutboundPayload, profileId?: string): void {
+  broadcast('api:outbound', data, profileId);
 }
 
-export function emitBrokerRequest(operation: string, args: unknown): void {
-  broadcast('broker:request', { operation, args });
+export function emitBrokerRequest(operation: string, args: unknown, profileId?: string): void {
+  broadcast('broker:request', { operation, args }, profileId);
 }
 
-export function emitBrokerResponse(operation: string, success: boolean, duration: number): void {
-  broadcast('broker:response', { operation, success, duration });
+export function emitBrokerResponse(operation: string, success: boolean, duration: number, profileId?: string): void {
+  broadcast('broker:response', { operation, success, duration }, profileId);
 }
 
-export function emitSkillQuarantined(skillName: string, reason: string): void {
-  broadcast('skills:quarantined', { name: skillName, reason });
+export function emitSkillQuarantined(skillName: string, reason: string, profileId?: string): void {
+  broadcast('skills:quarantined', { name: skillName, reason }, profileId);
 }
 
-export function emitSkillUntrustedDetected(name: string, reason: string): void {
-  broadcast('skills:untrusted_detected', { name, reason });
+export function emitSkillUntrustedDetected(name: string, reason: string, profileId?: string): void {
+  broadcast('skills:untrusted_detected', { name, reason }, profileId);
 }
 
-export function emitSkillApproved(skillName: string): void {
-  broadcast('skills:approved', { name: skillName });
+export function emitSkillApproved(skillName: string, profileId?: string): void {
+  broadcast('skills:approved', { name: skillName }, profileId);
 }
 
-export function emitExecMonitored(event: ExecMonitoredPayload): void {
-  broadcast('exec:monitored', event);
+export function emitExecMonitored(event: ExecMonitoredPayload, profileId?: string): void {
+  broadcast('exec:monitored', event, profileId);
 }
 
-export function emitExecDenied(command: string, reason: string): void {
-  broadcast('exec:denied', { command, reason });
+export function emitExecDenied(command: string, reason: string, profileId?: string): void {
+  broadcast('exec:denied', { command, reason }, profileId);
 }
 
 // ===== AgenCo event helpers =====
@@ -177,68 +180,68 @@ export function emitAgenCoError(code: string, message: string): void {
   broadcast('agenco:error', { code, message });
 }
 
-export function emitSkillAnalyzed(name: string, analysis: unknown): void {
-  broadcast('skills:analyzed', { name, analysis });
+export function emitSkillAnalyzed(name: string, analysis: unknown, profileId?: string): void {
+  broadcast('skills:analyzed', { name, analysis }, profileId);
 }
 
-export function emitSkillAnalysisFailed(name: string, error: string): void {
-  broadcast('skills:analysis_failed', { name, error });
+export function emitSkillAnalysisFailed(name: string, error: string, profileId?: string): void {
+  broadcast('skills:analysis_failed', { name, error }, profileId);
 }
 
-export function emitSkillUninstalled(skillName: string): void {
-  broadcast('skills:uninstalled', { name: skillName });
+export function emitSkillUninstalled(skillName: string, profileId?: string): void {
+  broadcast('skills:uninstalled', { name: skillName }, profileId);
 }
 
-export function emitSkillInstallProgress(skillName: string, step: string, message: string): void {
-  broadcast('skills:install_progress', { name: skillName, step, message });
+export function emitSkillInstallProgress(skillName: string, step: string, message: string, profileId?: string): void {
+  broadcast('skills:install_progress', { name: skillName, step, message }, profileId);
 }
 
-export function emitESExecEvent(event: ESExecPayload): void {
-  broadcast('es:exec', event);
+export function emitESExecEvent(event: ESExecPayload, profileId?: string): void {
+  broadcast('es:exec', event, profileId);
 }
 
-export function emitInterceptorEvent(event: InterceptorEventPayload): void {
-  broadcast('interceptor:event', event);
+export function emitInterceptorEvent(event: InterceptorEventPayload, profileId?: string): void {
+  broadcast('interceptor:event', event, profileId);
 }
 
-export function emitDaemonStatus(status: DaemonStatus): void {
-  broadcast('daemon:status', status);
+export function emitDaemonStatus(status: DaemonStatus, profileId?: string): void {
+  broadcast('daemon:status', status, profileId);
 }
 
 /**
  * Generic typed event emitter
  */
-export function emitEvent<T extends EventType>(type: T, data: EventRegistry[T]): void {
-  broadcast(type, data);
+export function emitEvent<T extends EventType>(type: T, data: EventRegistry[T], profileId?: string): void {
+  broadcast(type, data, profileId);
 }
 
 // ===== Process lifecycle event helpers =====
 
 export type ProcessName = 'broker' | 'gateway' | 'daemon';
 
-export function emitProcessStarted(processName: ProcessName, data: { pid?: number }): void {
+export function emitProcessStarted(processName: ProcessName, data: { pid?: number }, profileId?: string): void {
   const payload: ProcessEventPayload = {
     process: processName,
     action: 'started',
     ...data,
   };
-  broadcast(`process:${processName}_started` as EventType, payload);
+  broadcast(`process:${processName}_started` as EventType, payload, profileId);
 }
 
-export function emitProcessStopped(processName: ProcessName, data: { pid?: number; lastExitStatus?: number }): void {
+export function emitProcessStopped(processName: ProcessName, data: { pid?: number; lastExitStatus?: number }, profileId?: string): void {
   const payload: ProcessEventPayload = {
     process: processName,
     action: 'stopped',
     ...data,
   };
-  broadcast(`process:${processName}_stopped` as EventType, payload);
+  broadcast(`process:${processName}_stopped` as EventType, payload, profileId);
 }
 
-export function emitProcessRestarted(processName: ProcessName, data: { pid?: number; previousPid?: number; lastExitStatus?: number }): void {
+export function emitProcessRestarted(processName: ProcessName, data: { pid?: number; previousPid?: number; lastExitStatus?: number }, profileId?: string): void {
   const payload: ProcessEventPayload = {
     process: processName,
     action: 'restarted',
     ...data,
   };
-  broadcast(`process:${processName}_restarted` as EventType, payload);
+  broadcast(`process:${processName}_restarted` as EventType, payload, profileId);
 }

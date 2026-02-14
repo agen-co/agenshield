@@ -7,6 +7,7 @@
 import type Database from 'better-sqlite3';
 import type { Migration } from './types';
 import { SchemaMigration } from './001-schema';
+import { ProfileBrokerTokenMigration } from './011-profile-broker-token';
 
 export type { Migration };
 export { runActivityMigrations, ACTIVITY_MIGRATIONS } from './activity/index';
@@ -15,6 +16,7 @@ const TABLE = '_migrations';
 
 export const ALL_MIGRATIONS: Migration[] = [
   new SchemaMigration(),
+  new ProfileBrokerTokenMigration(),
 ];
 
 /**

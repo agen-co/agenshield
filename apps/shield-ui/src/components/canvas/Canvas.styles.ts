@@ -93,11 +93,13 @@ export const HudStatusDot = styled('div')({
 
 export const ChartOverlay = styled('div')({
   position: 'absolute',
-  bottom: 0,
+  top: 64,
   left: 0,
-  right: 0,
-  height: 140,
-  zIndex: 5,
+  right: 340,
+  height: '25vh',
+  zIndex: 1,
   pointerEvents: 'none',
-  opacity: 0.35,
+  opacity: 0.18,
+  maskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 60%, rgba(0,0,0,0) 100%)',
+  WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 60%, rgba(0,0,0,0) 100%)',
 });

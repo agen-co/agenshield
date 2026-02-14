@@ -22,4 +22,5 @@ export const SHIELD_HEADERS = {
   TRACE_ID: 'x-shield-trace-id',
   PROFILE_ID: 'x-shield-profile-id',
   SOURCE: 'x-shield-source',
+  BROKER_TOKEN: 'x-shield-broker-token',
 } as const;

@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { SkillManager } from '@agentshield/skills';
+import type { ProfileSocketManager } from '../services/profile-sockets';
 import {
   type ShieldContext,
   type ShieldRequestSource,
@@ -22,6 +23,7 @@ declare module 'fastify' {
   }
   interface FastifyInstance {
     skillManager: SkillManager;
+    profileSocketManager?: ProfileSocketManager;
   }
 }
 

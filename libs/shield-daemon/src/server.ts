@@ -31,6 +31,9 @@ import { DaemonDeployAdapter } from './adapters/daemon-deploy-adapter';
 import { migrateSkillsToSqlite } from './migration/skill-migration';
 import { migrateSlugPrefixDisk } from './migration/slug-prefix-disk';
 import { migrateSecretsToSqlite } from './migration/secret-migration';
+import { reconcileTokenFiles, writeTokenFile } from './services/profile-token';
+import { ProfileSocketManager } from './services/profile-sockets';
+import { rpcHandlers } from './routes/rpc';
 import {
   MCPSkillSource,
   createAgenCoConnection,
@@ -135,6 +138,31 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     // Seed dev data (profiles, preset policies)
     const { seedDevData } = await import('./dev/seed.js');
     seedDevData(storage);
+  }
+
+  // ─── Clean up stale graph activations from previous sessions ──
+  try {
+    storage.policyGraph.expireBySession();
+    const pruned = storage.policyGraph.pruneExpired();
+    if (pruned > 0) {
+      console.log(`[Daemon] Pruned ${pruned} stale policy graph activations`);
+    }
+  } catch (err) {
+    console.warn('[Daemon] Policy graph activation cleanup failed:', (err as Error).message);
+  }
+
+  // ─── Reconcile broker token files ──────────────────────────
+  reconcileTokenFiles(storage);
+  console.log('[Daemon] Broker token files reconciled');
+
+  // ─── Start per-profile daemon sockets ──────────────────────
+  const profileSocketManager = new ProfileSocketManager(storage, rpcHandlers);
+  try {
+    await profileSocketManager.start();
+    app.decorate('profileSocketManager', profileSocketManager);
+    console.log('[Daemon] Per-profile daemon sockets started');
+  } catch (err) {
+    console.warn('[Daemon] Failed to start profile sockets:', (err as Error).message);
   }
 
   // ─── Wire auto-lock handler for idle timeout ──────────────
@@ -323,6 +351,7 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
     stopProcessHealthWatcher();
     activityWriter.stop();
     shutdownProxyPool();
+    await profileSocketManager.stop();
     await deactivateMCP();
     // Clear broker's in-memory secrets on shutdown
     try {

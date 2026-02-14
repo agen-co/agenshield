@@ -10,6 +10,8 @@ function baseEdgeProps(props: EdgeProps) {
   };
 }
 
+const DOT_OFFSETS = [0, 0.5];
+
 export const CloudEdge = memo((props: EdgeProps) => {
   const { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, data } = props;
   const [edgePath] = getSmoothStepPath({
@@ -32,11 +34,17 @@ export const CloudEdge = memo((props: EdgeProps) => {
           opacity: connected ? 1 : 0.4,
         }}
       />
-      {connected && (
-        <circle r="2.5" fill="#6BAEF2" filter="url(#canvas-glow-blue)">
-          <animateMotion dur="2.5s" repeatCount="indefinite" path={edgePath} />
-        </circle>
-      )}
+      {connected &&
+        DOT_OFFSETS.map((delay, i) => (
+          <circle key={i} r="2.5" fill="#6BAEF2" filter="url(#canvas-glow-blue)">
+            <animateMotion
+              dur="2.5s"
+              repeatCount="indefinite"
+              path={edgePath}
+              begin={`${delay * 2.5}s`}
+            />
+          </circle>
+        ))}
     </>
   );
 });

@@ -19,6 +19,7 @@ import type { AuditLogger } from './audit/logger.js';
 import type { SecretVault } from './secrets/vault.js';
 import type { SecretResolver } from './secrets/resolver.js';
 import type { CommandAllowlist } from './policies/command-allowlist.js';
+import type { BrokerAuth } from './handlers/types.js';
 import * as handlers from './handlers/index.js';
 import { forwardPolicyToDaemon } from './daemon-forward.js';
 
@@ -29,6 +30,7 @@ export interface UnixSocketServerOptions {
   secretVault: SecretVault;
   secretResolver?: SecretResolver;
   commandAllowlist: CommandAllowlist;
+  brokerAuth?: BrokerAuth;
 }
 
 export class UnixSocketServer {
@@ -39,6 +41,7 @@ export class UnixSocketServer {
   private secretVault: SecretVault;
   private secretResolver?: SecretResolver;
   private commandAllowlist: CommandAllowlist;
+  private brokerAuth?: BrokerAuth;
   private connections: Set<net.Socket> = new Set();
 
   constructor(options: UnixSocketServerOptions) {
@@ -48,6 +51,7 @@ export class UnixSocketServer {
     this.secretVault = options.secretVault;
     this.secretResolver = options.secretResolver;
     this.commandAllowlist = options.commandAllowlist;
+    this.brokerAuth = options.brokerAuth;
   }
 
   /**
@@ -188,7 +192,7 @@ export class UnixSocketServer {
       if (!policyResult.allowed) {
         const target = this.extractTarget(request);
         const daemonUrl = this.config.daemonUrl || 'http://127.0.0.1:5200';
-        const override = await forwardPolicyToDaemon(request.method, target, daemonUrl);
+        const override = await forwardPolicyToDaemon(request.method, target, daemonUrl, undefined, this.brokerAuth);
         if (override) {
           finalPolicy = override;
         }
@@ -224,6 +228,7 @@ export class UnixSocketServer {
         secretResolver: this.secretResolver,
         commandAllowlist: this.commandAllowlist,
         daemonUrl: this.config.daemonUrl,
+        brokerAuth: this.brokerAuth,
       });
 
       // Log success

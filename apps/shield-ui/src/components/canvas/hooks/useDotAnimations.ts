@@ -2,7 +2,9 @@
  * SSE events → animated dot spawning.
  *
  * Classifies each new event to determine which firewall piece it flows through,
- * then spawns an animated dot that travels: target → firewall → computer/denied-bucket.
+ * then spawns an animated dot that travels:
+ *   Allowed: target → policy-graph → firewall-{piece} → computer (3 phases)
+ *   Denied:  target → policy-graph → denied-bucket (2 phases)
  *
  * Must be called inside <ReactFlow> (uses useReactFlow for node positions).
  */
@@ -15,8 +17,9 @@ import { classifyEventToFirewall, isEventDenied } from '../utils/eventClassifica
 import { getNodeCenter } from '../utils/dotInterpolation';
 import { spawnDot, advanceDot, removeDot, incrementDenied } from '../state/dotAnimations';
 
-const PHASE_1_DURATION = 800;
-const PHASE_2_DURATION = 600;
+const PHASE_1_DURATION = 600;  // target → policy graph
+const PHASE_2_DURATION = 500;  // policy graph → firewall piece
+const PHASE_3_DURATION = 500;  // firewall piece → computer
 
 export function useDotAnimations() {
   const lastEventCount = useRef(eventStore.events.length);
@@ -51,39 +54,65 @@ export function useDotAnimations() {
         const sourceNode = getNode(sourceNodeId) ?? getNode('core');
         if (!sourceNode) continue;
 
-        const firewallNodeId = `firewall-${firewallPiece}`;
-        const firewallNode = getNode(firewallNodeId);
-        if (!firewallNode) continue;
+        const policyGraphNode = getNode('policy-graph');
+        if (!policyGraphNode) continue;
 
         const denied = isEventDenied(event);
-        const destinationNodeId = denied ? 'denied-bucket' : 'computer';
-        const destinationNode = getNode(destinationNodeId);
-        if (!destinationNode) continue;
 
         const from = getNodeCenter(sourceNode.position, sourceNode.type);
-        const firewallCenter = getNodeCenter(firewallNode.position, firewallNode.type);
-        const destinationCenter = getNodeCenter(destinationNode.position, destinationNode.type);
+        const policyCenter = getNodeCenter(policyGraphNode.position, policyGraphNode.type);
 
+        // Phase 1: target → policy graph
         const dotId = spawnDot({
-          phase: 'to-firewall',
+          phase: 'to-policy',
           denied,
           from,
-          to: firewallCenter,
+          to: policyCenter,
           startTime: Date.now(),
           duration: PHASE_1_DURATION,
           firewallId: firewallPiece,
         });
 
-        // Phase 2: firewall → destination
-        setTimeout(() => {
-          advanceDot(dotId, destinationCenter, PHASE_2_DURATION);
-        }, PHASE_1_DURATION);
+        if (denied) {
+          // Denied: 2 phases — policy graph → denied bucket
+          const deniedNode = getNode('denied-bucket');
+          if (!deniedNode) continue;
+          const deniedCenter = getNodeCenter(deniedNode.position, deniedNode.type);
 
-        // Cleanup + increment counter
-        setTimeout(() => {
-          removeDot(dotId);
-          if (denied) incrementDenied();
-        }, PHASE_1_DURATION + PHASE_2_DURATION);
+          setTimeout(() => {
+            advanceDot(dotId, 'to-destination', deniedCenter, PHASE_2_DURATION);
+          }, PHASE_1_DURATION);
+
+          setTimeout(() => {
+            removeDot(dotId);
+            incrementDenied();
+          }, PHASE_1_DURATION + PHASE_2_DURATION);
+        } else {
+          // Allowed: 3 phases — policy graph → firewall → computer
+          const firewallNodeId = `firewall-${firewallPiece}`;
+          const firewallNode = getNode(firewallNodeId);
+          if (!firewallNode) continue;
+          const firewallCenter = getNodeCenter(firewallNode.position, firewallNode.type);
+
+          const computerNode = getNode('computer');
+          if (!computerNode) continue;
+          const computerCenter = getNodeCenter(computerNode.position, computerNode.type);
+
+          // Phase 2: policy graph → firewall piece
+          setTimeout(() => {
+            advanceDot(dotId, 'to-firewall', firewallCenter, PHASE_2_DURATION);
+          }, PHASE_1_DURATION);
+
+          // Phase 3: firewall piece → computer
+          setTimeout(() => {
+            advanceDot(dotId, 'to-destination', computerCenter, PHASE_3_DURATION);
+          }, PHASE_1_DURATION + PHASE_2_DURATION);
+
+          // Cleanup
+          setTimeout(() => {
+            removeDot(dotId);
+          }, PHASE_1_DURATION + PHASE_2_DURATION + PHASE_3_DURATION);
+        }
       }
     });
 

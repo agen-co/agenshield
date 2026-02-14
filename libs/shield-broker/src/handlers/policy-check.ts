@@ -79,7 +79,7 @@ export async function handlePolicyCheck(
     if (operation === 'exec') {
       const daemonUrl = deps.daemonUrl || DEFAULT_DAEMON_URL;
       const daemonResult = await forwardPolicyToDaemon(
-        operation, target || '', daemonUrl, execContext
+        operation, target || '', daemonUrl, execContext, deps.brokerAuth
       );
       if (daemonResult) {
         return {
@@ -108,7 +108,7 @@ export async function handlePolicyCheck(
 
   // Broker denied — forward to daemon to check for user-defined allow override
   const daemonUrl = deps.daemonUrl || DEFAULT_DAEMON_URL;
-  const daemonResult = await forwardPolicyToDaemon(operation, target || '', daemonUrl, execContext);
+  const daemonResult = await forwardPolicyToDaemon(operation, target || '', daemonUrl, execContext, deps.brokerAuth);
 
   if (daemonResult && daemonResult.allowed) {
     return {

@@ -61,6 +61,11 @@ export function useCanvasData(): CanvasData {
     return { total: denied + allowed, denied, allowed };
   }, [events]);
 
+  const activePolicyCount = useMemo(
+    () => targets.reduce((sum, t) => sum + t.policyCount, 0),
+    [targets],
+  );
+
   const warningCount = securityData?.data?.warnings?.length ?? 0;
   const criticalCount = securityData?.data?.critical?.length ?? 0;
 
@@ -98,6 +103,7 @@ export function useCanvasData(): CanvasData {
     daemonVersion,
     daemonUptime,
     daemonPid,
+    activePolicyCount,
     cloudConnected,
     sseConnected,
     authLocked: protectionEnabled,

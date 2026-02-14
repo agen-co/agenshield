@@ -5,7 +5,7 @@
 import { proxy } from 'valtio';
 import type { Point } from '../utils/dotInterpolation';
 
-export type DotPhase = 'to-firewall' | 'to-destination';
+export type DotPhase = 'to-policy' | 'to-firewall' | 'to-destination';
 
 export interface AnimatedDot {
   id: string;
@@ -14,17 +14,17 @@ export interface AnimatedDot {
   denied: boolean;
   /** Start point (target node center) */
   from: Point;
-  /** Current destination (firewall piece center, then computer or denied bucket) */
+  /** Current destination (policy graph, firewall piece, then computer or denied bucket) */
   to: Point;
   /** Timestamp when the current phase started */
   startTime: number;
   /** Duration of the current phase in ms */
   duration: number;
-  /** Firewall piece ID for phase 2 routing */
+  /** Firewall piece ID for phase routing */
   firewallId: string;
 }
 
-const MAX_DOTS = 10;
+const MAX_DOTS = 20;
 
 export const dotAnimationStore = proxy({
   dots: [] as AnimatedDot[],
@@ -45,12 +45,13 @@ export function spawnDot(dot: Omit<AnimatedDot, 'id'>): string {
 
 export function advanceDot(
   id: string,
+  newPhase: DotPhase,
   newTo: Point,
   duration: number,
 ) {
   const dot = dotAnimationStore.dots.find((d) => d.id === id);
   if (!dot) return;
-  dot.phase = 'to-destination';
+  dot.phase = newPhase;
   dot.from = { ...dot.to };
   dot.to = newTo;
   dot.startTime = Date.now();

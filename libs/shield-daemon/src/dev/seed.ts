@@ -7,6 +7,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Storage } from '@agenshield/storage';
+import { writeTokenFile } from '../services/profile-token';
 
 interface DevProfile {
   id: string;
@@ -64,9 +65,11 @@ export function seedDevData(storage: Storage): void {
 
   // 1. Create profiles if they don't exist + ensure dirs on disk
   for (const profile of DEV_PROFILES) {
+    let created = false;
     if (!storage.profiles.getById(profile.id)) {
       storage.profiles.create(profile);
       console.log(`[Seed] Created profile: ${profile.id}`);
+      created = true;
     }
 
     // Ensure each profile's agent/broker home dirs exist
@@ -79,6 +82,15 @@ export function seedDevData(storage: Storage): void {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
         console.log(`[Seed] Created dir: ${dir}`);
+      }
+    }
+
+    // Write broker token file for newly created profiles
+    if (created) {
+      const saved = storage.profiles.getById(profile.id);
+      if (saved?.brokerToken && saved.brokerHomeDir) {
+        writeTokenFile(saved.brokerHomeDir, saved.brokerToken);
+        console.log(`[Seed] Wrote token file: ${saved.brokerHomeDir}/.agenshield-token`);
       }
     }
   }

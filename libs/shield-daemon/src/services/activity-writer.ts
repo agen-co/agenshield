@@ -41,6 +41,7 @@ class ActivityWriter {
         type: event.type,
         timestamp: event.timestamp,
         data: event.data,
+        profileId: event.profileId,
       });
     } catch {
       // Non-fatal — storage may be closing during shutdown

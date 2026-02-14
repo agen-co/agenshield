@@ -8,9 +8,13 @@
 import * as crypto from 'node:crypto';
 import * as nodefs from 'node:fs';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { SandboxConfig, PolicyExecutionContext, PolicyConfig, ShieldConfig } from '@agenshield/ipc';
+import type { SandboxConfig, PolicyExecutionContext, PolicyConfig, ShieldConfig, PolicyGraph } from '@agenshield/ipc';
+import { SHIELD_HEADERS } from '@agenshield/ipc';
+import { getStorage } from '@agenshield/storage';
+import type { ScopedStorage } from '@agenshield/storage';
 import { loadConfig } from '../config/index';
 import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning } from '../events/emitter';
+import { resolveProfileByToken } from '../services/profile-token';
 import {
   globToRegex,
   normalizeUrlBase,
@@ -21,6 +25,8 @@ import {
   filterUrlPoliciesForCommand,
 } from '../policy/url-matcher';
 import { collectDenyPathsFromPolicies, collectAllowPathsForCommand } from '../policy/sandbox-helpers';
+import { evaluateGraphEffects, getActiveDormantPolicyIds, emptyEffects } from '../policy/graph-evaluator';
+import type { GraphEffects } from '../policy/graph-evaluator';
 import { getProxyPool } from '../proxy/pool';
 
 interface JsonRpcRequest {
@@ -146,7 +152,8 @@ async function buildSandboxConfig(
   config: ShieldConfig,
   matchedPolicy: PolicyConfig | undefined,
   _context: PolicyExecutionContext | undefined,
-  target?: string
+  target?: string,
+  effects?: GraphEffects,
 ): Promise<SandboxConfig> {
   // Default sandbox config
   const sandbox: SandboxConfig = {
@@ -229,9 +236,28 @@ async function buildSandboxConfig(
   sandbox.deniedPaths.push(openclawDir);
   sandbox.allowedReadPaths.push(`${openclawDir}/workspace`);
 
-  // Determine network access mode
-  const networkMode = determineNetworkAccess(config, matchedPolicy, target || '');
-  console.log(`[sandbox] command="${(target || '').slice(0, 60)}" networkMode=${networkMode}`);
+  // Merge graph-granted filesystem paths before network setup
+  if (effects) {
+    if (effects.grantedFsPaths.read.length > 0) {
+      console.log(`[sandbox] graph-granted readPaths: ${effects.grantedFsPaths.read.join(', ')}`);
+      sandbox.allowedReadPaths.push(...effects.grantedFsPaths.read);
+    }
+    if (effects.grantedFsPaths.write.length > 0) {
+      console.log(`[sandbox] graph-granted writePaths: ${effects.grantedFsPaths.write.join(', ')}`);
+      sandbox.allowedWritePaths.push(...effects.grantedFsPaths.write);
+    }
+    // Graph-injected secrets as env vars
+    if (Object.keys(effects.injectedSecrets).length > 0) {
+      console.log(`[sandbox] graph-injected secrets: ${Object.keys(effects.injectedSecrets).join(', ')}`);
+      Object.assign(sandbox.envInjection, effects.injectedSecrets);
+    }
+  }
+
+  // Determine network access mode.
+  // Graph-granted network patterns force proxy mode regardless of determineNetworkAccess().
+  const hasGraphNetwork = effects && effects.grantedNetworkPatterns.length > 0;
+  const networkMode = hasGraphNetwork ? 'proxy' : determineNetworkAccess(config, matchedPolicy, target || '');
+  console.log(`[sandbox] command="${(target || '').slice(0, 60)}" networkMode=${networkMode}${hasGraphNetwork ? ' (graph-forced)' : ''}`);
 
   if (networkMode === 'none') {
     sandbox.networkAllowed = false;
@@ -243,19 +269,37 @@ async function buildSandboxConfig(
     const execId = crypto.randomUUID();
     // Filter URL policies scoped to this command (+ universal policies)
     const pool = getProxyPool();
-    // Pass a getter so the proxy always evaluates the latest policies on each request
+
+    // Build policy getter: include graph-granted network patterns as synthetic allow policies
+    const graphNetworkPatterns = effects?.grantedNetworkPatterns ?? [];
     const { port } = await pool.acquire(
       execId,
       target || '',
-      () => filterUrlPoliciesForCommand((loadConfig().policies || []), commandBasename!),
+      () => {
+        const basePolicies = filterUrlPoliciesForCommand((loadConfig().policies || []), commandBasename!);
+        if (graphNetworkPatterns.length === 0) return basePolicies;
+
+        // Synthesize a temporary allow policy from graph-granted patterns
+        const syntheticPolicy: PolicyConfig = {
+          id: `graph-grant-${execId.slice(0, 8)}`,
+          name: 'Graph-granted network access',
+          target: 'url',
+          action: 'allow',
+          patterns: graphNetworkPatterns,
+          enabled: true,
+          priority: 999,
+        };
+        return [syntheticPolicy, ...basePolicies];
+      },
       () => loadConfig().defaultAction ?? 'deny'
     );
 
-    console.log(`[sandbox] proxy network: port=${port} command=${commandBasename} execId=${execId.slice(0, 8)}`);
+    console.log(`[sandbox] proxy network: port=${port} command=${commandBasename} execId=${execId.slice(0, 8)}${graphNetworkPatterns.length > 0 ? ` +${graphNetworkPatterns.length} graph patterns` : ''}`);
 
     sandbox.networkAllowed = true;
     sandbox.allowedHosts = ['localhost'];
     sandbox.envInjection = {
+      ...sandbox.envInjection,
       HTTP_PROXY: `http://127.0.0.1:${port}`,
       HTTPS_PROXY: `http://127.0.0.1:${port}`,
       ALL_PROXY: `http://127.0.0.1:${port}`,
@@ -336,25 +380,58 @@ function trackESExec(context: PolicyExecutionContext, target: string, allowed: b
 }
 
 /**
- * Evaluate a policy check against loaded config policies
+ * Evaluate a policy check against loaded config policies.
+ *
+ * When profileId is provided, policies are loaded from scoped storage
+ * (UNION: global + profile-specific) and the policy graph is consulted
+ * for dormant policy activation and edge effects.
  */
-async function evaluatePolicyCheck(
+export async function evaluatePolicyCheck(
   operation: string,
   target: string,
-  context?: PolicyExecutionContext
+  context?: PolicyExecutionContext,
+  profileId?: string,
 ): Promise<{ allowed: boolean; policyId?: string; reason?: string; sandbox?: SandboxConfig; executionContext?: PolicyExecutionContext }> {
   const config = loadConfig();
-  const policies = config.policies || [];
+  const storage = getStorage();
 
-  // Filter enabled policies that match scope, sort by priority desc
+  // Load policies from scoped storage (UNION: global + profile) or fallback to config
+  const scoped: ScopedStorage | undefined = profileId
+    ? storage.for({ profileId })
+    : undefined;
+  const policies: PolicyConfig[] = scoped
+    ? scoped.policies.getEnabled()
+    : (config.policies || []);
+
+  // Load policy graph (profile-scoped if available)
+  let graph: PolicyGraph | undefined;
+  let activeDormantPolicyIds: Set<string> | undefined;
+  try {
+    const graphRepo = scoped?.policyGraph ?? storage.for({}).policyGraph;
+    graph = graphRepo.loadGraph();
+    activeDormantPolicyIds = getActiveDormantPolicyIds(graph);
+  } catch (err) {
+    console.warn('[policy_check] Failed to load policy graph:', err instanceof Error ? err.message : err);
+  }
+
+  // Filter enabled policies that match scope, excluding dormant unless activated
   const applicable = policies
     .filter((p) => p.enabled && policyScopeMatches(p, context))
+    .filter((p) => {
+      // If no graph loaded, include all policies
+      if (!graph) return true;
+      const node = graph.nodes.find(n => n.policyId === p.id);
+      if (!node) return true;        // Not in graph → always included
+      if (!node.dormant) return true; // Non-dormant → always included
+      // Dormant → only include if activated
+      return activeDormantPolicyIds?.has(p.id) ?? false;
+    })
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
   const targetType = operationToTarget(operation);
 
-  console.log('[policy_check] operation:', operation, 'target:', target, 'targetType:', targetType, 'context:', JSON.stringify(context));
-  console.log('[policy_check] enabled policies (scope-filtered):', applicable.length);
+  console.log('[policy_check] operation:', operation, 'target:', target, 'targetType:', targetType, 'profileId:', profileId ?? 'none', 'context:', JSON.stringify(context));
+  console.log('[policy_check] enabled policies (scope-filtered):', applicable.length, activeDormantPolicyIds?.size ? `(+${activeDormantPolicyIds.size} dormant activated)` : '');
 
   // Block plain HTTP requests by default (security best practice)
   if (targetType === 'url' && target.match(/^http:\/\//i)) {
@@ -420,15 +497,43 @@ async function evaluatePolicyCheck(
         console.log('[policy_check] MATCHED policy:', policy.name, 'action:', policy.action);
         const allowed = policy.action === 'allow';
 
+        // Evaluate graph effects for the matched policy
+        let effects: GraphEffects | undefined;
+        if (graph && policy.id) {
+          try {
+            const graphRepo = scoped?.policyGraph ?? storage.for({}).policyGraph;
+            const secretsRepo = scoped?.secrets ?? storage.for({}).secrets;
+            effects = evaluateGraphEffects(policy.id, graph, graphRepo, secretsRepo, context);
+
+            if (effects.activatedPolicyIds.length > 0) {
+              console.log(`[policy_check] Graph activated dormant policies: ${effects.activatedPolicyIds.join(', ')}`);
+            }
+
+            // Graph deny edge overrides allow
+            if (effects.denied) {
+              console.log(`[policy_check] Graph DENY override: ${effects.denyReason}`);
+              return {
+                allowed: false,
+                policyId: policy.id,
+                reason: effects.denyReason || 'Denied by policy graph edge',
+                executionContext: context,
+              };
+            }
+          } catch (err) {
+            // Fail-open: if graph evaluation throws, proceed without graph effects
+            console.warn('[policy_check] Graph evaluation failed, proceeding without effects:', err instanceof Error ? err.message : err);
+          }
+        }
+
         return {
           allowed,
           policyId: policy.id,
           reason: allowed
             ? `Allowed by policy: ${policy.name}`
             : `Denied by policy: ${policy.name}`,
-          // Build sandbox config for allowed exec operations
+          // Build sandbox config for allowed exec operations, with graph effects
           sandbox: allowed && operation === 'exec'
-            ? await buildSandboxConfig(config, policy, context, target)
+            ? await buildSandboxConfig(config, policy, context, target, effects)
             : undefined,
           executionContext: context,
         };
@@ -452,7 +557,7 @@ async function evaluatePolicyCheck(
 /**
  * Handle events_batch: broadcast each interceptor event via SSE
  */
-function handleEventsBatch(params: Record<string, unknown>): { received: number } {
+function handleEventsBatch(params: Record<string, unknown>, profileId?: string): { received: number } {
   const events = params['events'] as Array<Record<string, unknown>> | undefined;
   if (!Array.isArray(events)) {
     return { received: 0 };
@@ -467,7 +572,7 @@ function handleEventsBatch(params: Record<string, unknown>): { received: number 
       duration: typeof event['duration'] === 'number' ? event['duration'] : undefined,
       policyId: typeof event['policyId'] === 'string' ? event['policyId'] : undefined,
       error: typeof event['error'] === 'string' ? event['error'] : undefined,
-    });
+    }, profileId);
   }
 
   return { received: events.length };
@@ -477,7 +582,8 @@ function handleEventsBatch(params: Record<string, unknown>): { received: number 
  * Handle http_request: proxy an HTTP request via native fetch
  */
 async function handleHttpRequest(
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  profileId?: string,
 ): Promise<{ status: number; statusText: string; headers: Record<string, string>; body: string }> {
   const url = String(params['url'] ?? '');
   const method = String(params['method'] ?? 'GET').toUpperCase();
@@ -486,7 +592,7 @@ async function handleHttpRequest(
 
   // Policy check before proxying (Python patcher sends no context)
   const context = params['context'] as PolicyExecutionContext | undefined;
-  const policyResult = await evaluatePolicyCheck('http_request', url, context);
+  const policyResult = await evaluatePolicyCheck('http_request', url, context, profileId);
 
   if (!policyResult.allowed) {
     emitInterceptorEvent({
@@ -496,7 +602,7 @@ async function handleHttpRequest(
       timestamp: new Date().toISOString(),
       policyId: policyResult.policyId,
       error: policyResult.reason || 'Denied by policy',
-    });
+    }, profileId);
     throw new Error(policyResult.reason || 'Blocked by URL policy');
   } else {
     emitInterceptorEvent({
@@ -505,7 +611,7 @@ async function handleHttpRequest(
       target: url,
       timestamp: new Date().toISOString(),
       policyId: policyResult.policyId,
-    });
+    }, profileId);
   }
 
   const response = await fetch(url, {
@@ -529,17 +635,17 @@ async function handleHttpRequest(
   };
 }
 
-type RpcHandler = (params: Record<string, unknown>) => unknown | Promise<unknown>;
+export type RpcHandler = (params: Record<string, unknown>, profileId?: string) => unknown | Promise<unknown>;
 
 /**
  * Wrapper that emits SSE events after policy_check evaluation
  */
-async function handlePolicyCheck(params: Record<string, unknown>) {
+async function handlePolicyCheck(params: Record<string, unknown>, profileId?: string) {
   const operation = String(params['operation'] ?? '');
   const target = String(params['target'] ?? '');
   const context = params['context'] as PolicyExecutionContext | undefined;
 
-  const result = await evaluatePolicyCheck(operation, target, context);
+  const result = await evaluatePolicyCheck(operation, target, context, profileId);
 
   // ES extension: track exec chain and emit dedicated event
   if (context?.sourceLayer === 'es-extension' && operation === 'exec') {
@@ -557,13 +663,13 @@ async function handlePolicyCheck(params: Record<string, unknown>) {
       policyId: result.policyId,
       reason: result.reason,
       sourceLayer: 'es-extension',
-    });
+    }, profileId);
   }
 
   // Emit SSE events so policy check results appear in the Activity Feed immediately
   if (!result.allowed) {
     if (operation === 'exec') {
-      emitExecDenied(target, result.reason || 'Denied by policy');
+      emitExecDenied(target, result.reason || 'Denied by policy', profileId);
     } else {
       emitInterceptorEvent({
         type: 'denied',
@@ -572,7 +678,7 @@ async function handlePolicyCheck(params: Record<string, unknown>) {
         timestamp: new Date().toISOString(),
         policyId: result.policyId,
         error: result.reason || 'Denied by policy',
-      });
+      }, profileId);
     }
   } else {
     emitInterceptorEvent({
@@ -581,16 +687,16 @@ async function handlePolicyCheck(params: Record<string, unknown>) {
       target,
       timestamp: new Date().toISOString(),
       policyId: result.policyId,
-    });
+    }, profileId);
   }
 
   return result;
 }
 
-const handlers: Record<string, RpcHandler> = {
-  policy_check: (params) => handlePolicyCheck(params),
-  events_batch: (params) => handleEventsBatch(params),
-  http_request: (params) => handleHttpRequest(params),
+export const rpcHandlers: Record<string, RpcHandler> = {
+  policy_check: (params, profileId) => handlePolicyCheck(params, profileId),
+  events_batch: (params, profileId) => handleEventsBatch(params, profileId),
+  http_request: (params, profileId) => handleHttpRequest(params, profileId),
   ping: () => ({ status: 'ok' }),
 };
 
@@ -612,7 +718,28 @@ export async function rpcRoutes(app: FastifyInstance): Promise<void> {
         };
       }
 
-      const handler = handlers[method];
+      // Resolve profileId from broker token header (HTTP channel)
+      let profileId: string | undefined;
+      const token = request.headers[SHIELD_HEADERS.BROKER_TOKEN] as string | undefined;
+      if (token) {
+        const resolved = resolveProfileByToken(token, getStorage());
+        if (!resolved) {
+          reply.code(401);
+          return {
+            jsonrpc: '2.0',
+            id,
+            error: { code: -32001, message: 'Invalid broker token' },
+          };
+        }
+        profileId = resolved;
+      }
+      // Also accept explicit profile ID header (lower priority than token)
+      if (!profileId) {
+        const headerProfileId = request.headers[SHIELD_HEADERS.PROFILE_ID] as string | undefined;
+        if (headerProfileId) profileId = headerProfileId;
+      }
+
+      const handler = rpcHandlers[method];
       if (!handler) {
         return {
           jsonrpc: '2.0',
@@ -622,7 +749,7 @@ export async function rpcRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        const result = await handler(params ?? {});
+        const result = await handler(params ?? {}, profileId);
         return { jsonrpc: '2.0', id, result };
       } catch (error) {
         return {

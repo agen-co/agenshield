@@ -60,28 +60,28 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
       data: { connected: data.cloudConnected },
     });
 
-    // --- Targets in semi-circle ---
+    // --- Targets in horizontal row ---
     const targetCount = data.targets.length;
-    const radius = Math.min(250, vw * 0.18);
-    const arcStart = (27 * Math.PI) / 180;
-    const arcEnd = (153 * Math.PI) / 180;
+    const targetNodeWidth = 160; // minWidth of TargetNode
+    const targetGap = 40;
+    const maxSpacing = targetNodeWidth + targetGap;
+    const availableWidth = vw - 600; // leave room for activity panel + margins
+    const targetSpacing = targetCount > 1
+      ? Math.min(maxSpacing, availableWidth / (targetCount - 1))
+      : 0;
+    const layerWidth = (targetCount - 1) * targetSpacing;
+    const targetY = centerY + 120;
 
     data.targets.forEach((target, i) => {
-      let angle: number;
-      if (targetCount === 1) {
-        angle = Math.PI / 2; // straight down
-      } else {
-        angle = arcStart + (arcEnd - arcStart) * (i / (targetCount - 1));
-      }
-
-      const tx = centerX + Math.cos(angle) * radius - 75;
-      const ty = centerY + 60 + Math.sin(angle) * radius;
+      const tx = targetCount === 1
+        ? centerX - 80
+        : centerX - layerWidth / 2 + i * targetSpacing - 80;
 
       // Target node
       nodes.push({
         id: `target-${target.id}`,
         type: 'canvas-target',
-        position: { x: tx, y: ty },
+        position: { x: tx, y: targetY },
         data: { target },
         draggable: false,
         selectable: false,
@@ -91,7 +91,7 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
       nodes.push({
         id: `stats-${target.id}`,
         type: 'canvas-target-stats',
-        position: { x: tx - 10, y: ty + 100 },
+        position: { x: tx - 10, y: targetY + 100 },
         data: {
           targetId: target.id,
           skillCount: target.skillCount,
@@ -125,8 +125,18 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
     });
 
     // --- Firewall layer: below targets ---
-    const firewallY = centerY + 60 + radius + 160;
-    const firewallSpacing = 200;
+    const firewallY = targetY + 360;
+
+    // --- Policy Graph node: above firewall row ---
+    const policyGraphY = firewallY - 100;
+    nodes.push({
+      id: 'policy-graph',
+      type: 'canvas-policy-graph',
+      position: { x: centerX - 250, y: policyGraphY },
+      data: { activePolicies: data.activePolicyCount, targetCount },
+      draggable: false,
+      selectable: false,
+    });
 
     const firewallPieces = [
       {
@@ -149,8 +159,12 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
       },
     ] as const;
 
+    const firewallCount: number = firewallPieces.length;
     firewallPieces.forEach((piece, i) => {
-      const fx = centerX - firewallSpacing + i * firewallSpacing - 60;
+      // Span the same total width as the targets layer
+      const fx = firewallCount === 1
+        ? centerX - 70
+        : centerX - layerWidth / 2 + i * (layerWidth / (firewallCount - 1)) - 70;
 
       nodes.push({
         id: `firewall-${piece.id}`,
@@ -167,37 +181,30 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
       });
     });
 
-    // --- Edges: targets → center firewall (System Guard) — convergence ---
-    data.targets.forEach((target) => {
+    // --- Edges: stats → Policy Graph (convergence) ---
+    data.targets.forEach((target, i) => {
       edges.push({
-        id: `e-stats-firewall-${target.id}`,
+        id: `e-stats-pg-${target.id}`,
         source: `stats-${target.id}`,
-        target: 'firewall-system',
+        target: 'policy-graph',
         sourceHandle: 'bottom',
-        targetHandle: 'top',
+        targetHandle: `top-${i}`,
         type: 'canvas-traffic',
         style: { opacity: 0.4 },
       });
     });
 
-    // --- Horizontal firewall interconnect edges ---
-    edges.push({
-      id: 'e-firewall-network-system',
-      source: 'firewall-network',
-      target: 'firewall-system',
-      sourceHandle: 'right',
-      targetHandle: 'left',
-      type: 'canvas-traffic',
-      style: { opacity: 0.25 },
-    });
-    edges.push({
-      id: 'e-firewall-system-fs',
-      source: 'firewall-system',
-      target: 'firewall-filesystem',
-      sourceHandle: 'right',
-      targetHandle: 'left',
-      type: 'canvas-traffic',
-      style: { opacity: 0.25 },
+    // --- Edges: Policy Graph → firewall pieces (branch down) ---
+    firewallPieces.forEach((piece, i) => {
+      edges.push({
+        id: `e-pg-firewall-${piece.id}`,
+        source: 'policy-graph',
+        target: `firewall-${piece.id}`,
+        sourceHandle: `bottom-${i}`,
+        targetHandle: 'top',
+        type: 'canvas-traffic',
+        style: { opacity: 0.5 },
+      });
     });
 
     // --- Computer node: bottom ---
@@ -227,15 +234,25 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
       });
     });
 
-    // --- Denied bucket: left of firewall row ---
-    const bucketX = centerX - firewallSpacing - 240;
+    // --- Denied bucket: left of Policy Graph, same Y ---
+    const bucketX = centerX - 450;
     nodes.push({
       id: 'denied-bucket',
       type: 'canvas-denied-bucket',
-      position: { x: bucketX, y: firewallY },
+      position: { x: bucketX, y: policyGraphY },
       data: {},
       draggable: false,
       selectable: false,
+    });
+
+    // --- Red dashed arrow: Policy Graph → Denied bucket ---
+    edges.push({
+      id: 'e-pg-denied',
+      source: 'policy-graph',
+      target: 'denied-bucket',
+      sourceHandle: 'bottom-left',
+      targetHandle: 'right',
+      type: 'canvas-denied',
     });
 
     return { nodes, edges };

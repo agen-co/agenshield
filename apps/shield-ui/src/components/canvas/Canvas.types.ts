@@ -37,6 +37,8 @@ export interface CanvasData {
   deniedEvents: number;
   allowedEvents: number;
   warningCount: number;
+  // Policy graph
+  activePolicyCount: number;
   // Security component status
   sandboxUserExists: boolean;
   isIsolated: boolean;
@@ -117,5 +119,11 @@ export interface ComputerNodeData {
 }
 
 export interface DeniedBucketData {
+  [key: string]: unknown;
+}
+
+export interface PolicyGraphData {
+  activePolicies: number;
+  targetCount: number;
   [key: string]: unknown;
 }
