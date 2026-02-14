@@ -14,6 +14,7 @@ import { AuditLogger } from './audit/logger.js';
 import { SecretVault } from './secrets/vault.js';
 import { SecretResolver } from './secrets/resolver.js';
 import type { BrokerConfig } from './types.js';
+import type { BrokerAuth } from './handlers/types.js';
 import {
   isOpenClawInstalled,
   startOpenClawServices,
@@ -21,6 +22,8 @@ import {
 } from '@agenshield/integrations';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+
+const TOKEN_FILENAME = '.agenshield-token';
 
 /**
  * Commands that get wrapper shims in the agent's bin directory.
@@ -89,6 +92,53 @@ function loadConfig(): BrokerConfig {
       process.env['AGENSHIELD_DAEMON_URL'] ||
       fileConfig.daemonUrl ||
       'http://127.0.0.1:5200',
+    profileId:
+      process.env['AGENSHIELD_PROFILE_ID'] ||
+      (fileConfig as Record<string, unknown>).profileId as string | undefined,
+    profileToken:
+      process.env['AGENSHIELD_BROKER_TOKEN'] ||
+      (fileConfig as Record<string, unknown>).profileToken as string | undefined,
+    daemonSocketPath:
+      process.env['AGENSHIELD_DAEMON_SOCKET'] ||
+      (fileConfig as Record<string, unknown>).daemonSocketPath as string | undefined,
+  };
+}
+
+/**
+ * Build BrokerAuth from config, reading token from file if not in env/config.
+ */
+function loadBrokerAuth(config: BrokerConfig): BrokerAuth {
+  let token = config.profileToken;
+
+  // Try reading token from broker home dir if not explicitly provided
+  if (!token) {
+    const brokerHome = process.env['AGENSHIELD_BROKER_HOME'] || process.env['HOME'];
+    if (brokerHome) {
+      const tokenPath = path.join(brokerHome, TOKEN_FILENAME);
+      try {
+        token = fs.readFileSync(tokenPath, 'utf-8').trim() || undefined;
+      } catch {
+        // Token file doesn't exist — non-fatal
+      }
+    }
+  }
+
+  // Derive daemon socket path from broker home if not explicitly set
+  let daemonSocketPath = config.daemonSocketPath;
+  if (!daemonSocketPath) {
+    const brokerHome = process.env['AGENSHIELD_BROKER_HOME'] || process.env['HOME'];
+    if (brokerHome) {
+      const candidate = path.join(brokerHome, 'daemon.sock');
+      if (fs.existsSync(candidate)) {
+        daemonSocketPath = candidate;
+      }
+    }
+  }
+
+  return {
+    profileId: config.profileId,
+    token,
+    daemonSocketPath,
   };
 }
 
@@ -220,12 +270,18 @@ async function main(): Promise<void> {
     '/opt/agenshield/config/allowed-commands.json'
   );
 
-  const secretResolver = new SecretResolver(
-    path.join(
-      path.dirname(config.configPath || '/opt/agenshield/config/shield.json'),
-      'synced-secrets.json'
-    )
-  );
+  // SecretResolver holds secrets in memory — populated via secrets_sync IPC push from daemon
+  const secretResolver = new SecretResolver();
+
+  // Build broker authentication for daemon communication
+  const brokerAuth = loadBrokerAuth(config);
+  if (brokerAuth.profileId) {
+    console.log(`Profile: ${brokerAuth.profileId}`);
+  }
+  if (brokerAuth.daemonSocketPath) {
+    console.log(`Daemon Socket: ${brokerAuth.daemonSocketPath}`);
+  }
+  console.log(`Broker Token: ${brokerAuth.token ? '***' : '(none)'}`);
 
   // Ensure proxied command wrappers exist in agent's bin directory
   if (config.agentHome) {
@@ -240,6 +296,7 @@ async function main(): Promise<void> {
     secretVault,
     secretResolver,
     commandAllowlist,
+    brokerAuth,
   });
 
   await socketServer.start();
@@ -253,6 +310,7 @@ async function main(): Promise<void> {
       policyEnforcer,
       auditLogger,
       commandAllowlist,
+      brokerAuth,
     });
 
     await httpServer.start();

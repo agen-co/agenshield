@@ -15,7 +15,7 @@ export const DEFAULT_MAX_EVENTS = 10_000;
 export function mapEvent(row: DbActivityEventRow): ActivityEvent {
   return {
     id: row.id,
-    targetId: row.target_id ?? undefined,
+    profileId: row.profile_id ?? undefined,
     type: row.type,
     timestamp: row.timestamp,
     data: JSON.parse(row.data),

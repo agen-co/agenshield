@@ -8,10 +8,8 @@
 export interface ShieldContext {
   /** UUID v4, auto-generated if not provided in request header */
   traceId: string;
-  /** Agent/target scope — null when unscoped */
-  targetId: string | null;
-  /** Authenticated user — null for anonymous requests */
-  userUsername: string | null;
+  /** Profile scope — null when unscoped (global) */
+  profileId: string | null;
   /** ISO 8601 timestamp of when the request was received */
   requestedAt: string;
   /** Origin of the request */
@@ -22,7 +20,7 @@ export type ShieldRequestSource = 'ui' | 'cli' | 'interceptor' | 'internal' | 'u
 
 export const SHIELD_HEADERS = {
   TRACE_ID: 'x-shield-trace-id',
-  TARGET_ID: 'x-shield-target-id',
-  USER: 'x-shield-user',
+  PROFILE_ID: 'x-shield-profile-id',
   SOURCE: 'x-shield-source',
+  BROKER_TOKEN: 'x-shield-broker-token',
 } as const;

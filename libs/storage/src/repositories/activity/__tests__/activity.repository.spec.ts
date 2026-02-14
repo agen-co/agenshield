@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../migrations/001-initial-schema';
+import { ActivitySchemaMigration } from '../../../migrations/activity/001-activity-schema';
 import { ActivityRepository } from '../activity.repository';
 
 // ---------------------------------------------------------------------------
@@ -21,7 +21,7 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
+  new ActivitySchemaMigration().up(db);
   return {
     db,
     cleanup: () => {
@@ -33,22 +33,6 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
 
 // ActivityRepository does not use encryption
 const getKey = () => null;
-
-/**
- * Insert parent target rows required by foreign key constraints.
- * activity_events reference targets(id).
- */
-function seedScopeFixtures(db: Database.Database): void {
-  db.prepare(
-    `INSERT INTO targets (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))`,
-  ).run('target-1', 'Target One');
-  db.prepare(
-    `INSERT INTO targets (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))`,
-  ).run('target-a', 'Target A');
-  db.prepare(
-    `INSERT INTO targets (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))`,
-  ).run('target-b', 'Target B');
-}
 
 function makeEvent(overrides: Record<string, unknown> = {}) {
   return {
@@ -90,10 +74,9 @@ describe('ActivityRepository', () => {
       expect(event.createdAt).toBeDefined();
     });
 
-    it('should append an event with a targetId', () => {
-      seedScopeFixtures(db);
-      const event = repo.append(makeEvent({ targetId: 'target-1' }));
-      expect(event.targetId).toBe('target-1');
+    it('should append an event with a profileId', () => {
+      const event = repo.append(makeEvent({ profileId: 'profile-1' }));
+      expect(event.profileId).toBe('profile-1');
     });
 
     it('should retrieve all events with default pagination', () => {
@@ -118,13 +101,12 @@ describe('ActivityRepository', () => {
       expect(filtered.every((e) => e.type === 'policy_check')).toBe(true);
     });
 
-    it('should filter events by targetId', () => {
-      seedScopeFixtures(db);
-      repo.append(makeEvent({ targetId: 'target-a' }));
-      repo.append(makeEvent({ targetId: 'target-b' }));
-      repo.append(makeEvent({ targetId: 'target-a' }));
+    it('should filter events by profileId', () => {
+      repo.append(makeEvent({ profileId: 'profile-a' }));
+      repo.append(makeEvent({ profileId: 'profile-b' }));
+      repo.append(makeEvent({ profileId: 'profile-a' }));
 
-      const filtered = repo.getAll({ targetId: 'target-a' });
+      const filtered = repo.getAll({ profileId: 'profile-a' });
       expect(filtered).toHaveLength(2);
     });
 
@@ -170,12 +152,11 @@ describe('ActivityRepository', () => {
       expect(repo.count({ type: 'policy_check' })).toBe(1);
     });
 
-    it('should count events filtered by targetId', () => {
-      seedScopeFixtures(db);
-      repo.append(makeEvent({ targetId: 'target-a' }));
-      repo.append(makeEvent({ targetId: 'target-b' }));
+    it('should count events filtered by profileId', () => {
+      repo.append(makeEvent({ profileId: 'profile-a' }));
+      repo.append(makeEvent({ profileId: 'profile-b' }));
 
-      expect(repo.count({ targetId: 'target-a' })).toBe(1);
+      expect(repo.count({ profileId: 'profile-a' })).toBe(1);
     });
 
     it('should clear all events', () => {

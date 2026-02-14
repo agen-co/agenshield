@@ -8,7 +8,7 @@ import type { CreateActivityEventInput } from '@agenshield/ipc';
 // ---- Options types ----
 
 export interface ActivityGetAllOptions {
-  targetId?: string;
+  profileId?: string;
   type?: string;
   limit?: number;
   offset?: number;
@@ -16,7 +16,7 @@ export interface ActivityGetAllOptions {
 }
 
 export interface ActivityCountOptions {
-  targetId?: string;
+  profileId?: string;
   type?: string;
 }
 

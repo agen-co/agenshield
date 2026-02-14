@@ -9,9 +9,8 @@ export interface InstallParams {
   skillId?: string;
   /** Version string to install (defaults to latest) */
   version?: string;
-  /** Target scope */
-  targetId?: string;
-  userUsername?: string;
+  /** Profile scope */
+  profileId?: string;
   /** Auto-update configuration */
   autoUpdate?: boolean;
 }

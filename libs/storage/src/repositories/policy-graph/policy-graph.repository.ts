@@ -33,8 +33,7 @@ export class PolicyGraphRepository extends BaseRepository {
     this.db.prepare(Q.insertNode).run({
       id,
       policyId: data.policyId,
-      targetId: data.targetId ?? null,
-      userUsername: data.userUsername ?? null,
+      profileId: data.profileId ?? this.scope?.profileId ?? null,
       dormant: data.dormant ? 1 : 0,
       metadata: data.metadata != null ? JSON.stringify(data.metadata) : null,
       createdAt: now,

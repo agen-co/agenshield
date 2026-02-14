@@ -1,7 +1,7 @@
 /**
  * Config repository — Scoped CRUD with cascading merge
  *
- * Config resolution: base -> target -> target+user
+ * Config resolution: base (global) -> profile
  * NULL values in a more specific scope inherit from parent scope.
  */
 
@@ -14,7 +14,7 @@ import { Q } from './config.query';
 
 export class ConfigRepository extends BaseRepository {
   /**
-   * Get resolved config for a scope (merges base + target + target+user).
+   * Get resolved config for a scope (merges base + profile).
    */
   get(): ConfigData | null {
     const levels = getConfigScopeLevels(this.scope);
@@ -37,7 +37,7 @@ export class ConfigRepository extends BaseRepository {
    */
   getRaw(): ConfigData | null {
     const { clause, params } = buildScopeWhere(
-      this.scope ?? { targetId: null, userUsername: null },
+      this.scope ?? { profileId: null },
     );
     const row = this.db
       .prepare(Q.selectWhere(clause))
@@ -50,13 +50,11 @@ export class ConfigRepository extends BaseRepository {
    */
   set(data: ConfigData): void {
     const validated = this.validate(UpdateConfigSchema, data);
-    const targetId = this.scope?.targetId ?? null;
-    const userUsername = this.scope?.userUsername ?? null;
+    const profileId = this.scope?.profileId ?? null;
     const now = this.now();
 
     this.db.prepare(Q.upsert).run({
-      targetId,
-      userUsername,
+      profileId,
       version: validated.version ?? null,
       daemonPort: validated.daemonPort ?? null,
       daemonHost: validated.daemonHost ?? null,
@@ -83,7 +81,7 @@ export class ConfigRepository extends BaseRepository {
    */
   delete(): boolean {
     const { clause, params } = buildScopeWhere(
-      this.scope ?? { targetId: null, userUsername: null },
+      this.scope ?? { profileId: null },
     );
     const result = this.db.prepare(Q.deleteWhere(clause)).run(params);
     return result.changes > 0;

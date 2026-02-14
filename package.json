@@ -23,7 +23,7 @@
     "cli:uninstall": "sudo node libs/cli/dist/src/cli.js uninstall",
     "cli:help": "node libs/cli/dist/src/cli.js help",
     "daemon:start": "node libs/shield-daemon/dist/src/main.js",
-    "daemon:dev": "AGENSHIELD_AGENT_HOME=./tmp/dev-agent npx tsx watch libs/shield-daemon/src/main.ts",
+    "daemon:dev": "AGENSHIELD_CONFIG_DIR=./tmp/dev-config AGENSHIELD_AGENT_HOME=./tmp/dev-agent npx tsx watch libs/shield-daemon/src/main.ts",
     "test-harness:install": "cd tools/test-harness && npm link",
     "test-harness:uninstall": "cd tools/test-harness && npm unlink -g",
     "test:e2e": "sudo npx nx run test-e2e:e2e --skip-nx-cache",

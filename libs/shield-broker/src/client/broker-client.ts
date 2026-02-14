@@ -198,6 +198,30 @@ export class BrokerClient {
   }
 
   /**
+   * Push decrypted secrets to the broker's in-memory SecretResolver.
+   * Socket-only — secrets must never traverse HTTP.
+   */
+  async secretsSync(
+    params: {
+      version: string;
+      syncedAt: string;
+      globalSecrets: Record<string, string>;
+      policyBindings: Array<{
+        policyId: string;
+        target: 'url' | 'command';
+        patterns: string[];
+        secrets: Record<string, string>;
+      }>;
+    } | { clear: true },
+    options?: RequestOptions
+  ): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>('secrets_sync', params as unknown as Record<string, unknown>, {
+      ...options,
+      channel: 'socket', // secrets must only go over Unix socket
+    });
+  }
+
+  /**
    * Check if the broker is available
    */
   async isAvailable(): Promise<boolean> {

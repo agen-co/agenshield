@@ -15,6 +15,8 @@ import { loadConfig, updateConfig, saveConfig, getDefaultConfig } from '../confi
 import { getDefaultState, loadState, saveState } from '../state/index';
 import { getVault } from '../vault';
 import { getSessionManager } from '../auth/session';
+import { isAuthenticated } from '../auth/middleware';
+import { redactConfig } from '../auth/redact';
 import { syncFilesystemPolicyAcls } from '../acl';
 import { syncCommandPoliciesAndWrappers } from '../command-sync';
 import { syncSecrets } from '../secret-sync';
@@ -54,12 +56,12 @@ function getKnownSkillNames(app: FastifyInstance): Set<string> {
 }
 
 export async function configRoutes(app: FastifyInstance): Promise<void> {
-  // Get current configuration
-  app.get('/config', async (): Promise<GetConfigResponse> => {
+  // Get current configuration (redacted for anonymous users)
+  app.get('/config', async (request): Promise<GetConfigResponse> => {
     const config = loadConfig();
     return {
       success: true,
-      data: config,
+      data: isAuthenticated(request) ? config : redactConfig(config),
     };
   });
 

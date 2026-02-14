@@ -279,7 +279,7 @@ export class SkillManager extends EventEmitter {
   /**
    * Approve a quarantined skill: approve its version, install, and deploy.
    */
-  async approveSkill(slug: string, opts?: { targetId?: string; userUsername?: string }): Promise<SkillInstallation> {
+  async approveSkill(slug: string, opts?: { profileId?: string }): Promise<SkillInstallation> {
     const skill = this.skills.getBySlug(slug);
     if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
 
@@ -292,8 +292,7 @@ export class SkillManager extends EventEmitter {
     // Install and deploy (via this.install for watcher suppression)
     return this.install({
       skillId: skill.id,
-      targetId: opts?.targetId,
-      userUsername: opts?.userUsername,
+      profileId: opts?.profileId,
     });
   }
 
@@ -350,7 +349,7 @@ export class SkillManager extends EventEmitter {
    */
   async toggleSkill(
     slug: string,
-    opts?: { targetId?: string; userUsername?: string },
+    opts?: { profileId?: string },
   ): Promise<{ action: 'enabled' | 'disabled' }> {
     const skill = this.skills.getBySlug(slug);
     if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
@@ -377,8 +376,7 @@ export class SkillManager extends EventEmitter {
 
       await this.install({
         skillId: skill.id,
-        targetId: opts?.targetId,
-        userUsername: opts?.userUsername,
+        profileId: opts?.profileId,
       });
       return { action: 'enabled' };
     }

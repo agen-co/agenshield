@@ -50,6 +50,9 @@ export interface SkillVersion {
   requiredEnv: string[];
   extractedCommands: unknown[];
 
+  /** SHA-256 hash of backup files for tamper detection */
+  backupHash?: string;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -69,8 +72,7 @@ export interface SkillFile {
 export interface SkillInstallation {
   id: string;
   skillVersionId: string;
-  targetId?: string;
-  userUsername?: string;
+  profileId?: string;
   status: InstallationStatus;
   wrapperPath?: string;
   autoUpdate: boolean;

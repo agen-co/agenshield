@@ -9,13 +9,13 @@ export const Q = {
     `SELECT * FROM ${TABLE} WHERE ${clause}`,
 
   upsert: `
-    INSERT INTO ${TABLE} (target_id, user_username, version, daemon_port, daemon_host,
+    INSERT INTO ${TABLE} (profile_id, version, daemon_port, daemon_host,
       daemon_log_level, daemon_enable_hosts_entry, default_action, vault_enabled, vault_provider,
       skills_json, soul_json, broker_json, updated_at)
-    VALUES (@targetId, @userUsername, @version, @daemonPort, @daemonHost,
+    VALUES (@profileId, @version, @daemonPort, @daemonHost,
       @daemonLogLevel, @daemonEnableHostsEntry, @defaultAction, @vaultEnabled, @vaultProvider,
       @skillsJson, @soulJson, @brokerJson, @updatedAt)
-    ON CONFLICT(target_id, user_username) DO UPDATE SET
+    ON CONFLICT(profile_id) DO UPDATE SET
       version = COALESCE(@version, version),
       daemon_port = COALESCE(@daemonPort, daemon_port),
       daemon_host = COALESCE(@daemonHost, daemon_host),

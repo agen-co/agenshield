@@ -42,6 +42,7 @@ export function mapVersion(row: DbSkillVersionRow): SkillVersion {
     requiredBins: JSON.parse(row.required_bins),
     requiredEnv: JSON.parse(row.required_env),
     extractedCommands: JSON.parse(row.extracted_commands),
+    backupHash: row.backup_hash ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -63,8 +64,7 @@ export function mapInstallation(row: DbSkillInstallationRow): SkillInstallation 
   return {
     id: row.id,
     skillVersionId: row.skill_version_id,
-    targetId: row.target_id ?? undefined,
-    userUsername: row.user_username ?? undefined,
+    profileId: row.profile_id ?? undefined,
     status: row.status as SkillInstallation['status'],
     wrapperPath: row.wrapper_path ?? undefined,
     autoUpdate: row.auto_update === 1,

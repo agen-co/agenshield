@@ -179,6 +179,10 @@ export class SkillsRepository extends BaseRepository {
     return hash;
   }
 
+  updateBackupHash(versionId: string, hash: string): void {
+    this.db.prepare(Q.updateBackupHash).run({ id: versionId, hash, now: this.now() });
+  }
+
   // ---- Installations ----
 
   install(input: CreateSkillInstallationInput): SkillInstallation {
@@ -188,7 +192,7 @@ export class SkillsRepository extends BaseRepository {
 
     this.db.prepare(Q.insertInstallation).run({
       id, skillVersionId: data.skillVersionId,
-      targetId: data.targetId ?? null, userUsername: data.userUsername ?? null,
+      profileId: data.profileId ?? this.scope?.profileId ?? null,
       status: data.status, wrapperPath: data.wrapperPath ?? null,
       autoUpdate: data.autoUpdate !== undefined ? (data.autoUpdate ? 1 : 0) : 1,
       pinnedVersion: data.pinnedVersion ?? null,
@@ -215,24 +219,16 @@ export class SkillsRepository extends BaseRepository {
     const params: Record<string, unknown> = {};
 
     if (filter?.skillVersionId) { conditions.push('skill_version_id = @skillVersionId'); params.skillVersionId = filter.skillVersionId; }
-    if (filter?.targetId) { conditions.push('target_id = @targetId'); params.targetId = filter.targetId; }
-    if (filter?.userUsername) { conditions.push('user_username = @userUsername'); params.userUsername = filter.userUsername; }
+    if (filter?.profileId) { conditions.push('profile_id = @filterProfileId'); params.filterProfileId = filter.profileId; }
 
-    // Scope filtering: when this.scope is set, restrict to global + matching hierarchy levels
+    // Scope filtering: when this.scope is set, restrict to global + profile
     if (this.scope) {
-      const scopeParts = ['(target_id IS NULL AND user_username IS NULL)'];
-      if (this.scope.targetId) {
-        scopeParts.push('(target_id = @scopeTargetId AND user_username IS NULL)');
-        params.scopeTargetId = this.scope.targetId;
+      if (this.scope.profileId) {
+        conditions.push('(profile_id IS NULL OR profile_id = @scopeProfileId)');
+        params.scopeProfileId = this.scope.profileId;
+      } else {
+        conditions.push('profile_id IS NULL');
       }
-      if (this.scope.targetId && this.scope.userUsername) {
-        scopeParts.push('(target_id = @scopeTargetId AND user_username = @scopeUserUsername)');
-        params.scopeUserUsername = this.scope.userUsername;
-      } else if (this.scope.userUsername) {
-        scopeParts.push('(target_id IS NULL AND user_username = @scopeUserUsername)');
-        params.scopeUserUsername = this.scope.userUsername;
-      }
-      conditions.push(`(${scopeParts.join(' OR ')})`);
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -245,25 +241,18 @@ export class SkillsRepository extends BaseRepository {
   }
 
   getAutoUpdatable(skillId: string): SkillInstallation[] {
-    const scopeParts: string[] = [];
     const params: Record<string, unknown> = { skillId };
+    let scopeClause: string | undefined;
 
     if (this.scope) {
-      scopeParts.push('(si.target_id IS NULL AND si.user_username IS NULL)');
-      if (this.scope.targetId) {
-        scopeParts.push('(si.target_id = @scopeTargetId AND si.user_username IS NULL)');
-        params.scopeTargetId = this.scope.targetId;
-      }
-      if (this.scope.targetId && this.scope.userUsername) {
-        scopeParts.push('(si.target_id = @scopeTargetId AND si.user_username = @scopeUserUsername)');
-        params.scopeUserUsername = this.scope.userUsername;
-      } else if (this.scope.userUsername) {
-        scopeParts.push('(si.target_id IS NULL AND si.user_username = @scopeUserUsername)');
-        params.scopeUserUsername = this.scope.userUsername;
+      if (this.scope.profileId) {
+        scopeClause = 'si.profile_id IS NULL OR si.profile_id = @scopeProfileId';
+        params.scopeProfileId = this.scope.profileId;
+      } else {
+        scopeClause = 'si.profile_id IS NULL';
       }
     }
 
-    const scopeClause = scopeParts.length > 0 ? scopeParts.join(' OR ') : undefined;
     const rows = this.db.prepare(Q.selectAutoUpdatable(scopeClause)).all(params) as DbSkillInstallationRow[];
     return rows.map(mapInstallation);
   }
@@ -289,19 +278,12 @@ export class SkillsRepository extends BaseRepository {
   }
 
   getInstalledSkills(): Array<Skill & { version: SkillVersion }> {
-    const scopeConditions = ['(si.target_id IS NULL AND si.user_username IS NULL)'];
+    const scopeConditions = ['si.profile_id IS NULL'];
     const params: Record<string, unknown> = {};
 
-    if (this.scope?.targetId) {
-      scopeConditions.push('(si.target_id = @targetId AND si.user_username IS NULL)');
-      params.targetId = this.scope.targetId;
-    }
-    if (this.scope?.targetId && this.scope?.userUsername) {
-      scopeConditions.push('(si.target_id = @targetId AND si.user_username = @userUsername)');
-      params.userUsername = this.scope.userUsername;
-    } else if (this.scope?.userUsername) {
-      scopeConditions.push('(si.target_id IS NULL AND si.user_username = @userUsername)');
-      params.userUsername = this.scope.userUsername;
+    if (this.scope?.profileId) {
+      scopeConditions.push('si.profile_id = @profileId');
+      params.profileId = this.scope.profileId;
     }
 
     const rows = this.db.prepare(Q.selectInstalledSkills(scopeConditions.join(' OR '))).all(params) as Array<DbSkillRow & Record<string, unknown>>;
@@ -317,6 +299,7 @@ export class SkillsRepository extends BaseRepository {
         analysis_json: r.sv_analysis_json as string | null, analyzed_at: r.sv_analyzed_at as string | null,
         required_bins: r.sv_required_bins as string, required_env: r.sv_required_env as string,
         extracted_commands: r.sv_extracted_commands as string,
+        backup_hash: r.sv_backup_hash as string | null ?? null,
         created_at: r.sv_created_at as string, updated_at: r.sv_updated_at as string,
       }),
     }));

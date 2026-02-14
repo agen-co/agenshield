@@ -1,16 +1,22 @@
 /**
- * Secrets routes — CRUD backed by encrypted vault
+ * Secrets routes — CRUD backed by SQLite storage
+ *
+ * Secrets are encrypted at rest (AES-256-GCM). Write operations (create/update value)
+ * require the vault to be unlocked; reads return masked values regardless of lock state.
+ *
+ * Routes use scoped storage derived from the request's ShieldContext headers.
  */
 
-import type { FastifyInstance } from 'fastify';
-import type { VaultSecret, SecretScope, SkillEnvRequirement } from '@agenshield/ipc';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { VaultSecret, SecretScope, SkillEnvRequirement, ScopeFilter } from '@agenshield/ipc';
+import { contextToScope } from '@agenshield/ipc';
 import { isSecretEnvVar } from '@agenshield/sandbox';
-import { getVault } from '../vault';
+import { getStorage, StorageLockedError } from '@agenshield/storage';
+import type { SecretsRepository } from '@agenshield/storage';
 import { loadConfig } from '../config/index';
 import { syncSecrets } from '../secret-sync';
 import { getDownloadedSkillMeta } from '../services/marketplace';
 import { getSkillsDir } from '../config/paths';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 
 interface MaskedSecret {
@@ -20,11 +26,6 @@ interface MaskedSecret {
   maskedValue: string;
   createdAt: string;
   scope: SecretScope;
-}
-
-function maskValue(value: string): string {
-  if (value.length <= 4) return '••••••••';
-  return '••••••••' + value.slice(-4);
 }
 
 function resolveScope(secret: VaultSecret): SecretScope {
@@ -37,17 +38,27 @@ function toMasked(secret: VaultSecret): MaskedSecret {
     id: secret.id,
     name: secret.name,
     policyIds: secret.policyIds,
-    maskedValue: maskValue(secret.value),
+    maskedValue: secret.value, // Already masked by getAllMasked()
     createdAt: secret.createdAt,
     scope: resolveScope(secret),
   };
 }
 
+/**
+ * Get a scoped SecretsRepository based on request context headers.
+ */
+function getScopedSecrets(request: FastifyRequest): SecretsRepository {
+  const scope: ScopeFilter = contextToScope(request.shieldContext);
+  if (scope.profileId) {
+    return getStorage().for(scope).secrets;
+  }
+  return getStorage().secrets;
+}
+
 export async function secretsRoutes(app: FastifyInstance): Promise<void> {
-  // List all secrets (values masked)
-  app.get('/secrets', async () => {
-    const vault = getVault();
-    const secrets = (await vault.get('secrets')) ?? [];
+  // List all secrets (values masked — works when vault is locked)
+  app.get('/secrets', async (request) => {
+    const secrets = getScopedSecrets(request).getAllMasked();
     return { data: secrets.map(toMasked) };
   });
 
@@ -73,13 +84,12 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
     return { data: Array.from(names).sort((a, b) => a.localeCompare(b)) };
   });
 
-  // Aggregate env variables required by installed skills
-  app.get('/secrets/skill-env', async () => {
+  // Aggregate env variables required by installed skills (works when locked)
+  app.get('/secrets/skill-env', async (request) => {
     const repo = app.skillManager.getRepository();
-    const vault = getVault();
-    const secrets = (await vault.get('secrets')) ?? [];
+    const secrets = getScopedSecrets(request).getAllMasked();
 
-    // Build vault lookup by name
+    // Build lookup by name
     const secretByName = new Map<string, VaultSecret>();
     for (const s of secrets) {
       secretByName.set(s.name, s);
@@ -181,69 +191,64 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
     return { data: result };
   });
 
-  // Create a new secret
+  // Create a new secret (requires vault unlocked for encryption)
   app.post<{ Body: { name: string; value: string; policyIds: string[]; scope?: SecretScope } }>(
     '/secrets',
-    async (request) => {
+    async (request, reply) => {
       const { name, value, policyIds, scope } = request.body;
 
       if (!name?.trim() || !value?.trim()) {
         return { success: false, error: 'Name and value are required' };
       }
 
-      const vault = getVault();
-      const secrets = (await vault.get('secrets')) ?? [];
-
       const resolvedScope = scope ?? (policyIds?.length > 0 ? 'policed' : 'global');
 
-      const newSecret: VaultSecret = {
-        id: crypto.randomUUID(),
-        name: name.trim(),
-        value,
-        policyIds: resolvedScope === 'standalone' ? [] : (policyIds ?? []),
-        createdAt: new Date().toISOString(),
-        scope: resolvedScope,
-      };
+      try {
+        const newSecret = getScopedSecrets(request).create({
+          name: name.trim(),
+          value,
+          scope: resolvedScope,
+          policyIds: resolvedScope === 'standalone' ? [] : (policyIds ?? []),
+        });
 
-      secrets.push(newSecret);
-      await vault.set('secrets', secrets);
+        // Sync secrets to broker (skip for standalone — not injected)
+        if (resolvedScope !== 'standalone') {
+          syncSecrets(loadConfig().policies).catch(() => { /* non-fatal */ });
+        }
 
-      // Sync secrets to broker (skip for standalone — not injected)
-      if (resolvedScope !== 'standalone') {
-        syncSecrets(loadConfig().policies).catch(() => { /* non-fatal */ });
+        return { data: toMasked(newSecret) };
+      } catch (err) {
+        if (err instanceof StorageLockedError) {
+          request.log.warn({ secret: name, op: 'create' }, 'Vault locked — cannot create secret');
+          return reply.status(423).send({ success: false, error: 'Vault is locked. Unlock to create secrets.' });
+        }
+        throw err;
       }
-
-      return { data: toMasked(newSecret) };
     }
   );
 
-  // Update a secret (e.g. policyIds, scope)
-  app.patch<{ Params: { id: string }; Body: { policyIds?: string[]; scope?: SecretScope } }>(
+  // Update a secret (scope, policyIds, value). Value changes require vault unlocked.
+  app.patch<{ Params: { id: string }; Body: { value?: string; policyIds?: string[]; scope?: SecretScope } }>(
     '/secrets/:id',
-    async (request) => {
+    async (request, reply) => {
       const { id } = request.params;
-      const { policyIds, scope } = request.body;
-      const vault = getVault();
-      const secrets = (await vault.get('secrets')) ?? [];
-      const idx = secrets.findIndex((s) => s.id === id);
-      if (idx === -1) return { success: false, error: 'Secret not found' };
+      const { value, policyIds, scope } = request.body;
 
-      if (scope !== undefined) {
-        secrets[idx].scope = scope;
-        if (scope === 'standalone') {
-          secrets[idx].policyIds = [];
+      try {
+        const updated = getScopedSecrets(request).update(id, { value, policyIds, scope });
+        if (!updated) return { success: false, error: 'Secret not found' };
+
+        // Always re-sync (scope/value changes may affect broker)
+        syncSecrets(loadConfig().policies).catch(() => { /* non-fatal */ });
+
+        return { data: toMasked(updated) };
+      } catch (err) {
+        if (err instanceof StorageLockedError) {
+          request.log.warn({ secretId: id, op: 'update' }, 'Vault locked — cannot update secret value');
+          return reply.status(423).send({ success: false, error: 'Vault is locked. Unlock to update secret values.' });
         }
+        throw err;
       }
-      if (policyIds !== undefined && secrets[idx].scope !== 'standalone') {
-        secrets[idx].policyIds = policyIds;
-      }
-
-      await vault.set('secrets', secrets);
-
-      // Always re-sync (scope changes may add/remove from synced-secrets.json)
-      syncSecrets(loadConfig().policies).catch(() => { /* non-fatal */ });
-
-      return { data: toMasked(secrets[idx]) };
     }
   );
 
@@ -252,15 +257,11 @@ export async function secretsRoutes(app: FastifyInstance): Promise<void> {
     '/secrets/:id',
     async (request) => {
       const { id } = request.params;
-      const vault = getVault();
-      const secrets = (await vault.get('secrets')) ?? [];
-      const filtered = secrets.filter((s) => s.id !== id);
+      const deleted = getScopedSecrets(request).delete(id);
 
-      if (filtered.length === secrets.length) {
+      if (!deleted) {
         return { success: false, error: 'Secret not found' };
       }
-
-      await vault.set('secrets', filtered);
 
       // Sync secrets to broker
       syncSecrets(loadConfig().policies).catch(() => { /* non-fatal */ });

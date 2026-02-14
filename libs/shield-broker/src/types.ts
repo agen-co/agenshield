@@ -49,6 +49,15 @@ export interface BrokerConfig {
 
   /** Daemon RPC URL for policy forwarding (default: http://127.0.0.1:5200) */
   daemonUrl?: string;
+
+  /** Profile ID for this broker instance */
+  profileId?: string;
+
+  /** Broker authentication token for daemon RPC */
+  profileToken?: string;
+
+  /** Path to per-profile daemon socket */
+  daemonSocketPath?: string;
 }
 
 /**

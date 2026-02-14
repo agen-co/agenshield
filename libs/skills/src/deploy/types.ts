@@ -39,8 +39,8 @@ export interface DeployAdapter {
   readonly id: string;
   readonly displayName: string;
 
-  /** Returns true if this adapter can handle the given target ID */
-  canDeploy(targetId: string | undefined): boolean;
+  /** Returns true if this adapter can handle the given profile ID */
+  canDeploy(profileId: string | undefined): boolean;
 
   /** Deploy a skill version to the target filesystem */
   deploy(context: DeployContext): Promise<DeployResult>;

@@ -20,9 +20,12 @@ import { marketplaceRoutes } from './marketplace';
 import { fsRoutes } from './fs';
 import { activityRoutes } from './activity';
 import { openclawRoutes } from './openclaw';
+import { profileRoutes } from './targets';
+import { policyGraphRoutes } from './policy-graph';
 import { rpcRoutes } from './rpc';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
+import { getSessionManager } from '../auth/session';
 import { registerShieldContext } from '../context';
 
 /**
@@ -31,6 +34,14 @@ import { registerShieldContext } from '../context';
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Register context extraction before all routes
   registerShieldContext(app);
+
+  // Touch idle auto-lock timer on every non-SSE API request
+  app.addHook('onRequest', (request, _reply, done) => {
+    if (!request.url.startsWith('/sse')) {
+      getSessionManager().touchActivity();
+    }
+    done();
+  });
 
   // Register SSE routes at root level (not under /api)
   await app.register(sseRoutes);
@@ -90,7 +101,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Error handler — log details and send structured response
   app.setErrorHandler((error: { statusCode?: number; message: string }, request, reply) => {
     const status = error.statusCode ?? 500;
-    console.error(`\x1b[31mERROR\x1b[0m ${request.method} ${request.url} \x1b[2m${status}\x1b[0m — ${error.message}`);
+    request.log.error({ err: error, statusCode: status }, `${request.method} ${request.url} — ${error.message}`);
     reply.status(status).send({
       success: false,
       error: { message: error.message, statusCode: status },
@@ -117,6 +128,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(fsRoutes);
       await api.register(activityRoutes);
       await api.register(openclawRoutes);
+      await api.register(profileRoutes);
+      await api.register(policyGraphRoutes);
     },
     { prefix: API_PREFIX }
   );

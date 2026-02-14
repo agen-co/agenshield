@@ -5,10 +5,27 @@
  * Domain types from @agenshield/ipc use camelCase.
  */
 
+export interface DbProfileRow {
+  id: string;
+  name: string;
+  type: string;
+  target_name: string | null;
+  preset_id: string | null;
+  description: string | null;
+  agent_username: string | null;
+  agent_uid: number | null;
+  agent_home_dir: string | null;
+  broker_username: string | null;
+  broker_uid: number | null;
+  broker_home_dir: string | null;
+  broker_token: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DbConfigRow {
   id: number;
-  target_id: string | null;
-  user_username: string | null;
+  profile_id: string | null;
   version: string | null;
   daemon_port: number | null;
   daemon_host: string | null;
@@ -25,8 +42,7 @@ export interface DbConfigRow {
 
 export interface DbPolicyRow {
   id: string;
-  target_id: string | null;
-  user_username: string | null;
+  profile_id: string | null;
   name: string;
   action: string;
   target: string;
@@ -64,22 +80,18 @@ export interface DbStateRow {
   updated_at: string;
 }
 
-export interface DbVaultSecretRow {
-  id: string;
-  target_id: string | null;
-  user_username: string | null;
-  name: string;
-  value_encrypted: string;
-  scope: string;
+export interface DbUserRow {
+  username: string;
+  uid: number;
+  type: string;
   created_at: string;
+  home_dir: string | null;
 }
 
-export interface DbVaultKvRow {
-  key: string;
-  target_id: string | null;
-  user_username: string | null;
-  value_encrypted: string;
-  updated_at: string;
+export interface DbGroupRow {
+  name: string;
+  gid: number;
+  type: string;
 }
 
 export interface DbSkillRow {
@@ -114,6 +126,7 @@ export interface DbSkillVersionRow {
   required_bins: string;
   required_env: string;
   extracted_commands: string;
+  backup_hash: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -131,8 +144,7 @@ export interface DbSkillFileRow {
 export interface DbSkillInstallationRow {
   id: string;
   skill_version_id: string;
-  target_id: string | null;
-  user_username: string | null;
+  profile_id: string | null;
   status: string;
   wrapper_path: string | null;
   auto_update: number;
@@ -143,7 +155,7 @@ export interface DbSkillInstallationRow {
 
 export interface DbActivityEventRow {
   id: number;
-  target_id: string | null;
+  profile_id: string | null;
   type: string;
   timestamp: string;
   data: string;
@@ -158,27 +170,10 @@ export interface DbAllowedCommandRow {
   category: string | null;
 }
 
-export interface DbTargetRow {
-  id: string;
-  name: string;
-  preset_id: string | null;
-  description: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface DbTargetUserRow {
-  target_id: string;
-  user_username: string;
-  role: string;
-  created_at: string;
-}
-
 export interface DbPolicyNodeRow {
   id: string;
   policy_id: string;
-  target_id: string | null;
-  user_username: string | null;
+  profile_id: string | null;
   dormant: number;
   metadata: string | null;
   created_at: string;
@@ -210,21 +205,16 @@ export interface DbEdgeActivationRow {
   consumed: number;
 }
 
+export interface DbSecretRow {
+  id: string;
+  profile_id: string | null;
+  name: string;
+  value_encrypted: string | null;
+  scope: string;
+  created_at: string;
+}
+
 export interface DbMetaRow {
   key: string;
   value: string;
-}
-
-export interface DbUserRow {
-  username: string;
-  uid: number;
-  type: string;
-  created_at: string;
-  home_dir: string;
-}
-
-export interface DbGroupRow {
-  name: string;
-  gid: number;
-  type: string;
 }

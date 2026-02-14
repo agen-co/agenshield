@@ -45,6 +45,7 @@ export const Q = {
   deleteVersion: `DELETE FROM ${VERSIONS} WHERE id = ?`,
 
   updateContentHash: `UPDATE ${VERSIONS} SET content_hash = @hash, hash_updated_at = @now, updated_at = @now WHERE id = @id`,
+  updateBackupHash: `UPDATE ${VERSIONS} SET backup_hash = @hash, updated_at = @now WHERE id = @id`,
 
   // ---- Files ----
   upsertFile: `
@@ -58,8 +59,8 @@ export const Q = {
 
   // ---- Installations ----
   insertInstallation: `
-    INSERT INTO ${INSTALLATIONS} (id, skill_version_id, target_id, user_username, status, wrapper_path, auto_update, pinned_version, installed_at, updated_at)
-    VALUES (@id, @skillVersionId, @targetId, @userUsername, @status, @wrapperPath, @autoUpdate, @pinnedVersion, @installedAt, @updatedAt)`,
+    INSERT INTO ${INSTALLATIONS} (id, skill_version_id, profile_id, status, wrapper_path, auto_update, pinned_version, installed_at, updated_at)
+    VALUES (@id, @skillVersionId, @profileId, @status, @wrapperPath, @autoUpdate, @pinnedVersion, @installedAt, @updatedAt)`,
 
   selectInstallationById: `SELECT * FROM ${INSTALLATIONS} WHERE id = ?`,
   deleteInstallation: `DELETE FROM ${INSTALLATIONS} WHERE id = ?`,

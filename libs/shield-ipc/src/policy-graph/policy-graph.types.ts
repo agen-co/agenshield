@@ -28,8 +28,7 @@ export type EdgeLifetime =
 export interface PolicyNode {
   id: string;
   policyId: string;
-  targetId?: string;
-  userUsername?: string;
+  profileId?: string;
   dormant: boolean;
   metadata?: unknown;
   createdAt: string;

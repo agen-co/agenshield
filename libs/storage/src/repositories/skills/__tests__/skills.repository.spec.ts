@@ -6,9 +6,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../migrations/001-initial-schema';
-import { SkillsManagerColumnsMigration } from '../../../migrations/003-skills-manager-columns';
+import { SchemaMigration } from '../../../migrations/001-schema';
 import { SkillsRepository } from '../skills.repository';
+
+function insertProfile(db: Database.Database, id: string, name?: string): void {
+  db.prepare(
+    `INSERT INTO profiles (id, name, type, created_at, updated_at)
+     VALUES (?, ?, 'target', datetime('now'), datetime('now'))`,
+  ).run(id, name ?? `Profile ${id}`);
+}
 
 function createTestDb(): { db: Database.Database; cleanup: () => void } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'storage-test-'));
@@ -16,8 +22,7 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
-  new SkillsManagerColumnsMigration().up(db);
+  new SchemaMigration().up(db);
   return {
     db,
     cleanup: () => {
@@ -468,26 +473,16 @@ describe('SkillsRepository', () => {
       expect(inst.updatedAt).toBeDefined();
     });
 
-    it('install with target and user scope', () => {
-      // Need to insert a target + user first
-      db.prepare(
-        `INSERT INTO targets (id, name, created_at, updated_at)
-         VALUES ('t1', 'Target 1', datetime('now'), datetime('now'))`,
-      ).run();
-      db.prepare(
-        `INSERT INTO users (username, uid, type, created_at, home_dir)
-         VALUES ('user1', 1001, 'agent', datetime('now'), '/home/user1')`,
-      ).run();
+    it('install with profile scope', () => {
+      insertProfile(db, 'p1');
 
       const inst = repo.install({
         skillVersionId: versionId,
-        targetId: 't1',
-        userUsername: 'user1',
+        profileId: 'p1',
         status: 'active',
       });
 
-      expect(inst.targetId).toBe('t1');
-      expect(inst.userUsername).toBe('user1');
+      expect(inst.profileId).toBe('p1');
     });
 
     it('uninstall removes an installation', () => {
@@ -519,18 +514,14 @@ describe('SkillsRepository', () => {
       expect(filtered[0].skillVersionId).toBe(versionId);
     });
 
-    it('getInstallations filters by targetId', () => {
-      db.prepare(
-        `INSERT INTO targets (id, name, created_at, updated_at) VALUES ('t1', 'Target 1', datetime('now'), datetime('now'))`,
-      ).run();
-      db.prepare(
-        `INSERT INTO targets (id, name, created_at, updated_at) VALUES ('t2', 'Target 2', datetime('now'), datetime('now'))`,
-      ).run();
+    it('getInstallations filters by profileId', () => {
+      insertProfile(db, 'p1');
+      insertProfile(db, 'p2');
 
-      repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active' });
-      repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active' });
+      repo.install({ skillVersionId: versionId, profileId: 'p1', status: 'active' });
+      repo.install({ skillVersionId: versionId, profileId: 'p2', status: 'active' });
 
-      const filtered = repo.getInstallations({ targetId: 't1' });
+      const filtered = repo.getInstallations({ profileId: 'p1' });
       expect(filtered).toHaveLength(1);
     });
 
@@ -561,21 +552,19 @@ describe('SkillsRepository', () => {
       expect(installed[0].version.id).toBe(versionId);
     });
 
-    it('getInstalledSkills respects target scope', () => {
-      db.prepare(
-        `INSERT INTO targets (id, name, created_at, updated_at) VALUES ('t1', 'Target 1', datetime('now'), datetime('now'))`,
-      ).run();
+    it('getInstalledSkills respects profile scope', () => {
+      insertProfile(db, 'p1');
 
       // Global installation
       repo.install({ skillVersionId: versionId, status: 'active' });
 
-      // Target-scoped installation (different skill)
+      // Profile-scoped installation (different skill)
       const s2 = repo.create(makeSkillInput({ slug: 'skill-2', name: 'Skill 2' }));
       const v2 = repo.addVersion(makeVersionInput(s2.id));
-      repo.install({ skillVersionId: v2.id, targetId: 't1', status: 'active' });
+      repo.install({ skillVersionId: v2.id, profileId: 'p1', status: 'active' });
 
-      // Query with targetId should return both global + target-scoped
-      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1' });
+      // Query with profileId should return both global + profile-scoped
+      const scopedRepo = new SkillsRepository(db, () => null, { profileId: 'p1' });
       const installed = scopedRepo.getInstalledSkills();
       expect(installed).toHaveLength(2);
     });
@@ -743,105 +732,87 @@ describe('SkillsRepository', () => {
       const v = repo.addVersion(makeVersionInput(skillId));
       versionId = v.id;
 
-      // Insert targets and users for scoping
-      db.prepare(`INSERT INTO targets (id, name, created_at, updated_at) VALUES ('t1', 'Target 1', datetime('now'), datetime('now'))`).run();
-      db.prepare(`INSERT INTO targets (id, name, created_at, updated_at) VALUES ('t2', 'Target 2', datetime('now'), datetime('now'))`).run();
-      db.prepare(`INSERT INTO users (username, uid, type, created_at, home_dir) VALUES ('alice', 1001, 'agent', datetime('now'), '/home/alice')`).run();
-      db.prepare(`INSERT INTO users (username, uid, type, created_at, home_dir) VALUES ('bob', 1002, 'agent', datetime('now'), '/home/bob')`).run();
+      // Insert profiles for scoping
+      insertProfile(db, 'p1', 'Profile 1');
+      insertProfile(db, 'p2', 'Profile 2');
     });
 
-    it('getInstallations with scope returns global + matching target only', () => {
+    it('getInstallations with scope returns global + matching profile only', () => {
       const global = repo.install({ skillVersionId: versionId, status: 'active' });
-      const t1 = repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active' });
-      const t2 = repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active' });
+      const p1 = repo.install({ skillVersionId: versionId, profileId: 'p1', status: 'active' });
+      const p2 = repo.install({ skillVersionId: versionId, profileId: 'p2', status: 'active' });
 
-      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1' });
+      const scopedRepo = new SkillsRepository(db, () => null, { profileId: 'p1' });
       const result = scopedRepo.getInstallations();
 
       expect(result).toHaveLength(2);
       const ids = result.map((r) => r.id);
       expect(ids).toContain(global.id);
-      expect(ids).toContain(t1.id);
-      expect(ids).not.toContain(t2.id);
+      expect(ids).toContain(p1.id);
+      expect(ids).not.toContain(p2.id);
     });
 
     it('getInstallations unscoped returns all (backward compat)', () => {
       repo.install({ skillVersionId: versionId, status: 'active' });
-      repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active' });
-      repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active' });
+      repo.install({ skillVersionId: versionId, profileId: 'p1', status: 'active' });
+      repo.install({ skillVersionId: versionId, profileId: 'p2', status: 'active' });
 
       const result = repo.getInstallations();
       expect(result).toHaveLength(3);
     });
 
-    it('getAutoUpdatable with scope returns global + matching target only', () => {
+    it('getAutoUpdatable with scope returns global + matching profile only', () => {
       repo.install({ skillVersionId: versionId, status: 'active', autoUpdate: true });
-      repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active', autoUpdate: true });
-      repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active', autoUpdate: true });
+      repo.install({ skillVersionId: versionId, profileId: 'p1', status: 'active', autoUpdate: true });
+      repo.install({ skillVersionId: versionId, profileId: 'p2', status: 'active', autoUpdate: true });
 
-      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1' });
+      const scopedRepo = new SkillsRepository(db, () => null, { profileId: 'p1' });
       const result = scopedRepo.getAutoUpdatable(skillId);
 
       expect(result).toHaveLength(2);
-      const targetIds = result.map((r) => r.targetId);
-      expect(targetIds).toContain(undefined); // global
-      expect(targetIds).toContain('t1');
+      const profileIds = result.map((r) => r.profileId);
+      expect(profileIds).toContain(undefined); // global
+      expect(profileIds).toContain('p1');
     });
 
     it('getAutoUpdatable unscoped returns all eligible', () => {
       repo.install({ skillVersionId: versionId, status: 'active', autoUpdate: true });
-      repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active', autoUpdate: true });
-      repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active', autoUpdate: true });
+      repo.install({ skillVersionId: versionId, profileId: 'p1', status: 'active', autoUpdate: true });
+      repo.install({ skillVersionId: versionId, profileId: 'p2', status: 'active', autoUpdate: true });
 
       const result = repo.getAutoUpdatable(skillId);
       expect(result).toHaveLength(3);
     });
 
     it('getInstallationById ignores scope', () => {
-      const t2Inst = repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active' });
+      const p2Inst = repo.install({ skillVersionId: versionId, profileId: 'p2', status: 'active' });
 
-      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1' });
-      const found = scopedRepo.getInstallationById(t2Inst.id);
+      const scopedRepo = new SkillsRepository(db, () => null, { profileId: 'p1' });
+      const found = scopedRepo.getInstallationById(p2Inst.id);
 
       expect(found).not.toBeNull();
-      expect(found!.id).toBe(t2Inst.id);
-      expect(found!.targetId).toBe('t2');
+      expect(found!.id).toBe(p2Inst.id);
+      expect(found!.profileId).toBe('p2');
     });
 
     it('getInstallationById returns null for non-existent id', () => {
       expect(repo.getInstallationById('non-existent')).toBeNull();
     });
 
-    it('user-level scope includes global + target + target+user, not other users', () => {
-      const global = repo.install({ skillVersionId: versionId, status: 'active' });
-      const t1Only = repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active' });
-      const t1Alice = repo.install({ skillVersionId: versionId, targetId: 't1', userUsername: 'alice', status: 'active' });
-      const t1Bob = repo.install({ skillVersionId: versionId, targetId: 't1', userUsername: 'bob', status: 'active' });
-
-      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1', userUsername: 'alice' });
-      const result = scopedRepo.getInstallations();
-
-      const ids = result.map((r) => r.id);
-      expect(ids).toContain(global.id);
-      expect(ids).toContain(t1Only.id);
-      expect(ids).toContain(t1Alice.id);
-      expect(ids).not.toContain(t1Bob.id);
-    });
-
     it('getInstallations scope combines with explicit filter', () => {
       repo.install({ skillVersionId: versionId, status: 'active' });
-      repo.install({ skillVersionId: versionId, targetId: 't1', status: 'active' });
-      repo.install({ skillVersionId: versionId, targetId: 't2', status: 'active' });
+      repo.install({ skillVersionId: versionId, profileId: 'p1', status: 'active' });
+      repo.install({ skillVersionId: versionId, profileId: 'p2', status: 'active' });
 
       // Create a second version's installation
       const v2 = repo.addVersion(makeVersionInput(skillId, { version: '2.0.0' }));
-      repo.install({ skillVersionId: v2.id, targetId: 't1', status: 'active' });
+      repo.install({ skillVersionId: v2.id, profileId: 'p1', status: 'active' });
 
-      const scopedRepo = new SkillsRepository(db, () => null, { targetId: 't1' });
+      const scopedRepo = new SkillsRepository(db, () => null, { profileId: 'p1' });
       // Filter by skillVersionId within scope
       const result = scopedRepo.getInstallations({ skillVersionId: versionId });
 
-      expect(result).toHaveLength(2); // global + t1 for versionId only
+      expect(result).toHaveLength(2); // global + p1 for versionId only
     });
   });
 

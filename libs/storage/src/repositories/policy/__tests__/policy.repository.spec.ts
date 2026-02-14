@@ -8,8 +8,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../migrations/001-initial-schema';
+import { SchemaMigration } from '../../../migrations/001-schema';
 import { PolicyRepository } from '../policy.repository';
+
+function insertProfile(db: Database.Database, id: string, name?: string): void {
+  db.prepare(
+    `INSERT INTO profiles (id, name, type, created_at, updated_at)
+     VALUES (?, ?, 'target', datetime('now'), datetime('now'))`,
+  ).run(id, name ?? `Profile ${id}`);
+}
 
 // ---------------------------------------------------------------------------
 // Test utilities
@@ -21,7 +28,7 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
+  new SchemaMigration().up(db);
   return {
     db,
     cleanup: () => {
@@ -35,28 +42,15 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
 const getKey = () => null;
 
 /**
- * Insert parent rows required by foreign key constraints.
- * Policies reference targets(id) and users(username).
+ * Insert parent profile rows required by foreign key constraints.
  */
 function seedScopeFixtures(db: Database.Database): void {
-  db.prepare(
-    `INSERT INTO targets (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))`,
-  ).run('target-a', 'Target A');
-  db.prepare(
-    `INSERT INTO targets (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))`,
-  ).run('target-b', 'Target B');
-  db.prepare(
-    `INSERT INTO targets (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))`,
-  ).run('target-x', 'Target X');
-  db.prepare(
-    `INSERT INTO targets (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))`,
-  ).run('target-z', 'Target Z');
-  db.prepare(
-    `INSERT INTO targets (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))`,
-  ).run('target-del', 'Target Del');
-  db.prepare(
-    `INSERT INTO targets (id, name, created_at, updated_at) VALUES (?, ?, datetime('now'), datetime('now'))`,
-  ).run('target-preset', 'Target Preset');
+  insertProfile(db, 'profile-a', 'Profile A');
+  insertProfile(db, 'profile-b', 'Profile B');
+  insertProfile(db, 'profile-x', 'Profile X');
+  insertProfile(db, 'profile-z', 'Profile Z');
+  insertProfile(db, 'profile-del', 'Profile Del');
+  insertProfile(db, 'profile-preset', 'Profile Preset');
 }
 
 let counter = 0;
@@ -253,22 +247,22 @@ describe('PolicyRepository', () => {
   describe('Scoping', () => {
     beforeEach(() => seedScopeFixtures(db));
 
-    it('should create policies with different targets and filter by scope', () => {
+    it('should create policies with different profiles and filter by scope', () => {
       repo.create(makePolicy({ id: 'global-1', target: 'url' }));
-      const scopedA = new PolicyRepository(db, getKey, { targetId: 'target-a' });
-      const scopedB = new PolicyRepository(db, getKey, { targetId: 'target-b' });
-      scopedA.create(makePolicy({ id: 'target-1', target: 'command' }));
-      scopedB.create(makePolicy({ id: 'target-2', target: 'command' }));
+      const scopedA = new PolicyRepository(db, getKey, { profileId: 'profile-a' });
+      const scopedB = new PolicyRepository(db, getKey, { profileId: 'profile-b' });
+      scopedA.create(makePolicy({ id: 'profile-1', target: 'command' }));
+      scopedB.create(makePolicy({ id: 'profile-2', target: 'command' }));
 
-      // Querying with target-a scope should return global + target-a policies
+      // Querying with profile-a scope should return global + profile-a policies
       const results = scopedA.getAll();
       const ids = results.map((p) => p.id).sort();
-      expect(ids).toEqual(['global-1', 'target-1']);
+      expect(ids).toEqual(['global-1', 'profile-1']);
     });
 
     it('should return only global policies when no scope is provided', () => {
       repo.create(makePolicy({ id: 'global-only' }));
-      const scopedA = new PolicyRepository(db, getKey, { targetId: 'target-a' });
+      const scopedA = new PolicyRepository(db, getKey, { profileId: 'profile-a' });
       scopedA.create(makePolicy({ id: 'scoped' }));
 
       // getAll() without scope returns ALL policies (no scope filtering)
@@ -278,38 +272,38 @@ describe('PolicyRepository', () => {
 
     it('should count policies filtered by scope', () => {
       repo.create(makePolicy());
-      const scopedX = new PolicyRepository(db, getKey, { targetId: 'target-x' });
+      const scopedX = new PolicyRepository(db, getKey, { profileId: 'profile-x' });
       scopedX.create(makePolicy());
 
-      // Global scope includes base policies
-      const globalCount = scopedX.count();
-      // Should include both the base policy and the target-x policy
-      expect(globalCount).toBe(2);
+      // Scoped count includes base policies
+      const scopedCount = scopedX.count();
+      // Should include both the base policy and the profile-x policy
+      expect(scopedCount).toBe(2);
     });
 
     it('should getEnabled with scope filter', () => {
       repo.create(makePolicy({ id: 'g-enabled', enabled: true }));
       repo.create(makePolicy({ id: 'g-disabled', enabled: false }));
-      const scopedZ = new PolicyRepository(db, getKey, { targetId: 'target-z' });
-      scopedZ.create(makePolicy({ id: 't-enabled', enabled: true }));
+      const scopedZ = new PolicyRepository(db, getKey, { profileId: 'profile-z' });
+      scopedZ.create(makePolicy({ id: 'p-enabled', enabled: true }));
 
       const enabled = scopedZ.getEnabled();
       const ids = enabled.map((p) => p.id).sort();
-      expect(ids).toEqual(['g-enabled', 't-enabled']);
+      expect(ids).toEqual(['g-enabled', 'p-enabled']);
     });
 
     it('should deleteAll only for a specific scope', () => {
       repo.create(makePolicy({ id: 'base-pol' }));
-      const scopedDel = new PolicyRepository(db, getKey, { targetId: 'target-del' });
-      scopedDel.create(makePolicy({ id: 'target-pol' }));
+      const scopedDel = new PolicyRepository(db, getKey, { profileId: 'profile-del' });
+      scopedDel.create(makePolicy({ id: 'profile-pol' }));
 
-      // Delete only target-scoped policies
-      const deleted = new PolicyRepository(db, getKey, { targetId: 'target-del', userUsername: null }).deleteAll();
+      // Delete only profile-scoped policies
+      const deleted = new PolicyRepository(db, getKey, { profileId: 'profile-del' }).deleteAll();
       expect(deleted).toBe(1);
 
       // Base policy still exists
       expect(repo.getById('base-pol')).not.toBeNull();
-      expect(repo.getById('target-pol')).toBeNull();
+      expect(repo.getById('profile-pol')).toBeNull();
     });
   });
 
@@ -349,7 +343,7 @@ describe('PolicyRepository', () => {
 
     it('should seed preset with scope', () => {
       seedScopeFixtures(db);
-      const scopedPreset = new PolicyRepository(db, getKey, { targetId: 'target-preset' });
+      const scopedPreset = new PolicyRepository(db, getKey, { profileId: 'profile-preset' });
       const count = scopedPreset.seedPreset('openclaw');
       expect(count).toBeGreaterThan(0);
 

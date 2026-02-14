@@ -6,6 +6,7 @@
  */
 
 import { BrokerClient, type SkillInstallFile, type SkillInstallResult, type SkillUninstallResult } from '@agenshield/broker';
+import type { SyncedSecrets } from '@agenshield/ipc';
 
 // Singleton broker client instance
 let brokerClient: BrokerClient | null = null;
@@ -165,6 +166,32 @@ export async function rmViaBroker(targetPath: string): Promise<void> {
   });
   if (result.exitCode !== 0) {
     throw new Error(`rm via broker failed: ${result.stderr}`);
+  }
+}
+
+/**
+ * Push decrypted secrets to the broker via IPC (Unix socket only).
+ * Non-fatal on failure — the broker may not be running.
+ */
+export async function pushSecretsToBroker(synced: SyncedSecrets): Promise<void> {
+  try {
+    const client = getBrokerClient();
+    await client.secretsSync(synced);
+  } catch {
+    // Non-fatal: broker may not be running
+  }
+}
+
+/**
+ * Clear the broker's in-memory secrets (e.g. on vault lock or daemon shutdown).
+ * Non-fatal on failure.
+ */
+export async function clearBrokerSecrets(): Promise<void> {
+  try {
+    const client = getBrokerClient();
+    await client.secretsSync({ clear: true });
+  } catch {
+    // Non-fatal: broker may not be running
   }
 }
 

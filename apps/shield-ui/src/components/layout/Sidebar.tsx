@@ -38,6 +38,7 @@ import {
   Activity,
   AlertTriangle,
   ExternalLink,
+  Monitor,
 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { useSnapshot } from 'valtio';
@@ -45,6 +46,7 @@ import { eventStore } from '../../state/events';
 import { useStatus, useOpenClawDashboardUrl } from '../../api/hooks';
 import { notify } from '../../stores/notifications';
 import { OpenClawTokenDialog } from '../shared/OpenClawTokenDialog';
+import { ScopeSelector } from './ScopeSelector';
 
 const DRAWER_WIDTH = tokens.sidebar.width;
 
@@ -60,6 +62,7 @@ interface SidebarProps {
 }
 
 const menuItems = [
+  { path: '/canvas', label: 'Canvas', icon: <Monitor size={20} /> },
   { path: '/', label: 'Overview', icon: <LayoutDashboard size={20} /> },
   { path: '/policies', label: 'Policies', icon: <ShieldCheck size={20} /> },
   { path: '/skills', label: 'Skills', icon: <Zap size={20} /> },
@@ -125,6 +128,9 @@ export function Sidebar({
           </IconButton>
         </Box>
       </Box>
+
+      {/* Scope selector */}
+      <ScopeSelector />
 
       <Divider />
 

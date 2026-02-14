@@ -2,19 +2,33 @@
  * Configuration path utilities for AgenShield daemon
  */
 
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { CONFIG_DIR, CONFIG_FILE, PID_FILE, LOG_FILE, SKILL_BACKUP_DIR } from '@agenshield/ipc';
 
 /**
- * Get the configuration directory path
+ * Get the configuration directory path.
+ * Respects AGENSHIELD_CONFIG_DIR env var for dev/test isolation.
  */
 export function getConfigDir(): string {
+  const override = process.env['AGENSHIELD_CONFIG_DIR'];
+  if (override) return path.resolve(override);
   return path.join(os.homedir(), CONFIG_DIR);
 }
 
 /**
- * Get the configuration file path
+ * Ensure the config directory exists (creates with 0o700 if missing).
+ */
+export function ensureConfigDir(): void {
+  const dir = getConfigDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+}
+
+/**
+ * @deprecated Config is now stored in SQLite. Use getConfigDir() for the DB directory.
  */
 export function getConfigPath(): string {
   return path.join(getConfigDir(), CONFIG_FILE);

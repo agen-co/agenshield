@@ -23,7 +23,7 @@ export class ActivityRepository extends BaseRepository {
     const redactedData = redact(data.data);
 
     const result = this.db.prepare(Q.insert).run({
-      targetId: data.targetId ?? null,
+      profileId: data.profileId ?? null,
       type: data.type,
       timestamp: data.timestamp,
       data: JSON.stringify(redactedData),
@@ -32,7 +32,7 @@ export class ActivityRepository extends BaseRepository {
 
     return {
       id: Number(result.lastInsertRowid),
-      targetId: data.targetId,
+      profileId: data.profileId,
       type: data.type,
       timestamp: data.timestamp,
       data: redactedData,
@@ -47,7 +47,7 @@ export class ActivityRepository extends BaseRepository {
     const conditions: string[] = [];
     const params: Record<string, unknown> = {};
 
-    if (opts?.targetId) { conditions.push('target_id = @targetId'); params.targetId = opts.targetId; }
+    if (opts?.profileId) { conditions.push('profile_id = @profileId'); params.profileId = opts.profileId; }
     if (opts?.type) { conditions.push('type = @type'); params.type = opts.type; }
     if (opts?.since) { conditions.push('timestamp >= @since'); params.since = opts.since; }
 
@@ -66,7 +66,7 @@ export class ActivityRepository extends BaseRepository {
     const conditions: string[] = [];
     const params: Record<string, unknown> = {};
 
-    if (opts?.targetId) { conditions.push('target_id = @targetId'); params.targetId = opts.targetId; }
+    if (opts?.profileId) { conditions.push('profile_id = @profileId'); params.profileId = opts.profileId; }
     if (opts?.type) { conditions.push('type = @type'); params.type = opts.type; }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

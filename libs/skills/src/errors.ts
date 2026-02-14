@@ -71,3 +71,13 @@ export class AnalysisError extends SkillsError {
     this.statusCode = statusCode;
   }
 }
+
+export class BackupTamperError extends SkillsError {
+  public readonly versionId: string;
+
+  constructor(versionId: string) {
+    super(`Backup files for version ${versionId} have been tampered with`, 'BACKUP_TAMPERED');
+    this.name = 'BackupTamperError';
+    this.versionId = versionId;
+  }
+}

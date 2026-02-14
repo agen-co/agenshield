@@ -109,11 +109,13 @@ export async function checkPasscode(passcode: string): Promise<boolean> {
 }
 
 /**
- * Check if protection is enabled
+ * Check if protection is enabled.
+ * Defaults to true (secure-by-default) when no state exists yet,
+ * so the UI shows the passcode setup dialog on first launch.
  */
 export function isProtectionEnabled(): boolean {
   const state = loadState();
-  return state.passcodeProtection?.enabled ?? false;
+  return state.passcodeProtection?.enabled ?? true;
 }
 
 /**

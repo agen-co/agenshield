@@ -16,6 +16,7 @@ import type {
 import type { PolicyEnforcer } from './policies/enforcer.js';
 import type { AuditLogger } from './audit/logger.js';
 import type { CommandAllowlist } from './policies/command-allowlist.js';
+import type { BrokerAuth } from './handlers/types.js';
 import * as handlers from './handlers/index.js';
 import { forwardPolicyToDaemon } from './daemon-forward.js';
 
@@ -42,6 +43,7 @@ export interface HttpFallbackServerOptions {
   policyEnforcer: PolicyEnforcer;
   auditLogger: AuditLogger;
   commandAllowlist: CommandAllowlist;
+  brokerAuth?: BrokerAuth;
 }
 
 export class HttpFallbackServer {
@@ -50,12 +52,14 @@ export class HttpFallbackServer {
   private policyEnforcer: PolicyEnforcer;
   private auditLogger: AuditLogger;
   private commandAllowlist: CommandAllowlist;
+  private brokerAuth?: BrokerAuth;
 
   constructor(options: HttpFallbackServerOptions) {
     this.config = options.config;
     this.policyEnforcer = options.policyEnforcer;
     this.auditLogger = options.auditLogger;
     this.commandAllowlist = options.commandAllowlist;
+    this.brokerAuth = options.brokerAuth;
   }
 
   /**
@@ -222,7 +226,7 @@ export class HttpFallbackServer {
       if (!policyResult.allowed) {
         const target = this.extractTarget(request);
         const daemonUrl = this.config.daemonUrl || 'http://127.0.0.1:5200';
-        const override = await forwardPolicyToDaemon(request.method, target, daemonUrl);
+        const override = await forwardPolicyToDaemon(request.method, target, daemonUrl, undefined, this.brokerAuth);
         if (override) {
           finalPolicy = override;
         }
@@ -257,6 +261,7 @@ export class HttpFallbackServer {
         secretVault: null as any, // Not available over HTTP
         commandAllowlist: this.commandAllowlist,
         daemonUrl: this.config.daemonUrl,
+        brokerAuth: this.brokerAuth,
       });
 
       // Log success

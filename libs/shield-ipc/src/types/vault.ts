@@ -59,6 +59,8 @@ export interface VaultSecret {
    *   policyIds.length === 0 => 'global', else => 'policed'
    */
   scope?: SecretScope;
+  /** Profile ID this secret is scoped to (undefined/null = global) */
+  profileId?: string | null;
 }
 
 /**
@@ -86,7 +88,7 @@ export interface SkillEnvRequirement {
 
 /**
  * A policy binding that carries secrets for sync to the broker.
- * Written by the daemon to synced-secrets.json, read by the broker.
+ * Pushed from daemon to broker via IPC (secrets_sync over Unix socket).
  */
 export interface SecretPolicyBinding {
   /** The daemon policy ID */
@@ -100,8 +102,9 @@ export interface SecretPolicyBinding {
 }
 
 /**
- * Format of the synced-secrets.json file written by the daemon, read by the broker.
+ * Payload pushed from daemon to broker via IPC (secrets_sync).
  * Contains decrypted secrets grouped by policy bindings for automatic injection.
+ * No longer written to disk — held in broker memory only.
  */
 export interface SyncedSecrets {
   /** Schema version */
@@ -130,4 +133,6 @@ export interface VaultContents {
   secrets?: VaultSecret[];
   /** Unique per-installation key for skill trust verification */
   installationKey?: string;
+  /** HMAC-SHA256 of config.json policies for tamper detection */
+  configHmac?: string;
 }

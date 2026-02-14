@@ -69,8 +69,8 @@ export class DaemonDeployAdapter implements DeployAdapter {
     this.devMode = options.devMode ?? false;
   }
 
-  canDeploy(targetId: string | undefined): boolean {
-    return targetId === undefined || targetId === 'daemon' || targetId === 'openclaw';
+  canDeploy(profileId: string | undefined): boolean {
+    return profileId === undefined || profileId === 'daemon' || profileId === 'openclaw';
   }
 
   async deploy(context: DeployContext): Promise<DeployResult> {
@@ -128,7 +128,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
     addSkillPolicy(skill.slug);
 
     // 4. Handle preset policies for master AgenCo skill
-    if (context.installation.targetId === undefined || context.skill.slug === 'ag-agenco') {
+    if (context.installation.profileId === undefined || context.skill.slug === 'ag-agenco') {
       this.applyPresetPolicies(version);
     }
 

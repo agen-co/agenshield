@@ -5,8 +5,7 @@
 import { z } from 'zod';
 
 export const ScopeFilterSchema = z.object({
-  targetId: z.string().nullable().optional(),
-  userUsername: z.string().nullable().optional(),
+  profileId: z.string().nullable().optional(),
 });
 
 export const MetaEntrySchema = z.object({

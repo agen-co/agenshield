@@ -25,8 +25,7 @@ export class PolicyRepository extends BaseRepository {
 
     this.db.prepare(Q.insert).run({
       id: policy.id,
-      targetId: this.scope?.targetId ?? null,
-      userUsername: this.scope?.userUsername ?? null,
+      profileId: this.scope?.profileId ?? null,
       name: policy.name,
       action: policy.action,
       target: policy.target,
@@ -53,7 +52,7 @@ export class PolicyRepository extends BaseRepository {
   }
 
   /**
-   * Get all policies for a scope (UNION of base + target + target+user).
+   * Get all policies for a scope (UNION of global + profile).
    */
   getAll(): PolicyConfig[] {
     const { clause, params } = buildPolicyScopeWhere(this.scope);
@@ -94,13 +93,13 @@ export class PolicyRepository extends BaseRepository {
    * Delete all policies for a scope.
    */
   deleteAll(): number {
-    const { clause, params } = buildScopeWhere(this.scope ?? { targetId: null, userUsername: null });
+    const { clause, params } = buildScopeWhere(this.scope ?? { profileId: null });
     const result = this.db.prepare(Q.deleteScoped(clause)).run(params);
     return result.changes;
   }
 
   /**
-   * Seed preset policies for a target (if not already present).
+   * Seed preset policies for a profile (if not already present).
    */
   seedPreset(presetId: string): number {
     const preset = POLICY_PRESETS.find((p) => p.id === presetId);

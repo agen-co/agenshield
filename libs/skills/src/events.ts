@@ -34,7 +34,7 @@ export type SkillEvent =
   | { type: 'upload:completed'; operationId: string; skill: Skill; version: SkillVersion }
   | { type: 'upload:error'; operationId: string; skillSlug: string; error: string }
   // Install
-  | { type: 'install:started'; operationId: string; skillSlug: string; targetId?: string; userUsername?: string }
+  | { type: 'install:started'; operationId: string; skillSlug: string; profileId?: string }
   | { type: 'install:downloading'; progress: ProgressInfo }
   | { type: 'install:analyzing'; progress: ProgressInfo }
   | { type: 'install:registering'; progress: ProgressInfo }

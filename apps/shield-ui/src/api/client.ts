@@ -21,6 +21,8 @@ import type {
   InstallSkillRequest,
 } from '@agenshield/ipc';
 
+import { scopeStore } from '../state/scope';
+
 const BASE_URL = '/api';
 
 const SESSION_TOKEN_KEY = 'agenshield_session_token';
@@ -42,6 +44,11 @@ function buildHeaders(extra?: HeadersInit, hasBody?: boolean): HeadersInit {
   // Shield context headers
   headers['x-shield-source'] = 'ui';
   headers['x-shield-trace-id'] = crypto.randomUUID();
+
+  // Scope headers for multi-tenancy
+  if (scopeStore.profileId) {
+    headers['x-shield-profile-id'] = scopeStore.profileId;
+  }
 
   if (hasBody !== false) {
     headers['Content-Type'] = 'application/json';
@@ -307,6 +314,25 @@ export const api = {
     getDashboardUrl: () =>
       request<{ success: boolean; data: { url: string; token: string } }>('/openclaw/dashboard-url'),
   },
+
+  // Profile management
+  getProfiles: () =>
+    request<{ data: Array<{ id: string; name: string; type: string; targetName?: string; presetId?: string; description?: string; createdAt: string; updatedAt: string }> }>('/profiles'),
+
+  createProfile: (body: { id: string; name: string; type?: string; targetName?: string; presetId?: string; description?: string }) =>
+    request<{ data: { id: string; name: string; type: string; createdAt: string; updatedAt: string } }>('/profiles', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  updateProfile: (id: string, body: { name?: string; description?: string; presetId?: string }) =>
+    request<{ data: { id: string; name: string; type: string; createdAt: string; updatedAt: string } }>(`/profiles/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  deleteProfile: (id: string) =>
+    request<{ deleted: boolean }>(`/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   // Factory reset
   factoryReset: () =>

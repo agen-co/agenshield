@@ -125,7 +125,7 @@ export * from './constants';
 export * from './version-features';
 
 // Domain types & schemas
-export * from './targets/index';
+export * from './profiles/index';
 export * from './skills/index';
 export * from './activity/index';
 export * from './commands/index';

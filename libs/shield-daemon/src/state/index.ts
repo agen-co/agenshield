@@ -1,21 +1,13 @@
 /**
  * System state manager
  *
- * Manages the state.json file for tracking AgenShield system state.
+ * Reads and writes state from SQLite via StateRepository.
+ * Falls back to defaults when no state row exists yet.
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type { SystemState, AgenCoState, DaemonState, UserState, GroupState, InstallationState, PasscodeProtectionState } from '@agenshield/ipc';
-import { STATE_FILE, DEFAULT_PORT } from '@agenshield/ipc';
-import { getConfigDir } from '../config/paths';
-
-/**
- * Get the state file path
- */
-export function getStatePath(): string {
-  return path.join(getConfigDir(), STATE_FILE);
-}
+import { DEFAULT_PORT } from '@agenshield/ipc';
+import { getStorage } from '@agenshield/storage';
 
 /**
  * Get default system state
@@ -44,47 +36,90 @@ export function getDefaultState(): SystemState {
 }
 
 /**
- * Load system state from disk
- * Returns default state if file doesn't exist or is invalid
+ * Load system state from DB.
+ * Returns default state if no row exists or storage isn't initialized.
  */
 export function loadState(): SystemState {
-  const statePath = getStatePath();
-
-  if (!fs.existsSync(statePath)) {
-    return getDefaultState();
-  }
-
   try {
-    const raw = fs.readFileSync(statePath, 'utf-8');
-    const parsed = JSON.parse(raw);
+    const storage = getStorage();
+    const state = storage.state.getFull();
+    if (!state) return getDefaultState();
 
     // Merge with defaults to ensure all fields exist
+    const defaults = getDefaultState();
     return {
-      ...getDefaultState(),
-      ...parsed,
-      daemon: { ...getDefaultState().daemon, ...parsed.daemon },
-      agenco: { ...getDefaultState().agenco, ...parsed.agenco },
-      installation: { ...getDefaultState().installation, ...parsed.installation },
+      ...defaults,
+      ...state,
+      daemon: { ...defaults.daemon, ...state.daemon },
+      agenco: { ...defaults.agenco, ...state.agenco },
+      installation: { ...defaults.installation, ...state.installation },
     };
-  } catch (error) {
-    console.error('Failed to load state file:', (error as Error).message);
+  } catch {
     return getDefaultState();
   }
 }
 
 /**
- * Save system state to disk
+ * Save full system state to DB.
+ * Writes to state table + users/groups tables.
  */
 export function saveState(state: SystemState): void {
-  const statePath = getStatePath();
-  const configDir = getConfigDir();
+  const storage = getStorage();
+  const repo = storage.state;
 
-  // Ensure config directory exists
-  if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  // Ensure state row exists
+  repo.init(state.version, state.installedAt);
+
+  // Update all sub-states
+  repo.updateDaemon({
+    running: state.daemon.running,
+    pid: state.daemon.pid ?? null,
+    startedAt: state.daemon.startedAt ?? null,
+    port: state.daemon.port,
+  });
+
+  repo.updateAgenCo({
+    authenticated: state.agenco.authenticated,
+    lastAuthAt: state.agenco.lastAuthAt ?? null,
+    connectedIntegrations: state.agenco.connectedIntegrations,
+  });
+
+  repo.updateInstallation({
+    preset: state.installation.preset,
+    baseName: state.installation.baseName,
+    prefix: state.installation.prefix ?? null,
+    wrappers: state.installation.wrappers,
+    seatbeltInstalled: state.installation.seatbeltInstalled,
+  });
+
+  if (state.passcodeProtection) {
+    repo.updatePasscode({
+      enabled: state.passcodeProtection.enabled,
+      allowAnonymousReadOnly: state.passcodeProtection.allowAnonymousReadOnly,
+      failedAttempts: state.passcodeProtection.failedAttempts,
+      lockedUntil: state.passcodeProtection.lockedUntil ?? null,
+    });
   }
 
-  fs.writeFileSync(statePath, JSON.stringify(state, null, 2), { mode: 0o644 });
+  repo.updateVersion(state.version);
+
+  // Sync users — replace all
+  const currentUsers = repo.getUsers();
+  for (const u of currentUsers) {
+    repo.removeUser(u.username);
+  }
+  for (const u of state.users) {
+    repo.addUser(u);
+  }
+
+  // Sync groups — replace all
+  const currentGroups = repo.getGroups();
+  for (const g of currentGroups) {
+    repo.removeGroup(g.name);
+  }
+  for (const g of state.groups) {
+    repo.addGroup(g);
+  }
 }
 
 /**
@@ -121,40 +156,48 @@ export function updateState(updates: Partial<SystemState>): SystemState {
  * Update daemon state
  */
 export function updateDaemonState(updates: Partial<DaemonState>): SystemState {
-  const current = loadState();
-  current.daemon = { ...current.daemon, ...updates };
-  saveState(current);
-  return current;
+  try {
+    getStorage().state.updateDaemon(updates);
+  } catch {
+    // Storage not initialized — no-op
+  }
+  return loadState();
 }
 
 /**
  * Update AgenCo state
  */
 export function updateAgenCoState(updates: Partial<AgenCoState>): SystemState {
-  const current = loadState();
-  current.agenco = { ...current.agenco, ...updates };
-  saveState(current);
-  return current;
+  try {
+    getStorage().state.updateAgenCo(updates);
+  } catch {
+    // Storage not initialized — no-op
+  }
+  return loadState();
 }
 
 /**
  * Update installation state
  */
 export function updateInstallationState(updates: Partial<InstallationState>): SystemState {
-  const current = loadState();
-  current.installation = { ...current.installation, ...updates };
-  saveState(current);
-  return current;
+  try {
+    getStorage().state.updateInstallation(updates);
+  } catch {
+    // Storage not initialized — no-op
+  }
+  return loadState();
 }
 
 /**
  * Update passcode protection state
  */
 export function updatePasscodeProtectionState(updates: Partial<PasscodeProtectionState>): SystemState {
-  const current = loadState();
-  current.passcodeProtection = { ...current.passcodeProtection, ...updates } as PasscodeProtectionState;
-  saveState(current);
-  return current;
+  try {
+    getStorage().state.updatePasscode(updates);
+  } catch {
+    // Storage not initialized — no-op
+  }
+  return loadState();
 }
 
 /**
@@ -169,56 +212,48 @@ export function getPasscodeProtectionState(): PasscodeProtectionState | undefine
  * Add a user to state
  */
 export function addUserState(user: UserState): SystemState {
-  const current = loadState();
-
-  // Check if user already exists
-  const existingIndex = current.users.findIndex((u) => u.username === user.username);
-  if (existingIndex >= 0) {
-    current.users[existingIndex] = user;
-  } else {
-    current.users.push(user);
+  try {
+    getStorage().state.addUser(user);
+  } catch {
+    // Storage not initialized — no-op
   }
-
-  saveState(current);
-  return current;
+  return loadState();
 }
 
 /**
  * Remove a user from state
  */
 export function removeUserState(username: string): SystemState {
-  const current = loadState();
-  current.users = current.users.filter((u) => u.username !== username);
-  saveState(current);
-  return current;
+  try {
+    getStorage().state.removeUser(username);
+  } catch {
+    // Storage not initialized — no-op
+  }
+  return loadState();
 }
 
 /**
  * Add a group to state
  */
 export function addGroupState(group: GroupState): SystemState {
-  const current = loadState();
-
-  // Check if group already exists
-  const existingIndex = current.groups.findIndex((g) => g.name === group.name);
-  if (existingIndex >= 0) {
-    current.groups[existingIndex] = group;
-  } else {
-    current.groups.push(group);
+  try {
+    getStorage().state.addGroup(group);
+  } catch {
+    // Storage not initialized — no-op
   }
-
-  saveState(current);
-  return current;
+  return loadState();
 }
 
 /**
  * Remove a group from state
  */
 export function removeGroupState(name: string): SystemState {
-  const current = loadState();
-  current.groups = current.groups.filter((g) => g.name !== name);
-  saveState(current);
-  return current;
+  try {
+    getStorage().state.removeGroup(name);
+  } catch {
+    // Storage not initialized — no-op
+  }
+  return loadState();
 }
 
 /**
@@ -226,13 +261,15 @@ export function removeGroupState(name: string): SystemState {
  */
 export function addConnectedIntegration(integrationId: string): SystemState {
   const current = loadState();
-
   if (!current.agenco.connectedIntegrations.includes(integrationId)) {
-    current.agenco.connectedIntegrations.push(integrationId);
-    saveState(current);
+    const updated = [...current.agenco.connectedIntegrations, integrationId];
+    try {
+      getStorage().state.updateAgenCo({ connectedIntegrations: updated });
+    } catch {
+      // Storage not initialized — no-op
+    }
   }
-
-  return current;
+  return loadState();
 }
 
 /**
@@ -240,24 +277,27 @@ export function addConnectedIntegration(integrationId: string): SystemState {
  */
 export function removeConnectedIntegration(integrationId: string): SystemState {
   const current = loadState();
-  current.agenco.connectedIntegrations = current.agenco.connectedIntegrations.filter(
-    (id) => id !== integrationId
-  );
-  saveState(current);
-  return current;
+  const updated = current.agenco.connectedIntegrations.filter((id) => id !== integrationId);
+  try {
+    getStorage().state.updateAgenCo({ connectedIntegrations: updated });
+  } catch {
+    // Storage not initialized — no-op
+  }
+  return loadState();
 }
 
 /**
- * Initialize state file if it doesn't exist
+ * Initialize state if it doesn't exist
  */
 export function initializeState(): SystemState {
-  const statePath = getStatePath();
-
-  if (!fs.existsSync(statePath)) {
-    const state = getDefaultState();
-    saveState(state);
-    return state;
+  try {
+    const storage = getStorage();
+    const existing = storage.state.get();
+    if (!existing) {
+      storage.state.init('1.0.0');
+    }
+  } catch {
+    // Storage not initialized — no-op
   }
-
   return loadState();
 }

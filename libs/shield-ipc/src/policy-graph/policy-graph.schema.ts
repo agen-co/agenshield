@@ -15,8 +15,7 @@ export const EdgeLifetimeSchema = z.enum([
 export const PolicyNodeSchema = z.object({
   id: z.string().uuid(),
   policyId: z.string().min(1),
-  targetId: z.string().optional(),
-  userUsername: z.string().optional(),
+  profileId: z.string().optional(),
   dormant: z.boolean().default(false),
   metadata: z.unknown().optional(),
   createdAt: z.string().datetime(),

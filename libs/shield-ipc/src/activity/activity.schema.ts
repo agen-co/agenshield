@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 export const ActivityEventSchema = z.object({
   id: z.number().int().positive().optional(),
-  targetId: z.string().optional(),
+  profileId: z.string().optional(),
   type: z.string().min(1),
   timestamp: z.string().datetime(),
   data: z.unknown(),

@@ -1,82 +1,140 @@
 /**
  * Storage — Main entry point for the AgenShield storage layer
  *
- * Manages SQLite database lifecycle, passcode-based encryption,
- * and repository access.
+ * Manages two SQLite databases:
+ * - Main DB: config, state, policies, skills, secrets, commands, profiles
+ * - Activity DB: high-write activity_events (separated to reduce WAL contention)
+ *
+ * Manages passcode-based encryption and repository access.
  */
 
 import type Database from 'better-sqlite3';
 import type { ScopeFilter } from '@agenshield/ipc';
 import { openDatabase, closeDatabase } from './database';
 import { deriveKey, generateSalt, hashPasscode, verifyPasscode, encrypt as encryptValue, decrypt as decryptValue } from './crypto';
-import { runMigrations } from './migrations/index';
+import { runMigrations, runActivityMigrations } from './migrations/index';
 import { META_KEYS } from './constants';
+import { ACTIVITY_APPLICATION_ID } from './constants';
 import { StorageLockedError, StorageNotInitializedError, PasscodeError } from './errors';
 import { ConfigRepository } from './repositories/config';
 import { StateRepository } from './repositories/state';
-import { VaultRepository } from './repositories/vault';
 import { PolicyRepository } from './repositories/policy';
 import { ActivityRepository } from './repositories/activity';
 import { SkillsRepository } from './repositories/skills';
 import { CommandsRepository } from './repositories/commands';
-import { TargetRepository } from './repositories/target';
+import { ProfileRepository } from './repositories/profile';
 import { PolicyGraphRepository } from './repositories/policy-graph';
+import { SecretsRepository } from './repositories/secrets';
 
 export interface ScopedStorage {
   readonly config: ConfigRepository;
-  readonly vault: VaultRepository;
   readonly policies: PolicyRepository;
+  readonly secrets: SecretsRepository;
   readonly activities: ActivityRepository;
   readonly skills: SkillsRepository;
   readonly policyGraph: PolicyGraphRepository;
 }
 
 const META = 'meta';
-const VAULT_SECRETS = 'vault_secrets';
-const VAULT_KV = 'vault_kv';
+const SECRETS = 'secrets';
 
 export class Storage {
   private db: Database.Database;
+  private activityDb: Database.Database;
   private encryptionKey: Buffer | null = null;
 
   readonly config: ConfigRepository;
   readonly state: StateRepository;
-  readonly vault: VaultRepository;
   readonly policies: PolicyRepository;
   readonly activities: ActivityRepository;
   readonly skills: SkillsRepository;
   readonly commands: CommandsRepository;
-  readonly targets: TargetRepository;
+  readonly profiles: ProfileRepository;
   readonly policyGraph: PolicyGraphRepository;
+  readonly secrets: SecretsRepository;
 
-  private constructor(db: Database.Database) {
+  private constructor(db: Database.Database, activityDb: Database.Database) {
     this.db = db;
+    this.activityDb = activityDb;
 
     const getKey = () => this.encryptionKey;
 
     this.config = new ConfigRepository(db, getKey);
     this.state = new StateRepository(db, getKey);
-    this.vault = new VaultRepository(db, getKey);
     this.policies = new PolicyRepository(db, getKey);
-    this.activities = new ActivityRepository(db, getKey);
+    // Activity uses the separate activity database
+    this.activities = new ActivityRepository(activityDb, getKey);
     this.skills = new SkillsRepository(db, getKey);
     this.commands = new CommandsRepository(db, getKey);
-    this.targets = new TargetRepository(db, getKey);
+    this.profiles = new ProfileRepository(db, getKey);
     this.policyGraph = new PolicyGraphRepository(db, getKey);
+    this.secrets = new SecretsRepository(db, getKey);
   }
 
   /**
-   * Open (or create) a storage database at the given path.
-   * Runs migrations automatically.
+   * Open (or create) main + activity databases at the given paths.
+   * Copies activity_events from main → activity DB if present, then runs migrations.
    */
-  static open(dbPath: string): Storage {
+  static open(dbPath: string, activityDbPath: string): Storage {
     const db = openDatabase(dbPath);
-    const storage = new Storage(db);
+    const activityDb = openDatabase(activityDbPath, ACTIVITY_APPLICATION_ID);
 
-    // Run migrations
+    // Run activity DB migrations first
+    runActivityMigrations(activityDb);
+
+    // Copy activity_events from main DB to activity DB before migration drops the table
+    Storage.migrateActivityData(db, activityDb);
+
+    // Run main DB migrations
     runMigrations(db, null);
 
-    return storage;
+    return new Storage(db, activityDb);
+  }
+
+  /**
+   * Copy activity_events rows from main DB to activity DB (one-time migration).
+   * Only runs if the main DB still has the activity_events table.
+   */
+  private static migrateActivityData(
+    mainDb: Database.Database,
+    activityDb: Database.Database,
+  ): void {
+    // Check if main DB still has the activity_events table
+    const tableExists = mainDb
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='activity_events'")
+      .get();
+    if (!tableExists) return;
+
+    // Check if activity DB already has data (don't duplicate)
+    const activityCount = activityDb
+      .prepare('SELECT COUNT(*) as count FROM activity_events')
+      .get() as { count: number };
+    if (activityCount.count > 0) return;
+
+    // Copy rows from main → activity
+    const rows = mainDb.prepare('SELECT * FROM activity_events ORDER BY id').all() as Array<{
+      id: number; profile_id: string | null; type: string; timestamp: string; data: string; created_at: string;
+    }>;
+
+    if (rows.length === 0) return;
+
+    const insert = activityDb.prepare(
+      'INSERT INTO activity_events (profile_id, type, timestamp, data, created_at) VALUES (@profile_id, @type, @timestamp, @data, @created_at)',
+    );
+
+    activityDb.transaction(() => {
+      for (const row of rows) {
+        insert.run({
+          profile_id: row.profile_id,
+          type: row.type,
+          timestamp: row.timestamp,
+          data: row.data,
+          created_at: row.created_at,
+        });
+      }
+    })();
+
+    console.log(`[Storage] Migrated ${rows.length} activity events to activity DB`);
   }
 
   /**
@@ -155,7 +213,7 @@ export class Storage {
 
   /**
    * Change the passcode. Requires current passcode to be correct.
-   * Re-encrypts all vault data with the new key.
+   * Re-encrypts all secrets with the new key.
    */
   changePasscode(currentPasscode: string, newPasscode: string): void {
     if (!this.unlock(currentPasscode)) {
@@ -169,27 +227,8 @@ export class Storage {
     const now = new Date().toISOString();
 
     this.db.transaction(() => {
-      // Re-encrypt vault secrets
-      const secrets = this.db.prepare(`SELECT id, value_encrypted FROM ${VAULT_SECRETS}`).all() as Array<{ id: string; value_encrypted: string }>;
-      const updateSecret = this.db.prepare(`UPDATE ${VAULT_SECRETS} SET value_encrypted = @value WHERE id = @id`);
-
-      for (const secret of secrets) {
-        const plaintext = decryptValue(secret.value_encrypted, oldKey);
-        const reEncrypted = encryptValue(plaintext, newKey);
-        updateSecret.run({ id: secret.id, value: reEncrypted });
-      }
-
-      // Re-encrypt vault KV
-      const kvRows = this.db.prepare(`SELECT key, target_id, user_username, value_encrypted FROM ${VAULT_KV}`).all() as Array<{
-        key: string; target_id: string | null; user_username: string | null; value_encrypted: string;
-      }>;
-      const updateKv = this.db.prepare(`UPDATE ${VAULT_KV} SET value_encrypted = @value WHERE key = @key AND target_id IS @targetId AND user_username IS @userUsername`);
-
-      for (const kv of kvRows) {
-        const plaintext = decryptValue(kv.value_encrypted, oldKey);
-        const reEncrypted = encryptValue(plaintext, newKey);
-        updateKv.run({ key: kv.key, targetId: kv.target_id, userUsername: kv.user_username, value: reEncrypted });
-      }
+      // Re-encrypt secrets table
+      this.reEncryptSecrets(oldKey, newKey);
 
       // Update meta
       const upsertMeta = this.db.prepare(
@@ -213,9 +252,9 @@ export class Storage {
     const getKey = () => this.encryptionKey;
     return {
       config: new ConfigRepository(this.db, getKey, scope),
-      vault: new VaultRepository(this.db, getKey, scope),
       policies: new PolicyRepository(this.db, getKey, scope),
-      activities: new ActivityRepository(this.db, getKey, scope),
+      secrets: new SecretsRepository(this.db, getKey, scope),
+      activities: new ActivityRepository(this.activityDb, getKey, scope),
       skills: new SkillsRepository(this.db, getKey, scope),
       policyGraph: new PolicyGraphRepository(this.db, getKey, scope),
     };
@@ -229,18 +268,59 @@ export class Storage {
   }
 
   /**
-   * Close the database connection.
+   * Close both database connections.
    */
   close(): void {
     this.lock();
+    closeDatabase(this.activityDb);
     closeDatabase(this.db);
   }
 
   /**
-   * Get the underlying database (for testing/migrations only).
+   * Get the underlying main database (for testing/migrations only).
    */
   getDb(): Database.Database {
     return this.db;
+  }
+
+  /**
+   * Get the underlying activity database (for testing only).
+   */
+  getActivityDb(): Database.Database {
+    return this.activityDb;
+  }
+
+  /**
+   * Get or set a meta key-value pair.
+   */
+  getMeta(key: string): string | null {
+    const row = this.db.prepare(`SELECT value FROM ${META} WHERE key = ?`).get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setMeta(key: string, value: string): void {
+    this.db.prepare(`INSERT OR REPLACE INTO ${META} (key, value) VALUES (@key, @value)`).run({ key, value });
+  }
+
+  deleteMeta(key: string): void {
+    this.db.prepare(`DELETE FROM ${META} WHERE key = ?`).run(key);
+  }
+
+  /**
+   * Re-encrypt secrets table values with a new key (called during changePasscode).
+   */
+  private reEncryptSecrets(oldKey: Buffer, newKey: Buffer): void {
+    const rows = this.db.prepare(
+      `SELECT id, value_encrypted FROM ${SECRETS} WHERE value_encrypted IS NOT NULL`,
+    ).all() as Array<{ id: string; value_encrypted: string }>;
+
+    const update = this.db.prepare(`UPDATE ${SECRETS} SET value_encrypted = @value WHERE id = @id`);
+
+    for (const row of rows) {
+      const plaintext = decryptValue(row.value_encrypted, oldKey);
+      const reEncrypted = encryptValue(plaintext, newKey);
+      update.run({ id: row.id, value: reEncrypted });
+    }
   }
 }
 
@@ -249,13 +329,13 @@ export class Storage {
 let instance: Storage | null = null;
 
 /**
- * Initialize the global storage singleton.
+ * Initialize the global storage singleton with dual databases.
  */
-export function initStorage(dbPath: string): Storage {
+export function initStorage(dbPath: string, activityDbPath: string): Storage {
   if (instance) {
     instance.close();
   }
-  instance = Storage.open(dbPath);
+  instance = Storage.open(dbPath, activityDbPath);
   return instance;
 }
 

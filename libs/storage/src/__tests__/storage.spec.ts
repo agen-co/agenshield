@@ -4,26 +4,32 @@ import * as os from 'node:os';
 import { Storage, initStorage, getStorage, closeStorage } from '../storage';
 import { StorageLockedError, StorageNotInitializedError, PasscodeError } from '../errors';
 
-function tmpDbPath(): string {
+function tmpDbPaths(): { dbPath: string; activityDbPath: string; dir: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'storage-test-'));
-  return path.join(dir, 'test.db');
+  return {
+    dbPath: path.join(dir, 'test.db'),
+    activityDbPath: path.join(dir, 'test-activity.db'),
+    dir,
+  };
 }
 
 describe('Storage', () => {
   let storage: Storage;
   let dbPath: string;
+  let activityDbPath: string;
+  let tmpDir: string;
 
   beforeEach(() => {
-    dbPath = tmpDbPath();
-    storage = Storage.open(dbPath);
+    const paths = tmpDbPaths();
+    dbPath = paths.dbPath;
+    activityDbPath = paths.activityDbPath;
+    tmpDir = paths.dir;
+    storage = Storage.open(dbPath, activityDbPath);
   });
 
   afterEach(() => {
     storage.close();
-    try { fs.unlinkSync(dbPath); } catch { /* */ }
-    try { fs.unlinkSync(dbPath + '-wal'); } catch { /* */ }
-    try { fs.unlinkSync(dbPath + '-shm'); } catch { /* */ }
-    try { fs.rmdirSync(path.dirname(dbPath)); } catch { /* */ }
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* */ }
   });
 
   it('creates the database file', () => {
@@ -33,12 +39,12 @@ describe('Storage', () => {
   it('has all repository properties', () => {
     expect(storage.config).toBeDefined();
     expect(storage.state).toBeDefined();
-    expect(storage.vault).toBeDefined();
+    expect(storage.secrets).toBeDefined();
     expect(storage.policies).toBeDefined();
     expect(storage.activities).toBeDefined();
     expect(storage.skills).toBeDefined();
     expect(storage.commands).toBeDefined();
-    expect(storage.targets).toBeDefined();
+    expect(storage.profiles).toBeDefined();
     expect(storage.policyGraph).toBeDefined();
   });
 
@@ -108,15 +114,19 @@ describe('Storage', () => {
 
 describe('Singleton management', () => {
   let dbPath: string;
+  let activityDbPath: string;
+  let tmpDir: string;
 
   beforeEach(() => {
-    dbPath = tmpDbPath();
+    const paths = tmpDbPaths();
+    dbPath = paths.dbPath;
+    activityDbPath = paths.activityDbPath;
+    tmpDir = paths.dir;
   });
 
   afterEach(() => {
     closeStorage();
-    try { fs.unlinkSync(dbPath); } catch { /* */ }
-    try { fs.rmdirSync(path.dirname(dbPath)); } catch { /* */ }
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* */ }
   });
 
   it('getStorage throws before init', () => {
@@ -124,13 +134,13 @@ describe('Singleton management', () => {
   });
 
   it('initStorage + getStorage works', () => {
-    initStorage(dbPath);
+    initStorage(dbPath, activityDbPath);
     const s = getStorage();
     expect(s).toBeInstanceOf(Storage);
   });
 
   it('closeStorage clears singleton', () => {
-    initStorage(dbPath);
+    initStorage(dbPath, activityDbPath);
     closeStorage();
     expect(() => getStorage()).toThrow(StorageNotInitializedError);
   });

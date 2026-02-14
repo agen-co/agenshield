@@ -7,6 +7,7 @@ import { useSnapshot } from 'valtio';
 import type { UpdateConfigRequest } from '@agenshield/ipc';
 import { api, type CreateSecretRequest } from './client';
 import { daemonStatusStore } from '../state/daemon-status';
+import { scopeStore } from '../state/scope';
 
 // Query keys
 export const queryKeys = {
@@ -22,8 +23,18 @@ export const queryKeys = {
   agencoIntegrations: ['agenco', 'integrations'] as const,
   agencoConnected: ['agenco', 'connected'] as const,
   agencoSkillStatus: ['agenco', 'skill-status'] as const,
+  profiles: ['profiles'] as const,
   fsBrowse: (dirPath: string) => ['fs', 'browse', dirPath] as const,
 };
+
+/**
+ * Build a scope-aware query key. Scope headers are sent automatically by the API client,
+ * but including scope in the key ensures React Query refetches when scope changes.
+ */
+function useScopeKey() {
+  const { profileId } = useSnapshot(scopeStore);
+  return { profileId };
+}
 
 /**
  * Hook to fetch daemon health status.
@@ -143,8 +154,9 @@ export function useDiscovery() {
 
 export function useSecrets() {
   const healthy = useHealthGate();
+  const scope = useScopeKey();
   return useQuery({
-    queryKey: queryKeys.secrets,
+    queryKey: [...queryKeys.secrets, scope] as const,
     queryFn: api.getSecrets,
     enabled: healthy,
   });
@@ -375,5 +387,16 @@ export function useBrowsePath(dirPath: string | null) {
     queryFn: () => api.browsePath(dirPath ?? undefined),
     enabled: healthy && dirPath !== null,
     staleTime: 10_000,
+  });
+}
+
+// --- Profile hooks ---
+
+export function useProfiles() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.profiles,
+    queryFn: api.getProfiles,
+    enabled: healthy,
   });
 }

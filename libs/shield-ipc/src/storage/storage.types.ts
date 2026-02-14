@@ -5,8 +5,7 @@
  */
 
 export interface ScopeFilter {
-  targetId?: string | null;
-  userUsername?: string | null;
+  profileId?: string | null;
 }
 
 export interface MetaEntry {
