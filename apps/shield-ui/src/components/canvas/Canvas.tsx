@@ -10,10 +10,10 @@ import '@xyflow/react/dist/style.css';
 import { useTheme } from '@mui/material/styles';
 import Tooltip from '@mui/material/Tooltip';
 import { Shield, Wifi, Lock, Bell, Activity, Cloud } from 'lucide-react';
-import { AreaChart, Area, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, Tooltip as RechartsTooltip } from 'recharts';
 import { useSnapshot } from 'valtio';
 import { eventStore } from '../../state/events';
-import { BLOCKED_EVENT_TYPES } from '../../utils/eventDisplay';
+import { getEventColor } from '../../utils/eventDisplay';
 import {
   CanvasContainer,
   LogoOverlay,
@@ -23,7 +23,7 @@ import {
   HudOverlay,
   HudItem,
   HudStatusDot,
-  ChartOverlay,
+  BottomBarOverlay,
 } from './Canvas.styles';
 import { SvgFilters } from './filters/SvgFilters';
 import { useCanvasData } from './hooks/useCanvasData';
@@ -89,26 +89,29 @@ const hudIconMap: Record<string, React.ComponentType<{ size?: number; color?: st
 
 /* ---- Chart constants & helpers ---- */
 
-const CHART_BUCKETS = 30;
-const CHART_FILL_RATIO = 0.75; // fill ~75% of buckets, leave right gap
-const CHART_FILLED_BUCKETS = Math.round(CHART_BUCKETS * CHART_FILL_RATIO); // ~23
-const CHART_INTERVAL_SEC = 60; // 1-minute buckets
+const BAR_WIDTH = 5;
+const BAR_GAP = 1;
+const BAR_PITCH = BAR_WIDTH + BAR_GAP; // 6px per bar
+const CHART_INTERVAL_SEC = 5; // 5-second buckets
+const PLACEHOLDER_INITIAL = 8; // start with a few bars
 
 function nextRandom(prev: number, min: number, max: number): number {
   const drift = (Math.random() - 0.5) * (max - min) * 0.2;
   return Math.max(min, Math.min(max, prev + drift));
 }
 
-type ChartPoint = { requests: number; blocked: number };
+type BarPoint = { log: number; alert: number; warning: number };
 
-function generatePlaceholder(): ChartPoint[] {
-  const data: ChartPoint[] = [];
-  let req = 3 + Math.random() * 4;
-  let blk = 1 + Math.random() * 2;
-  for (let i = 0; i < CHART_BUCKETS; i++) {
-    req = nextRandom(req, 1, 10);
-    blk = nextRandom(blk, 0, Math.min(req, 4));
-    data.push({ requests: req, blocked: blk });
+function generateInitialPlaceholder(): BarPoint[] {
+  const data: BarPoint[] = [];
+  let log = 3 + Math.random() * 4;
+  let warn = 0.5 + Math.random();
+  let a = 0;
+  for (let i = 0; i < PLACEHOLDER_INITIAL; i++) {
+    log = nextRandom(log, 1, 10);
+    warn = nextRandom(warn, 0, 2);
+    a = nextRandom(a, 0, 0.5);
+    data.push({ log, warning: warn, alert: a });
   }
   return data;
 }
@@ -118,34 +121,50 @@ function floorToInterval(epoch: number, intervalSec: number): number {
   return Math.floor(epoch / ms) * ms;
 }
 
-function isBlockedEvent(event: { type: string; data?: unknown }): boolean {
-  if (BLOCKED_EVENT_TYPES.has(event.type)) return true;
-  if (event.type === 'interceptor:event' && (event.data as Record<string, unknown>)?.type === 'denied') return true;
-  return false;
-}
+/* ---- Chart tooltip ---- */
 
-/* ---- Blinking dot at chart live edge ---- */
-
-function BlinkingDot(props: { cx?: number; cy?: number; index?: number; lastIndex: number; color: string }) {
-  const { cx, cy, index, lastIndex, color } = props;
-  if (index !== lastIndex || !cx || !cy) return null;
+function ChartTooltipContent({ active, payload }: { active?: boolean; payload?: Array<{ dataKey: string; value: number }> }) {
+  if (!active || !payload?.length) return null;
+  const log = payload.find(p => p.dataKey === 'log')?.value ?? 0;
+  const warning = payload.find(p => p.dataKey === 'warning')?.value ?? 0;
+  const alert = payload.find(p => p.dataKey === 'alert')?.value ?? 0;
+  const total = log + warning + alert;
+  if (total === 0) return null;
   return (
-    <circle cx={cx} cy={cy} r={3} fill={color} stroke={color} strokeWidth={1}>
-      <animate attributeName="opacity" values="1;0.3;1" dur="1.5s" repeatCount="indefinite" />
-      <animate attributeName="r" values="3;5;3" dur="1.5s" repeatCount="indefinite" />
-    </circle>
+    <div style={{
+      background: 'rgba(0,0,0,0.85)', color: '#fff', padding: '6px 10px',
+      borderRadius: 6, fontSize: 11, fontFamily: "'Manrope', sans-serif",
+      lineHeight: 1.5, pointerEvents: 'none',
+    }}>
+      <div style={{ fontWeight: 700, marginBottom: 2 }}>{total} events</div>
+      {log > 0 && <div>{log} logs</div>}
+      {warning > 0 && <div style={{ color: '#EEA45F' }}>{warning} warnings</div>}
+      {alert > 0 && <div style={{ color: '#E1583E' }}>{alert} alerts</div>}
+    </div>
   );
 }
 
 /* ---- CanvasInner: runs inside <ReactFlow> for useReactFlow() access ---- */
 
+/** Width consumed by the activity panel (340px) + its right margin (12px) */
+const ACTIVITY_PANEL_WIDTH = 352;
+
 function CanvasInner({ containerWidth, containerHeight }: { containerWidth: number; containerHeight: number }) {
-  const { fitView } = useReactFlow();
+  const { fitView, getViewport, setViewport } = useReactFlow();
 
   useEffect(() => {
-    const id = setTimeout(() => fitView({ padding: 0.15 }), 50);
+    const id = setTimeout(() => {
+      fitView({ padding: 0.15, maxZoom: 0.85 });
+      // Shift viewport left so nodes center in the visible area, not behind the panel
+      const vp = getViewport();
+      setViewport({
+        x: vp.x - (ACTIVITY_PANEL_WIDTH / 2),
+        y: vp.y,
+        zoom: vp.zoom,
+      });
+    }, 50);
     return () => clearTimeout(id);
-  }, [containerWidth, containerHeight, fitView]);
+  }, [containerWidth, containerHeight, fitView, getViewport, setViewport]);
 
   useCanvasAnimations();
   useDotAnimations();
@@ -201,97 +220,115 @@ export function Canvas() {
     [canvasData.sseConnected, canvasData.authLocked, canvasData.warningCount, canvasData.totalEvents, canvasData.cloudConnected],
   );
 
-  // --- Chart data (dual-series: requests + blocked) ---
+  // --- Chart data (grows from right, then slides as a continuous bar chart) ---
   const { events: allEvents } = useSnapshot(eventStore);
 
-  const [placeholder, setPlaceholder] = useState(generatePlaceholder);
+  // Max bars that fit the chart area (viewport minus activity panel)
+  const chartAreaWidth = Math.max(1, viewport.width - 352);
+  const maxBars = Math.max(1, Math.floor(chartAreaWidth / BAR_PITCH));
+
+  // Placeholder: starts small, grows by 1 bar each tick until full, then slides
+  const [placeholder, setPlaceholder] = useState(generateInitialPlaceholder);
 
   useEffect(() => {
     const id = setInterval(() => {
       setPlaceholder((prev) => {
         const last = prev[prev.length - 1];
-        const req = nextRandom(last.requests, 1, 10);
-        const blk = nextRandom(last.blocked, 0, Math.min(req, 4));
-        return [...prev.slice(1), { requests: req, blocked: blk }];
+        const log = nextRandom(last.log, 1, 10);
+        const warn = nextRandom(last.warning, 0, 2);
+        const a = nextRandom(last.alert, 0, 0.5);
+        const next = [...prev, { log, warning: warn, alert: a }];
+        // Once full width, trim oldest from the left (sliding window)
+        if (next.length > maxBars) return next.slice(next.length - maxBars);
+        return next;
       });
     }, 1500);
     return () => clearInterval(id);
-  }, []);
+  }, [maxBars]);
 
-  const chartData = useMemo((): ChartPoint[] => {
+  const chartData = useMemo((): BarPoint[] => {
     if (allEvents.length < 3) return placeholder;
 
     const now = Date.now();
-    const windowMs = CHART_FILLED_BUCKETS * CHART_INTERVAL_SEC * 1000;
+    const windowMs = maxBars * CHART_INTERVAL_SEC * 1000;
     const threshold = now - windowMs;
 
-    // Bucket events into intervals
-    const bucketMap = new Map<number, { requests: number; blocked: number }>();
+    // Bucket events into intervals (3 categories: log, warning, alert)
+    const bucketMap = new Map<number, BarPoint>();
+    let earliestKey = Infinity;
     for (const evt of allEvents) {
       const ts = typeof evt.timestamp === 'number' ? evt.timestamp : new Date(evt.timestamp).getTime();
       if (ts < threshold) continue;
       const key = floorToInterval(ts, CHART_INTERVAL_SEC);
-      const bucket = bucketMap.get(key) ?? { requests: 0, blocked: 0 };
-      bucket.requests++;
-      if (isBlockedEvent(evt)) bucket.blocked++;
+      if (key < earliestKey) earliestKey = key;
+      const bucket = bucketMap.get(key) ?? { log: 0, alert: 0, warning: 0 };
+      const color = getEventColor(evt);
+      if (color === 'error') {
+        bucket.alert++;
+      } else if (color === 'warning') {
+        bucket.warning++;
+      } else {
+        bucket.log++;
+      }
       bucketMap.set(key, bucket);
     }
 
-    // Build ordered array for the filled portion
-    const startKey = floorToInterval(threshold, CHART_INTERVAL_SEC);
+    if (!isFinite(earliestKey)) return placeholder;
+
+    // Build from earliest event bucket to now — grows naturally, then caps at maxBars
+    const nowKey = floorToInterval(now, CHART_INTERVAL_SEC);
     const intervalMs = CHART_INTERVAL_SEC * 1000;
-    const filled: ChartPoint[] = [];
-    for (let i = 0; i < CHART_FILLED_BUCKETS; i++) {
+    const totalBuckets = Math.floor((nowKey - earliestKey) / intervalMs) + 1;
+    const numBuckets = Math.min(totalBuckets, maxBars);
+    const startKey = nowKey - (numBuckets - 1) * intervalMs;
+
+    const filled: BarPoint[] = [];
+    for (let i = 0; i < numBuckets; i++) {
       const key = startKey + i * intervalMs;
       const bucket = bucketMap.get(key);
-      filled.push({ requests: bucket?.requests ?? 0, blocked: bucket?.blocked ?? 0 });
-    }
-
-    // Append empty buckets for the right-side buffer gap
-    const emptyBuckets = CHART_BUCKETS - CHART_FILLED_BUCKETS;
-    for (let i = 0; i < emptyBuckets; i++) {
-      filled.push({ requests: 0, blocked: 0 });
+      filled.push({ log: bucket?.log ?? 0, warning: bucket?.warning ?? 0, alert: bucket?.alert ?? 0 });
     }
 
     return filled;
-  }, [allEvents, placeholder]);
+  }, [allEvents, placeholder, maxBars]);
 
-  const greyColor = theme.palette.mode === 'dark' ? theme.palette.grey[600] : theme.palette.grey[400];
-  const isEmpty = allEvents.length < 3;
-  const lastDataIndex = isEmpty ? CHART_BUCKETS - 1 : CHART_FILLED_BUCKETS - 1;
-  const requestsStroke = isEmpty ? greyColor : theme.palette.primary.main;
-  const requestsFill = isEmpty ? `${greyColor}10` : `${theme.palette.primary.main}15`;
-  const blockedStroke = isEmpty ? greyColor : theme.palette.error.main;
-  const blockedFill = isEmpty ? `${greyColor}10` : `${theme.palette.error.main}15`;
+  // Chart pixel width = exactly the bars (no empty space)
+  const chartWidth = chartData.length * BAR_PITCH;
+
+  const logColor = theme.palette.mode === 'dark' ? '#EDEDED' : '#171717';
+  const alertColor = '#E1583E';
+  const warningColor = '#EEA45F';
 
   return (
     <CanvasContainer ref={containerRef}>
       <SvgFilters />
 
-      {/* ReactFlow canvas */}
+      {/* ReactFlow canvas — constrained to leave space for floating activity panel */}
       {viewport.width > 0 && (
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          panOnDrag={true}
-          zoomOnScroll={true}
-          zoomOnPinch={true}
-          zoomOnDoubleClick={false}
-          preventScrolling={true}
-          minZoom={0.3}
-          maxZoom={1.5}
-          fitView
-          fitViewOptions={{ padding: 0.15 }}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background color={dotColor} gap={24} style={{ background: bgColor }} />
-          <CanvasInner containerWidth={viewport.width} containerHeight={viewport.height} />
-        </ReactFlow>
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            panOnDrag={true}
+            zoomOnScroll={true}
+            zoomOnPinch={true}
+            zoomOnDoubleClick={false}
+            preventScrolling={true}
+            minZoom={0.3}
+            maxZoom={1.5}
+            fitView
+            fitViewOptions={{ padding: 0.15 }}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color={dotColor} gap={24} style={{ background: bgColor }} />
+            <CanvasInner containerWidth={viewport.width} containerHeight={viewport.height} />
+          </ReactFlow>
+        </div>
       )}
 
       {/* Fixed overlay: Logo — top-left */}
@@ -328,31 +365,15 @@ export function Canvas() {
         })}
       </HudOverlay>
 
-      {/* Fixed overlay: Traffic chart — top, dual-area background */}
-      <ChartOverlay>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-            <Area
-              type="natural"
-              dataKey="requests"
-              stroke={requestsStroke}
-              fill={requestsFill}
-              strokeWidth={1.5}
-              isAnimationActive={false}
-              dot={(dotProps) => <BlinkingDot key={dotProps.index} {...dotProps} lastIndex={lastDataIndex} color={requestsStroke} />}
-            />
-            <Area
-              type="natural"
-              dataKey="blocked"
-              stroke={blockedStroke}
-              fill={blockedFill}
-              strokeWidth={1.5}
-              isAnimationActive={false}
-              dot={(dotProps) => <BlinkingDot key={dotProps.index} {...dotProps} lastIndex={lastDataIndex} color={blockedStroke} />}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </ChartOverlay>
+      {/* Fixed overlay: Traffic bar chart — bottom, right-aligned, grows left */}
+      <BottomBarOverlay>
+        <BarChart width={chartWidth} height={100} data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barSize={BAR_WIDTH} barCategoryGap={BAR_GAP} barGap={0}>
+          <RechartsTooltip content={<ChartTooltipContent />} cursor={false} />
+          <Bar dataKey="log" stackId="traffic" fill={logColor} isAnimationActive={false} minPointSize={1} />
+          <Bar dataKey="warning" stackId="traffic" fill={warningColor} isAnimationActive={false} />
+          <Bar dataKey="alert" stackId="traffic" fill={alertColor} isAnimationActive={false} radius={[1, 1, 0, 0]} />
+        </BarChart>
+      </BottomBarOverlay>
 
       {/* Fixed overlay: Activity panel — right side, full height */}
       <ActivityPanel />

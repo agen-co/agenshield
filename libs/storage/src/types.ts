@@ -162,6 +162,20 @@ export interface DbActivityEventRow {
   created_at: string;
 }
 
+export interface DbAlertRow {
+  id: number;
+  activity_event_id: number;
+  profile_id: string | null;
+  event_type: string;
+  severity: string;
+  title: string;
+  description: string;
+  navigation_target: string;
+  details: string | null;
+  acknowledged_at: string | null;
+  created_at: string;
+}
+
 export interface DbAllowedCommandRow {
   name: string;
   paths: string;

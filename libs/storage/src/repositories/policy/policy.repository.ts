@@ -5,7 +5,7 @@
  */
 
 import type { PolicyConfig } from '@agenshield/ipc';
-import { PolicyConfigSchema, POLICY_PRESETS } from '@agenshield/ipc';
+import { PolicyConfigSchema, getPresetById } from '@agenshield/ipc';
 import type { DbPolicyRow } from '../../types';
 import { buildScopeWhere, buildPolicyScopeWhere } from '../../scoping';
 import { BaseRepository } from '../base.repository';
@@ -102,7 +102,7 @@ export class PolicyRepository extends BaseRepository {
    * Seed preset policies for a profile (if not already present).
    */
   seedPreset(presetId: string): number {
-    const preset = POLICY_PRESETS.find((p) => p.id === presetId);
+    const preset = getPresetById(presetId);
     if (!preset) return 0;
 
     let count = 0;

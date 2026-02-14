@@ -43,7 +43,7 @@ import {
 import { tokens } from '../../styles/tokens';
 import { useSnapshot } from 'valtio';
 import { eventStore } from '../../state/events';
-import { useStatus, useOpenClawDashboardUrl } from '../../api/hooks';
+import { useStatus, useOpenClawDashboardUrl, useAlertsCount } from '../../api/hooks';
 import { notify } from '../../stores/notifications';
 import { OpenClawTokenDialog } from '../shared/OpenClawTokenDialog';
 import { ScopeSelector } from './ScopeSelector';
@@ -86,6 +86,8 @@ export function Sidebar({
   const navigate = useNavigate();
   const { connected: sseConnected } = useSnapshot(eventStore);
   const { data: status } = useStatus();
+  const { data: alertsCountData } = useAlertsCount();
+  const alertCount = alertsCountData?.data?.count ?? 0;
   const openClawDashboard = useOpenClawDashboardUrl();
   const [tokenDialog, setTokenDialog] = useState<{ url: string; token: string } | null>(null);
 
@@ -164,6 +166,21 @@ export function Sidebar({
                 primary={item.label}
                 primaryTypographyProps={{ variant: 'subtitle1' }}
               />
+              {item.path === '/' && alertCount > 0 && (
+                <Chip
+                  label={alertCount > 99 ? '99+' : alertCount}
+                  size="small"
+                  sx={{
+                    height: 18,
+                    minWidth: 18,
+                    fontSize: '0.65rem',
+                    fontWeight: 700,
+                    bgcolor: 'error.main',
+                    color: '#fff',
+                    '& .MuiChip-label': { px: 0.5 },
+                  }}
+                />
+              )}
             </ListItemButton>
           </ListItem>
         ))}

@@ -31,6 +31,7 @@ import { DaemonDeployAdapter } from './adapters/daemon-deploy-adapter';
 import { migrateSkillsToSqlite } from './migration/skill-migration';
 import { migrateSlugPrefixDisk } from './migration/slug-prefix-disk';
 import { migrateSecretsToSqlite } from './migration/secret-migration';
+import { cleanupLegacyFiles } from './migration/legacy-cleanup';
 import { reconcileTokenFiles, writeTokenFile } from './services/profile-token';
 import { ProfileSocketManager } from './services/profile-sockets';
 import { rpcHandlers } from './routes/rpc';
@@ -195,6 +196,9 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
 
   // ─── Run one-time secret vault.enc → SQLite migration ───────
   await migrateSecretsToSqlite(storage);
+
+  // ─── Post-migration legacy file cleanup ─────────────────────
+  cleanupLegacyFiles(storage);
 
   // ─── Ensure quarantine directory exists ─────────────────────
   const quarantineDir = getQuarantineDir();

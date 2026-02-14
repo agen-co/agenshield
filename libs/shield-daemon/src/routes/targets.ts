@@ -20,8 +20,15 @@ export async function profileRoutes(app: FastifyInstance): Promise<void> {
 
   // Create a profile
   app.post('/profiles', async (request) => {
-    const profile = getStorage().profiles.create(request.body);
+    const storage = getStorage();
+    const profile = storage.profiles.create(request.body);
     invalidateTokenCache();
+
+    // Auto-seed preset policies for this profile
+    if (profile.presetId) {
+      const scopedPolicies = storage.for({ profileId: profile.id }).policies;
+      scopedPolicies.seedPreset(profile.presetId);
+    }
 
     // Write token file for target profiles
     if (profile.type === 'target' && profile.brokerToken && profile.brokerHomeDir) {

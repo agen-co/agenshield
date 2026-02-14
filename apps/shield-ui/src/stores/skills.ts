@@ -10,7 +10,9 @@ import { proxy } from 'valtio';
 import type { EnvVariableDetail } from '@agenshield/ipc';
 import {
   searchSkillsVercel,
+  fetchSkillBySlugVercel,
   analyzeSkillDaemon,
+  analyzeSkillVercel,
   fetchDaemonSkills,
   fetchDaemonSkillDetail,
   fetchMarketplaceSkillDetail,
@@ -63,6 +65,10 @@ export interface UnifiedSkill {
   readme?: string;
   /** True when full detail has been fetched (daemon or marketplace) */
   detailLoaded?: boolean;
+  /** Registry source from search API (clawhub, openclaw, local) */
+  registrySource?: 'clawhub' | 'openclaw' | 'local';
+  /** Full registry path for openclaw skills (e.g. "openclaw/owner/skill") */
+  registryPath?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -189,6 +195,28 @@ function mapDaemonSkill(s: DaemonSkillSummary): UnifiedSkill {
 }
 
 function mapSearchResult(s: SearchSkillResult): UnifiedSkill {
+  let analysis: AnalysisResult | undefined;
+  if (s.analysisStatus === 'complete' && s.analysis != null) {
+    analysis = {
+      status: 'complete',
+      vulnerability: s.analysis.vulnerability,
+      commands: (s.analysis.commands ?? []).map((c) => ({
+        name: c.name,
+        source: c.source,
+        available: c.available,
+        required: c.required,
+      })),
+      envVariables: s.analysis.envVariables?.map((e) => ({
+        name: e.name,
+        required: e.required,
+        purpose: e.purpose,
+        sensitive: e.sensitive,
+      })),
+      securityFindings: s.analysis.securityFindings as AnalysisResult['securityFindings'],
+      mcpSpecificRisks: s.analysis.mcpSpecificRisks as AnalysisResult['mcpSpecificRisks'],
+    };
+  }
+
   return {
     name: s.name,
     slug: s.slug,
@@ -197,10 +225,13 @@ function mapSearchResult(s: SearchSkillResult): UnifiedSkill {
     version: s.version,
     origin: 'search',
     actionState: s.analysisStatus === 'complete' ? 'analyzed' : 'not_analyzed',
-    analysis: s.analysis as AnalysisResult | null,
+    analysis,
     analysisStatus: s.analysisStatus,
     tags: s.tags,
     installs: s.installs,
+    envVariables: analysis?.envVariables,
+    registrySource: s.source,
+    registryPath: s.path,
   };
 }
 
@@ -242,8 +273,9 @@ function mergeSkills(installed: UnifiedSkill[], search: UnifiedSkill[]): Unified
   }
 
   if (isSearching) {
-    // When searching: all results sorted by name
-    return Array.from(bySlug.values()).sort((a, b) => a.name.localeCompare(b.name));
+    // When searching: preserve relevance order from the API response.
+    // Installed matches appear first, then search results in their original order.
+    return Array.from(bySlug.values());
   }
 
   // No search: group by origin, then sort by name within each group
@@ -274,11 +306,11 @@ function updateSkill(id: string, updates: Partial<UnifiedSkill>): void {
   }
 }
 
-/** Insert or replace a full skill entry in the list */
+/** Insert or merge a skill entry in the list (preserves existing fields like readme, analysis) */
 function upsertSkill(slugOrName: string, skill: UnifiedSkill): void {
   const idx = skillsStore.skills.findIndex((s) => s.slug === slugOrName || s.name === slugOrName);
   if (idx >= 0) {
-    skillsStore.skills[idx] = skill;
+    Object.assign(skillsStore.skills[idx], skill);
   } else {
     skillsStore.skills.push(skill);
   }
@@ -337,7 +369,7 @@ export async function fetchInstalledSkills(): Promise<void> {
         newSkill.readme = existing.readme;
         newSkill.detailLoaded = true;
         // Preserve rich analysis from detail fetch (list endpoint returns compact summary)
-        if (existing.analysis && existing.analysis.vulnerability?.details?.length) {
+        if (existing.analysis) {
           newSkill.analysis = existing.analysis;
           newSkill.envVariables = existing.envVariables;
         }
@@ -406,13 +438,29 @@ export async function analyzeSkill(slugOrName: string): Promise<void> {
   const skill = findSkill(slugOrName);
   const slug = skill?.slug ?? slugOrName;
 
-  // Clear old analysis immediately so UI shows pending state
-  updateSkill(slugOrName, { actionState: 'analyzing', analysis: null, analysisStatus: 'pending' });
+  // Keep existing analysis visible while re-analysis is in progress
+  updateSkill(slugOrName, { actionState: 'analyzing', analysisStatus: 'pending' });
   startAnalysisTimeout(slugOrName);
 
   try {
-    await analyzeSkillDaemon(slug);
-    // SSE event (skills:analyzed / skills:analysis_failed) will update the store
+    // Search results (not on daemon) → call Vercel analyzer directly with slug+source+path
+    if (skill?.origin === 'search' && skill.registrySource) {
+      const result = await analyzeSkillVercel(slug, skill.registrySource, {
+        path: skill.registryPath,
+      });
+      clearAnalysisTimeout(slugOrName);
+      updateSkill(slugOrName, {
+        actionState: 'analyzed',
+        analysisStatus: 'complete',
+        analysis: result,
+        envVariables: result.envVariables,
+      });
+      notify.success(`Analysis complete for "${skill.name}"`);
+    } else {
+      // Installed/downloaded/blocked skills → daemon has the files
+      await analyzeSkillDaemon(slug);
+      // SSE event (skills:analyzed / skills:analysis_failed) will update the store
+    }
   } catch (err) {
     clearAnalysisTimeout(slugOrName);
     updateSkill(slugOrName, { actionState: 'analysis_failed' });
@@ -552,7 +600,22 @@ export async function fetchSkillDetail(slugOrName: string): Promise<void> {
 
       upsertSkill(slugOrName, skill);
     } catch {
-      // Not found anywhere — leave list as-is
+      // Marketplace didn't have it — try Vercel search as last resort
+      try {
+        const result = await fetchSkillBySlugVercel(slugOrName);
+        if (result) {
+          const skill = mapSearchResult(result);
+          skill.detailLoaded = true;
+          upsertSkill(slugOrName, skill);
+
+          // Persist in searchSkillsCache so fetchInstalledSkills re-merge preserves it
+          if (!searchSkillsCache.some((s) => s.slug === skill.slug)) {
+            searchSkillsCache.push(skill);
+          }
+        }
+      } catch {
+        // Not found anywhere — leave list as-is
+      }
     }
   } finally {
     skillsStore.selectedLoading = false;

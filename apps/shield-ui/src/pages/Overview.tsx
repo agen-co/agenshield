@@ -18,6 +18,7 @@ import { StatsRow } from '../components/overview/StatsRow';
 import { TrafficChart } from '../components/overview/TrafficChart';
 import { ActivityFeed } from '../components/overview/ActivityFeed';
 import { ArchitectureGraph } from '../components/overview/ArchitectureGraph';
+import { AlertsBanner } from '../components/overview/AlertsBanner';
 
 export function Overview() {
   const { data: status, isLoading: statusLoading } = useStatus();
@@ -47,6 +48,8 @@ export function Overview() {
         statusLoading={statusLoading}
         configLoading={configLoading}
       />
+
+      <AlertsBanner />
 
       {/* Two-column layout: left (main) + right (sidebar) */}
       <Box

@@ -38,6 +38,8 @@ export { ProfileRepository } from './repositories/profile';
 export { PolicyGraphRepository } from './repositories/policy-graph';
 export { SecretsRepository } from './repositories/secrets';
 export type { CreateSecretInput, UpdateSecretInput } from './repositories/secrets';
+export { AlertsRepository } from './repositories/alerts';
+export type { AlertGetAllOptions, AlertCountOptions } from './repositories/alerts';
 
 // Migrations
 export { runMigrations, runActivityMigrations, getCurrentVersion, getDbVersion } from './migrations/index';

@@ -25,12 +25,14 @@ import { CommandsRepository } from './repositories/commands';
 import { ProfileRepository } from './repositories/profile';
 import { PolicyGraphRepository } from './repositories/policy-graph';
 import { SecretsRepository } from './repositories/secrets';
+import { AlertsRepository } from './repositories/alerts';
 
 export interface ScopedStorage {
   readonly config: ConfigRepository;
   readonly policies: PolicyRepository;
   readonly secrets: SecretsRepository;
   readonly activities: ActivityRepository;
+  readonly alerts: AlertsRepository;
   readonly skills: SkillsRepository;
   readonly policyGraph: PolicyGraphRepository;
 }
@@ -47,6 +49,7 @@ export class Storage {
   readonly state: StateRepository;
   readonly policies: PolicyRepository;
   readonly activities: ActivityRepository;
+  readonly alerts: AlertsRepository;
   readonly skills: SkillsRepository;
   readonly commands: CommandsRepository;
   readonly profiles: ProfileRepository;
@@ -62,8 +65,9 @@ export class Storage {
     this.config = new ConfigRepository(db, getKey);
     this.state = new StateRepository(db, getKey);
     this.policies = new PolicyRepository(db, getKey);
-    // Activity uses the separate activity database
+    // Activity and alerts use the separate activity database
     this.activities = new ActivityRepository(activityDb, getKey);
+    this.alerts = new AlertsRepository(activityDb, getKey);
     this.skills = new SkillsRepository(db, getKey);
     this.commands = new CommandsRepository(db, getKey);
     this.profiles = new ProfileRepository(db, getKey);
@@ -255,6 +259,7 @@ export class Storage {
       policies: new PolicyRepository(this.db, getKey, scope),
       secrets: new SecretsRepository(this.db, getKey, scope),
       activities: new ActivityRepository(this.activityDb, getKey, scope),
+      alerts: new AlertsRepository(this.activityDb, getKey, scope),
       skills: new SkillsRepository(this.db, getKey, scope),
       policyGraph: new PolicyGraphRepository(this.db, getKey, scope),
     };

@@ -17,6 +17,7 @@ export const CloudNode = memo(({ data }: NodeProps) => {
         </CloudBadge>
       </div>
       <Handle type="source" position={Position.Bottom} id="bottom" style={{ visibility: 'hidden' }} />
+      <Handle type="source" position={Position.Left} id="left" style={{ visibility: 'hidden' }} />
     </CloudWrapper>
   );
 });

@@ -18,6 +18,8 @@ export const queryKeys = {
   availableEnvSecrets: ['secrets', 'env'] as const,
   skillEnvRequirements: ['secrets', 'skill-env'] as const,
   security: ['security'] as const,
+  alerts: ['alerts'] as const,
+  alertsCount: ['alerts', 'count'] as const,
   agencoStatus: ['agenco', 'status'] as const,
   agencoMCPStatus: ['agenco', 'mcp-status'] as const,
   agencoIntegrations: ['agenco', 'integrations'] as const,
@@ -87,8 +89,9 @@ export function useStatus() {
  */
 export function useConfig() {
   const healthy = useHealthGate();
+  const scope = useScopeKey();
   return useQuery({
-    queryKey: queryKeys.config,
+    queryKey: [...queryKeys.config, scope] as const,
     queryFn: api.getConfig,
     enabled: healthy,
   });
@@ -387,6 +390,52 @@ export function useBrowsePath(dirPath: string | null) {
     queryFn: () => api.browsePath(dirPath ?? undefined),
     enabled: healthy && dirPath !== null,
     staleTime: 10_000,
+  });
+}
+
+// --- Alerts hooks ---
+
+export function useAlerts() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.alerts,
+    queryFn: () => api.alerts.getAll({ includeAcknowledged: true }),
+    enabled: healthy,
+    refetchInterval: healthy ? 15000 : false,
+  });
+}
+
+export function useAlertsCount() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.alertsCount,
+    queryFn: api.alerts.getCount,
+    enabled: healthy,
+    refetchInterval: healthy ? 10000 : false,
+  });
+}
+
+export function useAcknowledgeAlert() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) => api.alerts.acknowledge(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.alerts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.alertsCount });
+    },
+  });
+}
+
+export function useAcknowledgeAllAlerts() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.alerts.acknowledgeAll(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.alerts });
+      queryClient.invalidateQueries({ queryKey: queryKeys.alertsCount });
+    },
   });
 }
 

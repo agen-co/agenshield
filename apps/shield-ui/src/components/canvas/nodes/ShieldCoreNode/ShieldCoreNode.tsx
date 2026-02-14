@@ -24,6 +24,7 @@ export const ShieldCoreNode = memo(({ data }: NodeProps) => {
         <CoreSub>v{version} &middot; up {uptime}</CoreSub>
       </div>
       <Handle type="source" position={Position.Bottom} id="bottom" style={{ visibility: 'hidden' }} />
+      <Handle type="target" position={Position.Right} id="right" style={{ visibility: 'hidden' }} />
     </CoreWrapper>
   );
 });

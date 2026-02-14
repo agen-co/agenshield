@@ -12,6 +12,26 @@ function baseEdgeProps(props: EdgeProps) {
 
 const DOT_OFFSETS = [0, 0.33, 0.66];
 
+/** Memoized dots that only re-render when the SVG path changes */
+const AnimatedDots = memo(
+  ({ pathData, id }: { pathData: string; id: string }) => (
+    <>
+      {DOT_OFFSETS.map((delay, i) => (
+        <circle key={`${id}-dot-${i}`} r="3" fill="#6CB685" filter="url(#canvas-glow-green)">
+          <animateMotion
+            dur="2s"
+            repeatCount="indefinite"
+            path={pathData}
+            begin={`${delay * 2}s`}
+          />
+        </circle>
+      ))}
+    </>
+  ),
+  (prev, next) => prev.pathData === next.pathData,
+);
+AnimatedDots.displayName = 'TrafficAnimatedDots';
+
 export const TrafficEdge = memo((props: EdgeProps) => {
   const { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition } = props;
   const [edgePath] = getSmoothStepPath({
@@ -31,17 +51,7 @@ export const TrafficEdge = memo((props: EdgeProps) => {
           ...(props.style ?? {}),
         }}
       />
-      {/* 3 staggered ambient particle dots */}
-      {DOT_OFFSETS.map((delay, i) => (
-        <circle key={i} r="3" fill="#6CB685" filter="url(#canvas-glow-green)">
-          <animateMotion
-            dur="2s"
-            repeatCount="indefinite"
-            path={edgePath}
-            begin={`${delay * 2}s`}
-          />
-        </circle>
-      ))}
+      <AnimatedDots pathData={edgePath} id={props.id} />
     </>
   );
 });

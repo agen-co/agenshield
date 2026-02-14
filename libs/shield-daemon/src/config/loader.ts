@@ -57,7 +57,7 @@ export function loadConfig(): ShieldConfig {
   try {
     const storage = getStorage();
     const configData = storage.config.get();
-    const policies = storage.policies.getAll();
+    const policies = storage.for({ profileId: null }).policies.getAll();
 
     if (!configData) {
       const defaults = getDefaultConfig();
@@ -146,13 +146,11 @@ export function saveConfig(config: ShieldConfig): void {
     brokerJson: config.broker ? JSON.stringify(config.broker) : null,
   });
 
-  // Sync policies: delete all base-scope policies, re-insert
-  const existingPolicies = storage.policies.getAll();
-  for (const p of existingPolicies) {
-    storage.policies.delete(p.id);
-  }
+  // Sync policies: delete all global-scope policies, re-insert
+  const globalScope = storage.for({ profileId: null });
+  globalScope.policies.deleteAll();
   for (const p of config.policies) {
-    storage.policies.create(p);
+    globalScope.policies.create(p);
   }
 
   cachedConfig = config;
@@ -179,6 +177,72 @@ export function updateConfig(updates: Partial<ShieldConfig>): ShieldConfig {
     vault: updates.vault ?? current.vault,
   };
   saveConfig(updated);
+  return updated;
+}
+
+/**
+ * Load config with profile-scoped policies.
+ * Base config fields come from the cache/DB (shared across profiles).
+ * Policies come from UNION of global + profile-specific.
+ */
+export function loadScopedConfig(profileId: string): ShieldConfig {
+  const base = loadConfig();
+  const scopedPolicies = getStorage().for({ profileId }).policies.getAll();
+  return { ...base, policies: scopedPolicies };
+}
+
+/**
+ * Save profile-scoped policies. Non-policy config fields are saved globally.
+ */
+export function saveScopedConfig(config: ShieldConfig, profileId: string): void {
+  const storage = getStorage();
+
+  // Save non-policy config fields to global config (shared)
+  storage.config.set({
+    version: config.version,
+    daemonPort: config.daemon.port,
+    daemonHost: config.daemon.host,
+    daemonLogLevel: config.daemon.logLevel,
+    daemonEnableHostsEntry: config.daemon.enableHostsEntry,
+    defaultAction: config.defaultAction ?? null,
+    vaultEnabled: config.vault?.enabled ?? null,
+    vaultProvider: config.vault?.provider ?? null,
+    skillsJson: config.skills ? JSON.stringify(config.skills) : null,
+    soulJson: config.soul ? JSON.stringify(config.soul) : null,
+    brokerJson: config.broker ? JSON.stringify(config.broker) : null,
+  });
+
+  // Get global policy IDs so we can identify profile-only policies
+  const globalPolicyIds = new Set(
+    storage.for({ profileId: null }).policies.getAll().map((p) => p.id),
+  );
+
+  // Filter to only profile-specific policies
+  const profilePolicies = config.policies.filter((p) => !globalPolicyIds.has(p.id));
+
+  // Delete and re-insert profile-scoped policies only
+  const scoped = storage.for({ profileId });
+  scoped.policies.deleteAll();
+  for (const p of profilePolicies) {
+    scoped.policies.create(p);
+  }
+
+  cachedConfig = null; // Invalidate cache (non-policy fields may have changed)
+}
+
+/**
+ * Update profile-scoped config (merge with existing).
+ */
+export function updateScopedConfig(updates: Partial<ShieldConfig>, profileId: string): ShieldConfig {
+  const current = loadScopedConfig(profileId);
+  const updated: ShieldConfig = {
+    ...current,
+    ...updates,
+    daemon: { ...current.daemon, ...(updates.daemon || {}) },
+    policies: updates.policies ?? current.policies,
+    vault: updates.vault ?? current.vault,
+  };
+  saveScopedConfig(updated, profileId);
   return updated;
 }
 

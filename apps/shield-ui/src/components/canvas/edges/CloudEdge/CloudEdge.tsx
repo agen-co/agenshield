@@ -12,6 +12,27 @@ function baseEdgeProps(props: EdgeProps) {
 
 const DOT_OFFSETS = [0, 0.5];
 
+/** Memoized dots that only re-render when the SVG path or connected state changes */
+const AnimatedDots = memo(
+  ({ pathData, id, connected }: { pathData: string; id: string; connected: boolean }) =>
+    connected ? (
+      <>
+        {DOT_OFFSETS.map((delay, i) => (
+          <circle key={`${id}-dot-${i}`} r="2.5" fill="#6BAEF2" filter="url(#canvas-glow-blue)">
+            <animateMotion
+              dur="2.5s"
+              repeatCount="indefinite"
+              path={pathData}
+              begin={`${delay * 2.5}s`}
+            />
+          </circle>
+        ))}
+      </>
+    ) : null,
+  (prev, next) => prev.pathData === next.pathData && prev.connected === next.connected,
+);
+AnimatedDots.displayName = 'CloudAnimatedDots';
+
 export const CloudEdge = memo((props: EdgeProps) => {
   const { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, data } = props;
   const [edgePath] = getSmoothStepPath({
@@ -34,17 +55,7 @@ export const CloudEdge = memo((props: EdgeProps) => {
           opacity: connected ? 1 : 0.4,
         }}
       />
-      {connected &&
-        DOT_OFFSETS.map((delay, i) => (
-          <circle key={i} r="2.5" fill="#6BAEF2" filter="url(#canvas-glow-blue)">
-            <animateMotion
-              dur="2.5s"
-              repeatCount="indefinite"
-              path={edgePath}
-              begin={`${delay * 2.5}s`}
-            />
-          </circle>
-        ))}
+      <AnimatedDots pathData={edgePath} id={props.id} connected={connected} />
     </>
   );
 });

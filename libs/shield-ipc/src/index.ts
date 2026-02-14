@@ -109,7 +109,14 @@ export {
 } from './schemas/auth.schema';
 
 // Presets
-export { OPENCLAW_PRESET, AGENCO_PRESET, POLICY_PRESETS } from './presets';
+export {
+  OPENCLAW_PRESET,
+  AGENCO_PRESET,
+  CLAUDECODE_PRESET,
+  POLICY_PRESETS,
+  PRESET_MAP,
+  getPresetById,
+} from './presets';
 export type { PolicyPreset } from './presets';
 
 // Catalog
@@ -128,6 +135,7 @@ export * from './version-features';
 export * from './profiles/index';
 export * from './skills/index';
 export * from './activity/index';
+export * from './alerts/index';
 export * from './commands/index';
 export * from './storage/index';
 export * from './policy-graph/index';

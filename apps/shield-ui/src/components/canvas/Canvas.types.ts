@@ -125,5 +125,8 @@ export interface DeniedBucketData {
 export interface PolicyGraphData {
   activePolicies: number;
   targetCount: number;
+  width?: number;
+  topHandlePositions?: number[];
+  bottomHandlePositions?: number[];
   [key: string]: unknown;
 }

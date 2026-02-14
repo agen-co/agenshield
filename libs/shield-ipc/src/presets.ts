@@ -147,4 +147,99 @@ export const AGENCO_PRESET: PolicyPreset = {
   ],
 };
 
-export const POLICY_PRESETS: PolicyPreset[] = [OPENCLAW_PRESET, AGENCO_PRESET];
+export const CLAUDECODE_PRESET: PolicyPreset = {
+  id: 'claudecode',
+  name: 'Claude Code',
+  description: 'Default policies for Anthropic Claude Code agent',
+  policies: [
+    {
+      id: 'preset-cc-ai-apis',
+      name: 'AI Provider APIs',
+      action: 'allow',
+      target: 'url',
+      patterns: ['api.anthropic.com', 'api.openai.com'],
+      enabled: true,
+      priority: 5,
+      preset: 'claudecode',
+    },
+    {
+      id: 'preset-cc-registries',
+      name: 'Package Registries & Git',
+      action: 'allow',
+      target: 'url',
+      patterns: [
+        'registry.npmjs.org',
+        'registry.yarnpkg.com',
+        'github.com',
+        'api.github.com',
+        'pypi.org',
+      ],
+      enabled: true,
+      priority: 5,
+      preset: 'claudecode',
+    },
+    {
+      id: 'preset-cc-commands',
+      name: 'Claude Code Commands',
+      action: 'allow',
+      target: 'command',
+      patterns: [
+        'claude:*',
+        'node:*',
+        'npm:*',
+        'npx:*',
+        'git:*',
+        'python:*',
+        'python3:*',
+        'pip:*',
+        'ls:*',
+        'cat:*',
+        'head:*',
+        'tail:*',
+        'grep:*',
+        'find:*',
+        'which:*',
+        'echo:*',
+        'touch:*',
+        'mkdir:*',
+        'cp:*',
+        'mv:*',
+        'rm:*',
+        'wc:*',
+        'sort:*',
+        'uniq:*',
+        'sed:*',
+        'awk:*',
+        'xargs:*',
+      ],
+      enabled: true,
+      priority: 5,
+      preset: 'claudecode',
+    },
+    {
+      id: 'preset-cc-filesystem',
+      name: 'Claude Code Workspace Access',
+      action: 'allow',
+      target: 'filesystem',
+      patterns: ['$WORKSPACE/**', '/tmp/**'],
+      operations: ['file_read', 'file_write'],
+      enabled: true,
+      priority: 5,
+      preset: 'claudecode',
+    },
+  ],
+};
+
+/** Map from preset ID to preset definition */
+export const PRESET_MAP: Record<string, PolicyPreset> = {
+  openclaw: OPENCLAW_PRESET,
+  agenco: AGENCO_PRESET,
+  claudecode: CLAUDECODE_PRESET,
+};
+
+/** Get a preset by ID (returns undefined if not found) */
+export function getPresetById(id: string): PolicyPreset | undefined {
+  return PRESET_MAP[id];
+}
+
+export const POLICY_PRESETS: PolicyPreset[] = [OPENCLAW_PRESET, AGENCO_PRESET, CLAUDECODE_PRESET];

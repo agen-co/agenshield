@@ -72,3 +72,9 @@ export {
   type ProcessEventPayload,
   PROCESS_EVENT_TYPES,
 } from './process.events';
+
+export {
+  type AlertCreatedPayload,
+  type AlertAcknowledgedPayload,
+  ALERT_EVENT_TYPES,
+} from './alert.events';

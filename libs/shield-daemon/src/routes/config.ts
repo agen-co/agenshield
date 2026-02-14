@@ -10,8 +10,9 @@ import type {
   UpdateConfigResponse,
   UpdateConfigRequest,
 } from '@agenshield/ipc';
-import { OPENCLAW_PRESET, AGENCO_PRESET } from '@agenshield/ipc';
-import { loadConfig, updateConfig, saveConfig, getDefaultConfig } from '../config/index';
+import { OPENCLAW_PRESET, AGENCO_PRESET, getPresetById } from '@agenshield/ipc';
+import { loadConfig, loadScopedConfig, updateConfig, updateScopedConfig, saveConfig, getDefaultConfig } from '../config/index';
+import { getStorage } from '@agenshield/storage';
 import { getDefaultState, loadState, saveState } from '../state/index';
 import { getVault } from '../vault';
 import { getSessionManager } from '../auth/session';
@@ -58,7 +59,8 @@ function getKnownSkillNames(app: FastifyInstance): Set<string> {
 export async function configRoutes(app: FastifyInstance): Promise<void> {
   // Get current configuration (redacted for anonymous users)
   app.get('/config', async (request): Promise<GetConfigResponse> => {
-    const config = loadConfig();
+    const profileId = request.shieldContext?.profileId;
+    const config = profileId ? loadScopedConfig(profileId) : loadConfig();
     return {
       success: true,
       data: isAuthenticated(request) ? config : redactConfig(config),
@@ -69,30 +71,52 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
   app.put<{ Body: UpdateConfigRequest }>(
     '/config',
     async (request): Promise<UpdateConfigResponse> => {
+      const profileId = request.shieldContext?.profileId;
+
       try {
         // Ensure preset policies cannot be deleted — re-inject any that are missing
         if (request.body.policies) {
-          for (const presetPolicy of OPENCLAW_PRESET.policies) {
-            const exists = request.body.policies.some((p) => p.id === presetPolicy.id);
-            if (!exists) {
-              request.body.policies.push(presetPolicy);
+          if (profileId) {
+            // Profile-scoped: protect the profile's preset policies
+            const profile = getStorage().profiles.getById(profileId);
+            if (profile?.presetId) {
+              const preset = getPresetById(profile.presetId);
+              if (preset) {
+                for (const presetPolicy of preset.policies) {
+                  if (!request.body.policies.some((p) => p.id === presetPolicy.id)) {
+                    request.body.policies.push(presetPolicy);
+                  }
+                }
+              }
             }
-          }
-
-          // Protect AgenCo preset only when it was previously applied
-          const hasAgenco = request.body.policies.some((p) => p.preset === 'agenco');
-          if (hasAgenco) {
-            for (const presetPolicy of AGENCO_PRESET.policies) {
+          } else {
+            // Global: protect OpenClaw preset
+            for (const presetPolicy of OPENCLAW_PRESET.policies) {
               const exists = request.body.policies.some((p) => p.id === presetPolicy.id);
               if (!exists) {
                 request.body.policies.push(presetPolicy);
               }
             }
+
+            // Protect AgenCo preset only when it was previously applied
+            const hasAgenco = request.body.policies.some((p) => p.preset === 'agenco');
+            if (hasAgenco) {
+              for (const presetPolicy of AGENCO_PRESET.policies) {
+                const exists = request.body.policies.some((p) => p.id === presetPolicy.id);
+                if (!exists) {
+                  request.body.policies.push(presetPolicy);
+                }
+              }
+            }
           }
         }
 
-        const oldPolicies = loadConfig().policies;
-        const updated = updateConfig(request.body);
+        const oldPolicies = profileId
+          ? loadScopedConfig(profileId).policies
+          : loadConfig().policies;
+        const updated = profileId
+          ? updateScopedConfig(request.body, profileId)
+          : updateConfig(request.body);
 
         // Sync policies to system enforcement
         if (request.body.policies) {

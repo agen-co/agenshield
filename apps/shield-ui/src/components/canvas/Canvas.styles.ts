@@ -65,7 +65,7 @@ export const LogoSub = styled('div')(({ theme }) => ({
 export const HudOverlay = styled('div')({
   position: 'absolute',
   top: 20,
-  right: 360,
+  right: 20,
   zIndex: 10,
   display: 'flex',
   alignItems: 'center',
@@ -91,15 +91,15 @@ export const HudStatusDot = styled('div')({
   borderRadius: '50%',
 });
 
-export const ChartOverlay = styled('div')({
+export const BottomBarOverlay = styled('div')({
   position: 'absolute',
-  top: 64,
+  bottom: 0,
   left: 0,
-  right: 340,
-  height: '25vh',
+  right: 352, // align to left edge of activity panel (12 + 340)
+  height: 100,
   zIndex: 1,
   pointerEvents: 'none',
-  opacity: 0.18,
-  maskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 60%, rgba(0,0,0,0) 100%)',
-  WebkitMaskImage: 'linear-gradient(to bottom, rgba(0,0,0,1) 60%, rgba(0,0,0,0) 100%)',
+  display: 'flex',
+  justifyContent: 'flex-end',
+  alignItems: 'flex-end',
 });

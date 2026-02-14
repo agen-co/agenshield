@@ -4,7 +4,7 @@
 
 export function SvgFilters() {
   return (
-    <svg style={{ position: 'absolute', width: 0, height: 0 }}>
+    <svg style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none' }}>
       <defs>
         {/* Green glow — healthy/shielded */}
         <filter id="canvas-glow-green" x="-50%" y="-50%" width="200%" height="200%">

@@ -41,15 +41,26 @@ export function useSSE(enabled = true, token?: string | null) {
             : rawData;
 
         // Use daemon timestamp when available
-        const serverTs =
-          rawData && typeof rawData === 'object' && 'timestamp' in rawData
+        const hasServerTimestamp = rawData && typeof rawData === 'object' && 'timestamp' in rawData;
+        const serverTs = hasServerTimestamp
             ? new Date(rawData.timestamp as string).getTime()
             : Date.now();
+
+        if (!hasServerTimestamp) {
+          console.warn('[SSE] No server timestamp for event, using Date.now()', type, rawData);
+        }
 
         // Update daemon status store from SSE push
         if (type === 'daemon:status') {
           setDaemonStatus(data as unknown as DaemonStatus);
           return; // Don't add status events to the activity feed
+        }
+
+        // Invalidate alerts queries on alert events
+        if (type === 'alerts:created' || type === 'alerts:acknowledged') {
+          queryClient.invalidateQueries({ queryKey: queryKeys.alerts });
+          queryClient.invalidateQueries({ queryKey: queryKeys.alertsCount });
+          return; // Don't add alert meta-events to the activity feed
         }
 
         // Route skill events to the skills store (don't return — let them also flow into activity feed)

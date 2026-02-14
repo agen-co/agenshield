@@ -25,21 +25,13 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
     const centerX = (vw - 320) / 2; // offset for activity panel
     const centerY = vh * 0.28;
 
-    // --- Cloud node: above center ---
-    nodes.push({
-      id: 'cloud',
-      type: 'canvas-cloud',
-      position: { x: centerX - 60, y: centerY - 160 },
-      data: { connected: data.cloudConnected },
-      draggable: false,
-      selectable: false,
-    });
-
     // --- Shield core: center ---
+    const coreX = centerX - 80;
+    const coreY = centerY - 40;
     nodes.push({
       id: 'core',
       type: 'canvas-core',
-      position: { x: centerX - 80, y: centerY - 40 },
+      position: { x: coreX, y: coreY },
       data: {
         status: data.coreStatus,
         version: data.daemonVersion,
@@ -49,13 +41,25 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
       selectable: false,
     });
 
-    // --- Cloud to core edge ---
+    // --- Cloud node: to the right of core ---
+    const coreEstimatedWidth = 210; // minWidth 180 + padding ~30
+    const cloudGap = 40;
+    nodes.push({
+      id: 'cloud',
+      type: 'canvas-cloud',
+      position: { x: coreX + coreEstimatedWidth + cloudGap, y: coreY + 10 },
+      data: { connected: data.cloudConnected },
+      draggable: false,
+      selectable: false,
+    });
+
+    // --- Cloud to core edge (horizontal) ---
     edges.push({
       id: 'e-cloud-core',
       source: 'cloud',
       target: 'core',
-      sourceHandle: 'bottom',
-      targetHandle: 'top',
+      sourceHandle: 'left',
+      targetHandle: 'right',
       type: data.cloudConnected ? 'canvas-cloud' : 'canvas-disconnected',
       data: { connected: data.cloudConnected },
     });
@@ -127,17 +131,6 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
     // --- Firewall layer: below targets ---
     const firewallY = targetY + 360;
 
-    // --- Policy Graph node: above firewall row ---
-    const policyGraphY = firewallY - 100;
-    nodes.push({
-      id: 'policy-graph',
-      type: 'canvas-policy-graph',
-      position: { x: centerX - 250, y: policyGraphY },
-      data: { activePolicies: data.activePolicyCount, targetCount },
-      draggable: false,
-      selectable: false,
-    });
-
     const firewallPieces = [
       {
         id: 'network',
@@ -160,11 +153,14 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
     ] as const;
 
     const firewallCount: number = firewallPieces.length;
+    const firewallNodeWidth = 160; // minWidth 140 + padding/gap ~20
+    const firewallGap = 24;
+    const firewallSpacing = firewallNodeWidth + firewallGap;
+    const firewallLayerWidth = (firewallCount - 1) * firewallSpacing;
     firewallPieces.forEach((piece, i) => {
-      // Span the same total width as the targets layer
       const fx = firewallCount === 1
-        ? centerX - 70
-        : centerX - layerWidth / 2 + i * (layerWidth / (firewallCount - 1)) - 70;
+        ? centerX - firewallNodeWidth / 2
+        : centerX - firewallLayerWidth / 2 + i * firewallSpacing - firewallNodeWidth / 2;
 
       nodes.push({
         id: `firewall-${piece.id}`,
@@ -179,6 +175,54 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
         draggable: false,
         selectable: false,
       });
+    });
+
+    // --- Compute anchor X positions for vertical edge alignment ---
+    // Stats node handle X ≈ stats.position.x + estWidth/2
+    const statsEstWidth = 160;
+    const statsAnchors = data.targets.map((_target, i) => {
+      const tx = targetCount === 1
+        ? centerX - 80
+        : centerX - layerWidth / 2 + i * targetSpacing - 80;
+      return (tx - 10) + statsEstWidth / 2; // stats at tx-10, center = tx-10 + 80
+    });
+
+    // Firewall center X = position.x + nodeWidth/2
+    const firewallAnchors = firewallPieces.map((_piece, i) => {
+      const fx = firewallCount === 1
+        ? centerX - firewallNodeWidth / 2
+        : centerX - firewallLayerWidth / 2 + i * firewallSpacing - firewallNodeWidth / 2;
+      return fx + firewallNodeWidth / 2;
+    });
+
+    // PolicyGraph spans all anchors with padding
+    const allAnchors = [...statsAnchors, ...firewallAnchors];
+    const pgPadding = 40;
+    const minAnchor = Math.min(...allAnchors);
+    const maxAnchor = Math.max(...allAnchors);
+    const anchorSpan = maxAnchor - minAnchor + pgPadding * 2;
+    const pgWidth = Math.max(anchorSpan, 500);
+    const pgX = (minAnchor + maxAnchor) / 2 - pgWidth / 2;
+
+    // Handle positions in pixels relative to PolicyGraph left edge
+    const topHandlePositions = statsAnchors.map(x => x - pgX);
+    const bottomHandlePositions = firewallAnchors.map(x => x - pgX);
+
+    // --- Policy Graph node: above firewall row ---
+    const policyGraphY = firewallY - 100;
+    nodes.push({
+      id: 'policy-graph',
+      type: 'canvas-policy-graph',
+      position: { x: pgX, y: policyGraphY },
+      data: {
+        activePolicies: data.activePolicyCount,
+        targetCount,
+        width: pgWidth,
+        topHandlePositions,
+        bottomHandlePositions,
+      },
+      draggable: false,
+      selectable: false,
     });
 
     // --- Edges: stats → Policy Graph (convergence) ---

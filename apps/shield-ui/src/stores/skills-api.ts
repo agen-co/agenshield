@@ -30,18 +30,22 @@ function authHeaders(includeContentType = true): Record<string, string> {
 export interface SearchSkillResult {
   name: string;
   slug: string;
+  path: string;
   description: string;
   author: string;
   version: string;
   installs: number;
   tags: string[];
+  source: 'clawhub' | 'openclaw' | 'local';
+  trusted: boolean;
   analysisStatus: 'complete' | 'pending' | null;
   analysis: {
-    vulnerability: {
-      level: string;
-      details: string[];
-      suggestions?: string[];
-    };
+    vulnerability: { level: string; details: string[]; suggestions?: string[] };
+    commands?: Array<{ name: string; source: string; available: boolean; required: boolean }>;
+    envVariables?: Array<{ name: string; required: boolean; purpose: string; sensitive: boolean }>;
+    runCommands?: Array<{ command: string; description: string; entrypoint: boolean }>;
+    securityFindings?: Array<{ severity: string; category: string; cwe?: string; owaspCategory?: string; description: string; evidence?: string }>;
+    mcpSpecificRisks?: Array<{ riskType: string; description: string; severity: string }>;
   } | null;
 }
 
@@ -52,6 +56,12 @@ export async function searchSkillsVercel(query: string): Promise<SearchSkillResu
     throw new Error((data as { error?: string }).error || `Search failed: ${res.status}`);
   }
   return res.json();
+}
+
+/** Look up a single skill by slug via the Vercel search API. */
+export async function fetchSkillBySlugVercel(slug: string): Promise<SearchSkillResult | null> {
+  const results = await searchSkillsVercel(slug);
+  return results.find((r) => r.slug === slug) ?? null;
 }
 
 export interface AnalysisResult {
@@ -102,13 +112,17 @@ export interface AnalyzeStreamEvent {
 
 export async function analyzeSkillVercel(
   slug: string,
-  source: 'clawhub' = 'clawhub',
-  options?: { noCache?: boolean },
+  source: 'clawhub' | 'openclaw' | 'local' = 'clawhub',
+  options?: { noCache?: boolean; path?: string },
 ): Promise<AnalysisResult> {
+  const body: Record<string, unknown> = { slug, source };
+  if (options?.path) body.path = options.path;
+  if (options?.noCache) body.noCache = true;
+
   const res = await fetch(`${VERCEL_BASE}/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug, source, ...(options?.noCache ? { noCache: true } : {}) }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {

@@ -22,6 +22,7 @@ import { activityRoutes } from './activity';
 import { openclawRoutes } from './openclaw';
 import { profileRoutes } from './targets';
 import { policyGraphRoutes } from './policy-graph';
+import { alertsRoutes } from './alerts';
 import { rpcRoutes } from './rpc';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
@@ -63,7 +64,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // Skip SSE, RPC, static file requests, and noisy health polls
     if (!request.url.startsWith('/sse') && !request.url.startsWith('/rpc') && !request.url.includes('.') && !request.url.endsWith('/health')) {
       // Skip successful status polls — too noisy
-      if (request.method === 'GET' && (request.url.startsWith('/api/status') || request.url.startsWith('/api/activity')) && reply.statusCode === 200) {
+      if (request.method === 'GET' && (request.url.startsWith('/api/status') || request.url.startsWith('/api/activity') || request.url.startsWith('/api/alerts')) && reply.statusCode === 200) {
         done();
         return;
       }
@@ -130,6 +131,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(openclawRoutes);
       await api.register(profileRoutes);
       await api.register(policyGraphRoutes);
+      await api.register(alertsRoutes);
     },
     { prefix: API_PREFIX }
   );

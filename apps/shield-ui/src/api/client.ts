@@ -19,6 +19,7 @@ import type {
   AnalyzeSkillRequestUnion,
   AnalyzeSkillResponse,
   InstallSkillRequest,
+  Alert,
 } from '@agenshield/ipc';
 
 import { scopeStore } from '../state/scope';
@@ -345,5 +346,23 @@ export const api = {
     if (showHidden) params.set('showHidden', 'true');
     const qs = params.toString();
     return request<{ success: boolean; data: { entries: FsBrowseEntry[] } }>(`/fs/browse${qs ? `?${qs}` : ''}`);
+  },
+
+  // Alerts
+  alerts: {
+    getAll: (params?: { limit?: number; includeAcknowledged?: boolean; severity?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.limit) qs.set('limit', String(params.limit));
+      if (params?.includeAcknowledged) qs.set('include_acknowledged', 'true');
+      if (params?.severity) qs.set('severity', params.severity);
+      const query = qs.toString();
+      return request<{ data: Alert[]; meta: { unacknowledgedCount: number } }>(`/alerts${query ? `?${query}` : ''}`);
+    },
+    getCount: () =>
+      request<{ data: { count: number } }>('/alerts/count'),
+    acknowledge: (id: number) =>
+      request<{ success: boolean; data: { id: number } }>(`/alerts/${id}/acknowledge`, { method: 'POST' }),
+    acknowledgeAll: () =>
+      request<{ success: boolean; data: { count: number } }>('/alerts/acknowledge-all', { method: 'POST' }),
   },
 };

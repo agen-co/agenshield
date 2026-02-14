@@ -1,21 +1,24 @@
 /**
- * Fixed full-height activity panel on the right side of the canvas.
- * Contains alerts section + tabbed activity/categorized feed.
+ * Floating glassmorphism activity panel on the right side of the canvas.
+ * Contains sticky alerts section (backend API) + tabbed activity feed.
+ * Wrapped in React.memo to isolate from Canvas re-renders — only re-renders
+ * when its own valtio snapshot changes.
  */
 
+import { memo } from 'react';
 import { useSnapshot } from 'valtio';
 import { eventStore } from '../../../../state/events';
 import { AlertsSection } from './AlertsSection';
 import { ActivityFeedSection } from './ActivityFeedSection';
 import { PanelContainer } from './ActivityPanel.styles';
 
-export function ActivityPanel() {
+export const ActivityPanel = memo(function ActivityPanel() {
   const { events } = useSnapshot(eventStore);
 
   return (
     <PanelContainer>
-      <AlertsSection events={events as typeof eventStore.events} />
+      <AlertsSection />
       <ActivityFeedSection events={events as typeof eventStore.events} />
     </PanelContainer>
   );
-}
+});
