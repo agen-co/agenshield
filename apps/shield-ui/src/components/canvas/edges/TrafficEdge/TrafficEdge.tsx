@@ -1,58 +1,23 @@
 import { memo } from 'react';
-import { BaseEdge, getSmoothStepPath, type EdgeProps } from '@xyflow/react';
-
-function baseEdgeProps(props: EdgeProps) {
-  return {
-    id: props.id,
-    markerStart: props.markerStart,
-    markerEnd: props.markerEnd,
-    interactionWidth: props.interactionWidth,
-  };
-}
-
-const DOT_OFFSETS = [0, 0.33, 0.66];
-
-/** Memoized dots that only re-render when the SVG path changes */
-const AnimatedDots = memo(
-  ({ pathData, id }: { pathData: string; id: string }) => (
-    <>
-      {DOT_OFFSETS.map((delay, i) => (
-        <circle key={`${id}-dot-${i}`} r="3" fill="#6CB685" filter="url(#canvas-glow-green)">
-          <animateMotion
-            dur="2s"
-            repeatCount="indefinite"
-            path={pathData}
-            begin={`${delay * 2}s`}
-          />
-        </circle>
-      ))}
-    </>
-  ),
-  (prev, next) => prev.pathData === next.pathData,
-);
-AnimatedDots.displayName = 'TrafficAnimatedDots';
+import type { EdgeProps } from '@xyflow/react';
+import { PcbTraceEdge } from '../PcbTraceEdge';
 
 export const TrafficEdge = memo((props: EdgeProps) => {
-  const { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition } = props;
-  const [edgePath] = getSmoothStepPath({
-    sourceX, sourceY, sourcePosition,
-    targetX, targetY, targetPosition,
-  });
+  const channelOffset = (props.data?.channelOffset as number) ?? 0;
+  const showViaPads = (props.data?.showViaPads as boolean) ?? true;
 
   return (
-    <>
-      <BaseEdge
-        {...baseEdgeProps(props)}
-        path={edgePath}
-        style={{
-          stroke: '#6CB685',
-          strokeWidth: 2,
-          filter: 'drop-shadow(0 0 2px rgba(108, 182, 133, 0.3))',
-          ...(props.style ?? {}),
-        }}
-      />
-      <AnimatedDots pathData={edgePath} id={props.id} />
-    </>
+    <PcbTraceEdge
+      {...props}
+      config={{
+        strokeColor: '#A0A0A0',
+        strokeWidth: 2.5,
+        showViaPads,
+        glowFilter: 'drop-shadow(0 0 3px rgba(160, 160, 160, 0.3))',
+        opacity: (props.style?.opacity as number) ?? 1,
+        channelOffset,
+      }}
+    />
   );
 });
 TrafficEdge.displayName = 'TrafficEdge';

@@ -9,7 +9,10 @@ import { slideIn } from '../../styles/animations';
  */
 export function PageTransition({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
-  const pageKey = '/' + (pathname.split('/')[1] ?? '');
+  const segments = pathname.split('/');
+  const pageKey = segments[1] === 'profiles' && segments[2]
+    ? `/profiles/${segments[2]}`
+    : `/${segments[1] ?? ''}`;
 
   return (
     <Box

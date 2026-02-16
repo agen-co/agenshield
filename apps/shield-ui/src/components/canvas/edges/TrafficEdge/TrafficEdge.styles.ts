@@ -1,6 +1,2 @@
-import { styled } from '@mui/material/styles';
-
-export const ParticleDot = styled('circle')({
-  fill: '#6CB685',
-  filter: 'url(#canvas-glow-green)',
-});
+// PCB-themed TrafficEdge — styles now inline in SVG.
+// This file is kept for backward compatibility with the barrel export.

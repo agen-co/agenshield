@@ -1,5 +1,8 @@
 /**
  * Valtio store for animated dots flowing through the canvas graph.
+ *
+ * Dots follow orthogonal waypoint paths instead of straight lines,
+ * matching the PCB trace routing of edges.
  */
 
 import { proxy } from 'valtio';
@@ -12,10 +15,10 @@ export interface AnimatedDot {
   phase: DotPhase;
   /** Whether the event was allowed or denied */
   denied: boolean;
-  /** Start point (target node center) */
-  from: Point;
-  /** Current destination (policy graph, firewall piece, then computer or denied bucket) */
-  to: Point;
+  /** Waypoints along the orthogonal path (includes start and end) */
+  waypoints: Point[];
+  /** Total path length for interpolation */
+  pathLength: number;
   /** Timestamp when the current phase started */
   startTime: number;
   /** Duration of the current phase in ms */
@@ -24,7 +27,7 @@ export interface AnimatedDot {
   firewallId: string;
 }
 
-const MAX_DOTS = 20;
+const MAX_DOTS = 30;
 
 export const dotAnimationStore = proxy({
   dots: [] as AnimatedDot[],
@@ -46,14 +49,15 @@ export function spawnDot(dot: Omit<AnimatedDot, 'id'>): string {
 export function advanceDot(
   id: string,
   newPhase: DotPhase,
-  newTo: Point,
+  newWaypoints: Point[],
+  newPathLength: number,
   duration: number,
 ) {
   const dot = dotAnimationStore.dots.find((d) => d.id === id);
   if (!dot) return;
   dot.phase = newPhase;
-  dot.from = { ...dot.to };
-  dot.to = newTo;
+  dot.waypoints = newWaypoints;
+  dot.pathLength = newPathLength;
   dot.startTime = Date.now();
   dot.duration = duration;
 }

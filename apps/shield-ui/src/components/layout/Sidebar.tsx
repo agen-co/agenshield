@@ -1,6 +1,6 @@
 /**
  * Persistent sidebar navigation component
- * Includes branding, connection status, and theme toggle (no top bar)
+ * Sectioned layout: System items + collapsible profile groups
  */
 
 import { useState } from 'react';
@@ -9,7 +9,6 @@ import {
   Drawer,
   List,
   ListItem,
-  ListItemButton,
   ListItemIcon,
   ListItemText,
   Divider,
@@ -23,7 +22,6 @@ import {
 } from '@mui/material';
 import {
   LayoutDashboard,
-  ShieldCheck,
   Zap,
   KeyRound,
   Settings,
@@ -39,14 +37,18 @@ import {
   AlertTriangle,
   ExternalLink,
   Monitor,
+  Plus,
 } from 'lucide-react';
-import { tokens } from '../../styles/tokens';
 import { useSnapshot } from 'valtio';
+import { tokens } from '../../styles/tokens';
 import { eventStore } from '../../state/events';
-import { useStatus, useOpenClawDashboardUrl, useAlertsCount } from '../../api/hooks';
+import { sidebarStore, toggleProfileExpanded } from '../../state/sidebar';
+import { setScope } from '../../state/scope';
+import { useStatus, useOpenClawDashboardUrl, useAlertsCount, useProfiles } from '../../api/hooks';
 import { notify } from '../../stores/notifications';
 import { OpenClawTokenDialog } from '../shared/OpenClawTokenDialog';
-import { ScopeSelector } from './ScopeSelector';
+import { ProfileNavGroup } from './ProfileNavGroup';
+import { SectionHeader, NavButton, ScrollableArea } from './Sidebar.styles';
 
 const DRAWER_WIDTH = tokens.sidebar.width;
 
@@ -61,10 +63,9 @@ interface SidebarProps {
   reconnecting?: boolean;
 }
 
-const menuItems = [
+const SYSTEM_ITEMS = [
   { path: '/canvas', label: 'Canvas', icon: <Monitor size={20} /> },
   { path: '/', label: 'Overview', icon: <LayoutDashboard size={20} /> },
-  { path: '/policies', label: 'Policies', icon: <ShieldCheck size={20} /> },
   { path: '/skills', label: 'Skills', icon: <Zap size={20} /> },
   { path: '/secrets', label: 'Secrets', icon: <KeyRound size={20} /> },
   { path: '/activity', label: 'Activity', icon: <Activity size={20} /> },
@@ -85,13 +86,30 @@ export function Sidebar({
   const location = useLocation();
   const navigate = useNavigate();
   const { connected: sseConnected } = useSnapshot(eventStore);
+  const { expandedProfiles } = useSnapshot(sidebarStore);
   const { data: status } = useStatus();
   const { data: alertsCountData } = useAlertsCount();
   const alertCount = alertsCountData?.data?.count ?? 0;
+  const { data: profilesResp } = useProfiles();
+  const profiles = profilesResp?.data ?? [];
   const openClawDashboard = useOpenClawDashboardUrl();
   const [tokenDialog, setTokenDialog] = useState<{ url: string; token: string } | null>(null);
 
+  const isProfileRoute = location.pathname.startsWith('/profiles/');
+
+  const isSystemSelected = (path: string) => {
+    if (isProfileRoute) return false;
+    if (path === '/') return location.pathname === '/';
+    return location.pathname.startsWith(path);
+  };
+
   const handleNavigation = (path: string) => {
+    if (path.startsWith('/profiles/')) {
+      const profileId = path.split('/')[2];
+      setScope(profileId);
+    } else {
+      setScope(null);
+    }
     navigate(path);
     onClose();
   };
@@ -112,9 +130,9 @@ export function Sidebar({
   };
 
   const drawerContent = (
-    <Box sx={{ overflow: 'auto', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Branding + controls */}
-      <Box sx={{ px: 2, py: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <Box sx={{ px: 2, py: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Shield size={20} />
           <Typography variant="subtitle1">AgenShield</Typography>
@@ -131,35 +149,14 @@ export function Sidebar({
         </Box>
       </Box>
 
-      {/* Scope selector */}
-      <ScopeSelector />
-
-      <Divider />
-
-      {/* Navigation */}
-      <List sx={{ px: 1.5, pt: 1, flex: 1 }}>
-        {menuItems.map((item) => (
-          <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
-            <ListItemButton
-              selected={item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)}
+      {/* SYSTEM section */}
+      <SectionHeader>System</SectionHeader>
+      <List sx={{ px: 1.5, pt: 0.5, pb: 0, flexShrink: 0 }}>
+        {SYSTEM_ITEMS.map((item) => (
+          <ListItem key={item.path} disablePadding sx={{ mb: 0.25 }}>
+            <NavButton
+              $selected={isSystemSelected(item.path)}
               onClick={() => handleNavigation(item.path)}
-              sx={{
-                px: 1,
-                py: 0.25,
-                '&:hover': {
-                  bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'grey.50',
-                },
-                '&.Mui-selected': {
-                  bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'grey.100',
-                  color: (theme) => theme.palette.mode === 'dark' ? 'grey.50' : 'grey.900',
-                  '& .MuiListItemIcon-root': {
-                    color: 'inherit',
-                  },
-                  '&:hover': {
-                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.14)' : 'grey.200',
-                  },
-                },
-              }}
             >
               <ListItemIcon sx={{ minWidth: 30 }}>{item.icon}</ListItemIcon>
               <ListItemText
@@ -181,23 +178,19 @@ export function Sidebar({
                   }}
                 />
               )}
-            </ListItemButton>
+            </NavButton>
           </ListItem>
         ))}
+      </List>
 
-        {/* OpenClaw external link */}
-        <Divider sx={{ my: 1 }} />
-        <ListItem disablePadding sx={{ mb: 0.5 }}>
-          <ListItemButton
+      <Divider sx={{ mx: 1.5, my: 0.5, flexShrink: 0 }} />
+
+      {/* OpenClaw link */}
+      <List sx={{ px: 1.5, py: 0.5, flexShrink: 0 }}>
+        <ListItem disablePadding>
+          <NavButton
             onClick={handleOpenClawClick}
             disabled={openClawDashboard.isPending}
-            sx={{
-              px: 1,
-              py: 0.25,
-              '&:hover': {
-                bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'grey.50',
-              },
-            }}
           >
             <ListItemIcon sx={{ minWidth: 30 }}>
               {openClawDashboard.isPending ? (
@@ -210,81 +203,119 @@ export function Sidebar({
               primary="OpenClaw"
               primaryTypographyProps={{ variant: 'subtitle1' }}
             />
-          </ListItemButton>
+          </NavButton>
         </ListItem>
       </List>
 
-      {/* Footer */}
-      <Divider />
-      {disconnected || reconnecting ? (
-        <Box
-          sx={{
-            m: 1.5,
-            p: 1.5,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1.5,
-            borderRadius: 1,
-            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(225,88,62,0.15)' : 'rgba(225,88,62,0.08)',
-            border: (theme) => `1px solid ${theme.palette.error.main}`,
-          }}
+      <Divider sx={{ mx: 1.5, my: 0.5, flexShrink: 0 }} />
+
+      {/* PROFILES section header */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pr: 1.5, flexShrink: 0 }}>
+        <SectionHeader>Profiles</SectionHeader>
+        <IconButton
+          size="small"
+          onClick={() => handleNavigation('/profiles')}
+          sx={{ mt: 1 }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, color: 'error.main' }}>
-            <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-            <Box>
-              <Typography variant="body3" fontWeight={600} color="error.main">
-                Unable to connect
-              </Typography>
-              <Typography variant="caption" sx={{ display: 'block', mt: 0.25, color: 'text.secondary' }}>
-                Run <code>agenshield daemon start</code> to start it.
-              </Typography>
-            </Box>
-          </Box>
-          <Button
-            size="small"
-            variant="outlined"
-            color="error"
-            startIcon={reconnecting
-              ? <CircularProgress size={14} color="error" />
-              : <RefreshCw size={14} />
-            }
-            onClick={onReconnect}
-            disabled={reconnecting}
-            fullWidth
-          >
-            {reconnecting ? 'Connecting...' : 'Reconnect'}
-          </Button>
-        </Box>
-      ) : (
-        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="caption" color="text.secondary">
-              AgenShield v0.1.0
-            </Typography>
-            {status?.data && (
-              <Chip
-                label={status.data.running ? 'Running' : 'Stopped'}
-                color={status.data.running ? 'success' : 'error'}
-                size="small"
-                variant="outlined"
+          <Plus size={14} />
+        </IconButton>
+      </Box>
+
+      {/* Scrollable profile groups */}
+      <ScrollableArea>
+        {profiles.length === 0 ? (
+          <Typography variant="caption" color="text.secondary" sx={{ px: 2, py: 1, display: 'block' }}>
+            No profiles yet
+          </Typography>
+        ) : (
+          <List disablePadding sx={{ pt: 0.5 }}>
+            {profiles.map((profile) => (
+              <ProfileNavGroup
+                key={profile.id}
+                profile={profile}
+                expanded={!!expandedProfiles[profile.id]}
+                onToggle={() => toggleProfileExpanded(profile.id)}
+                onNavigate={handleNavigation}
+                currentPath={location.pathname}
               />
-            )}
+            ))}
+          </List>
+        )}
+      </ScrollableArea>
+
+      {/* Footer */}
+      <Divider sx={{ flexShrink: 0 }} />
+      <Box sx={{ flexShrink: 0 }}>
+        {disconnected || reconnecting ? (
+          <Box
+            sx={{
+              m: 1.5,
+              p: 1.5,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1.5,
+              borderRadius: 1,
+              bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(225,88,62,0.15)' : 'rgba(225,88,62,0.08)',
+              border: (theme) => `1px solid ${theme.palette.error.main}`,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, color: 'error.main' }}>
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+              <Box>
+                <Typography variant="body3" fontWeight={600} color="error.main">
+                  Unable to connect
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.25, color: 'text.secondary' }}>
+                  Run <code>agenshield daemon start</code> to start it.
+                </Typography>
+              </Box>
+            </Box>
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              startIcon={reconnecting
+                ? <CircularProgress size={14} color="error" />
+                : <RefreshCw size={14} />
+              }
+              onClick={onReconnect}
+              disabled={reconnecting}
+              fullWidth
+            >
+              {reconnecting ? 'Connecting...' : 'Reconnect'}
+            </Button>
           </Box>
-          {status?.data?.openclaw && (
+        ) : (
+          <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <Typography variant="caption" color="text.secondary">
-                OpenClaw Gateway
+                AgenShield v0.1.0
               </Typography>
-              <Chip
-                label={status.data.openclaw.gateway?.running ? 'Running' : 'Stopped'}
-                color={status.data.openclaw.gateway?.running ? 'success' : 'error'}
-                size="small"
-                variant="outlined"
-              />
+              {status?.data && (
+                <Chip
+                  label={status.data.running ? 'Running' : 'Stopped'}
+                  color={status.data.running ? 'success' : 'error'}
+                  size="small"
+                  variant="outlined"
+                />
+              )}
             </Box>
-          )}
-        </Box>
-      )}
+            {status?.data?.openclaw && (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">
+                  OpenClaw Gateway
+                </Typography>
+                <Chip
+                  label={status.data.openclaw.gateway?.running ? 'Running' : 'Stopped'}
+                  color={status.data.openclaw.gateway?.running ? 'success' : 'error'}
+                  size="small"
+                  variant="outlined"
+                />
+              </Box>
+            )}
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 

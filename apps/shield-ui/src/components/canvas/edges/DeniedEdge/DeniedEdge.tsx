@@ -1,23 +1,10 @@
 import { memo } from 'react';
-import { BaseEdge, getSmoothStepPath, type EdgeProps } from '@xyflow/react';
-
-function baseEdgeProps(props: EdgeProps) {
-  return {
-    id: props.id,
-    markerStart: props.markerStart,
-    markerEnd: props.markerEnd,
-    interactionWidth: props.interactionWidth,
-  };
-}
+import type { EdgeProps } from '@xyflow/react';
+import { PcbTraceEdge } from '../PcbTraceEdge';
 
 export const DeniedEdge = memo((props: EdgeProps) => {
-  const { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition } = props;
-  const [edgePath] = getSmoothStepPath({
-    sourceX, sourceY, sourcePosition,
-    targetX, targetY, targetPosition,
-  });
-
   const markerId = `denied-arrow-${props.id}`;
+  const channelOffset = (props.data?.channelOffset as number) ?? 0;
 
   return (
     <>
@@ -31,19 +18,19 @@ export const DeniedEdge = memo((props: EdgeProps) => {
           orient="auto"
           markerUnits="strokeWidth"
         >
-          <polygon points="0 0, 10 3.5, 0 7" fill="#E1583E" />
+          <polygon points="0 0, 10 3.5, 0 7" fill="#FF1744" />
         </marker>
       </defs>
-      <BaseEdge
-        {...baseEdgeProps(props)}
-        path={edgePath}
+      <PcbTraceEdge
+        {...props}
         markerEnd={`url(#${markerId})`}
-        style={{
-          stroke: '#E1583E',
+        config={{
+          strokeColor: '#FF1744',
           strokeWidth: 2,
-          strokeDasharray: '8 4',
+          strokeDasharray: '4 2',
           opacity: 0.8,
-          ...(props.style ?? {}),
+          showViaPads: false,
+          channelOffset,
         }}
       />
     </>

@@ -45,6 +45,9 @@ export interface CanvasData {
   guardedShellInstalled: boolean;
   securityLevel: 'secure' | 'partial' | 'unprotected' | 'critical';
   currentUser: string;
+  // System metrics
+  cpuPercent: number;
+  memPercent: number;
 }
 
 export interface PulseData {
@@ -78,6 +81,11 @@ export interface ShieldCoreData {
   status: CanvasStatus;
   version: string;
   uptime: string;
+  activePolicies: number;
+  targetCount: number;
+  width?: number;
+  topHandlePositions?: number[];
+  bottomHandlePositions?: number[];
   [key: string]: unknown;
 }
 
@@ -128,5 +136,29 @@ export interface PolicyGraphData {
   width?: number;
   topHandlePositions?: number[];
   bottomHandlePositions?: number[];
+  [key: string]: unknown;
+}
+
+export interface ControllerNodeData {
+  label: string;
+  sublabel?: string;
+  active: boolean;
+  [key: string]: unknown;
+}
+
+export interface SystemMetricsNodeData {
+  cpuPercent: number;
+  memPercent: number;
+  [key: string]: unknown;
+}
+
+export interface HudPanelNodeData {
+  indicators: HudIndicatorData[];
+  [key: string]: unknown;
+}
+
+export interface PcbBackgroundData {
+  width: number;
+  height: number;
   [key: string]: unknown;
 }

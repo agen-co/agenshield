@@ -2,29 +2,116 @@
  * SSE events → animated dot spawning.
  *
  * Classifies each new event to determine which firewall piece it flows through,
- * then spawns an animated dot that travels:
- *   Allowed: target → policy-graph → firewall-{piece} → computer (3 phases)
- *   Denied:  target → policy-graph → denied-bucket (2 phases)
+ * then spawns an animated dot that travels along orthogonal PCB trace paths
+ * (inverted layout — targets at bottom):
+ *   Allowed: target (bottom) → core (AgenShield) → firewall → computer (top) — 3 phases upward
+ *   Denied:  target → core → denied-bucket — 2 phases
+ *
+ * Dots follow orthogonal (Manhattan-style) paths matching the PCB trace routing.
+ *
+ * Demo mode: spawns periodic pulses when no real events are flowing.
  *
  * Must be called inside <ReactFlow> (uses useReactFlow for node positions).
  */
 
 import { useEffect, useRef } from 'react';
 import { subscribe } from 'valtio';
-import { useReactFlow } from '@xyflow/react';
+import { Position, useReactFlow } from '@xyflow/react';
 import { eventStore } from '../../../state/events';
 import { classifyEventToFirewall, isEventDenied } from '../utils/eventClassification';
 import { getNodeCenter } from '../utils/dotInterpolation';
+import { computeOrthogonalRoute } from '../utils/orthogonalRouter';
 import { spawnDot, advanceDot, removeDot, incrementDenied } from '../state/dotAnimations';
 
-const PHASE_1_DURATION = 600;  // target → policy graph
-const PHASE_2_DURATION = 500;  // policy graph → firewall piece
-const PHASE_3_DURATION = 500;  // firewall piece → computer
+const PHASE_1_DURATION = 400;  // target → core
+const PHASE_2_DURATION = 350;  // core → firewall piece
+const PHASE_3_DURATION = 350;  // firewall piece → computer
+
+const FIREWALL_IDS = ['network', 'system', 'filesystem'];
 
 export function useDotAnimations() {
   const lastEventCount = useRef(eventStore.events.length);
-  const { getNode } = useReactFlow();
+  const { getNode, getNodes } = useReactFlow();
+  const demoTimerRef = useRef<number>(0);
 
+  // Compute orthogonal route between two node centers
+  function getRoute(
+    sourceCenter: { x: number; y: number },
+    targetCenter: { x: number; y: number },
+    sourcePos: Position,
+    targetPos: Position,
+  ) {
+    return computeOrthogonalRoute(sourceCenter, targetCenter, sourcePos, targetPos);
+  }
+
+  // Spawn a single pulse through the pipeline (bottom → top for allowed)
+  function spawnPulse(sourceNodeId: string, firewallPiece: string, denied: boolean) {
+    const sourceNode = getNode(sourceNodeId) ?? getNode('core');
+    if (!sourceNode) return;
+
+    const coreNode = getNode('core');
+    if (!coreNode) return;
+
+    const from = getNodeCenter(sourceNode.position, sourceNode.type);
+    const coreCenter = getNodeCenter(coreNode.position, coreNode.type);
+
+    // Phase 1: source (target at bottom) → core
+    const route1 = getRoute(from, coreCenter, Position.Top, Position.Bottom);
+
+    const dotId = spawnDot({
+      phase: 'to-policy',
+      denied,
+      waypoints: route1.waypoints,
+      pathLength: route1.totalLength,
+      startTime: Date.now(),
+      duration: PHASE_1_DURATION,
+      firewallId: firewallPiece,
+    });
+
+    if (denied) {
+      // Denied: 2 phases — core → denied bucket
+      const deniedNode = getNode('denied-bucket');
+      if (!deniedNode) return;
+      const deniedCenter = getNodeCenter(deniedNode.position, deniedNode.type);
+      const route2 = getRoute(coreCenter, deniedCenter, Position.Left, Position.Right);
+
+      setTimeout(() => {
+        advanceDot(dotId, 'to-destination', route2.waypoints, route2.totalLength, PHASE_2_DURATION);
+      }, PHASE_1_DURATION);
+
+      setTimeout(() => {
+        removeDot(dotId);
+        incrementDenied();
+      }, PHASE_1_DURATION + PHASE_2_DURATION);
+    } else {
+      // Allowed: 3 phases — core → firewall → computer (upward)
+      const firewallNodeId = `firewall-${firewallPiece}`;
+      const firewallNode = getNode(firewallNodeId);
+      if (!firewallNode) return;
+      const firewallCenter = getNodeCenter(firewallNode.position, firewallNode.type);
+
+      const computerNode = getNode('computer');
+      if (!computerNode) return;
+      const computerCenter = getNodeCenter(computerNode.position, computerNode.type);
+
+      const route2 = getRoute(coreCenter, firewallCenter, Position.Top, Position.Bottom);
+      const route3 = getRoute(firewallCenter, computerCenter, Position.Top, Position.Bottom);
+
+      setTimeout(() => {
+        advanceDot(dotId, 'to-firewall', route2.waypoints, route2.totalLength, PHASE_2_DURATION);
+      }, PHASE_1_DURATION);
+
+      setTimeout(() => {
+        advanceDot(dotId, 'to-destination', route3.waypoints, route3.totalLength, PHASE_3_DURATION);
+      }, PHASE_1_DURATION + PHASE_2_DURATION);
+
+      setTimeout(() => {
+        removeDot(dotId);
+      }, PHASE_1_DURATION + PHASE_2_DURATION + PHASE_3_DURATION);
+    }
+  }
+
+  // Real event processing
   useEffect(() => {
     const unsub = subscribe(eventStore, () => {
       const currentCount = eventStore.events.length;
@@ -41,7 +128,6 @@ export function useDotAnimations() {
         const firewallPiece = classifyEventToFirewall(event);
         if (!firewallPiece) continue;
 
-        // Find the target node for this event
         const d = event.data as Record<string, unknown>;
         const targetId =
           (typeof d.targetId === 'string' && d.targetId) ||
@@ -49,73 +135,39 @@ export function useDotAnimations() {
           (typeof d.target === 'string' && d.target.length < 40 && d.target) ||
           null;
 
-        // Source: specific target node, or core node if no target
         const sourceNodeId = targetId ? `target-${targetId}` : 'core';
-        const sourceNode = getNode(sourceNodeId) ?? getNode('core');
-        if (!sourceNode) continue;
-
-        const policyGraphNode = getNode('policy-graph');
-        if (!policyGraphNode) continue;
-
         const denied = isEventDenied(event);
 
-        const from = getNodeCenter(sourceNode.position, sourceNode.type);
-        const policyCenter = getNodeCenter(policyGraphNode.position, policyGraphNode.type);
-
-        // Phase 1: target → policy graph
-        const dotId = spawnDot({
-          phase: 'to-policy',
-          denied,
-          from,
-          to: policyCenter,
-          startTime: Date.now(),
-          duration: PHASE_1_DURATION,
-          firewallId: firewallPiece,
-        });
-
-        if (denied) {
-          // Denied: 2 phases — policy graph → denied bucket
-          const deniedNode = getNode('denied-bucket');
-          if (!deniedNode) continue;
-          const deniedCenter = getNodeCenter(deniedNode.position, deniedNode.type);
-
-          setTimeout(() => {
-            advanceDot(dotId, 'to-destination', deniedCenter, PHASE_2_DURATION);
-          }, PHASE_1_DURATION);
-
-          setTimeout(() => {
-            removeDot(dotId);
-            incrementDenied();
-          }, PHASE_1_DURATION + PHASE_2_DURATION);
-        } else {
-          // Allowed: 3 phases — policy graph → firewall → computer
-          const firewallNodeId = `firewall-${firewallPiece}`;
-          const firewallNode = getNode(firewallNodeId);
-          if (!firewallNode) continue;
-          const firewallCenter = getNodeCenter(firewallNode.position, firewallNode.type);
-
-          const computerNode = getNode('computer');
-          if (!computerNode) continue;
-          const computerCenter = getNodeCenter(computerNode.position, computerNode.type);
-
-          // Phase 2: policy graph → firewall piece
-          setTimeout(() => {
-            advanceDot(dotId, 'to-firewall', firewallCenter, PHASE_2_DURATION);
-          }, PHASE_1_DURATION);
-
-          // Phase 3: firewall piece → computer
-          setTimeout(() => {
-            advanceDot(dotId, 'to-destination', computerCenter, PHASE_3_DURATION);
-          }, PHASE_1_DURATION + PHASE_2_DURATION);
-
-          // Cleanup
-          setTimeout(() => {
-            removeDot(dotId);
-          }, PHASE_1_DURATION + PHASE_2_DURATION + PHASE_3_DURATION);
-        }
+        spawnPulse(sourceNodeId, firewallPiece, denied);
       }
     });
 
     return unsub;
   }, [getNode]);
+
+  // Demo mode: spawn periodic pulses when no real events flowing
+  useEffect(() => {
+    function scheduleDemo() {
+      demoTimerRef.current = window.setTimeout(() => {
+        // Only demo when few/no events
+        if (eventStore.events.length < 3) {
+          // Find available target nodes (now at bottom)
+          const allNodes = getNodes();
+          const targetNodes = allNodes.filter(n => n.type === 'canvas-target');
+          const sourceId = targetNodes.length > 0
+            ? targetNodes[Math.floor(Math.random() * targetNodes.length)].id
+            : 'core';
+
+          const firewallPiece = FIREWALL_IDS[Math.floor(Math.random() * FIREWALL_IDS.length)];
+          const denied = Math.random() < 0.2; // 20% denied
+
+          spawnPulse(sourceId, firewallPiece, denied);
+        }
+        scheduleDemo();
+      }, 2000 + Math.random() * 1500);
+    }
+
+    scheduleDemo();
+    return () => clearTimeout(demoTimerRef.current);
+  }, [getNode, getNodes]);
 }

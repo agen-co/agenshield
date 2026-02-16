@@ -17,6 +17,9 @@ import { Secrets } from './pages/Secrets';
 import { Settings } from './pages/Settings';
 import { Integrations } from './pages/Integrations';
 import { Activity } from './pages/Activity';
+import { ProfilesPage } from './pages/ProfilesPage';
+import { ProfileDetail } from './pages/ProfileDetail';
+import { EnvVars } from './pages/EnvVars';
 import { Canvas } from './components/canvas';
 import { AuthProvider } from './context/AuthContext';
 import { UnlockProvider } from './context/UnlockContext';
@@ -27,6 +30,8 @@ import { useAuth } from './context/AuthContext';
 import { useHealth, useServerMode } from './api/hooks';
 import { useSSE } from './hooks/useSSE';
 import { setupStore } from './state/setup';
+import { setScope } from './state/scope';
+import { setProfileExpanded } from './state/sidebar';
 import { SetupWizard } from './pages/Setup';
 import { UpdatePage } from './pages/Update';
 import { NotFound } from './pages/NotFound';
@@ -122,6 +127,24 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
 }
 
 /**
+ * Syncs scope store + sidebar expanded state from the URL.
+ * Placed inside BrowserRouter so it can read useLocation.
+ */
+function ScopeSync() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    const match = pathname.match(/^\/profiles\/([^/]+)/);
+    if (match) {
+      setScope(match[1]);
+      setProfileExpanded(match[1], true);
+    } else {
+      setScope(null);
+    }
+  }, [pathname]);
+  return null;
+}
+
+/**
  * Inner routing component — needs to be inside BrowserRouter to use useLocation
  */
 function AppRoutes({
@@ -151,6 +174,7 @@ function AppRoutes({
       reconnecting={isFetching}
       fullBleed={isCanvasRoute}
     >
+      <ScopeSync />
       {isReadOnly && !isCanvasRoute && <LockBanner />}
       <PageTransition>
         <Routes>
@@ -164,6 +188,13 @@ function AppRoutes({
           <Route path="/activity" element={<Activity />} />
           <Route path="/integrations" element={<Integrations />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/profiles" element={<ProfilesPage />} />
+          <Route path="/profiles/:profileId" element={<ProfileDetail />} />
+          <Route path="/profiles/:profileId/policies" element={<Navigate to="commands" replace />} />
+          <Route path="/profiles/:profileId/policies/:tab" element={<Policies />} />
+          <Route path="/profiles/:profileId/skills" element={<Skills />} />
+          <Route path="/profiles/:profileId/secrets" element={<Secrets />} />
+          <Route path="/profiles/:profileId/env" element={<EnvVars />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </PageTransition>

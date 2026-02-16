@@ -4,9 +4,9 @@ import { activitySlideIn, liveDot } from '../../../../styles/canvas-animations';
 
 export const PanelContainer = styled('div')(({ theme }) => ({
   position: 'absolute',
-  top: 56,
+  top: 12,
   right: 12,
-  bottom: 112,
+  bottom: 12,
   width: 340,
   zIndex: 10,
   display: 'flex',

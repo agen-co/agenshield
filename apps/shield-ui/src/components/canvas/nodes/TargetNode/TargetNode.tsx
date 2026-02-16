@@ -1,13 +1,10 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Globe } from 'lucide-react';
 import { useSnapshot } from 'valtio';
-import { Globe, Play, Square, RotateCcw } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
 import { canvasStore } from '../../state/canvas';
-import {
-  TargetWrapper, TargetLabel, TargetSub, TargetUsers,
-  UserChip, ActionRow, ActionBtn,
-} from './TargetNode.styles';
+import { pcb } from '../../styles/pcb-tokens';
+import { PcbChip } from '../shared';
 import type { TargetNodeData } from '../../Canvas.types';
 
 export const TargetNode = memo(({ data }: NodeProps) => {
@@ -15,38 +12,43 @@ export const TargetNode = memo(({ data }: NodeProps) => {
   const { pulses } = useSnapshot(canvasStore);
   const pulse = pulses[target.id];
 
-  const uptime = target.createdAt
-    ? formatDistanceToNow(target.createdAt)
-    : undefined;
+  const ledColor = target.shielded ? pcb.component.ledGreen : pcb.component.ledRed;
+  // Flash LED on pulse event
+  const activeLed = pulse?.severity === 'error'
+    ? pcb.component.ledRed
+    : pulse?.severity === 'warning'
+      ? pcb.component.ledAmber
+      : ledColor;
+
+  const sublabel = [
+    target.type,
+    target.pid ? `PID ${target.pid}` : null,
+  ].filter(Boolean).join(' \u00B7 ');
 
   return (
-    <TargetWrapper $shielded={target.shielded} $pulseSeverity={pulse?.severity}>
+    <div style={{ position: 'relative', cursor: 'default' }}>
       <Handle type="target" position={Position.Top} id="top" style={{ visibility: 'hidden' }} />
-      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', paddingTop: 2 }}>
-        <Globe size={18} color={target.shielded ? '#6CB685' : '#E1583E'} />
-      </div>
-      <div>
-        <TargetLabel>{target.name}</TargetLabel>
-        <TargetSub>
-          {target.type}
-          {target.pid ? ` · PID ${target.pid}` : ''}
-          {uptime ? ` · ${uptime}` : ''}
-        </TargetSub>
-        {target.users.length > 0 && (
-          <TargetUsers>
-            {target.users.map((u) => (
-              <UserChip key={u}>{u}</UserChip>
-            ))}
-          </TargetUsers>
-        )}
-        <ActionRow>
-          <ActionBtn title="Start"><Play size={12} /></ActionBtn>
-          <ActionBtn title="Stop"><Square size={12} /></ActionBtn>
-          <ActionBtn title="Restart"><RotateCcw size={12} /></ActionBtn>
-        </ActionRow>
-      </div>
+      <PcbChip
+        width={140}
+        height={70}
+        pinsTop={6}
+        pinsBottom={6}
+        label={target.name}
+        sublabel={sublabel}
+        ledColor={activeLed}
+      >
+        <div style={{
+          position: 'absolute',
+          top: 8,
+          left: 10,
+          display: 'flex',
+          alignItems: 'center',
+        }}>
+          <Globe size={14} color={target.shielded ? pcb.trace.bright : pcb.trace.dimmed} />
+        </div>
+      </PcbChip>
       <Handle type="source" position={Position.Bottom} id="bottom" style={{ visibility: 'hidden' }} />
-    </TargetWrapper>
+    </div>
   );
 });
 TargetNode.displayName = 'TargetNode';

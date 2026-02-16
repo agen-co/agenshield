@@ -100,3 +100,20 @@ export const canvasDashFlow = keyframes`
   0% { stroke-dashoffset: 24; }
   100% { stroke-dashoffset: 0; }
 `;
+
+// --- PCB LED animations ---
+
+export const ledBlink = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+`;
+
+export const ledBlinkFast = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+`;
+
+export const pinFlash = keyframes`
+  0%, 100% { fill: #C4963A; }
+  50% { fill: #FFD700; }
+`;

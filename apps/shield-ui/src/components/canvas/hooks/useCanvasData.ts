@@ -117,5 +117,7 @@ export function useCanvasData(): CanvasData {
     guardedShellInstalled,
     securityLevel,
     currentUser,
+    cpuPercent: 42,
+    memPercent: 68,
   };
 }

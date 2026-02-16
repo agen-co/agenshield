@@ -5,7 +5,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { initStorage, DB_FILENAME, ACTIVITY_DB_FILENAME } from '@agenshield/storage';
+import { initStorage, DB_FILENAME, ACTIVITY_DB_FILENAME, DatabaseCorruptedError } from '@agenshield/storage';
 import { loadConfig, ensureConfigDir, getConfigDir, getPidPath } from './config/index';
 import { isDevMode } from './config/paths';
 import { startServer } from './server';
@@ -29,7 +29,21 @@ async function main(): Promise<void> {
     }
   }
 
-  initStorage(dbPath, activityDbPath);
+  try {
+    initStorage(dbPath, activityDbPath);
+  } catch (err) {
+    if (err instanceof DatabaseCorruptedError) {
+      console.error(`\n[Storage] ${err.message}`);
+      console.error(`[Storage] Regenerating database...\n`);
+      // Remove corrupted DB files and retry
+      for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+      }
+      initStorage(dbPath, activityDbPath);
+    } else {
+      throw err;
+    }
+  }
 
   // Load configuration
   const config = loadConfig();

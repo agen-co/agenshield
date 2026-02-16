@@ -1,31 +1,20 @@
 import { memo } from 'react';
-import { BaseEdge, getSmoothStepPath, type EdgeProps } from '@xyflow/react';
-
-function baseEdgeProps(props: EdgeProps) {
-  return {
-    id: props.id,
-    markerStart: props.markerStart,
-    markerEnd: props.markerEnd,
-    interactionWidth: props.interactionWidth,
-  };
-}
+import type { EdgeProps } from '@xyflow/react';
+import { PcbTraceEdge } from '../PcbTraceEdge';
 
 export const DisconnectedEdge = memo((props: EdgeProps) => {
-  const { sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition } = props;
-  const [edgePath] = getSmoothStepPath({
-    sourceX, sourceY, sourcePosition,
-    targetX, targetY, targetPosition,
-  });
+  const channelOffset = (props.data?.channelOffset as number) ?? 0;
 
   return (
-    <BaseEdge
-      {...baseEdgeProps(props)}
-      path={edgePath}
-      style={{
-        stroke: '#E1583E',
+    <PcbTraceEdge
+      {...props}
+      config={{
+        strokeColor: '#555555',
         strokeWidth: 1.5,
         strokeDasharray: '6 4',
-        opacity: 0.5,
+        opacity: 0.3,
+        showViaPads: false,
+        channelOffset,
       }}
     />
   );

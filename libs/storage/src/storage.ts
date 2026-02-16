@@ -89,8 +89,8 @@ export class Storage {
     // Copy activity_events from main DB to activity DB before migration drops the table
     Storage.migrateActivityData(db, activityDb);
 
-    // Run main DB migrations
-    runMigrations(db, null);
+    // Run main DB migrations (pass dbPath for error messages)
+    runMigrations(db, null, undefined, dbPath);
 
     return new Storage(db, activityDb);
   }

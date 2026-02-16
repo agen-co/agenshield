@@ -2,7 +2,7 @@
  * Scope state — current profile scope for multi-tenancy
  *
  * Read by the API client to send scope headers with every request.
- * Changed via the ScopeSelector in the sidebar.
+ * Changed via profile navigation in the sidebar.
  * Persisted to sessionStorage so it survives page reloads (per-tab).
  */
 

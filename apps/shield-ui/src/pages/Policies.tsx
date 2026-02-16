@@ -190,7 +190,7 @@ export function Policies() {
   );
 
   const handleTabChange = (_e: React.SyntheticEvent, newTab: number) => {
-    navigate(`/policies/${TAB_SLUGS[newTab]}`, { replace: true });
+    navigate(TAB_SLUGS[newTab], { replace: true });
     // Close editor when switching tabs (if not dirty)
     if (formOpen && !formDirty) {
       handleCancel();

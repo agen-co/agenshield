@@ -47,6 +47,7 @@ function setCache(key: string, data: unknown, ttlMs: number): void {
 const CONVEX_BASE = 'https://wry-manatee-359.convex.cloud';
 const SKILL_ANALYZER_URL = process.env.SKILL_ANALYZER_URL || 'https://skills.agentfront.dev/api/analyze';
 const SKILL_ANALYSIS_URL = SKILL_ANALYZER_URL.replace('/analyze', '/analysis');
+const SKILL_SEARCH_URL = SKILL_ANALYZER_URL.replace('/analyze', '/search');
 
 const CLAWHUB_DOWNLOAD_BASE = process.env.CLAWHUB_DOWNLOAD_BASE || 'https://auth.clawdhub.com/api/v1';
 const ZIP_TIMEOUT = 30_000;            // 30 seconds for zip download
@@ -56,6 +57,25 @@ const SEARCH_CACHE_TTL = 60_000;       // 60 seconds
 const DETAIL_CACHE_TTL = 5 * 60_000;   // 5 minutes
 
 const SHORT_TIMEOUT = 10_000;  // 10 seconds
+
+type MarketplaceSource = 'clawhub' | 'openclaw' | 'local';
+
+/** Determine the marketplace source from a prefixed slug. */
+function getSlugSource(slug: string): MarketplaceSource {
+  if (slug.startsWith('oc-')) return 'openclaw';
+  if (slug.startsWith('lo-')) return 'local';
+  return 'clawhub'; // ch-* or unprefixed
+}
+
+/**
+ * Strip the display prefix (ch-, oc-, lo-) from a slug to get the raw
+ * identifier expected by Convex and ClawHub APIs.
+ * E.g. "ch-my-skill" → "my-skill", "my-skill" → "my-skill" (no-op).
+ */
+function toRawSlug(slug: string): string {
+  const match = slug.match(/^(?:ch|oc|lo)-(.+)$/);
+  return match ? match[1] : slug;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Convex wire types (internal)                                       */
@@ -244,7 +264,8 @@ function getMarketplaceDir(): string {
  * Returns the extracted text files as MarketplaceSkillFile[].
  */
 export async function downloadAndExtractZip(slug: string): Promise<MarketplaceSkillFile[]> {
-  const url = `${CLAWHUB_DOWNLOAD_BASE}/download?slug=${encodeURIComponent(slug)}`;
+  const raw = toRawSlug(slug);
+  const url = `${CLAWHUB_DOWNLOAD_BASE}/download?slug=${encodeURIComponent(raw)}`;
 
   const response = await fetch(url, {
     method: 'GET',
@@ -531,6 +552,107 @@ export function inlineImagesInMarkdown(
 }
 
 /* ------------------------------------------------------------------ */
+/*  OpenClaw helpers                                                   */
+/* ------------------------------------------------------------------ */
+
+interface SearchMeta {
+  name: string;
+  slug: string;
+  path: string;
+  author: string;
+  description: string;
+  version: string;
+  tags: string[];
+}
+
+/**
+ * Resolve metadata for a marketplace skill via the Vercel search API.
+ * Required to get the registry `path` (e.g. "openclaw/owner/skill") for OpenClaw skills.
+ */
+async function resolveSearchMeta(slug: string): Promise<SearchMeta> {
+  const cacheKey = `search-meta:${slug}`;
+  const cached = getCached<SearchMeta>(cacheKey);
+  if (cached) return cached;
+
+  const raw = toRawSlug(slug);
+
+  const res = await fetch(
+    `${SKILL_SEARCH_URL}?q=${encodeURIComponent(slug)}`,
+    { signal: AbortSignal.timeout(SHORT_TIMEOUT) },
+  );
+  if (!res.ok) throw new Error(`Search API returned ${res.status}`);
+  let results = (await res.json()) as SearchMeta[];
+  let match = results.find(r => r.slug === slug)
+    ?? results.find(r => r.slug === raw);
+
+  // Retry with raw slug if prefixed query didn't find it
+  if (!match && raw !== slug) {
+    const retryRes = await fetch(
+      `${SKILL_SEARCH_URL}?q=${encodeURIComponent(raw)}`,
+      { signal: AbortSignal.timeout(SHORT_TIMEOUT) },
+    );
+    if (retryRes.ok) {
+      results = (await retryRes.json()) as SearchMeta[];
+      match = results.find(r => r.slug === slug)
+        ?? results.find(r => r.slug === raw);
+    }
+  }
+
+  if (!match) throw new Error(`Skill "${slug}" not found in marketplace`);
+
+  setCache(cacheKey, match, DETAIL_CACHE_TTL);
+  return match;
+}
+
+/**
+ * Download skill files from the OpenClaw GitHub repository.
+ * Mirrors the approach from skills-analyzer/api/analyze.ts.
+ */
+async function downloadFromOpenClaw(registryPath: string): Promise<MarketplaceSkillFile[]> {
+  // registryPath = "openclaw/owner/skill" → GitHub dir = "skills/owner/skill"
+  const parts = registryPath.split('/');
+  const dirPath = parts.length >= 3
+    ? `skills/${parts.slice(1).join('/')}`
+    : `skills/${parts.join('/')}`;
+
+  const res = await fetch(
+    `https://api.github.com/repos/openclaw/skills/contents/${dirPath}?ref=main`,
+    {
+      headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'agenshield-daemon' },
+      signal: AbortSignal.timeout(SHORT_TIMEOUT),
+    },
+  );
+
+  if (!res.ok) {
+    if (res.status === 404) throw new Error(`Skill not found in OpenClaw repository`);
+    throw new Error(`GitHub API returned ${res.status}`);
+  }
+
+  const entries = (await res.json()) as Array<{
+    name: string; type: string; download_url: string | null; size: number;
+  }>;
+  const files: MarketplaceSkillFile[] = [];
+
+  for (const entry of entries) {
+    if (entry.type !== 'file') continue;
+    if (entry.name.startsWith('.') || entry.name === '_meta.json') continue;
+    if (entry.size > 100_000 || !entry.download_url) continue;
+
+    const contentType = guessContentType(entry.name);
+    if (!isTextMime(contentType)) continue;
+
+    const fileRes = await fetch(entry.download_url, {
+      signal: AbortSignal.timeout(SHORT_TIMEOUT),
+    });
+    if (!fileRes.ok) continue;
+
+    files.push({ name: entry.name, type: contentType, content: await fileRes.text() });
+  }
+
+  return files;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Search                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -568,11 +690,47 @@ export async function getMarketplaceSkill(slug: string): Promise<MarketplaceSkil
   const cached = getCached<MarketplaceSkill>(cacheKey);
   if (cached) return cached;
 
+  const source = getSlugSource(slug);
+
+  // ── OpenClaw: resolve via search API + download files from GitHub ──
+  if (source === 'openclaw') {
+    const meta = await resolveSearchMeta(slug);
+    const files = await downloadFromOpenClaw(meta.path);
+    const readmeFile = files.find(f => /readme|skill\.md/i.test(f.name));
+    let readme = readmeFile?.content;
+    if (readme && files.length > 0) readme = inlineImagesInMarkdown(readme, files);
+
+    // Persist to download cache
+    if (files.length > 0) {
+      try {
+        storeDownloadedSkill(slug, {
+          name: meta.name, slug, author: meta.author,
+          version: meta.version, description: meta.description, tags: meta.tags,
+        }, files);
+      } catch { /* best-effort */ }
+    }
+
+    const mapped: MarketplaceSkill = {
+      name: meta.name, slug, description: meta.description,
+      author: meta.author, version: meta.version, installs: 0,
+      tags: meta.tags, readme, files,
+    };
+    setCache(cacheKey, mapped, DETAIL_CACHE_TTL);
+    return mapped;
+  }
+
+  // ── ClawHub (ch-* or unprefixed): query Convex ──
+  const raw = toRawSlug(slug);
+
   const detail = await convexQuery<ConvexSkillBySlug>(
     'skills:getBySlug',
-    { slug },
+    { slug: raw },
     SHORT_TIMEOUT,
   );
+
+  if (!detail) {
+    throw new Error(`Skill "${slug}" not found in marketplace`);
+  }
 
   const { skill, owner, latestVersion } = detail;
 
@@ -802,12 +960,31 @@ export async function analyzeSkillBySlug(
   publisher?: string,
   options?: { noCache?: boolean },
 ): Promise<AnalyzeSkillResponse> {
-  console.log(`[Marketplace] Vercel analyze request: POST ${SKILL_ANALYZER_URL} slug=${slug} noCache=${options?.noCache ?? false}`);
+  const source = getSlugSource(slug);
+  const raw = toRawSlug(slug);
+
+  // OpenClaw requires the registry path for dashed slugs
+  let registryPath: string | undefined;
+  if (source === 'openclaw') {
+    const meta = await resolveSearchMeta(slug);
+    registryPath = meta.path;
+  }
+
+  const body: Record<string, unknown> = {
+    slug: source === 'clawhub' ? raw : slug,
+    source,
+    skillName,
+    publisher,
+    ...(registryPath ? { path: registryPath } : {}),
+    ...(options?.noCache ? { noCache: true } : {}),
+  };
+
+  console.log(`[Marketplace] Vercel analyze request: POST ${SKILL_ANALYZER_URL} slug=${body.slug} source=${source} noCache=${options?.noCache ?? false}`);
   const res = await fetch(SKILL_ANALYZER_URL, {
     method: 'POST',
     signal: AbortSignal.timeout(ANALYSIS_TIMEOUT),
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug, source: 'clawhub', skillName, publisher, ...(options?.noCache ? { noCache: true } : {}) }),
+    body: JSON.stringify(body),
   });
 
   console.log(`[Marketplace] Vercel analyze response: status=${res.status}`);

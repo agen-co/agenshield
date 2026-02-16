@@ -2,8 +2,8 @@ import { styled } from '@mui/material/styles';
 import { activitySlideIn, liveDot } from '../../../../styles/canvas-animations';
 
 export const PanelWrapper = styled('div')(({ theme }) => ({
-  width: 310,
-  maxHeight: 'calc(100vh - 120px)',
+  width: 340,
+  height: 420,
   borderRadius: 12,
   background: theme.palette.mode === 'dark' ? 'rgba(10, 10, 10, 0.85)' : 'rgba(255, 255, 255, 0.9)',
   border: `1px solid ${theme.palette.divider}`,
@@ -40,7 +40,6 @@ export const LiveDot = styled('div')({
 export const EventList = styled('div')({
   overflow: 'auto',
   flex: 1,
-  maxHeight: 480,
 });
 
 export const EventRow = styled('div')(({ theme }) => ({

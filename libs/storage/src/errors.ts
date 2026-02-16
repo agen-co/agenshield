@@ -42,3 +42,20 @@ export class DatabaseTamperError extends Error {
     Error.captureStackTrace?.(this, this.constructor);
   }
 }
+
+export class DatabaseCorruptedError extends Error {
+  public readonly code = 'DATABASE_CORRUPTED';
+  public readonly dbPath: string;
+  public readonly missingTables: string[];
+
+  constructor(dbPath: string, missingTables: string[]) {
+    super(
+      `Database is corrupted: migration records indicate schema was applied, but ${missingTables.length} required table(s) are missing (${missingTables.join(', ')}). ` +
+      `Delete "${dbPath}" to regenerate.`,
+    );
+    this.name = 'DatabaseCorruptedError';
+    this.dbPath = dbPath;
+    this.missingTables = missingTables;
+    Error.captureStackTrace?.(this, this.constructor);
+  }
+}
