@@ -140,8 +140,8 @@ export function SvgFilters() {
         </filter>
 
         {/* Danger wire glow — thick red glow for danger wires */}
-        <filter id="danger-wire-glow" x="-80%" y="-80%" width="260%" height="260%">
-          <feGaussianBlur stdDeviation="5" result="blur" />
+        <filter id="danger-wire-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
           <feFlood floodColor="#E1583E" floodOpacity="0.6" result="color" />
           <feComposite in="color" in2="blur" operator="in" />
           <feMerge>

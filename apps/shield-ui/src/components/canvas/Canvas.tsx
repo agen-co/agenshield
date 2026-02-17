@@ -230,15 +230,15 @@ export function Canvas() {
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
-            nodesDraggable={false}
+            nodesDraggable
             nodesConnectable={false}
-            elementsSelectable={false}
+            elementsSelectable
             panOnDrag
             zoomOnScroll
             zoomOnPinch
             zoomOnDoubleClick={false}
             preventScrolling={false}
-            minZoom={0.7}
+            minZoom={1}
             maxZoom={4}
             fitView
             fitViewOptions={{ padding: 0.05 }}

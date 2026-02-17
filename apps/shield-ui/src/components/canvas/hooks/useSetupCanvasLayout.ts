@@ -41,7 +41,7 @@ const COMP_TO_SHIELD_GAP = 160;
 
 /* ---- AgenShield (central hub) dimensions ---- */
 const SHIELD_W = 80;
-const SHIELD_TOP_PAD = 30;
+const SHIELD_TOP_PAD = 60;
 const SHIELD_BOTTOM_PAD = 30;
 const SHIELD_MIN_H = 200;
 
@@ -146,9 +146,14 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       cx += comp.w + COMP_GAP;
     });
 
-    // --- Crossbar handle positions (relative to shield node left edge) ---
-    const compHandleXs = compCenterXs.map((x) => x - shieldX);
-    const crossbarWidth = totalCompW + 20;
+    // --- Crossbar: 2× stem width, handles evenly distributed within ---
+    const crossbarWidth = SHIELD_W * 2;
+    const cbPad = 10;
+    const cbSpan = crossbarWidth - cbPad * 2;
+    const compCount = SYSTEM_COMPONENTS.length;
+    const compHandleXs = SYSTEM_COMPONENTS.map((_, i) =>
+      (SHIELD_W / 2 - crossbarWidth / 2) + cbPad + (compCount > 1 ? i * (cbSpan / (compCount - 1)) : cbSpan / 2),
+    );
 
     // --- AgenShield (central hub) ---
     result.push({
@@ -302,10 +307,13 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
             });
           });
 
-          // Penetration wires: card -> each system component (bottom-in for V-H-V routing)
+          // Penetration wires: bidirectional card <-> each system component
           SYSTEM_COMPONENTS.forEach((comp, compIdx) => {
+            const baseOffset = (compIdx - 3) * 2;
+
+            // Wire UP: card → component (existing direction)
             result.push({
-              id: `e-pen-${cardId}-${comp.id}`,
+              id: `e-pen-${cardId}-${comp.id}-up`,
               source: `card-${cardId}`,
               target: `comp-${comp.id}`,
               sourceHandle: 'danger-up',
@@ -313,7 +321,22 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
               type: 'canvas-danger',
               data: {
                 variant: 'penetration',
-                channelOffset: (compIdx - 3) * 2,
+                channelOffset: baseOffset,
+                channelCenterY: compY + maxCompH + COMP_TO_SHIELD_GAP / 2,
+              },
+            });
+
+            // Wire DOWN: component → card (return direction)
+            result.push({
+              id: `e-pen-${cardId}-${comp.id}-down`,
+              source: `comp-${comp.id}`,
+              target: `card-${cardId}`,
+              sourceHandle: 'bottom',
+              targetHandle: 'danger-up-in',
+              type: 'canvas-danger',
+              data: {
+                variant: 'penetration',
+                channelOffset: baseOffset + 1,
                 channelCenterY: compY + maxCompH + COMP_TO_SHIELD_GAP / 2,
               },
             });

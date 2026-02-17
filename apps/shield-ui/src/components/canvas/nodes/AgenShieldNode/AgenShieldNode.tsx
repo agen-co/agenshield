@@ -87,14 +87,14 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
 
   return (
     <div style={{ position: 'relative', cursor: 'default' }}>
-      {/* Component connection handles along top — 2 per component (bidirectional) */}
+      {/* Component connection handles along top — 2 per component, 4px gap */}
       {compHandleXs.map((hx, i) => (
         <Handle
           key={`comp-in-${i}`}
           type="target"
           position={Position.Top}
           id={`comp-in-${i}`}
-          style={{ left: hx, visibility: 'hidden' }}
+          style={{ left: hx - 2, visibility: 'hidden' }}
         />
       ))}
       {compHandleXs.map((hx, i) => (
@@ -103,7 +103,7 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
           type="source"
           position={Position.Top}
           id={`comp-out-${i}`}
-          style={{ left: hx, visibility: 'hidden' }}
+          style={{ left: hx + 2, visibility: 'hidden' }}
         />
       ))}
 
@@ -155,20 +155,57 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
           />
         )}
 
-        {/* === Top connector cluster (gold pad strip) === */}
-        <rect x={SHIELD_W / 2 - 14} y={0} width={28} height={8} fill={padColor} rx={1} opacity={0.8} />
-        {Array.from({ length: 5 }, (_, i) => (
-          <rect
-            key={`tc-${i}`}
-            x={SHIELD_W / 2 - 10 + i * 5}
-            y={8}
-            width={2}
-            height={4}
-            fill={padColor}
-            rx={0.3}
-            opacity={0.6}
-          />
-        ))}
+        {/* === T-Shape Crossbar (spanning all component positions) === */}
+        {compHandleXs.length > 0 && (() => {
+          const cbLeft = compHandleXs[0] - 10;
+          const cbRight = compHandleXs[compHandleXs.length - 1] + 10;
+          const cbW = cbRight - cbLeft;
+          const cbH = 16;
+          const pinH = 8;
+          const pinW = 3;
+          const pinSpacing = 2;
+
+          return (
+            <g>
+              {/* Crossbar body */}
+              <rect x={cbLeft} y={-cbH} width={cbW} height={cbH}
+                fill={bodyColor} stroke={borderClr} strokeWidth={1} rx={2} />
+              <rect x={cbLeft} y={-cbH} width={cbW} height={cbH}
+                fill="url(#pcb-chip-gradient)" opacity={0.3} rx={2} />
+
+              {/* Internal horizontal traces */}
+              {[0.25, 0.5, 0.75].map((frac) => (
+                <line key={`cbt-${frac}`}
+                  x1={cbLeft + 4} y1={-cbH + cbH * frac}
+                  x2={cbRight - 4} y2={-cbH + cbH * frac}
+                  stroke={traceClr} strokeWidth={0.6} opacity={0.2} />
+              ))}
+
+              {/* Pin stubs at each component position (2 per component) */}
+              {compHandleXs.map((hx, i) => (
+                <g key={`pin-${i}`}>
+                  {/* Left pin (incoming) */}
+                  <rect x={hx - pinSpacing - pinW / 2} y={-cbH - pinH}
+                    width={pinW} height={pinH} fill={padColor} rx={0.5} opacity={0.8} />
+                  {/* Right pin (outgoing) */}
+                  <rect x={hx + pinSpacing - pinW / 2} y={-cbH - pinH}
+                    width={pinW} height={pinH} fill={padColor} rx={0.5} opacity={0.8} />
+                  {/* Traces from pins into crossbar */}
+                  <line x1={hx - pinSpacing} y1={-cbH} x2={hx - pinSpacing} y2={-cbH + 4}
+                    stroke={traceClr} strokeWidth={0.5} opacity={0.25} />
+                  <line x1={hx + pinSpacing} y1={-cbH} x2={hx + pinSpacing} y2={-cbH + 4}
+                    stroke={traceClr} strokeWidth={0.5} opacity={0.25} />
+                </g>
+              ))}
+
+              {/* Wing connections from crossbar to stem */}
+              <line x1={SHIELD_W / 2 - SHIELD_W / 4} y1={0} x2={cbLeft + 10} y2={-1}
+                stroke={borderClr} strokeWidth={1} />
+              <line x1={SHIELD_W / 2 + SHIELD_W / 4} y1={0} x2={cbRight - 10} y2={-1}
+                stroke={borderClr} strokeWidth={1} />
+            </g>
+          );
+        })()}
 
         {/* === Logo (favicon.svg) === */}
         <image
