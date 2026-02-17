@@ -17,3 +17,5 @@ export * from './discovery';
 export * from './catalog';
 export * from './marketplace';
 export * from './migration';
+export * from './setup';
+export * from './playground';

@@ -89,6 +89,16 @@ export interface PasscodeProtectionState {
 }
 
 /**
+ * Setup state — tracks initial setup progress
+ */
+export interface SetupState {
+  /** Whether initial setup has been completed */
+  completed: boolean;
+  /** Current setup phase for resumable flows */
+  phase?: string;
+}
+
+/**
  * Complete system state
  */
 export interface SystemState {
@@ -108,4 +118,6 @@ export interface SystemState {
   installation: InstallationState;
   /** Passcode protection state */
   passcodeProtection?: PasscodeProtectionState;
+  /** Setup state */
+  setup?: SetupState;
 }

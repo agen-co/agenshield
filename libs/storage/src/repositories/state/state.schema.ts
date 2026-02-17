@@ -38,6 +38,12 @@ export const UpdatePasscodeSchema = z.object({
 });
 export type UpdatePasscodeInput = z.input<typeof UpdatePasscodeSchema>;
 
+export const UpdateSetupSchema = z.object({
+  completed: z.boolean().optional(),
+  phase: z.string().nullable().optional(),
+});
+export type UpdateSetupInput = z.input<typeof UpdateSetupSchema>;
+
 // ---- Codecs: domain (camelCase) → DB params (snake_case) ----
 
 export const UpdateDaemonCodec = z.codec(
@@ -92,6 +98,18 @@ export const UpdatePasscodeCodec = z.codec(
       passcode_allow_anonymous_read_only: data.allowAnonymousReadOnly !== undefined ? (data.allowAnonymousReadOnly ? 1 : 0) : undefined,
       passcode_failed_attempts: data.failedAttempts,
       passcode_locked_until: data.lockedUntil !== undefined ? (data.lockedUntil ?? null) : undefined,
+    }),
+  }
+);
+
+export const UpdateSetupCodec = z.codec(
+  z.record(z.string(), z.unknown()),
+  UpdateSetupSchema,
+  {
+    decode: (db) => db as UpdateSetupInput,
+    encode: (data) => ({
+      setup_completed: data.completed !== undefined ? (data.completed ? 1 : 0) : undefined,
+      setup_phase: data.phase !== undefined ? (data.phase ?? null) : undefined,
     }),
   }
 );

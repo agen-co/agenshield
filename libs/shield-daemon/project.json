@@ -35,7 +35,7 @@
         "assets": ["libs/shield-daemon/README.md", "LICENSE", "libs/shield-daemon/package.json"],
         "esbuildOptions": {
           "outExtension": { ".js": ".js" },
-          "external": ["@agenshield/ipc", "@agenshield/sandbox", "fastify", "@fastify/*"]
+          "external": ["@agenshield/ipc", "@agenshield/policies", "@agenshield/seatbelt", "@agenshield/sandbox", "fastify", "@fastify/*"]
         }
       }
     },

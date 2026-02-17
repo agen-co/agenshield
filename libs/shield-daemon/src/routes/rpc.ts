@@ -3,31 +3,27 @@
  *
  * Handles policy_check, events_batch, http_request, and ping methods.
  * Registered at root level (not under /api) so it skips auth middleware.
+ *
+ * Policy evaluation is delegated to @agenshield/policies PolicyManager.
+ * Sandbox config built via @agenshield/seatbelt.
+ * Trace store tracks execution chains for blueprint validation.
  */
 
 import * as crypto from 'node:crypto';
-import * as nodefs from 'node:fs';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import type { SandboxConfig, PolicyExecutionContext, PolicyConfig, ShieldConfig, PolicyGraph } from '@agenshield/ipc';
+import type { SandboxConfig, PolicyExecutionContext, PolicyConfig } from '@agenshield/ipc';
 import { SHIELD_HEADERS } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
-import type { ScopedStorage } from '@agenshield/storage';
+import { buildSandboxConfig } from '@agenshield/seatbelt';
+import type { SharedCapabilities } from '@agenshield/seatbelt';
+import { filterUrlPoliciesForCommand } from '@agenshield/policies';
 import { loadConfig } from '../config/index';
-import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning } from '../events/emitter';
+import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning, emitEvent } from '../events/emitter';
 import { resolveProfileByToken } from '../services/profile-token';
-import {
-  globToRegex,
-  normalizeUrlBase,
-  normalizeUrlTarget,
-  matchUrlPattern,
-  policyScopeMatches,
-  extractCommandBasename,
-  filterUrlPoliciesForCommand,
-} from '../policy/url-matcher';
-import { collectDenyPathsFromPolicies, collectAllowPathsForCommand } from '../policy/sandbox-helpers';
-import { evaluateGraphEffects, getActiveDormantPolicyIds, emptyEffects } from '../policy/graph-evaluator';
-import type { GraphEffects } from '../policy/graph-evaluator';
+import { getPolicyManager } from '../services/policy-manager';
 import { getProxyPool } from '../proxy/pool';
+import { getTraceStore } from '../services/trace-store';
+import type { ExecutionTrace } from '../services/trace-store';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -43,276 +39,8 @@ interface JsonRpcResponse {
   error?: { code: number; message: string };
 }
 
-/**
- * Match a command target against a Claude Code-style command pattern.
- *
- * Semantics:
- * - `git`         → exact match only "git" (no args)
- * - `git:*`       → matches "git" or "git <anything>"
- * - `git push`    → exact match "git push" only
- * - `git push:*`  → matches "git push" or "git push <anything>"
- * - `*`           → wildcard, matches any command
- *
- * No ** or ? glob syntax for commands.
- */
-function matchCommandPattern(pattern: string, target: string): boolean {
-  const trimmed = pattern.trim();
-
-  // Wildcard: matches everything
-  if (trimmed === '*') return true;
-
-  // Normalize: extract basename from absolute command paths
-  // e.g. "/usr/bin/curl https://david.com" → "curl https://david.com"
-  let normalizedTarget = target;
-  const firstSpace = target.indexOf(' ');
-  const cmd = firstSpace >= 0 ? target.slice(0, firstSpace) : target;
-  if (cmd.startsWith('/')) {
-    const basename = cmd.split('/').pop() || cmd;
-    normalizedTarget = firstSpace >= 0 ? basename + target.slice(firstSpace) : basename;
-  }
-
-  // Claude Code-style: ":*" suffix = prefix match with optional args
-  if (trimmed.endsWith(':*')) {
-    let prefix = trimmed.slice(0, -2);
-    // Normalize: strip absolute path to basename (same as target normalization)
-    if (prefix.includes('/')) {
-      prefix = prefix.split('/').pop() || prefix;
-    }
-    const lowerTarget = normalizedTarget.toLowerCase();
-    const lowerPrefix = prefix.toLowerCase();
-    return lowerTarget === lowerPrefix || lowerTarget.startsWith(lowerPrefix + ' ');
-  }
-
-  // No ":*" = exact match (case-insensitive), normalize pattern too
-  let normalizedPattern = trimmed;
-  if (trimmed.includes('/')) {
-    normalizedPattern = trimmed.split('/').pop() || trimmed;
-  }
-  return normalizedTarget.toLowerCase() === normalizedPattern.toLowerCase();
-}
-
-/**
- * Map interceptor operations to policy target types
- */
-function operationToTarget(operation: string): string {
-  switch (operation) {
-    case 'http_request':
-      return 'url';
-    case 'exec':
-      return 'command';
-    case 'file_read':
-    case 'file_write':
-    case 'file_list':
-      return 'filesystem';
-    default:
-      return operation;
-  }
-}
-
-// Known commands that typically need network access
-const NETWORK_COMMANDS = new Set([
-  'curl', 'wget', 'git', 'npm', 'npx', 'yarn', 'pnpm',
-  'pip', 'pip3', 'brew', 'apt', 'ssh', 'scp', 'rsync',
-  'fetch', 'http', 'nc', 'ncat', 'node', 'deno', 'bun',
-]);
-
-/**
- * Determine the network access mode for a sandboxed command.
- *
- * Priority:
- * 1. Explicit networkAccess on matched policy
- * 2. Known network command → always proxy
- * 3. Default → none (non-network commands)
- */
-function determineNetworkAccess(
-  _config: ShieldConfig,
-  matchedPolicy: PolicyConfig | undefined,
-  target: string
-): 'none' | 'proxy' | 'direct' {
-  // 1. Explicit setting on matched policy
-  if (matchedPolicy?.networkAccess) return matchedPolicy.networkAccess;
-
-  // 2. Check if command is a known network command
-  const cleanTarget = target.startsWith('fork:') ? target.slice(5) : target;
-  const cmdPart = cleanTarget.split(' ')[0] || '';
-  const basename = cmdPart.includes('/') ? cmdPart.split('/').pop()! : cmdPart;
-  if (!NETWORK_COMMANDS.has(basename.toLowerCase())) return 'none';
-
-  // 3. Always proxy network commands — the proxy enforces whatever URL policies exist.
-  // With no URL policies, the proxy acts as a passthrough (default-allow).
-  return 'proxy';
-}
-
-/**
- * Build a SandboxConfig for an approved exec operation.
- * Combines sensible defaults with context-based tightening.
- * May acquire a per-run proxy for network-enabled commands.
- */
-async function buildSandboxConfig(
-  config: ShieldConfig,
-  matchedPolicy: PolicyConfig | undefined,
-  _context: PolicyExecutionContext | undefined,
-  target?: string,
-  effects?: GraphEffects,
-): Promise<SandboxConfig> {
-  // Default sandbox config
-  const sandbox: SandboxConfig = {
-    enabled: true,
-    allowedReadPaths: [],
-    allowedWritePaths: [],
-    deniedPaths: [],
-    networkAllowed: false,
-    allowedHosts: [],
-    allowedPorts: [],
-    allowedBinaries: [],
-    deniedBinaries: [],
-    envInjection: {},
-    envDeny: [],
-    envAllow: [],
-    brokerHttpPort: config.broker?.httpPort,
-  };
-
-  // Always strip NODE_OPTIONS from sandboxed children to prevent
-  // the interceptor from loading inside the sandbox (where TCP
-  // to the broker may be blocked by the seatbelt profile).
-  sandbox.envDeny.push('NODE_OPTIONS');
-
-  // Extract command basename early for scope filtering (reused by proxy below)
-  const commandBasename = target ? extractCommandBasename(target) : undefined;
-
-  // Wire concrete filesystem deny paths from policies into seatbelt profile
-  const concreteDenyPaths = collectDenyPathsFromPolicies(config.policies || [], commandBasename);
-  if (concreteDenyPaths.length > 0) {
-    console.log(`[sandbox] deniedPaths from policies: ${concreteDenyPaths.join(', ')}`);
-    sandbox.deniedPaths.push(...concreteDenyPaths);
-  }
-
-  // Collect command-scoped filesystem allow paths
-  if (commandBasename) {
-    const { readPaths, writePaths } = collectAllowPathsForCommand(config.policies || [], commandBasename);
-    if (readPaths.length > 0) {
-      console.log(`[sandbox] allowedReadPaths for ${commandBasename}: ${readPaths.join(', ')}`);
-      sandbox.allowedReadPaths.push(...readPaths);
-    }
-    if (writePaths.length > 0) {
-      console.log(`[sandbox] allowedWritePaths for ${commandBasename}: ${writePaths.join(', ')}`);
-      sandbox.allowedWritePaths.push(...writePaths);
-    }
-  }
-
-  // Resolve the command binary and add to allowed binaries
-  if (target) {
-    // Strip fork: prefix if present
-    const cleanTarget = target.startsWith('fork:') ? target.slice(5) : target;
-    const cmd = cleanTarget.split(' ')[0];
-    if (cmd) {
-      if (cmd.startsWith('/')) {
-        // Absolute path — use as-is
-        sandbox.allowedBinaries.push(cmd);
-        // macOS: /tmp → /private/tmp, resolve real path so seatbelt allows execution
-        try {
-          const realCmd = nodefs.realpathSync(cmd);
-          if (realCmd !== cmd) sandbox.allowedBinaries.push(realCmd);
-        } catch { /* command may not exist yet */ }
-      }
-      // No need for per-basename path variants — the profile-manager
-      // already allows /bin, /sbin, /usr/bin, /usr/sbin, /usr/local/bin,
-      // $HOME/homebrew, and $NVM_DIR as subpaths.
-    }
-  }
-
-  // Always allow these essential binaries — resolve from agent home
-  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-  sandbox.allowedWritePaths.push(agentHome);
-  sandbox.allowedBinaries.push(
-    '/opt/agenshield/bin/',
-    `${agentHome}/homebrew/`,            // agent's homebrew (bin + lib + Cellar)
-    `${agentHome}/.nvm/`,                // agent's NVM (node versions + global packages)
-    `${agentHome}/bin/`,                 // agent's wrapper scripts
-  );
-
-  // Deny access to OpenClaw internals (tokens, config, logs) but allow workspace (skills)
-  const openclawDir = `${agentHome}/.openclaw`;
-  sandbox.deniedPaths.push(openclawDir);
-  sandbox.allowedReadPaths.push(`${openclawDir}/workspace`);
-
-  // Merge graph-granted filesystem paths before network setup
-  if (effects) {
-    if (effects.grantedFsPaths.read.length > 0) {
-      console.log(`[sandbox] graph-granted readPaths: ${effects.grantedFsPaths.read.join(', ')}`);
-      sandbox.allowedReadPaths.push(...effects.grantedFsPaths.read);
-    }
-    if (effects.grantedFsPaths.write.length > 0) {
-      console.log(`[sandbox] graph-granted writePaths: ${effects.grantedFsPaths.write.join(', ')}`);
-      sandbox.allowedWritePaths.push(...effects.grantedFsPaths.write);
-    }
-    // Graph-injected secrets as env vars
-    if (Object.keys(effects.injectedSecrets).length > 0) {
-      console.log(`[sandbox] graph-injected secrets: ${Object.keys(effects.injectedSecrets).join(', ')}`);
-      Object.assign(sandbox.envInjection, effects.injectedSecrets);
-    }
-  }
-
-  // Determine network access mode.
-  // Graph-granted network patterns force proxy mode regardless of determineNetworkAccess().
-  const hasGraphNetwork = effects && effects.grantedNetworkPatterns.length > 0;
-  const networkMode = hasGraphNetwork ? 'proxy' : determineNetworkAccess(config, matchedPolicy, target || '');
-  console.log(`[sandbox] command="${(target || '').slice(0, 60)}" networkMode=${networkMode}${hasGraphNetwork ? ' (graph-forced)' : ''}`);
-
-  if (networkMode === 'none') {
-    sandbox.networkAllowed = false;
-  } else if (networkMode === 'direct') {
-    console.log(`[sandbox] direct network access (no proxy)`);
-    sandbox.networkAllowed = true;
-  } else if (networkMode === 'proxy') {
-    // Acquire a per-run proxy bound to this execution
-    const execId = crypto.randomUUID();
-    // Filter URL policies scoped to this command (+ universal policies)
-    const pool = getProxyPool();
-
-    // Build policy getter: include graph-granted network patterns as synthetic allow policies
-    const graphNetworkPatterns = effects?.grantedNetworkPatterns ?? [];
-    const { port } = await pool.acquire(
-      execId,
-      target || '',
-      () => {
-        const basePolicies = filterUrlPoliciesForCommand((loadConfig().policies || []), commandBasename!);
-        if (graphNetworkPatterns.length === 0) return basePolicies;
-
-        // Synthesize a temporary allow policy from graph-granted patterns
-        const syntheticPolicy: PolicyConfig = {
-          id: `graph-grant-${execId.slice(0, 8)}`,
-          name: 'Graph-granted network access',
-          target: 'url',
-          action: 'allow',
-          patterns: graphNetworkPatterns,
-          enabled: true,
-          priority: 999,
-        };
-        return [syntheticPolicy, ...basePolicies];
-      },
-      () => loadConfig().defaultAction ?? 'deny'
-    );
-
-    console.log(`[sandbox] proxy network: port=${port} command=${commandBasename} execId=${execId.slice(0, 8)}${graphNetworkPatterns.length > 0 ? ` +${graphNetworkPatterns.length} graph patterns` : ''}`);
-
-    sandbox.networkAllowed = true;
-    sandbox.allowedHosts = ['localhost'];
-    sandbox.envInjection = {
-      ...sandbox.envInjection,
-      HTTP_PROXY: `http://127.0.0.1:${port}`,
-      HTTPS_PROXY: `http://127.0.0.1:${port}`,
-      ALL_PROXY: `http://127.0.0.1:${port}`,
-      http_proxy: `http://127.0.0.1:${port}`,
-      https_proxy: `http://127.0.0.1:${port}`,
-      all_proxy: `http://127.0.0.1:${port}`,
-      NO_PROXY: '',
-      AGENSHIELD_EXEC_ID: execId,
-    };
-  }
-
-  return sandbox;
-}
+/** Maximum depth of nested execution chains */
+const MAX_TRACE_DEPTH = 10;
 
 /* ---- ES Extension: Execution Chain Tracking ---- */
 
@@ -380,177 +108,231 @@ function trackESExec(context: PolicyExecutionContext, target: string, allowed: b
 }
 
 /**
- * Evaluate a policy check against loaded config policies.
+ * Fire deferred activations when a trace completes (sequential constraint).
+ */
+function onTraceCompleted(trace: ExecutionTrace): void {
+  if (!trace.deferredActivations?.length) return;
+
+  try {
+    const storage = getStorage();
+    const graphRepo = storage.policyGraph;
+    const graph = graphRepo.loadGraph();
+
+    for (const deferred of trace.deferredActivations) {
+      // If the edge has activationDurationMs, apply TTL starting NOW
+      const edge = graph.edges.find(e => e.id === deferred.edgeId);
+      const expiresAt = edge?.activationDurationMs
+        ? new Date(Date.now() + edge.activationDurationMs).toISOString()
+        : undefined;
+      graphRepo.activate({ edgeId: deferred.edgeId, expiresAt });
+    }
+
+    // Recompile so new activations take effect
+    getPolicyManager().recompile();
+  } catch (err) {
+    console.warn(
+      '[trace] Failed to fire deferred activations:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+/**
+ * Resolve secrets by name from scoped storage vault.
+ */
+function resolveSecretsFromVault(names: string[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  try {
+    const storage = getStorage();
+    const secrets = storage.secrets;
+    for (const name of names) {
+      try {
+        const secret = secrets.getByName(name);
+        if (secret?.value) {
+          result[name] = secret.value;
+        }
+      } catch { /* vault locked or secret not found */ }
+    }
+  } catch { /* storage not available */ }
+  return result;
+}
+
+/**
+ * Evaluate a policy check via PolicyManager.
  *
  * When profileId is provided, policies are loaded from scoped storage
  * (UNION: global + profile-specific) and the policy graph is consulted
  * for dormant policy activation and edge effects.
+ *
+ * Integrates trace store for execution chain tracking and blueprint validation.
  */
 export async function evaluatePolicyCheck(
   operation: string,
   target: string,
   context?: PolicyExecutionContext,
   profileId?: string,
-): Promise<{ allowed: boolean; policyId?: string; reason?: string; sandbox?: SandboxConfig; executionContext?: PolicyExecutionContext }> {
+): Promise<{ allowed: boolean; policyId?: string; reason?: string; sandbox?: SandboxConfig; executionContext?: PolicyExecutionContext; traceId?: string }> {
   const config = loadConfig();
-  const storage = getStorage();
+  const manager = getPolicyManager();
+  const traceStore = getTraceStore();
+  const depth = context?.depth ?? 0;
 
-  // Load policies from scoped storage (UNION: global + profile) or fallback to config
-  const scoped: ScopedStorage | undefined = profileId
-    ? storage.for({ profileId })
-    : undefined;
-  const policies: PolicyConfig[] = scoped
-    ? scoped.policies.getEnabled()
-    : (config.policies || []);
+  console.log('[policy_check] operation:', operation, 'target:', target, 'profileId:', profileId ?? 'none', 'context:', JSON.stringify(context));
 
-  // Load policy graph (profile-scoped if available)
-  let graph: PolicyGraph | undefined;
-  let activeDormantPolicyIds: Set<string> | undefined;
-  try {
-    const graphRepo = scoped?.policyGraph ?? storage.for({}).policyGraph;
-    graph = graphRepo.loadGraph();
-    activeDormantPolicyIds = getActiveDormantPolicyIds(graph);
-  } catch (err) {
-    console.warn('[policy_check] Failed to load policy graph:', err instanceof Error ? err.message : err);
+  // Max depth guard
+  if (depth > MAX_TRACE_DEPTH) {
+    console.warn(`[policy_check] Max execution depth exceeded: depth=${depth} target=${target}`);
+    return {
+      allowed: false,
+      reason: `Max execution depth exceeded (${depth} > ${MAX_TRACE_DEPTH})`,
+      executionContext: context,
+    };
   }
 
-  // Filter enabled policies that match scope, excluding dormant unless activated
-  const applicable = policies
-    .filter((p) => p.enabled && policyScopeMatches(p, context))
-    .filter((p) => {
-      // If no graph loaded, include all policies
-      if (!graph) return true;
-      const node = graph.nodes.find(n => n.policyId === p.id);
-      if (!node) return true;        // Not in graph → always included
-      if (!node.dormant) return true; // Non-dormant → always included
-      // Dormant → only include if activated
-      return activeDormantPolicyIds?.has(p.id) ?? false;
-    })
-    .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+  // Use live evaluation which hits DB for graph activations + secrets
+  const result = manager.evaluateLive({
+    operation,
+    target,
+    context,
+    profileId,
+    defaultAction: config.defaultAction,
+  });
 
-  const targetType = operationToTarget(operation);
+  console.log(`[policy_check] result: allowed=${result.allowed}, policyId=${result.policyId ?? 'none'}, reason=${result.reason ?? 'none'}`);
 
-  console.log('[policy_check] operation:', operation, 'target:', target, 'targetType:', targetType, 'profileId:', profileId ?? 'none', 'context:', JSON.stringify(context));
-  console.log('[policy_check] enabled policies (scope-filtered):', applicable.length, activeDormantPolicyIds?.size ? `(+${activeDormantPolicyIds.size} dormant activated)` : '');
+  // Generate trace ID for this execution
+  const traceId = crypto.randomUUID();
+  let sharedCapabilities: SharedCapabilities | undefined;
+  let graphNodeId: string | undefined;
 
-  // Block plain HTTP requests by default (security best practice)
-  if (targetType === 'url' && target.match(/^http:\/\//i)) {
-    // Check if there's an explicit allow policy for this HTTP URL first
-    let explicitHttpAllow = false;
-    for (const policy of applicable) {
-      if (policy.target !== 'url' || policy.action !== 'allow') continue;
-      for (const pattern of policy.patterns) {
-        // Only check patterns that explicitly allow http://
-        if (!pattern.match(/^http:\/\//i)) continue;
-        const effectiveTarget = normalizeUrlTarget(target);
-        if (matchUrlPattern(pattern, effectiveTarget)) {
-          explicitHttpAllow = true;
-          break;
-        }
-      }
-      if (explicitHttpAllow) break;
-    }
+  // Blueprint validation: if parent trace exists, validate graph path
+  if (context?.parentTraceId && result.policyId) {
+    const parentTrace = traceStore.get(context.parentTraceId);
+    if (parentTrace?.graphNodeId) {
+      // Find the graph node for the matched policy
+      try {
+        const storage = getStorage();
+        const graph = storage.policyGraph.loadGraph();
+        const matchedNode = graph.nodes.find(n => n.policyId === result.policyId);
 
-    if (!explicitHttpAllow) {
-      console.log('[policy_check] DENIED: plain HTTP blocked by default (use HTTPS or add explicit http:// allow policy)');
-      return {
-        allowed: false,
-        reason: 'Plain HTTP is blocked by default. Use HTTPS or create an explicit http:// allow policy.',
-        executionContext: context,
-      };
-    }
-  }
+        if (matchedNode) {
+          graphNodeId = matchedNode.id;
 
-  for (const policy of applicable) {
-    // Check if policy target type matches
-    if (policy.target !== targetType) continue;
+          // Check if there's a valid edge from parent to child
+          const validEdge = graph.edges.find(
+            e => e.sourceNodeId === parentTrace.graphNodeId &&
+                 e.targetNodeId === matchedNode.id &&
+                 e.enabled,
+          );
 
-    // Check if operations filter matches (if specified)
-    if (policy.operations && policy.operations.length > 0) {
-      if (!policy.operations.includes(operation)) continue;
-    }
-
-    console.log('[policy_check] checking policy:', policy.name, 'target:', policy.target, 'action:', policy.action);
-
-    // Check if target matches any pattern
-    for (const pattern of policy.patterns) {
-      const effectiveTarget = targetType === 'url' ? normalizeUrlTarget(target) : target;
-
-      let matches: boolean;
-      if (targetType === 'url') {
-        matches = matchUrlPattern(pattern, effectiveTarget);
-      } else if (targetType === 'command') {
-        matches = matchCommandPattern(pattern, effectiveTarget);
-      } else {
-        // Directory patterns (ending with /) should match all contents
-        let fsPattern = pattern;
-        if (targetType === 'filesystem' && fsPattern.endsWith('/')) {
-          fsPattern = fsPattern + '**';
-        }
-        const regex = globToRegex(fsPattern);
-        matches = regex.test(effectiveTarget);
-      }
-
-      console.log('[policy_check]   pattern:', pattern, '-> base:', targetType === 'url' ? normalizeUrlBase(pattern) : pattern, '| target:', effectiveTarget, '| matches:', matches);
-
-      if (matches) {
-        console.log('[policy_check] MATCHED policy:', policy.name, 'action:', policy.action);
-        const allowed = policy.action === 'allow';
-
-        // Evaluate graph effects for the matched policy
-        let effects: GraphEffects | undefined;
-        if (graph && policy.id) {
-          try {
-            const graphRepo = scoped?.policyGraph ?? storage.for({}).policyGraph;
-            const secretsRepo = scoped?.secrets ?? storage.for({}).secrets;
-            effects = evaluateGraphEffects(policy.id, graph, graphRepo, secretsRepo, context);
-
-            if (effects.activatedPolicyIds.length > 0) {
-              console.log(`[policy_check] Graph activated dormant policies: ${effects.activatedPolicyIds.join(', ')}`);
-            }
-
-            // Graph deny edge overrides allow
-            if (effects.denied) {
-              console.log(`[policy_check] Graph DENY override: ${effects.denyReason}`);
-              return {
-                allowed: false,
-                policyId: policy.id,
-                reason: effects.denyReason || 'Denied by policy graph edge',
-                executionContext: context,
-              };
-            }
-          } catch (err) {
-            // Fail-open: if graph evaluation throws, proceed without graph effects
-            console.warn('[policy_check] Graph evaluation failed, proceeding without effects:', err instanceof Error ? err.message : err);
+          if (!validEdge) {
+            // No edge in the graph — anomaly (command not in expected graph path)
+            emitEvent('trace:anomaly', {
+              traceId,
+              parentTraceId: context.parentTraceId,
+              command: target,
+              reason: 'Command not in expected graph path',
+              severity: 'warning',
+            }, profileId);
           }
-        }
 
-        return {
-          allowed,
-          policyId: policy.id,
-          reason: allowed
-            ? `Allowed by policy: ${policy.name}`
-            : `Denied by policy: ${policy.name}`,
-          // Build sandbox config for allowed exec operations, with graph effects
-          sandbox: allowed && operation === 'exec'
-            ? await buildSandboxConfig(config, policy, context, target, effects)
-            : undefined,
-          executionContext: context,
-        };
+          // Check sequential constraint: deny if parent is still running
+          const sequentialEdge = graph.edges.find(
+            e => e.sourceNodeId === parentTrace.graphNodeId &&
+                 e.targetNodeId === matchedNode.id &&
+                 e.enabled &&
+                 e.constraint === 'sequential',
+          );
+          if (sequentialEdge && parentTrace.status === 'running') {
+            return {
+              allowed: false,
+              policyId: result.policyId,
+              reason: 'Sequential constraint: parent execution still running',
+              executionContext: context,
+            };
+          }
+
+          // Compute shared capabilities from parent via edge config
+          sharedCapabilities = traceStore.getSharedCapabilities(
+            context.parentTraceId,
+            matchedNode.id,
+            graph,
+          );
+        }
+      } catch {
+        // Graph not available — skip blueprint validation
       }
     }
   }
 
-  // Default: use configured action
-  const defaultAction = config.defaultAction ?? 'deny';
-  console.log(`[policy_check] no matching policy, ${defaultAction} by default`);
+  // Look up matched policy for sandbox config
+  const matchedPolicy = result.policyId ? manager.getById(result.policyId) ?? undefined : undefined;
+
+  // Build sandbox config using @agenshield/seatbelt
+  let sandbox: SandboxConfig | undefined;
+  if (result.allowed && operation === 'exec') {
+    sandbox = await buildSandboxConfig(
+      {
+        acquireProxy: async (execId, cmd, policies, defaultAction) => {
+          const pool = getProxyPool();
+          return pool.acquire(
+            execId,
+            cmd,
+            () => policies,
+            () => defaultAction as 'allow' | 'deny',
+          );
+        },
+        resolveSecrets: (names) => resolveSecretsFromVault(names),
+        getPolicies: () => config.policies || [],
+        defaultAction: config.defaultAction ?? 'deny',
+        agentHome: process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent',
+        brokerHttpPort: config.broker?.httpPort,
+      },
+      {
+        matchedPolicy,
+        context,
+        target,
+        effects: result.effects,
+        traceId,
+        depth,
+        sharedCapabilities,
+      },
+    );
+  }
+
+  // Store trace record
+  const trace: ExecutionTrace = {
+    traceId,
+    parentTraceId: context?.parentTraceId,
+    command: target,
+    policyId: result.policyId,
+    graphNodeId,
+    deferredActivations: result.effects?.deferredActivations,
+    profileId,
+    depth,
+    status: 'running',
+    startedAt: Date.now(),
+  };
+  traceStore.create(trace);
+
+  // Emit trace started event
+  emitEvent('trace:started', {
+    traceId,
+    parentTraceId: context?.parentTraceId,
+    command: target,
+    depth,
+    policyId: result.policyId,
+    graphNodeId,
+    allowed: result.allowed,
+  }, profileId);
+
   return {
-    allowed: defaultAction === 'allow',
-    reason: defaultAction === 'deny' ? 'No matching allow policy' : undefined,
-    sandbox: operation === 'exec'
-      ? await buildSandboxConfig(config, undefined, context, target)
-      : undefined,
+    allowed: result.allowed,
+    policyId: result.policyId,
+    reason: result.reason,
+    sandbox,
     executionContext: context,
+    traceId,
   };
 }
 

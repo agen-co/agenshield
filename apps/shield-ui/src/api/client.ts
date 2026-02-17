@@ -20,6 +20,8 @@ import type {
   AnalyzeSkillResponse,
   InstallSkillRequest,
   Alert,
+  SimulateRequest,
+  SimulateResponse,
 } from '@agenshield/ipc';
 
 import { scopeStore } from '../state/scope';
@@ -346,6 +348,15 @@ export const api = {
     if (showHidden) params.set('showHidden', 'true');
     const qs = params.toString();
     return request<{ success: boolean; data: { entries: FsBrowseEntry[] } }>(`/fs/browse${qs ? `?${qs}` : ''}`);
+  },
+
+  // Playground
+  playground: {
+    simulate: (data: SimulateRequest) =>
+      request<{ success: boolean; data: SimulateResponse }>('/playground/simulate', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   },
 
   // Alerts

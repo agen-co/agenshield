@@ -11,7 +11,8 @@
 import * as http from 'node:http';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { createPerRunProxy } from './server';
-import { emitInterceptorEvent } from '../events/emitter';
+import { emitInterceptorEvent, emitEvent } from '../events/emitter';
+import { getTraceStore } from '../services/trace-store';
 
 interface ProxyInstance {
   execId: string;
@@ -45,7 +46,11 @@ export class ProxyPool {
     execId: string,
     command: string,
     getPolicies: () => PolicyConfig[],
-    getDefaultAction: () => 'allow' | 'deny'
+    getDefaultAction: () => 'allow' | 'deny',
+    callbacks?: {
+      onBlock?: (method: string, target: string, protocol: 'http' | 'https') => void;
+      onAllow?: (method: string, target: string, protocol: 'http' | 'https') => void;
+    },
   ): Promise<{ port: number }> {
     if (this.proxies.size >= this.maxConcurrent) {
       // Evict the oldest idle proxy
@@ -78,7 +83,7 @@ export class ProxyPool {
       console.log(`[proxy:${execId.slice(0, 8)}] ${msg}`);
     };
 
-    const onBlock = (method: string, target: string, protocol: 'http' | 'https') => {
+    const defaultOnBlock = (method: string, target: string, protocol: 'http' | 'https') => {
       emitInterceptorEvent({
         type: 'denied',
         operation: 'http_request',
@@ -88,7 +93,14 @@ export class ProxyPool {
       });
     };
 
-    const server = createPerRunProxy(getPolicies, getDefaultAction, onActivity, logger, onBlock);
+    const onBlock = callbacks?.onBlock
+      ? (method: string, target: string, protocol: 'http' | 'https') => {
+          defaultOnBlock(method, target, protocol);
+          callbacks.onBlock!(method, target, protocol);
+        }
+      : defaultOnBlock;
+
+    const server = createPerRunProxy(getPolicies, getDefaultAction, onActivity, logger, onBlock, callbacks?.onAllow);
 
     // Listen on port 0 — OS picks a free port
     const port = await new Promise<number>((resolve, reject) => {
@@ -124,6 +136,7 @@ export class ProxyPool {
 
   /**
    * Release a proxy by execution ID.
+   * Also completes the associated trace and fires deferred activations.
    */
   release(execId: string): void {
     const inst = this.proxies.get(execId);
@@ -133,6 +146,26 @@ export class ProxyPool {
     inst.server.close();
     this.proxies.delete(execId);
     console.log(`[proxy-pool] released port ${inst.port} (exec_id=${execId.slice(0, 8)})`);
+
+    // Notify trace store that this execution has completed
+    try {
+      const traceStore = getTraceStore();
+      // Find and complete the trace associated with this execId
+      for (const trace of [traceStore.get(execId)].filter(Boolean)) {
+        if (trace) {
+          traceStore.complete(trace.traceId);
+          // Emit trace completed event
+          const children = traceStore.getByParent(trace.traceId);
+          emitEvent('trace:completed', {
+            traceId: trace.traceId,
+            durationMs: Date.now() - trace.startedAt,
+            childCount: children.length,
+          });
+        }
+      }
+    } catch {
+      // Trace store may not be available — ignore
+    }
   }
 
   /**

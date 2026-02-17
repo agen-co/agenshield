@@ -12,6 +12,7 @@ import { api } from '../api/client';
 import { queryKeys } from '../api/hooks';
 import type { DaemonStatus } from '@agenshield/ipc';
 import { handleSkillSSEEvent, fetchInstalledSkills } from '../stores/skills';
+import { updateShieldProgress, markShieldComplete } from '../state/setup-panel';
 
 /** Skill SSE events that change installed skills or their env var requirements */
 const SKILL_ENV_EVENTS = new Set([
@@ -61,6 +62,20 @@ export function useSSE(enabled = true, token?: string | null) {
           queryClient.invalidateQueries({ queryKey: queryKeys.alerts });
           queryClient.invalidateQueries({ queryKey: queryKeys.alertsCount });
           return; // Don't add alert meta-events to the activity feed
+        }
+
+        // Route setup events to the setup panel store
+        if (type === 'setup:shield_progress') {
+          const { targetId, step, progress, message } = data as { targetId: string; step: string; progress: number; message?: string };
+          updateShieldProgress(targetId, step, progress, message);
+        }
+        if (type === 'setup:shield_complete') {
+          const { targetId, profileId } = data as { targetId: string; profileId: string };
+          markShieldComplete(targetId, profileId);
+        }
+        if (type === 'setup:complete') {
+          // Mode transition — invalidate health to pick up new mode
+          queryClient.invalidateQueries({ queryKey: queryKeys.health });
         }
 
         // Route skill events to the skills store (don't return — let them also flow into activity feed)

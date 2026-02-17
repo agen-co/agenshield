@@ -78,3 +78,19 @@ export {
   type AlertAcknowledgedPayload,
   ALERT_EVENT_TYPES,
 } from './alert.events';
+
+export {
+  type SetupDetectionPayload,
+  type SetupShieldProgressPayload,
+  type SetupShieldCompletePayload,
+  type SetupCompletePayload,
+  type SetupErrorPayload,
+  SETUP_EVENT_TYPES,
+} from './setup.events';
+
+export {
+  type TraceStartedPayload,
+  type TraceCompletedPayload,
+  type TraceAnomalyPayload,
+  TRACE_EVENT_TYPES,
+} from './trace.events';

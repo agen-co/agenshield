@@ -40,6 +40,9 @@ import {
   createAgenCoConnection,
   RemoteSkillSource,
 } from './adapters';
+import { getDaemonMode } from './middleware/setup-mode';
+import { initPolicyManager } from './services/policy-manager';
+import { pushSecretsToBroker } from './services/broker-bridge';
 
 /**
  * Create and configure the Fastify server
@@ -88,6 +91,36 @@ export async function createServer(config: DaemonConfig): Promise<FastifyInstanc
 export async function startServer(config: DaemonConfig): Promise<FastifyInstance> {
   const app = await createServer(config);
 
+  const mode = getDaemonMode();
+  console.log(`[Daemon] Starting in ${mode} mode`);
+
+  // In setup mode, skip heavy services — they start after POST /api/setup/complete
+  if (mode === 'daemon') {
+    await startDaemonServices(app, config);
+  } else {
+    console.log('[Daemon] Setup mode — skipping heavy services until setup completes');
+  }
+
+  // Normalize localhost to 127.0.0.1 to avoid IPv6 binding issues on macOS
+  // (localhost resolves to ::1 on macOS, but clients often connect via 127.0.0.1)
+  const listenHost = config.host === 'localhost' ? '127.0.0.1' : config.host;
+
+  await app.listen({
+    port: config.port,
+    host: listenHost,
+  });
+
+  // Emit daemon started event after successful listen
+  emitProcessStarted('daemon', { pid: process.pid });
+
+  return app;
+}
+
+/**
+ * Start heavy daemon services (watchers, skill manager, proxy pool, MCP, etc.)
+ * Called at boot in daemon mode, or after setup completion.
+ */
+export async function startDaemonServices(app: FastifyInstance, config: DaemonConfig): Promise<void> {
   // Start security watcher for real-time monitoring
   startSecurityWatcher(10000); // Check every 10 seconds
 
@@ -134,6 +167,13 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   const storage = getStorage();
   const vaultState = storage.isUnlocked() ? 'unlocked' : 'locked (unlock via passcode to manage secrets)';
   console.log(`[Daemon] Storage ready — vault state: ${vaultState}`);
+
+  // ─── Initialize PolicyManager ──────────────────────────────
+  const policyManager = initPolicyManager(storage, {
+    eventBus,
+    pushSecrets: pushSecretsToBroker,
+  });
+  console.log(`[Daemon] PolicyManager ready — engine v${policyManager.engineVersion}`);
 
   if (devMode) {
     // Seed dev data (profiles, preset policies)
@@ -365,18 +405,4 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
       // Non-fatal
     }
   });
-
-  // Normalize localhost to 127.0.0.1 to avoid IPv6 binding issues on macOS
-  // (localhost resolves to ::1 on macOS, but clients often connect via 127.0.0.1)
-  const listenHost = config.host === 'localhost' ? '127.0.0.1' : config.host;
-
-  await app.listen({
-    port: config.port,
-    host: listenHost,
-  });
-
-  // Emit daemon started event after successful listen
-  emitProcessStarted('daemon', { pid: process.pid });
-
-  return app;
 }

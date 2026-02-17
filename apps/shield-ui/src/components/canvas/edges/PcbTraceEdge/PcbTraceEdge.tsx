@@ -6,12 +6,15 @@
  * with their own styling config.
  */
 
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 import type { EdgeProps } from '@xyflow/react';
 import {
   computeOrthogonalRoute,
+  computeMultiRowRoute,
+  computeFanoutRoute,
   getViaPadPositions,
 } from '../../utils/orthogonalRouter';
+import { useElectricShots, type ElectricShotsConfig } from '../../hooks/useElectricShots';
 
 export interface PcbTraceEdgeConfig {
   strokeColor: string;
@@ -21,6 +24,17 @@ export interface PcbTraceEdgeConfig {
   showViaPads?: boolean;
   glowFilter?: string;
   channelOffset?: number;
+  chamferRadius?: number;
+  viaPadColor?: string;
+  targetRow?: number;
+  channelCenterY?: number;
+  channelSpacing?: number;
+  // V-D-V fanout mode
+  fanout?: boolean;
+  stubTop?: number;
+  stubBottom?: number;
+  pathStyle?: React.CSSProperties;
+  electricShots?: ElectricShotsConfig;
 }
 
 interface PcbTraceEdgeProps extends EdgeProps {
@@ -45,16 +59,38 @@ export const PcbTraceEdge = memo(
     interactionWidth,
     config,
   }: PcbTraceEdgeProps) => {
-    const route = computeOrthogonalRoute(
-      { x: sourceX, y: sourceY },
-      { x: targetX, y: targetY },
-      sourcePosition,
-      targetPosition,
-      { channelOffset: config.channelOffset },
-    );
+    const isFanout = config.fanout === true;
+    const isMultiRow = !isFanout && config.targetRow != null && config.targetRow >= 0 && config.channelCenterY != null;
+
+    const route = isFanout
+      ? computeFanoutRoute(
+          { x: sourceX, y: sourceY },
+          { x: targetX, y: targetY },
+          { stubTop: config.stubTop, stubBottom: config.stubBottom, chamferRadius: config.chamferRadius },
+        )
+      : isMultiRow
+        ? computeMultiRowRoute(
+            { x: sourceX, y: sourceY },
+            { x: targetX, y: targetY },
+            config.targetRow!,
+            config.channelCenterY!,
+            config.channelOffset ?? 0,
+            { channelSpacing: config.channelSpacing, chamferRadius: config.chamferRadius },
+          )
+        : computeOrthogonalRoute(
+            { x: sourceX, y: sourceY },
+            { x: targetX, y: targetY },
+            sourcePosition,
+            targetPosition,
+            { channelOffset: config.channelOffset, chamferRadius: config.chamferRadius },
+          );
+
+    const shotContainerRef = useRef<SVGGElement>(null);
+    useElectricShots(shotContainerRef, route.path, route.totalLength, config.strokeWidth, config.electricShots);
 
     const viaPads = config.showViaPads ? getViaPadPositions(route.waypoints) : [];
     const opacity = config.opacity ?? 1;
+    const viaColor = config.viaPadColor ?? '#888888';
 
     return (
       <g>
@@ -69,9 +105,14 @@ export const PcbTraceEdge = memo(
           filter={config.glowFilter}
           markerStart={markerStart}
           markerEnd={markerEnd}
-          style={{ pointerEvents: 'visibleStroke' }}
+          style={{ pointerEvents: 'visibleStroke', ...(config.pathStyle ?? {}) }}
           data-testid={`edge-${id}`}
         />
+
+        {/* Electric shot container — shots managed imperatively by useElectricShots hook */}
+        {config.electricShots && (
+          <g ref={shotContainerRef} />
+        )}
 
         {/* Interaction widener (invisible wider path for hover/click) */}
         <path
@@ -89,7 +130,7 @@ export const PcbTraceEdge = memo(
               cy={pt.y}
               r={VIA_PAD_R_OUTER}
               fill="none"
-              stroke="#888888"
+              stroke={viaColor}
               strokeWidth={VIA_PAD_STROKE}
               opacity={opacity * 0.5}
             />
@@ -97,7 +138,7 @@ export const PcbTraceEdge = memo(
               cx={pt.x}
               cy={pt.y}
               r={VIA_PAD_R_INNER}
-              fill="#888888"
+              fill={viaColor}
               opacity={opacity * 0.4}
             />
           </g>
@@ -111,7 +152,7 @@ export const PcbTraceEdge = memo(
               cy={sourceY}
               r={VIA_PAD_R_OUTER + 1}
               fill="none"
-              stroke="#888888"
+              stroke={viaColor}
               strokeWidth={VIA_PAD_STROKE + 0.5}
               opacity={opacity * 0.5}
             />
@@ -119,7 +160,7 @@ export const PcbTraceEdge = memo(
               cx={sourceX}
               cy={sourceY}
               r={VIA_PAD_R_INNER + 1}
-              fill="#888888"
+              fill={viaColor}
               opacity={opacity * 0.4}
             />
             <circle
@@ -127,7 +168,7 @@ export const PcbTraceEdge = memo(
               cy={targetY}
               r={VIA_PAD_R_OUTER + 1}
               fill="none"
-              stroke="#888888"
+              stroke={viaColor}
               strokeWidth={VIA_PAD_STROKE + 0.5}
               opacity={opacity * 0.5}
             />
@@ -135,7 +176,7 @@ export const PcbTraceEdge = memo(
               cx={targetX}
               cy={targetY}
               r={VIA_PAD_R_INNER + 1}
-              fill="#888888"
+              fill={viaColor}
               opacity={opacity * 0.4}
             />
           </>

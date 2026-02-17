@@ -1,0 +1,26 @@
+{
+  "name": "@agenshield/seatbelt",
+  "version": "0.7.3",
+  "type": "module",
+  "description": "Runtime sandbox/seatbelt enforcement — SBPL profile generation, env filtering, sandbox config building",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@agenshield/ipc": "0.7.3",
+    "@agenshield/policies": "0.7.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  }
+}

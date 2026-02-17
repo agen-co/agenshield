@@ -24,17 +24,21 @@ import { profileRoutes } from './targets';
 import { policyGraphRoutes } from './policy-graph';
 import { alertsRoutes } from './alerts';
 import { rpcRoutes } from './rpc';
+import { playgroundRoutes } from './playground';
+import { setupRoutes } from '../setup';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 import { getSessionManager } from '../auth/session';
 import { registerShieldContext } from '../context';
+import { registerSetupModeMiddleware } from '../middleware/setup-mode';
 
 /**
  * Register all API routes under the /api prefix
  */
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
-  // Register context extraction before all routes
+  // Register context extraction and mode detection before all routes
   registerShieldContext(app);
+  registerSetupModeMiddleware(app);
 
   // Touch idle auto-lock timer on every non-SSE API request
   app.addHook('onRequest', (request, _reply, done) => {
@@ -132,6 +136,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(profileRoutes);
       await api.register(policyGraphRoutes);
       await api.register(alertsRoutes);
+      await api.register(playgroundRoutes);
+      await api.register(setupRoutes);
     },
     { prefix: API_PREFIX }
   );

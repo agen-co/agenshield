@@ -28,7 +28,8 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@agenshield/ipc": "0.7.3"
+    "@agenshield/ipc": "0.7.3",
+    "@agenshield/seatbelt": "0.7.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

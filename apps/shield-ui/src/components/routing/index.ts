@@ -1,0 +1,1 @@
+export { ShieldRoute } from './ShieldRoute';

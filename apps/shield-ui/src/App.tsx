@@ -6,7 +6,6 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { useSnapshot } from 'valtio';
 import { lightTheme, darkTheme } from './theme';
 import { Layout } from './components/layout/Layout';
 import { Overview } from './pages/Overview';
@@ -26,13 +25,12 @@ import { UnlockProvider } from './context/UnlockContext';
 import { LockBanner } from './components/LockBanner';
 import { PageTransition } from './components/layout/PageTransition';
 import { PasscodeDialog } from './components/PasscodeDialog';
+import { ShieldRoute } from './components/routing';
 import { useAuth } from './context/AuthContext';
 import { useHealth, useServerMode } from './api/hooks';
 import { useSSE } from './hooks/useSSE';
-import { setupStore } from './state/setup';
 import { setScope } from './state/scope';
 import { setProfileExpanded } from './state/sidebar';
-import { SetupWizard } from './pages/Setup';
 import { UpdatePage } from './pages/Update';
 import { NotFound } from './pages/NotFound';
 import { Notifications } from './components/shared/Notifications';
@@ -45,9 +43,9 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
   const { requiresFullAuth, isReadOnly, loaded, passcodeSet, protectionEnabled, token } = useAuth();
   const { isError: healthError, isLoading: healthLoading, refetch: retryHealth, isFetching, isSuccess } = useHealth();
   const serverMode = useServerMode();
-  // Connect to SSE events (skip in setup mode but always call the hook)
-  // Token triggers SSE reconnect on auth state change (authenticated ↔ anonymous)
-  useSSE(serverMode !== 'setup', token);
+  // Connect to SSE events — always connect (setup mode uses SSE for progress)
+  // Token triggers SSE reconnect on auth state change (authenticated <-> anonymous)
+  useSSE(!!serverMode, token);
 
   // Debounce disconnect state: only confirm after 5s of sustained failure
   const disconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -81,17 +79,27 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
     };
   }, [healthError, healthLoading, isSuccess]);
 
-  // Keep the wizard visible while the daemon restarts after setup completes
-  const { phase: setupPhase } = useSnapshot(setupStore);
-
-  // Setup mode: render a full-screen wizard, bypass all auth gates
-  if (serverMode === 'setup' || setupPhase === 'complete') {
-    return <SetupWizard />;
-  }
-
   // Update mode: render update wizard
   if (serverMode === 'update') {
     return <UpdatePage />;
+  }
+
+  // In setup mode, skip all auth gates — go straight to routing
+  // (ShieldRoute will redirect non-canvas routes to /canvas)
+  if (serverMode === 'setup') {
+    return (
+      <BrowserRouter>
+        <AppRoutes
+          darkMode={darkMode}
+          onToggleDarkMode={onToggleDarkMode}
+          isConfirmedDisconnected={isConfirmedDisconnected}
+          retryHealth={retryHealth}
+          isFetching={isFetching}
+          isReadOnly={false}
+          isSetupMode
+        />
+      </BrowserRouter>
+    );
   }
 
   // When anonymous read-only is disabled and not authenticated, block the entire UI
@@ -154,6 +162,7 @@ function AppRoutes({
   retryHealth,
   isFetching,
   isReadOnly,
+  isSetupMode,
 }: {
   darkMode: boolean;
   onToggleDarkMode: () => void;
@@ -161,6 +170,7 @@ function AppRoutes({
   retryHealth: () => void;
   isFetching: boolean;
   isReadOnly: boolean;
+  isSetupMode?: boolean;
 }) {
   const location = useLocation();
   const isCanvasRoute = location.pathname === '/canvas';
@@ -173,28 +183,66 @@ function AppRoutes({
       onReconnect={() => retryHealth()}
       reconnecting={isFetching}
       fullBleed={isCanvasRoute}
+      hideSidebar={isSetupMode}
     >
-      <ScopeSync />
-      {isReadOnly && !isCanvasRoute && <LockBanner />}
+      {!isSetupMode && <ScopeSync />}
+      {isReadOnly && !isCanvasRoute && !isSetupMode && <LockBanner />}
       <PageTransition>
         <Routes>
-          <Route path="/" element={<Overview />} />
-          <Route path="/canvas" element={<Canvas />} />
-          <Route path="/policies" element={<Navigate to="/policies/commands" replace />} />
-          <Route path="/policies/:tab" element={<Policies />} />
-          <Route path="/skills" element={<Skills />} />
-          <Route path="/skills/:id" element={<SkillPage />} />
-          <Route path="/secrets" element={<Secrets />} />
-          <Route path="/activity" element={<Activity />} />
-          <Route path="/integrations" element={<Integrations />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/profiles" element={<ProfilesPage />} />
-          <Route path="/profiles/:profileId" element={<ProfileDetail />} />
-          <Route path="/profiles/:profileId/policies" element={<Navigate to="commands" replace />} />
-          <Route path="/profiles/:profileId/policies/:tab" element={<Policies />} />
-          <Route path="/profiles/:profileId/skills" element={<Skills />} />
-          <Route path="/profiles/:profileId/secrets" element={<Secrets />} />
-          <Route path="/profiles/:profileId/env" element={<EnvVars />} />
+          {/* Canvas — always available (setup panel lives here) */}
+          <Route path="/canvas" element={
+            <ShieldRoute allowedModes={['any']}><Canvas /></ShieldRoute>
+          } />
+
+          {/* Daemon-only routes — redirect to /canvas in setup mode */}
+          <Route path="/" element={
+            <ShieldRoute allowedModes={['daemon']}><Overview /></ShieldRoute>
+          } />
+          <Route path="/policies" element={
+            <ShieldRoute allowedModes={['daemon']}><Navigate to="/policies/commands" replace /></ShieldRoute>
+          } />
+          <Route path="/policies/:tab" element={
+            <ShieldRoute allowedModes={['daemon']}><Policies /></ShieldRoute>
+          } />
+          <Route path="/skills" element={
+            <ShieldRoute allowedModes={['daemon']}><Skills /></ShieldRoute>
+          } />
+          <Route path="/skills/:id" element={
+            <ShieldRoute allowedModes={['daemon']}><SkillPage /></ShieldRoute>
+          } />
+          <Route path="/secrets" element={
+            <ShieldRoute allowedModes={['daemon']}><Secrets /></ShieldRoute>
+          } />
+          <Route path="/activity" element={
+            <ShieldRoute allowedModes={['daemon']}><Activity /></ShieldRoute>
+          } />
+          <Route path="/integrations" element={
+            <ShieldRoute allowedModes={['daemon']}><Integrations /></ShieldRoute>
+          } />
+          <Route path="/settings" element={
+            <ShieldRoute allowedModes={['daemon']}><Settings /></ShieldRoute>
+          } />
+          <Route path="/profiles" element={
+            <ShieldRoute allowedModes={['daemon']}><ProfilesPage /></ShieldRoute>
+          } />
+          <Route path="/profiles/:profileId" element={
+            <ShieldRoute allowedModes={['daemon']}><ProfileDetail /></ShieldRoute>
+          } />
+          <Route path="/profiles/:profileId/policies" element={
+            <ShieldRoute allowedModes={['daemon']}><Navigate to="commands" replace /></ShieldRoute>
+          } />
+          <Route path="/profiles/:profileId/policies/:tab" element={
+            <ShieldRoute allowedModes={['daemon']}><Policies /></ShieldRoute>
+          } />
+          <Route path="/profiles/:profileId/skills" element={
+            <ShieldRoute allowedModes={['daemon']}><Skills /></ShieldRoute>
+          } />
+          <Route path="/profiles/:profileId/secrets" element={
+            <ShieldRoute allowedModes={['daemon']}><Secrets /></ShieldRoute>
+          } />
+          <Route path="/profiles/:profileId/env" element={
+            <ShieldRoute allowedModes={['daemon']}><EnvVars /></ShieldRoute>
+          } />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </PageTransition>

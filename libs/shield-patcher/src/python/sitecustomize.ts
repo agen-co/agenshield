@@ -161,6 +161,17 @@ if _AGENSHIELD_ENABLED:
             if isinstance(body, dict):
                 body = json.dumps(body)
 
+            # Propagate trace context for execution chain tracking
+            trace_id = os.environ.get('AGENSHIELD_TRACE_ID', '')
+            depth_str = os.environ.get('AGENSHIELD_DEPTH', '0')
+            trace_context = {}
+            if trace_id:
+                trace_context['parentTraceId'] = trace_id
+                try:
+                    trace_context['depth'] = int(depth_str) + 1
+                except ValueError:
+                    trace_context['depth'] = 1
+
             broker_request = {
                 'jsonrpc': '2.0',
                 'id': '1',
@@ -170,6 +181,7 @@ if _AGENSHIELD_ENABLED:
                     'method': method.upper(),
                     'headers': headers,
                     'body': body,
+                    **(({'context': trace_context} if trace_context else {})),
                 }
             }
 

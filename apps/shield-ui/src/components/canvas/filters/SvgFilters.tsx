@@ -6,6 +6,51 @@ export function SvgFilters() {
   return (
     <svg style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none' }}>
       <defs>
+        {/* LED animation keyframes */}
+        <style>{`
+          @keyframes pcb-led-pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+          }
+          @keyframes pcb-led-blink {
+            0%, 40% { opacity: 0.9; }
+            50%, 90% { opacity: 0.15; }
+            100% { opacity: 0.9; }
+          }
+          @keyframes pcb-led-glow-breathe {
+            0%, 100% { opacity: 0.15; }
+            50% { opacity: 0.35; }
+          }
+          @keyframes pcb-alert-blink {
+            0%, 30% { opacity: 0.95; }
+            50%, 70% { opacity: 0.25; }
+            100% { opacity: 0.95; }
+          }
+          @keyframes pcb-alert-glow {
+            0%, 100% { opacity: 0.08; }
+            50% { opacity: 0.22; }
+          }
+          @keyframes danger-wire-pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 0.85; }
+          }
+          @keyframes danger-chip-pulse {
+            0%, 100% { opacity: 0.15; }
+            50% { opacity: 0.35; }
+          }
+          @keyframes danger-chip-breathe {
+            0%, 100% { opacity: 0.04; }
+            50% { opacity: 0.12; }
+          }
+@keyframes danger-card-pulse {
+            0%, 100% { opacity: 0.15; }
+            50% { opacity: 0.45; }
+          }
+          @keyframes shield-trace-pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 0.75; }
+          }
+        `}</style>
         {/* Green glow — healthy/shielded */}
         <filter id="canvas-glow-green" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="3" result="blur" />
@@ -76,6 +121,28 @@ export function SvgFilters() {
         <filter id="pcb-glow-denied" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="4" result="blur" />
           <feFlood floodColor="#FF1744" floodOpacity="0.7" result="color" />
+          <feComposite in="color" in2="blur" operator="in" />
+          <feMerge>
+            <feMergeNode />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+
+        {/* Shield trace glow — dark green glow for shield connections */}
+        <filter id="shield-trace-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feFlood floodColor="#2D6B3F" floodOpacity="0.5" result="color" />
+          <feComposite in="color" in2="blur" operator="in" />
+          <feMerge>
+            <feMergeNode />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+
+        {/* Danger wire glow — thick red glow for danger wires */}
+        <filter id="danger-wire-glow" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="5" result="blur" />
+          <feFlood floodColor="#E1583E" floodOpacity="0.6" result="color" />
           <feComposite in="color" in2="blur" operator="in" />
           <feMerge>
             <feMergeNode />

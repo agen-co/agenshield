@@ -34,7 +34,7 @@
         "assets": ["libs/shield-interceptor/README.md", "LICENSE", "libs/shield-interceptor/package.json"],
         "esbuildOptions": {
           "outExtension": { ".js": ".js" },
-          "external": ["@agenshield/ipc"]
+          "external": ["@agenshield/ipc", "@agenshield/seatbelt"]
         }
       }
     },

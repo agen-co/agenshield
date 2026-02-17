@@ -5,13 +5,13 @@
 
 export const pcb = {
   board: {
-    base: '#0A0A0A',         // near-black
-    solderMask: '#121212',   // dark gray
-    traceFaint: '#1A1A1A',   // faint trace gray
+    base: '#181A1E',         // dark charcoal
+    solderMask: '#1E2024',   // dark grey solder mask
+    traceFaint: '#2A2C30',   // visible faint traces
   },
   trace: {
-    silver: '#A0A0A0',      // silver trace
-    bright: '#C0C0C0',      // bright silver
+    silver: '#8A8A90',      // slightly cooler silver
+    bright: '#B0B0B8',      // cooler bright silver
     dimmed: '#555555',       // dimmed trace
   },
   via: {
@@ -19,27 +19,29 @@ export const pcb = {
     fill: '#666666',         // via pad center
   },
   silk: {
-    primary: '#FFFFFF',      // white silkscreen
-    dim: '#999999',          // gray dim text
+    primary: '#8A8E92',      // muted grey silkscreen
+    dim: '#585C60',          // dimmer secondary text
   },
   signal: {
     cyan: '#00E5FF',         // allowed pulse
     denied: '#FF1744',       // denied pulse
   },
   component: {
-    body: '#111111',         // black chip body
-    bodyLight: '#1A1A1A',    // slightly lighter black
+    body: '#1C1C20',         // chip body dark grey
+    bodyLight: '#242428',    // lighter variant
     pin: '#999999',          // gray/silver pins
     pinBright: '#BBBBBB',    // bright active pins
     padGold: '#D4A04A',      // solder pad gold tip
-    ledGreen: '#00FF41',
-    ledRed: '#FF073A',
-    ledAmber: '#FFD700',
+    ledGreen: '#3DC75F',
+    ledRed: '#D43F3F',
+    ledAmber: '#E8B84A',
     ledOff: '#333333',
   },
   light: {
-    base: '#E0E0E0',         // light mode gray board
+    base: '#EAEAE6',         // neutral warm grey
     silk: '#1A1A1A',         // dark text on light
-    body: '#E8E8E0',         // light chip body
+    body: '#E0E0DA',         // neutral light chip body
+    trace: '#B0B0A8',        // light traces
+    silkDim: '#6A6A6A',      // neutral grey
   },
 } as const;

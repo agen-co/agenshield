@@ -8,6 +8,8 @@ import type Database from 'better-sqlite3';
 import type { Migration } from './types';
 import { SchemaMigration } from './001-schema';
 import { ProfileBrokerTokenMigration } from './011-profile-broker-token';
+import { SetupStateMigration } from './012-setup-state';
+import { PolicySetsMigration } from './013-policy-sets';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -18,6 +20,8 @@ const TABLE = '_migrations';
 export const ALL_MIGRATIONS: Migration[] = [
   new SchemaMigration(),
   new ProfileBrokerTokenMigration(),
+  new SetupStateMigration(),
+  new PolicySetsMigration(),
 ];
 
 /**

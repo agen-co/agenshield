@@ -126,6 +126,8 @@ export interface PolicyExecutionContext {
   agentId?: string;
   /** Call depth in the execution chain */
   depth: number;
+  /** Parent trace ID from AGENSHIELD_TRACE_ID env var (for execution chain tracing) */
+  parentTraceId?: string;
   /** Source layer: interceptor (Node.js) or es-extension (macOS EndpointSecurity) */
   sourceLayer?: 'interceptor' | 'es-extension';
   /** Agent user name from ES extension (e.g. "ash_default_agent") */
@@ -154,6 +156,22 @@ export interface PolicyEvaluationResult {
   sandbox?: SandboxConfig;
   /** Execution context used during evaluation */
   executionContext?: PolicyExecutionContext;
+  /** Trace ID assigned by daemon for execution chain tracing */
+  traceId?: string;
+}
+
+/**
+ * Policy set for multi-tenancy hierarchy.
+ * Policies can be grouped into sets with parent-child inheritance.
+ */
+export interface PolicySet {
+  id: string;
+  name: string;
+  parentId?: string;
+  profileId?: string;
+  enforced: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /**

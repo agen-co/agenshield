@@ -25,6 +25,7 @@ export function createPerRunProxy(
   onActivity: () => void,
   logger: (msg: string) => void,
   onBlock?: (method: string, target: string, protocol: 'http' | 'https') => void,
+  onAllow?: (method: string, target: string, protocol: 'http' | 'https') => void,
 ): http.Server {
   const server = http.createServer((req, res) => {
     onActivity();
@@ -47,6 +48,7 @@ export function createPerRunProxy(
     }
 
     logger(`PROXY HTTP ${req.method} ${url}`);
+    onAllow?.(req.method || 'GET', url, 'http');
 
     // Forward the request
     let parsedUrl: URL;
@@ -102,6 +104,7 @@ export function createPerRunProxy(
     }
 
     logger(`TUNNEL ${hostname}:${port}`);
+    onAllow?.('CONNECT', `https://${hostname}:${port}`, 'https');
 
     // DNS resolution + TCP tunnel happens inside the proxy (not the sandboxed child)
     const serverSocket = net.connect(port, hostname, () => {

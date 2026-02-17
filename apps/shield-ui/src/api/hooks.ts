@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSnapshot } from 'valtio';
-import type { UpdateConfigRequest } from '@agenshield/ipc';
+import type { UpdateConfigRequest, SimulateRequest } from '@agenshield/ipc';
 import { api, type CreateSecretRequest } from './client';
 import { daemonStatusStore } from '../state/daemon-status';
 import { scopeStore } from '../state/scope';
@@ -436,6 +436,14 @@ export function useAcknowledgeAllAlerts() {
       queryClient.invalidateQueries({ queryKey: queryKeys.alerts });
       queryClient.invalidateQueries({ queryKey: queryKeys.alertsCount });
     },
+  });
+}
+
+// --- Playground hooks ---
+
+export function useSimulate() {
+  return useMutation({
+    mutationFn: (data: SimulateRequest) => api.playground.simulate(data),
   });
 }
 

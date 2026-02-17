@@ -31,7 +31,7 @@ function formatStrippedSSE(event: DaemonEvent): string {
  * sensitive request/response bodies). All security, policy, and operational events
  * are always visible so the Activity Feed is useful without authentication.
  */
-const ALWAYS_FULL_PREFIXES = ['skills:', 'exec:', 'interceptor:', 'security:', 'wrappers:', 'process:', 'config:'];
+const ALWAYS_FULL_PREFIXES = ['skills:', 'exec:', 'interceptor:', 'security:', 'wrappers:', 'process:', 'config:', 'setup:'];
 
 /**
  * Determine whether to send full event data.

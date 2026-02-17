@@ -6,13 +6,13 @@ import type { FastifyInstance } from 'fastify';
 import type { HealthResponse } from '@agenshield/ipc';
 
 export async function healthRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/health', async (): Promise<HealthResponse> => {
+  app.get('/health', async (request): Promise<HealthResponse> => {
     return {
       success: true,
       data: {
         ok: true,
         timestamp: new Date().toISOString(),
-        mode: 'daemon' as const,
+        mode: request.daemonMode,
       },
     };
   });

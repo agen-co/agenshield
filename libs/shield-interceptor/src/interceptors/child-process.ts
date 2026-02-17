@@ -13,8 +13,7 @@ import type * as childProcess from 'node:child_process';
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { SyncClient } from '../client/sync-client.js';
 import { PolicyDeniedError } from '../errors.js';
-import { ProfileManager } from '../seatbelt/profile-manager.js';
-import { filterEnvByAllowlist } from '../seatbelt/env-allowlist.js';
+import { ProfileManager, filterEnvByAllowlist } from '@agenshield/seatbelt';
 import { debugLog } from '../debug-log.js';
 import type { PolicyExecutionContext, SandboxConfig } from '@agenshield/ipc';
 import type { PolicyCheckResult } from '../policy/evaluator.js';
@@ -95,15 +94,18 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   }
 
   /**
-   * Build execution context from config for RPC calls
+   * Build execution context from config for RPC calls.
+   * Reads trace env vars for execution chain tracking.
    */
   private getPolicyExecutionContext(): PolicyExecutionContext {
     const config = this.interceptorConfig;
+    const parentDepth = parseInt(process.env['AGENSHIELD_DEPTH'] || '0', 10);
     return {
       callerType: config?.contextType || 'agent',
       skillSlug: config?.contextSkillSlug,
       agentId: config?.contextAgentId,
-      depth: 0,
+      depth: parentDepth + 1,
+      parentTraceId: process.env['AGENSHIELD_TRACE_ID'],
     };
   }
 

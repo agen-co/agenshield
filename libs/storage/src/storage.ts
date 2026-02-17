@@ -26,6 +26,7 @@ import { ProfileRepository } from './repositories/profile';
 import { PolicyGraphRepository } from './repositories/policy-graph';
 import { SecretsRepository } from './repositories/secrets';
 import { AlertsRepository } from './repositories/alerts';
+import { PolicySetRepository } from './repositories/policy-set';
 
 export interface ScopedStorage {
   readonly config: ConfigRepository;
@@ -35,6 +36,7 @@ export interface ScopedStorage {
   readonly alerts: AlertsRepository;
   readonly skills: SkillsRepository;
   readonly policyGraph: PolicyGraphRepository;
+  readonly policySets: PolicySetRepository;
 }
 
 const META = 'meta';
@@ -54,6 +56,7 @@ export class Storage {
   readonly commands: CommandsRepository;
   readonly profiles: ProfileRepository;
   readonly policyGraph: PolicyGraphRepository;
+  readonly policySets: PolicySetRepository;
   readonly secrets: SecretsRepository;
 
   private constructor(db: Database.Database, activityDb: Database.Database) {
@@ -72,6 +75,7 @@ export class Storage {
     this.commands = new CommandsRepository(db, getKey);
     this.profiles = new ProfileRepository(db, getKey);
     this.policyGraph = new PolicyGraphRepository(db, getKey);
+    this.policySets = new PolicySetRepository(db, getKey);
     this.secrets = new SecretsRepository(db, getKey);
   }
 
@@ -262,6 +266,7 @@ export class Storage {
       alerts: new AlertsRepository(this.activityDb, getKey, scope),
       skills: new SkillsRepository(this.db, getKey, scope),
       policyGraph: new PolicyGraphRepository(this.db, getKey, scope),
+      policySets: new PolicySetRepository(this.db, getKey, scope),
     };
   }
 

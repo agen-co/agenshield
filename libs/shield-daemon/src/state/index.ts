@@ -5,7 +5,7 @@
  * Falls back to defaults when no state row exists yet.
  */
 
-import type { SystemState, AgenCoState, DaemonState, UserState, GroupState, InstallationState, PasscodeProtectionState } from '@agenshield/ipc';
+import type { SystemState, AgenCoState, DaemonState, UserState, GroupState, InstallationState, PasscodeProtectionState, SetupState } from '@agenshield/ipc';
 import { DEFAULT_PORT } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 
@@ -32,6 +32,9 @@ export function getDefaultState(): SystemState {
       wrappers: [],
       seatbeltInstalled: false,
     },
+    setup: {
+      completed: false,
+    },
   };
 }
 
@@ -53,6 +56,7 @@ export function loadState(): SystemState {
       daemon: { ...defaults.daemon, ...state.daemon },
       agenco: { ...defaults.agenco, ...state.agenco },
       installation: { ...defaults.installation, ...state.installation },
+      setup: state.setup ?? defaults.setup,
     };
   } catch {
     return getDefaultState();
@@ -101,6 +105,13 @@ export function saveState(state: SystemState): void {
     });
   }
 
+  if (state.setup) {
+    repo.updateSetup({
+      completed: state.setup.completed,
+      phase: state.setup.phase ?? null,
+    });
+  }
+
   repo.updateVersion(state.version);
 
   // Sync users — replace all
@@ -146,6 +157,9 @@ export function updateState(updates: Partial<SystemState>): SystemState {
   }
   if (updates.passcodeProtection) {
     updated.passcodeProtection = { ...current.passcodeProtection, ...updates.passcodeProtection };
+  }
+  if (updates.setup) {
+    updated.setup = { ...current.setup, ...updates.setup };
   }
 
   saveState(updated);
@@ -280,6 +294,18 @@ export function removeConnectedIntegration(integrationId: string): SystemState {
   const updated = current.agenco.connectedIntegrations.filter((id) => id !== integrationId);
   try {
     getStorage().state.updateAgenCo({ connectedIntegrations: updated });
+  } catch {
+    // Storage not initialized — no-op
+  }
+  return loadState();
+}
+
+/**
+ * Update setup state
+ */
+export function updateSetupState(updates: Partial<SetupState>): SystemState {
+  try {
+    getStorage().state.updateSetup(updates);
   } catch {
     // Storage not initialized — no-op
   }

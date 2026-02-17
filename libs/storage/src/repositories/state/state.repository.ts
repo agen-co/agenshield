@@ -12,9 +12,10 @@ import {
   UpdateAgenCoSchema, UpdateAgenCoCodec,
   UpdateInstallationSchema, UpdateInstallationCodec,
   UpdatePasscodeSchema, UpdatePasscodeCodec,
+  UpdateSetupSchema, UpdateSetupCodec,
 } from './state.schema';
 import type {
-  UpdateDaemonInput, UpdateAgenCoInput, UpdateInstallationInput, UpdatePasscodeInput,
+  UpdateDaemonInput, UpdateAgenCoInput, UpdateInstallationInput, UpdatePasscodeInput, UpdateSetupInput,
 } from './state.schema';
 
 export class StateRepository extends BaseRepository {
@@ -80,6 +81,15 @@ export class StateRepository extends BaseRepository {
   updatePasscode(input: UpdatePasscodeInput): void {
     const data = this.validate(UpdatePasscodeSchema, input);
     const encoded = UpdatePasscodeCodec.encode(data);
+    this.buildDynamicUpdate(encoded, 'state', 'id = 1', {});
+  }
+
+  /**
+   * Update setup state.
+   */
+  updateSetup(input: UpdateSetupInput): void {
+    const data = this.validate(UpdateSetupSchema, input);
+    const encoded = UpdateSetupCodec.encode(data);
     this.buildDynamicUpdate(encoded, 'state', 'id = 1', {});
   }
 

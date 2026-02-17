@@ -77,6 +77,8 @@ export interface DbStateRow {
   passcode_allow_anonymous_read_only: number | null;
   passcode_failed_attempts: number | null;
   passcode_locked_until: string | null;
+  setup_completed: number;
+  setup_phase: string | null;
   updated_at: string;
 }
 
@@ -226,6 +228,16 @@ export interface DbSecretRow {
   value_encrypted: string | null;
   scope: string;
   created_at: string;
+}
+
+export interface DbPolicySetRow {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  profile_id: string | null;
+  enforced: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface DbMetaRow {

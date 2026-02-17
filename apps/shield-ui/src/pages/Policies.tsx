@@ -14,7 +14,7 @@ import {
   Tabs,
   Tab,
 } from '@mui/material';
-import { Plus, Terminal, Globe, FolderOpen } from 'lucide-react';
+import { Plus, Terminal, Globe, FolderOpen, Play } from 'lucide-react';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { useConfig, useUpdateConfig, useSecrets, useUpdateSecret, useSkills } from '../api/hooks';
 import { useGuardedAction } from '../hooks/useGuardedAction';
@@ -27,8 +27,9 @@ import { PolicyEditor } from '../components/policies/PolicyEditor';
 import { CommandPolicyList } from '../components/policies/CommandPolicyList';
 import { NetworkPolicyList } from '../components/policies/NetworkPolicyList';
 import { FilesystemPolicyTable } from '../components/policies/FilesystemPolicyTable';
+import { SimulatePanel } from '../components/policies/SimulatePanel';
 
-const TAB_SLUGS = ['commands', 'network', 'filesystem'] as const;
+const TAB_SLUGS = ['commands', 'network', 'filesystem', 'simulate'] as const;
 const TAB_TARGETS: Record<string, 'command' | 'url' | 'filesystem'> = {
   commands: 'command',
   network: 'url',
@@ -205,7 +206,7 @@ export function Policies() {
       />
 
       {/* Collapsible editor for Commands + Network tabs */}
-      {activeTab !== 2 && (
+      {activeTab <= 1 && (
         <Collapse in={formOpen} unmountOnExit timeout={250}>
           <Box sx={{ mb: 3, position: 'relative', zIndex: 10 }}>
             <PolicyEditor
@@ -242,10 +243,16 @@ export function Policies() {
               label="Filesystem"
               sx={{ minHeight: 48, textTransform: 'none' }}
             />
+            <Tab
+              icon={<Play size={14} />}
+              iconPosition="start"
+              label="Simulate"
+              sx={{ minHeight: 48, textTransform: 'none' }}
+            />
           </Tabs>
 
           {/* Add button — only for Commands and Network tabs */}
-          {!formOpen && activeTab !== 2 && (
+          {!formOpen && activeTab <= 1 && (
             <Box sx={{ pr: 2 }}>
               <Button
                 size="small"
@@ -328,6 +335,9 @@ export function Policies() {
               busy={updateConfig.isPending}
             />
           )}
+
+          {/* Tab 3: Simulate */}
+          {activeTab === 3 && <SimulatePanel />}
         </CardContent>
       </Card>
 

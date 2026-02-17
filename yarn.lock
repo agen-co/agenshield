@@ -3754,6 +3754,11 @@ ajv@^6.12.4:
     json-schema-traverse "^0.4.1"
     uri-js "^4.2.2"
 
+animejs@^4.3.6:
+  version "4.3.6"
+  resolved "https://registry.yarnpkg.com/animejs/-/animejs-4.3.6.tgz#2399da111ec6a5494aca1cd4aa31135796e93e13"
+  integrity sha512-rzZ4bDc8JAtyx6hYwxj7s5M/yWfnM5qqY4hZDnhy1cWFvMb6H5/necHS2sbCY3WQTDbRLuZL10dPXSxSCFOr/w==
+
 ansi-colors@^4.1.1:
   version "4.1.3"
   resolved "https://registry.npmjs.org/ansi-colors/-/ansi-colors-4.1.3.tgz"

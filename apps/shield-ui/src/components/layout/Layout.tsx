@@ -16,23 +16,26 @@ interface LayoutProps {
   onReconnect?: () => void;
   reconnecting?: boolean;
   fullBleed?: boolean;
+  hideSidebar?: boolean;
 }
 
-export function Layout({ children, darkMode, onToggleDarkMode, disconnected, onReconnect, reconnecting, fullBleed }: LayoutProps) {
+export function Layout({ children, darkMode, onToggleDarkMode, disconnected, onReconnect, reconnecting, fullBleed, hideSidebar }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        darkMode={darkMode}
-        onToggleDarkMode={onToggleDarkMode}
-        onMenuClick={() => setSidebarOpen(true)}
-        disconnected={disconnected}
-        onReconnect={onReconnect}
-        reconnecting={reconnecting}
-      />
+      {!hideSidebar && (
+        <Sidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          darkMode={darkMode}
+          onToggleDarkMode={onToggleDarkMode}
+          onMenuClick={() => setSidebarOpen(true)}
+          disconnected={disconnected}
+          onReconnect={onReconnect}
+          reconnecting={reconnecting}
+        />
+      )}
 
       <Box
         component="main"
@@ -40,14 +43,14 @@ export function Layout({ children, darkMode, onToggleDarkMode, disconnected, onR
           flexGrow: 1,
           bgcolor: 'background.default',
           minHeight: '100vh',
-          width: { md: `calc(100% - ${tokens.sidebar.width}px)` },
+          width: hideSidebar ? '100%' : { md: `calc(100% - ${tokens.sidebar.width}px)` },
           ...(fullBleed
             ? { px: 0, py: 0, overflow: 'hidden' }
             : { px: { xs: 2, sm: 3, md: 3 }, py: 3 }),
         }}
       >
         {/* Mobile menu button */}
-        {!fullBleed && (
+        {!fullBleed && !hideSidebar && (
           <IconButton
             onClick={() => setSidebarOpen(true)}
             sx={{

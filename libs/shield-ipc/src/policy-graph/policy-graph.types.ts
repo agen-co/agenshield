@@ -35,6 +35,19 @@ export interface PolicyNode {
   updatedAt: string;
 }
 
+/** Configures what the source node shares with the target node via an edge */
+export interface EdgeSharingConfig {
+  /** Secret names to share from source to target (empty = isolated) */
+  shareSecrets?: string[];
+  /** Network patterns to share from source to target */
+  shareNetwork?: string[];
+  /** Filesystem paths to share from source to target */
+  shareFs?: { read?: string[]; write?: string[] };
+}
+
+/** Constraint on when an edge's effect fires relative to the source execution */
+export type EdgeConstraint = 'sequential' | 'concurrent' | 'timed';
+
 /** A directed edge: when sourceNode fires -> apply effect on targetNode */
 export interface PolicyEdge {
   id: string;
@@ -47,6 +60,12 @@ export interface PolicyEdge {
   secretName?: string;
   grantPatterns?: string[];
   delayMs?: number;
+  /** Constraint on when the effect fires. Default: 'concurrent' (immediate) */
+  constraint?: EdgeConstraint;
+  /** For 'timed' constraint: TTL in ms for the activation (e.g., 300000 = 5 min) */
+  activationDurationMs?: number;
+  /** Sharing config: what capabilities flow from source to target node */
+  sharing?: EdgeSharingConfig;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;

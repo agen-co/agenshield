@@ -37,5 +37,9 @@ export function mapState(row: DbStateRow): SystemState {
       failedAttempts: row.passcode_failed_attempts ?? undefined,
       lockedUntil: row.passcode_locked_until ?? undefined,
     } : undefined,
+    setup: {
+      completed: row.setup_completed === 1,
+      phase: row.setup_phase ?? undefined,
+    },
   };
 }
