@@ -87,14 +87,14 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
 
   return (
     <div style={{ position: 'relative', cursor: 'default' }}>
-      {/* Component connection handles along top — 2 per component, 4px gap */}
+      {/* Component connection handles along top — 2 per component, 6px gap */}
       {compHandleXs.map((hx, i) => (
         <Handle
           key={`comp-in-${i}`}
           type="target"
           position={Position.Top}
           id={`comp-in-${i}`}
-          style={{ left: hx - 2, visibility: 'hidden' }}
+          style={{ left: hx - 3, visibility: 'hidden' }}
         />
       ))}
       {compHandleXs.map((hx, i) => (
@@ -103,7 +103,7 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
           type="source"
           position={Position.Top}
           id={`comp-out-${i}`}
-          style={{ left: hx + 2, visibility: 'hidden' }}
+          style={{ left: hx + 3, visibility: 'hidden' }}
         />
       ))}
 

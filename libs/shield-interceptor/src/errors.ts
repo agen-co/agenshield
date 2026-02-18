@@ -71,3 +71,25 @@ export class InvalidOperationError extends AgenShieldError {
     this.name = 'InvalidOperationError';
   }
 }
+
+/**
+ * Error thrown when a resource limit is exceeded
+ */
+export class ResourceLimitExceededError extends AgenShieldError {
+  public readonly pid: number;
+  public readonly metric: 'memory' | 'cpu' | 'timeout';
+  public readonly currentValue: number;
+  public readonly threshold: number;
+
+  constructor(
+    message: string,
+    options: { pid: number; metric: 'memory' | 'cpu' | 'timeout'; currentValue: number; threshold: number }
+  ) {
+    super(message, 'RESOURCE_LIMIT_EXCEEDED', { operation: 'exec' });
+    this.name = 'ResourceLimitExceededError';
+    this.pid = options.pid;
+    this.metric = options.metric;
+    this.currentValue = options.currentValue;
+    this.threshold = options.threshold;
+  }
+}

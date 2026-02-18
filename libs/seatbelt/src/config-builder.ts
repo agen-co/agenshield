@@ -8,7 +8,7 @@
 
 import * as crypto from 'node:crypto';
 import * as nodefs from 'node:fs';
-import type { SandboxConfig, PolicyConfig, PolicyExecutionContext } from '@agenshield/ipc';
+import type { SandboxConfig, PolicyConfig, PolicyExecutionContext, ResourceLimits } from '@agenshield/ipc';
 import type { GraphEffects } from '@agenshield/policies';
 import { extractCommandBasename, filterUrlPoliciesForCommand } from '@agenshield/policies';
 import { collectDenyPathsFromPolicies, collectAllowPathsForCommand } from './paths';
@@ -39,6 +39,11 @@ export interface SeatbeltDeps {
   agentHome: string;
   /** Broker HTTP fallback port */
   brokerHttpPort?: number;
+  /** Resource monitoring configuration */
+  resourceMonitoring?: {
+    enabled: boolean;
+    defaults?: ResourceLimits;
+  };
 }
 
 /** Input for building a sandbox config */
@@ -248,6 +253,20 @@ export async function buildSandboxConfig(
       NO_PROXY: '',
       AGENSHIELD_EXEC_ID: execId,
     };
+  }
+
+  // Merge resource limits: per-policy overrides global defaults
+  if (deps.resourceMonitoring?.enabled) {
+    const policyLimits = matchedPolicy?.resourceLimits;
+    const globalDefaults = deps.resourceMonitoring.defaults;
+    if (policyLimits || globalDefaults) {
+      sandbox.resourceLimits = {
+        memoryMb: policyLimits?.memoryMb ?? globalDefaults?.memoryMb,
+        cpuPercent: policyLimits?.cpuPercent ?? globalDefaults?.cpuPercent,
+        timeoutMs: policyLimits?.timeoutMs ?? globalDefaults?.timeoutMs,
+        sampleIntervalMs: policyLimits?.sampleIntervalMs ?? globalDefaults?.sampleIntervalMs,
+      };
+    }
   }
 
   return sandbox;

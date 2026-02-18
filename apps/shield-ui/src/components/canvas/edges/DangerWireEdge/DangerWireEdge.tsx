@@ -94,8 +94,9 @@ export const DangerWireEdge = memo((props: EdgeProps) => {
         channelCenterY,
         channelSpacing,
         fanout,
-        stubTop: 15,
-        stubBottom: 15,
+        stubTop: (data?.stubTop as number) ?? 15,
+        stubBottom: (data?.stubBottom as number) ?? 15,
+        balanced: (data?.balanced as boolean) ?? false,
       }}
     />
   );

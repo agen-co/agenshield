@@ -18,6 +18,8 @@ export interface PolicyCheckResult {
   reason?: string;
   sandbox?: SandboxConfig;
   executionContext?: PolicyExecutionContext;
+  /** Trace ID assigned by daemon for execution chain tracing */
+  traceId?: string;
 }
 
 export class PolicyEvaluator {

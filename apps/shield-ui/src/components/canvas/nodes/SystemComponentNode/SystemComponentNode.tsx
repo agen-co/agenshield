@@ -840,9 +840,9 @@ export const SystemComponentNode = memo(({ data }: NodeProps) => {
     <div style={{ position: 'relative', cursor: 'default' }}>
       {/* Handles */}
       <Handle type="source" position={Position.Bottom} id="bottom"
-        style={{ left: w / 2, visibility: 'hidden' }} />
+        style={{ left: w / 2 - 3, visibility: 'hidden' }} />
       <Handle type="target" position={Position.Bottom} id="bottom-in"
-        style={{ left: w / 2, top: h, visibility: 'hidden' }} />
+        style={{ left: w / 2 + 3, visibility: 'hidden' }} />
       <Handle type="target" position={Position.Left} id="left"
         style={{ top: h / 2, visibility: 'hidden' }} />
       <Handle type="target" position={Position.Right} id="right"

@@ -26,5 +26,8 @@ export { PolicyEvaluator } from './policy/evaluator.js';
 // Event exports
 export { EventReporter } from './events/reporter.js';
 
+// Resource monitoring
+export { ResourceMonitor } from './resource/index.js';
+
 // Error types
-export { AgenShieldError, PolicyDeniedError } from './errors.js';
+export { AgenShieldError, PolicyDeniedError, ResourceLimitExceededError } from './errors.js';

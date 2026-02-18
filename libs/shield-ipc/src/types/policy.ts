@@ -81,6 +81,30 @@ export interface PolicyConfiguration {
 }
 
 /**
+ * Resource usage threshold for monitoring
+ */
+export interface ResourceThreshold {
+  /** Emit resource:warning event when this value is reached */
+  warn: number;
+  /** Terminate process (SIGTERM→SIGKILL) when this value is reached */
+  kill: number;
+}
+
+/**
+ * Resource limits for sandboxed process monitoring
+ */
+export interface ResourceLimits {
+  /** RSS memory threshold in megabytes */
+  memoryMb?: ResourceThreshold;
+  /** CPU usage threshold (0-100+) */
+  cpuPercent?: ResourceThreshold;
+  /** Wall-clock time threshold in milliseconds */
+  timeoutMs?: ResourceThreshold;
+  /** Sampling interval in milliseconds (default: 3000) */
+  sampleIntervalMs?: number;
+}
+
+/**
  * Sandbox configuration for seatbelt wrapping
  */
 export interface SandboxConfig {
@@ -112,6 +136,8 @@ export interface SandboxConfig {
   brokerHttpPort?: number;
   /** Pre-generated SBPL profile content (overrides dynamic generation) */
   profileContent?: string;
+  /** Resource limits for process monitoring */
+  resourceLimits?: ResourceLimits;
 }
 
 /**

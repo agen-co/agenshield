@@ -94,3 +94,9 @@ export {
   type TraceAnomalyPayload,
   TRACE_EVENT_TYPES,
 } from './trace.events';
+
+export {
+  type ResourceWarningPayload,
+  type ResourceLimitEnforcedPayload,
+  RESOURCE_EVENT_TYPES,
+} from './resource.events';

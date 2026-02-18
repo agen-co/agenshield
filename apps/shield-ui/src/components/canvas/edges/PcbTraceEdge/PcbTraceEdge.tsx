@@ -33,6 +33,7 @@ export interface PcbTraceEdgeConfig {
   fanout?: boolean;
   stubTop?: number;
   stubBottom?: number;
+  balanced?: boolean;
   pathStyle?: React.CSSProperties;
   electricShots?: ElectricShotsConfig;
 }
@@ -66,7 +67,7 @@ export const PcbTraceEdge = memo(
       ? computeFanoutRoute(
           { x: sourceX, y: sourceY },
           { x: targetX, y: targetY },
-          { stubTop: config.stubTop, stubBottom: config.stubBottom, chamferRadius: config.chamferRadius },
+          { stubTop: config.stubTop, stubBottom: config.stubBottom, chamferRadius: config.chamferRadius, balanced: config.balanced },
         )
       : isMultiRow
         ? computeMultiRowRoute(

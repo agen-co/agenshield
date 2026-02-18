@@ -136,6 +136,7 @@ export interface FanoutOptions {
   stubTop?: number;       // vertical exit stub from source (default 15)
   stubBottom?: number;    // vertical entry stub to target (default 15)
   chamferRadius?: number; // V↔D transition chamfer (default 0)
+  balanced?: boolean;     // split vertical distance into equal thirds
 }
 
 /**
@@ -154,10 +155,17 @@ export function computeFanoutRoute(
   target: Point,
   options?: FanoutOptions,
 ): OrthogonalRoute {
-  const stubTop = options?.stubTop ?? 15;
-  const stubBottom = options?.stubBottom ?? 15;
   const chamferRadius = options?.chamferRadius ?? 0;
+  const dy = Math.abs(target.y - source.y);
   const dx = Math.abs(target.x - source.x);
+
+  // Balanced mode: each V-D-V segment gets 1/3 of the vertical distance
+  const stubTop = options?.balanced
+    ? Math.max(10, dy / 3)
+    : (options?.stubTop ?? 15);
+  const stubBottom = options?.balanced
+    ? Math.max(10, dy / 3)
+    : (options?.stubBottom ?? 15);
 
   const waypoints: Point[] = [source];
 
@@ -166,8 +174,15 @@ export function computeFanoutRoute(
     waypoints.push(target);
   } else {
     // V-D-V: vertical stub → diagonal → vertical stub
-    waypoints.push({ x: source.x, y: source.y + stubTop });
-    waypoints.push({ x: target.x, y: target.y - stubBottom });
+    // Direction-aware: flip stubs when source is below target
+    const sourceAbove = source.y < target.y;
+    if (sourceAbove) {
+      waypoints.push({ x: source.x, y: source.y + stubTop });
+      waypoints.push({ x: target.x, y: target.y - stubBottom });
+    } else {
+      waypoints.push({ x: source.x, y: source.y - stubTop });
+      waypoints.push({ x: target.x, y: target.y + stubBottom });
+    }
     waypoints.push(target);
   }
 

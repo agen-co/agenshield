@@ -52,6 +52,12 @@ export interface InterceptorConfig {
 
   /** Directory for generated seatbelt profiles */
   seatbeltProfileDir: string;
+
+  /** Enable resource monitoring for spawned child processes */
+  enableResourceMonitoring: boolean;
+
+  /** Default resource limits (overridden by per-policy limits) */
+  defaultResourceLimits?: import('@agenshield/ipc').ResourceLimits;
 }
 
 /**
@@ -77,6 +83,9 @@ export function createConfig(overrides?: Partial<InterceptorConfig>): Intercepto
     contextAgentId: env['AGENSHIELD_AGENT_ID'],
     enableSeatbelt: env['AGENSHIELD_SEATBELT'] !== 'false' && process.platform === 'darwin',
     seatbeltProfileDir: env['AGENSHIELD_SEATBELT_DIR'] || '/tmp/agenshield-profiles',
+    enableResourceMonitoring: env['AGENSHIELD_RESOURCE_MONITORING'] !== 'false',
+    defaultResourceLimits: env['AGENSHIELD_RESOURCE_LIMITS']
+      ? JSON.parse(env['AGENSHIELD_RESOURCE_LIMITS']) : undefined,
     ...overrides,
   };
 }

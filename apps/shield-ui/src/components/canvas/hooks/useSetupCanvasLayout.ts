@@ -227,31 +227,40 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
     };
 
     // --- Green shield connections: Components <-> AgenShield (bidirectional) ---
-    SYSTEM_COMPONENTS.forEach((comp, i) => {
-      const baseOffset = (i - 3) * 2;
+    // Only show when at least one card is shielded (AgenShield backbone active)
+    if (topo.anyShielded) {
+      SYSTEM_COMPONENTS.forEach((comp, i) => {
+        // Wire DOWN: component → shield (shots travel downward)
+        result.push({
+          id: `e-comp-shield-${comp.id}-down`,
+          source: `comp-${comp.id}`,
+          target: 'agenshield',
+          sourceHandle: 'bottom',
+          targetHandle: `comp-in-${i}`,
+          type: 'canvas-danger',
+          data: {
+            variant: 'shield',
+            fanout: true,
+            balanced: true,
+          },
+        });
 
-      // Wire DOWN: component → shield (shots travel downward)
-      result.push({
-        id: `e-comp-shield-${comp.id}-down`,
-        source: `comp-${comp.id}`,
-        target: 'agenshield',
-        sourceHandle: 'bottom',
-        targetHandle: `comp-in-${i}`,
-        type: 'canvas-danger',
-        data: { variant: 'shield', channelOffset: baseOffset },
+        // Wire UP: shield → component (shots travel upward)
+        result.push({
+          id: `e-comp-shield-${comp.id}-up`,
+          source: 'agenshield',
+          target: `comp-${comp.id}`,
+          sourceHandle: `comp-out-${i}`,
+          targetHandle: 'bottom-in',
+          type: 'canvas-danger',
+          data: {
+            variant: 'shield',
+            fanout: true,
+            balanced: true,
+          },
+        });
       });
-
-      // Wire UP: shield → component (shots travel upward)
-      result.push({
-        id: `e-comp-shield-${comp.id}-up`,
-        source: 'agenshield',
-        target: `comp-${comp.id}`,
-        sourceHandle: `comp-out-${i}`,
-        targetHandle: 'bottom-in',
-        type: 'canvas-danger',
-        data: { variant: 'shield', channelOffset: baseOffset + 1 },
-      });
-    });
+    }
 
     // --- AgenShield -> Cards ---
     if (topo.hasDetection) {
@@ -308,10 +317,9 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           });
 
           // Penetration wires: bidirectional card <-> each system component
-          SYSTEM_COMPONENTS.forEach((comp, compIdx) => {
-            const baseOffset = (compIdx - 3) * 2;
-
-            // Wire UP: card → component (existing direction)
+          // Uses fanout (V-D-V diagonal) routing to avoid horizontal overlap bands
+          SYSTEM_COMPONENTS.forEach((comp) => {
+            // Wire UP: card → component
             result.push({
               id: `e-pen-${cardId}-${comp.id}-up`,
               source: `card-${cardId}`,
@@ -321,8 +329,9 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
               type: 'canvas-danger',
               data: {
                 variant: 'penetration',
-                channelOffset: baseOffset,
-                channelCenterY: compY + maxCompH + COMP_TO_SHIELD_GAP / 2,
+                fanout: true,
+                stubTop: 25,
+                stubBottom: 15,
               },
             });
 
@@ -336,8 +345,9 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
               type: 'canvas-danger',
               data: {
                 variant: 'penetration',
-                channelOffset: baseOffset + 1,
-                channelCenterY: compY + maxCompH + COMP_TO_SHIELD_GAP / 2,
+                fanout: true,
+                stubTop: 15,
+                stubBottom: 25,
               },
             });
           });

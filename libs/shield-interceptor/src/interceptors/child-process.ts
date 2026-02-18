@@ -15,8 +15,9 @@ import { SyncClient } from '../client/sync-client.js';
 import { PolicyDeniedError } from '../errors.js';
 import { ProfileManager, filterEnvByAllowlist } from '@agenshield/seatbelt';
 import { debugLog } from '../debug-log.js';
-import type { PolicyExecutionContext, SandboxConfig } from '@agenshield/ipc';
+import type { PolicyExecutionContext, SandboxConfig, ResourceLimits } from '@agenshield/ipc';
 import type { PolicyCheckResult } from '../policy/evaluator.js';
+import { ResourceMonitor } from '../resource/resource-monitor.js';
 
 // Use require() for modules we need to monkey-patch (ESM imports are immutable)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -27,6 +28,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   private _checking = false;
   private _executing = false;  // Guards exec→execFile re-entrancy
   private profileManager: ProfileManager | null = null;
+  private resourceMonitor: ResourceMonitor | null = null;
   private originalExec: typeof childProcess.exec | null = null;
   private originalExecSync: typeof childProcess.execSync | null = null;
   private originalSpawn: typeof childProcess.spawn | null = null;
@@ -49,6 +51,11 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       this.profileManager = new ProfileManager(
         config.seatbeltProfileDir || '/tmp/agenshield-profiles'
       );
+    }
+
+    // Initialize ResourceMonitor if resource monitoring is enabled
+    if (config?.enableResourceMonitoring) {
+      this.resourceMonitor = new ResourceMonitor(this.eventReporter);
     }
   }
 
@@ -77,6 +84,8 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   uninstall(): void {
     if (!this.installed) return;
 
+    this.resourceMonitor?.stopAll();
+
     if (this.originalExec) childProcessModule.exec = this.originalExec;
     if (this.originalExecSync) childProcessModule.execSync = this.originalExecSync;
     if (this.originalSpawn) childProcessModule.spawn = this.originalSpawn;
@@ -91,6 +100,24 @@ export class ChildProcessInterceptor extends BaseInterceptor {
     this.originalExecFile = null;
     this.originalFork = null;
     this.installed = false;
+  }
+
+  /**
+   * Resolve resource limits for a monitored process.
+   * Per-policy limits (from sandbox config) override global defaults.
+   */
+  private resolveResourceLimits(policyResult: PolicyCheckResult | null): ResourceLimits | undefined {
+    return policyResult?.sandbox?.resourceLimits ?? this.interceptorConfig?.defaultResourceLimits;
+  }
+
+  /**
+   * Attach resource monitoring to a spawned child process if limits are configured.
+   */
+  private trackChild(child: childProcess.ChildProcess, command: string, policyResult: PolicyCheckResult | null): void {
+    if (!this.resourceMonitor) return;
+    const limits = this.resolveResourceLimits(policyResult);
+    if (!limits || !child.pid) return;
+    this.resourceMonitor.track(child, command, limits, policyResult?.traceId);
   }
 
   /**
@@ -357,14 +384,18 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       debugLog(`cp.exec calling original command=${wrapped.command}`);
       // Set _executing to prevent exec→execFile double-interception
       self._executing = true;
+      let child: childProcess.ChildProcess;
       try {
         if (wrapped.options) {
-          return original(wrapped.command, wrapped.options as childProcess.ExecOptions, callback) as childProcess.ChildProcess;
+          child = original(wrapped.command, wrapped.options as childProcess.ExecOptions, callback) as childProcess.ChildProcess;
+        } else {
+          child = original(wrapped.command, callback) as childProcess.ChildProcess;
         }
-        return original(wrapped.command, callback) as childProcess.ChildProcess;
       } finally {
         self._executing = false;
       }
+      self.trackChild(child, policyTarget, policyResult);
+      return child;
     } as typeof childProcess.exec;
   }
 
@@ -457,7 +488,9 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       );
 
       debugLog(`cp.spawn calling original command=${wrapped.command} args=${wrapped.args.join(' ')}`);
-      return original(wrapped.command, wrapped.args, wrapped.options as childProcess.SpawnOptions || {});
+      const child = original(wrapped.command, wrapped.args, wrapped.options as childProcess.SpawnOptions || {});
+      self.trackChild(child, policyTarget, policyResult);
+      return child;
     };
 
     return interceptedSpawn as typeof childProcess.spawn;
@@ -576,22 +609,26 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       const wrapped = self.wrapWithSeatbelt(file, args, options, policyResult);
 
       debugLog(`cp.execFile calling original command=${wrapped.command}`);
+      let child: childProcess.ChildProcess;
       if (callback) {
-        return original(
+        child = original(
           wrapped.command,
           wrapped.args,
           wrapped.options as childProcess.ExecFileOptions,
           callback
         ) as childProcess.ChildProcess;
+      } else {
+        // execFile without callback — pass args and options as separate params
+        child = original(
+          wrapped.command,
+          wrapped.args as readonly string[],
+          (wrapped.options || {}) as childProcess.ExecFileOptions,
+          // eslint-disable-next-line @typescript-eslint/no-empty-function
+          () => {}
+        ) as childProcess.ChildProcess;
       }
-      // execFile without callback — pass args and options as separate params
-      return original(
-        wrapped.command,
-        wrapped.args as readonly string[],
-        (wrapped.options || {}) as childProcess.ExecFileOptions,
-        // eslint-disable-next-line @typescript-eslint/no-empty-function
-        () => {}
-      ) as childProcess.ChildProcess;
+      self.trackChild(child, policyTarget, policyResult);
+      return child;
     } as typeof childProcess.execFile;
   }
 
@@ -652,7 +689,9 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       }
 
       debugLog(`cp.fork calling original module=${pathStr}`);
-      return original(modulePath, args as string[], options);
+      const child = original(modulePath, args as string[], options);
+      self.trackChild(child, fullCommand, policyResult);
+      return child;
     };
 
     return interceptedFork as typeof childProcess.fork;

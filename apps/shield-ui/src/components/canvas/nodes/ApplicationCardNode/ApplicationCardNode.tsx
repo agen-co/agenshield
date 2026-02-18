@@ -220,9 +220,9 @@ export const ApplicationCardNode = memo(({ data }: NodeProps) => {
 
       {/* === Danger wire handles (for penetration/tendril wires) === */}
       <Handle type="source" position={Position.Top} id="danger-up"
-        style={{ left: SVG_W / 2, visibility: 'hidden' }} />
+        style={{ left: SVG_W / 2 - 3, visibility: 'hidden' }} />
       <Handle type="target" position={Position.Top} id="danger-up-in"
-        style={{ left: SVG_W / 2, visibility: 'hidden' }} />
+        style={{ left: SVG_W / 2 + 3, visibility: 'hidden' }} />
       <Handle type="source" position={Position.Top} id="danger-top-out"
         style={{ left: SVG_W / 2 - 30, visibility: 'hidden' }} />
       <Handle type="target" position={Position.Bottom} id="danger-bottom-in"

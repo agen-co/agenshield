@@ -22,6 +22,8 @@ import {
   type AgenCoErrorPayload,
   type SkillInstallProgressPayload,
   type ProcessEventPayload,
+  type ResourceWarningPayload,
+  type ResourceLimitEnforcedPayload,
 } from '@agenshield/ipc';
 
 // Re-export for internal daemon consumers that import from this file
@@ -213,6 +215,16 @@ export function emitDaemonStatus(status: DaemonStatus, profileId?: string): void
  */
 export function emitEvent<T extends EventType>(type: T, data: EventRegistry[T], profileId?: string): void {
   broadcast(type, data, profileId);
+}
+
+// ===== Resource monitoring event helpers =====
+
+export function emitResourceWarning(data: ResourceWarningPayload, profileId?: string): void {
+  broadcast('resource:warning', data, profileId);
+}
+
+export function emitResourceLimitEnforced(data: ResourceLimitEnforcedPayload, profileId?: string): void {
+  broadcast('resource:limit_enforced', data, profileId);
 }
 
 // ===== Process lifecycle event helpers =====

@@ -241,7 +241,7 @@ export function Canvas() {
             minZoom={1}
             maxZoom={4}
             fitView
-            fitViewOptions={{ padding: 0.05 }}
+            fitViewOptions={{ padding: 0.1,interpolate:'smooth' }}
             proOptions={{ hideAttribution: true }}
           >
             <CanvasInner containerWidth={viewport.width} containerHeight={viewport.height} />

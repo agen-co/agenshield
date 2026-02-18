@@ -104,6 +104,11 @@ export interface ShieldConfig {
   vault?: VaultConfig;
   skills?: SkillsConfig;
   soul?: SoulConfig;
+  /** Resource monitoring configuration */
+  resourceMonitoring?: {
+    enabled: boolean;
+    defaults: import('./policy').ResourceLimits;
+  };
 }
 
 export interface DaemonConfig {
@@ -163,6 +168,8 @@ export interface PolicyConfig {
   scope?: 'agent' | 'skill' | string;
   /** Network access level for sandboxed commands: none (default), proxy, or direct */
   networkAccess?: 'none' | 'proxy' | 'direct';
+  /** Per-policy resource limits (overrides global defaults) */
+  resourceLimits?: import('./policy').ResourceLimits;
 }
 
 export interface VaultConfig {

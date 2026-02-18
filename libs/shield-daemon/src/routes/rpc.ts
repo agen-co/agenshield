@@ -18,7 +18,7 @@ import { buildSandboxConfig } from '@agenshield/seatbelt';
 import type { SharedCapabilities } from '@agenshield/seatbelt';
 import { filterUrlPoliciesForCommand } from '@agenshield/policies';
 import { loadConfig } from '../config/index';
-import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning, emitEvent } from '../events/emitter';
+import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning, emitEvent, emitResourceWarning, emitResourceLimitEnforced } from '../events/emitter';
 import { resolveProfileByToken } from '../services/profile-token';
 import { getPolicyManager } from '../services/policy-manager';
 import { getProxyPool } from '../proxy/pool';
@@ -287,6 +287,7 @@ export async function evaluatePolicyCheck(
         defaultAction: config.defaultAction ?? 'deny',
         agentHome: process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent',
         brokerHttpPort: config.broker?.httpPort,
+        resourceMonitoring: config.resourceMonitoring,
       },
       {
         matchedPolicy,
@@ -346,14 +347,31 @@ function handleEventsBatch(params: Record<string, unknown>, profileId?: string):
   }
 
   for (const event of events) {
+    const operation = String(event['operation'] ?? '');
+    const errorStr = typeof event['error'] === 'string' ? event['error'] : undefined;
+
+    // Detect resource monitoring events and emit typed events
+    if ((operation === 'resource_warning' || operation === 'resource_limit_enforced') && errorStr) {
+      try {
+        const data = JSON.parse(errorStr);
+        if (operation === 'resource_warning') {
+          emitResourceWarning(data, profileId);
+        } else {
+          emitResourceLimitEnforced(data, profileId);
+        }
+      } catch {
+        // Fall through to standard event emission
+      }
+    }
+
     emitInterceptorEvent({
       type: String(event['type'] ?? 'unknown'),
-      operation: String(event['operation'] ?? ''),
+      operation,
       target: String(event['target'] ?? ''),
       timestamp: String(event['timestamp'] ?? new Date().toISOString()),
       duration: typeof event['duration'] === 'number' ? event['duration'] : undefined,
       policyId: typeof event['policyId'] === 'string' ? event['policyId'] : undefined,
-      error: typeof event['error'] === 'string' ? event['error'] : undefined,
+      error: errorStr,
     }, profileId);
   }
 

@@ -270,6 +270,13 @@ export interface SystemComponentData {
 export interface DangerWireData {
   variant: 'primary' | 'penetration' | 'tendril' | 'shield';
   channelOffset?: number;
+  fanout?: boolean;
+  balanced?: boolean;
+  stubTop?: number;
+  stubBottom?: number;
+  channelCenterY?: number;
+  channelSpacing?: number;
+  targetRow?: number;
   [key: string]: unknown;
 }
 
