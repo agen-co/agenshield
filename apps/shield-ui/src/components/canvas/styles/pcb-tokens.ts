@@ -10,17 +10,18 @@ export const pcb = {
     traceFaint: '#2A2C30',   // visible faint traces
   },
   trace: {
-    silver: '#8A8A90',      // slightly cooler silver
-    bright: '#B0B0B8',      // cooler bright silver
-    dimmed: '#555555',       // dimmed trace
+    silver: '#A0A0A8',      // slightly cooler silver
+    bright: '#C8C8D0',      // cooler bright silver
+    dimmed: '#606060',       // dimmed trace
+    hover: '#D0D0D8',       // hover-highlighted traces
   },
   via: {
     ring: '#888888',         // via pad ring
     fill: '#666666',         // via pad center
   },
   silk: {
-    primary: '#8A8E92',      // muted grey silkscreen
-    dim: '#585C60',          // dimmer secondary text
+    primary: '#A0A4A8',      // muted grey silkscreen
+    dim: '#6E7276',          // dimmer secondary text
   },
   signal: {
     cyan: '#00E5FF',         // allowed pulse

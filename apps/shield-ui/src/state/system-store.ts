@@ -17,8 +17,20 @@ export interface ComponentStatus {
   active: boolean;
 }
 
+export interface MetricsSnapshot {
+  timestamp: number;
+  cpuPercent: number;
+  memPercent: number;
+  diskPercent: number;
+  netUp: number;
+  netDown: number;
+}
+
+const MAX_HISTORY = 150; // 150 * 2s = 5 min
+
 export interface SystemStoreState {
   metrics: SystemMetrics;
+  metricsHistory: MetricsSnapshot[];
   components: Record<SystemComponentType, ComponentStatus>;
 }
 
@@ -32,6 +44,7 @@ export const systemStore = proxy<SystemStoreState>({
     cmdRate: 2.5,
     logRate: 18,
   },
+  metricsHistory: [] as MetricsSnapshot[],
   components: {
     cpu:        { exposed: false, active: true },
     network:    { exposed: false, active: true },
@@ -66,6 +79,13 @@ export function setExtendedComponentsActive(active: boolean): void {
   systemStore.components.logs.active = active;
   systemStore.components.secrets.active = active;
   systemStore.components['policy-graph'].active = active;
+}
+
+/** Push a metrics snapshot into the rolling history buffer */
+export function pushMetricsSnapshot(snap: MetricsSnapshot): void {
+  const h = systemStore.metricsHistory;
+  h.push(snap);
+  if (h.length > MAX_HISTORY) h.splice(0, h.length - MAX_HISTORY);
 }
 
 /* ---- Simulation (random walk) ---- */

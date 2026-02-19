@@ -99,7 +99,7 @@ function matchesTypeFilter(event: SSEEvent, filter: TypeFilter): boolean {
   return event.type.startsWith(`${filter}:`);
 }
 
-export function Activity() {
+export function Activity({ embedded }: { embedded?: boolean } = {}) {
   const theme = useTheme();
   const guard = useGuardedAction();
   const { events } = useSnapshot(eventStore);
@@ -160,24 +160,26 @@ export function Activity() {
   });
 
   return (
-    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
-      <PageHeader
-        title="Activity"
-        description="View real-time event history from the daemon."
-        action={
-          events.length > 0 ? (
-            <Button
-              size="small"
-              variant="outlined"
-              color="secondary"
-              startIcon={<Trash2 size={14} />}
-              onClick={() => guard(() => clearEvents(), { description: 'Unlock to clear activity history.', actionLabel: 'Clear' })}
-            >
-              Clear
-            </Button>
-          ) : undefined
-        }
-      />
+    <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+      {!embedded && (
+        <PageHeader
+          title="Activity"
+          description="View real-time event history from the daemon."
+          action={
+            events.length > 0 ? (
+              <Button
+                size="small"
+                variant="outlined"
+                color="secondary"
+                startIcon={<Trash2 size={14} />}
+                onClick={() => guard(() => clearEvents(), { description: 'Unlock to clear activity history.', actionLabel: 'Clear' })}
+              >
+                Clear
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
 
       <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center' }}>
         <Box sx={{ flex: 1 }}>

@@ -262,6 +262,10 @@ export interface HandleSpec {
   type: 'source' | 'target';
   position: Position;
   offset?: number;
+  /** Absolute pixel X within node — overrides position-based placement */
+  x?: number;
+  /** Absolute pixel Y within node — overrides position-based placement */
+  y?: number;
 }
 
 export interface SystemComponentData {

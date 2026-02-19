@@ -11,7 +11,7 @@ import { useSnapshot } from 'valtio';
 import type { DetectedTarget } from '@agenshield/ipc';
 import { useHealthGate, useSecurity, useSystemMetrics } from '../../../api/hooks';
 import { setupPanelStore } from '../../../state/setup-panel';
-import { startMetricsSimulation, systemStore } from '../../../state/system-store';
+import { startMetricsSimulation, systemStore, pushMetricsSnapshot } from '../../../state/system-store';
 import type { ApplicationCardData, SetupCanvasData } from '../Canvas.types';
 
 /** Map target type to a lucide icon name */
@@ -45,6 +45,14 @@ export function useSetupCanvasData(): SetupCanvasData {
       systemStore.metrics.diskPercent = m.diskPercent;
       systemStore.metrics.netUp = m.netUp;
       systemStore.metrics.netDown = m.netDown;
+      pushMetricsSnapshot({
+        timestamp: Date.now(),
+        cpuPercent: m.cpuPercent,
+        memPercent: m.memPercent,
+        diskPercent: m.diskPercent,
+        netUp: m.netUp,
+        netDown: m.netDown,
+      });
     }
   }, [metricsData]);
 

@@ -1,28 +1,27 @@
 /**
  * BrokerNode — PCB broker frame wrapping a simplified application card.
  *
- * Outer frame: 232x152 with PCB-styled border, "ASH-BROKER" silkscreen, via pads.
- * Inner card:  200x120 showing app name, icon, status LED, type label.
+ * Outer frame: 180x120 with PCB-styled border, "ASH-BROKER" silkscreen, via pads.
+ * Inner card:  160x100 showing app name, icon, status LED, type label.
  *
  * Handles:
  *   - top-bus: connects up to + bottom arm
  *   - danger handles for penetration/tendril wires
  */
 
-import React, { memo, useCallback } from 'react';
+import React, { memo, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Terminal, Globe, Monitor, Cpu } from 'lucide-react';
 import { useTheme } from '@mui/material/styles';
 import { pcb } from '../../styles/pcb-tokens';
 import type { BrokerCardData, HandleSpec } from '../../Canvas.types';
-import { openDrilldown } from '../../../../state/canvas-drilldown';
 
 /* ---- Dimensions ---- */
-const BROKER_W = 232;
-const BROKER_H = 152;
-const PAD = 16;
-const INNER_W = BROKER_W - PAD * 2;  // 200
-const INNER_H = BROKER_H - PAD * 2;  // 120
+const BROKER_W = 180;
+const BROKER_H = 120;
+const PAD = 10;
+const INNER_W = BROKER_W - PAD * 2;  // 160
+const INNER_H = BROKER_H - PAD * 2;  // 100
 
 const STATUS_LED: Record<string, string> = {
   unshielded: pcb.component.ledRed,
@@ -41,13 +40,11 @@ const BRAND_ICONS: Record<string, string> = {
 
 export const BrokerNode = memo(({ data }: NodeProps) => {
   const {
-    id: cardId, name, type, icon, status, isRunning,
+    name, type, icon, status, isRunning,
     handleOverrides: dangerHandles,
   } = data as unknown as BrokerCardData & { handleOverrides?: HandleSpec[] };
 
-  const handleClick = useCallback(() => {
-    openDrilldown(cardId);
-  }, [cardId]);
+  const [hovered, setHovered] = useState(false);
 
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
@@ -71,7 +68,17 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
   ];
 
   return (
-    <div style={{ position: 'relative', cursor: 'pointer' }} onClick={handleClick}>
+    <div
+      style={{
+        position: 'relative',
+        cursor: 'pointer',
+        transition: 'transform 0.2s ease, filter 0.2s ease',
+        transform: hovered ? 'scale(1.04)' : 'scale(1)',
+        filter: hovered ? 'brightness(1.12) drop-shadow(0 0 10px rgba(212,160,74,0.25))' : 'none',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {/* === Top bus handle (connects to + bottom arm) === */}
       <Handle type="target" position={Position.Top} id="top-bus"
         style={{ left: BROKER_W / 2, visibility: 'hidden' }} />
@@ -138,13 +145,13 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
         {BRAND_ICONS[type] ? (
           <image
             href={BRAND_ICONS[type]}
-            x={PAD + INNER_W / 2 - 14}
-            y={PAD + 14}
-            width={28}
-            height={28}
+            x={PAD + INNER_W / 2 - 13}
+            y={PAD + 10}
+            width={26}
+            height={26}
           />
         ) : (
-          <foreignObject x={PAD + INNER_W / 2 - 14} y={PAD + 14} width={28} height={28}>
+          <foreignObject x={PAD + INNER_W / 2 - 13} y={PAD + 10} width={26} height={26}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
               <Icon size={22} color={isDark ? pcb.trace.bright : '#555'} />
             </div>
@@ -152,36 +159,36 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
         )}
 
         {/* App name */}
-        <text x={PAD + INNER_W / 2} y={PAD + 54} textAnchor="middle" dominantBaseline="central"
-          fill={silkColor} fontSize={7} fontFamily="'IBM Plex Mono', monospace"
+        <text x={PAD + INNER_W / 2} y={PAD + 52} textAnchor="middle" dominantBaseline="central"
+          fill={silkColor} fontSize={9} fontFamily="'IBM Plex Mono', monospace"
           fontWeight={700} letterSpacing={0.5}>
-          {name.toUpperCase().slice(0, 16)}
+          {name.length > 20 ? name.toUpperCase().slice(0, 19) + '…' : name.toUpperCase()}
         </text>
 
         {/* Type label */}
-        <text x={PAD + INNER_W / 2} y={PAD + 68} textAnchor="middle" dominantBaseline="central"
-          fill={silkDim} fontSize={5} fontFamily="'IBM Plex Mono', monospace"
+        <text x={PAD + INNER_W / 2} y={PAD + 65} textAnchor="middle" dominantBaseline="central"
+          fill={silkDim} fontSize={6.5} fontFamily="'IBM Plex Mono', monospace"
           letterSpacing={0.3} opacity={0.6}>
           {(type || 'unknown').toUpperCase()}
         </text>
 
         {/* Status LED */}
         <g>
-          <circle cx={PAD + INNER_W / 2} cy={PAD + INNER_H - 20} r={6}
+          <circle cx={PAD + INNER_W / 2} cy={PAD + INNER_H - 18} r={6}
             fill={ledColor} opacity={0.15}
             style={{ animation: 'pcb-led-glow-breathe 2s ease-in-out infinite' }} />
-          <rect x={PAD + INNER_W / 2 - 4} y={PAD + INNER_H - 22} width={8} height={3}
+          <rect x={PAD + INNER_W / 2 - 4} y={PAD + INNER_H - 20} width={8} height={3}
             fill={isDark ? pcb.component.bodyLight : '#e0e0d8'}
             stroke="rgba(80,80,80,0.2)" strokeWidth={0.3} rx={0.5} />
-          <rect x={PAD + INNER_W / 2 - 3} y={PAD + INNER_H - 21.5} width={6} height={2}
+          <rect x={PAD + INNER_W / 2 - 3} y={PAD + INNER_H - 19.5} width={6} height={2}
             fill={ledColor} rx={0.5} opacity={0.85}
             style={{ animation: 'pcb-led-pulse 2s ease-in-out infinite' }} />
         </g>
 
         {/* Status text */}
-        <text x={PAD + INNER_W / 2} y={PAD + INNER_H - 8} textAnchor="middle" dominantBaseline="central"
+        <text x={PAD + INNER_W / 2} y={PAD + INNER_H - 7} textAnchor="middle" dominantBaseline="central"
           fill={status === 'shielded' ? '#2D6B3F' : status === 'shielding' ? '#EEA45F' : '#E1583E'}
-          fontSize={4} fontFamily="'IBM Plex Mono', monospace"
+          fontSize={5} fontFamily="'IBM Plex Mono', monospace"
           letterSpacing={0.5} opacity={0.6}>
           {status.toUpperCase()}
         </text>

@@ -20,7 +20,7 @@ import { ActivityFeed } from '../components/overview/ActivityFeed';
 import { ArchitectureGraph } from '../components/overview/ArchitectureGraph';
 import { AlertsBanner } from '../components/overview/AlertsBanner';
 
-export function Overview() {
+export function Overview({ embedded }: { embedded?: boolean } = {}) {
   const { data: status, isLoading: statusLoading } = useStatus();
   const { data: config, isLoading: configLoading } = useConfig();
   const { data: security } = useSecurity();
@@ -35,11 +35,13 @@ export function Overview() {
   });
 
   return (
-    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
-      <PageHeader
-        title="Overview"
-        description="Monitor your AgenShield daemon status and activity."
-      />
+    <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+      {!embedded && (
+        <PageHeader
+          title="Overview"
+          description="Monitor your AgenShield daemon status and activity."
+        />
+      )}
 
       <StatsRow
         status={status}

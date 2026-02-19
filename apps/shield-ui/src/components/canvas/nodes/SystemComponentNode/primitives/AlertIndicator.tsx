@@ -55,7 +55,7 @@ export const AlertIndicator = memo(({ x, y, exposed, silkDim }: AlertIndicatorPr
     };
   }, [exposed]);
 
-  const strokeColor = exposed ? '#E1583E' : silkDim;
+  const strokeColor = exposed ? '#E1583E' : '#7A7A7A';
 
   return (
     <g>
@@ -71,20 +71,20 @@ export const AlertIndicator = memo(({ x, y, exposed, silkDim }: AlertIndicatorPr
       {/* Triangle body — recessed housing when off, lit when on */}
       <polygon
         points={`${x},${y - size / 2} ${x - size / 2},${y + size / 2} ${x + size / 2},${y + size / 2}`}
-        fill={exposed ? 'rgba(225,88,62,0.12)' : pcb.component.ledOff}
-        fillOpacity={exposed ? 1 : 0.25}
+        fill={exposed ? 'rgba(225,88,62,0.12)' : '#444444'}
+        fillOpacity={exposed ? 1 : 0.4}
         stroke={strokeColor}
-        strokeWidth={exposed ? 1.5 : 0.8}
-        strokeOpacity={exposed ? 0.9 : 0.15}
+        strokeWidth={exposed ? 1.5 : 1}
+        strokeOpacity={exposed ? 0.9 : 0.3}
         strokeLinejoin="round" strokeLinecap="round" />
       {/* Exclamation line */}
       <line x1={x} y1={y - 3} x2={x} y2={y + 2}
         stroke={strokeColor} strokeWidth={1.5} strokeLinecap="round"
-        opacity={exposed ? 0.9 : 0.12} />
+        opacity={exposed ? 0.9 : 0.25} />
       {/* Exclamation dot — the LED "hot spot" */}
       <circle ref={dotRef} cx={x} cy={y + 5} r={1}
         fill={strokeColor}
-        opacity={exposed ? 0.9 : 0.12}
+        opacity={exposed ? 0.9 : 0.25}
         style={{ willChange: 'opacity' }} />
     </g>
   );

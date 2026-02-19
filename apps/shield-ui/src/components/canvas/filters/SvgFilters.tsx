@@ -28,6 +28,18 @@ export function SvgFilters() {
             0%, 100% { transform: scale(1); opacity: 0.95; }
             50% { transform: scale(1.012); opacity: 1; }
           }
+          @keyframes pcb-led-pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+          }
+          @keyframes pcb-led-glow-breathe {
+            0%, 100% { opacity: 0.1; }
+            50% { opacity: 0.25; }
+          }
+          @keyframes pcb-led-blink {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0.3; }
+          }
         `}</style>
         {/* Green glow — healthy/shielded */}
         <filter id="canvas-glow-green" x="-50%" y="-50%" width="200%" height="200%">

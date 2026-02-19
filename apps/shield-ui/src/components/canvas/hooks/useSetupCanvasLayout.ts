@@ -8,7 +8,7 @@
  *
  * Layout (4-piece shield logo):
  *
- *        [CPU] [NET] [CMD] [FS] [MEM]
+ *          [CPU] [NET] [FS] [MEM]
  *                     │
  *  SEC ──┐       ┌────┴────┐       ┌── MON
  *  POL ──┘───────│  SHIELD │───────└── LOG
@@ -16,13 +16,14 @@
  *                     │
  *              [Broker][Broker]
  *
- * Core components above the shield (5), connecting to top handles.
+ * Core components above the shield (4), connecting to top handles.
  * Auxiliary components on left/right sides of shield.
  * Broker-wrapped cards below the shield.
  */
 
 import { useMemo, useEffect } from 'react';
 import { Position, type Node, type Edge } from '@xyflow/react';
+
 import type { SetupCanvasData, SystemComponentType, ConnectionIntent, HandleSpec } from '../Canvas.types';
 import { VARIANTS } from '../nodes/SystemComponentNode/system.constants';
 import { setAllExposed, setExtendedComponentsActive } from '../../../state/system-store';
@@ -37,7 +38,6 @@ interface ViewportSize {
 const SYSTEM_COMPONENTS: { id: SystemComponentType; label: string; sublabel: string; w: number; h: number }[] = [
   { id: 'cpu', label: 'CPU', sublabel: 'Process', w: VARIANTS.cpu.w, h: VARIANTS.cpu.h },
   { id: 'network', label: 'NETWORK', sublabel: 'eth0', w: VARIANTS.network.w, h: VARIANTS.network.h },
-  { id: 'command', label: 'CMD EXEC', sublabel: 'shell', w: VARIANTS.command.w, h: VARIANTS.command.h },
   { id: 'filesystem', label: 'DISK', sublabel: 'nvme0', w: VARIANTS.filesystem.w, h: VARIANTS.filesystem.h },
   { id: 'memory', label: 'MEMORY', sublabel: 'DDR5', w: VARIANTS.memory.w, h: VARIANTS.memory.h },
   { id: 'monitoring', label: 'MONITOR', sublabel: 'sys', w: VARIANTS.monitoring.w, h: VARIANTS.monitoring.h },
@@ -49,8 +49,8 @@ const SYSTEM_COMPONENTS: { id: SystemComponentType; label: string; sublabel: str
 const findComp = (id: SystemComponentType) => SYSTEM_COMPONENTS.find((c) => c.id === id)!;
 const filterComps = (ids: SystemComponentType[]) => SYSTEM_COMPONENTS.filter((c) => ids.includes(c.id));
 
-/** 5 core components positioned ABOVE the shield */
-const CORE_COMPONENTS = filterComps(['cpu', 'network', 'command', 'filesystem', 'memory']);
+/** 4 core components positioned ABOVE the shield */
+const CORE_COMPONENTS = filterComps(['cpu', 'network', 'filesystem', 'memory']);
 /** Secrets, PolicyGraph on left side of shield */
 const LEFT_AUX_COMPONENTS = filterComps(['secrets', 'policy-graph']);
 /** Monitor, Logs on right side of shield */
@@ -66,38 +66,53 @@ const COMP_V_GAP = 20;        // Vertical gap between stacked components
 const CORE_H_GAP = 24;        // Horizontal gap between core components in top row
 const BROKER_GAP = 80;        // Gap from shield bottom to broker row
 const BROKER_H_GAP = 40;      // Horizontal gap between brokers
-const BROKER_W = 232;
-const BROKER_H = 152;
+const BROKER_W = 180;
+const BROKER_H = 120;
 
 /* ---- Wire routing ---- */
-const WIRE_COUNT = 3;
-const WIRE_SPACING = 4;
 const DANGER_WIRE_COUNT = 3;
 const DANGER_WIRE_SPACING = 4;
 
-/* ---- Handle ranges on the shield (in node-local pixels, viewBox 0..200 scaled to 0..350) ---- */
+/* ---- Shield contour helpers (viewBox 0 0 200, SCALE=1.75 → 350px node) ---- */
 const SCALE = SHIELD_W / 200;
 
-// Top of shield: SVG y≈15, x spans ~65-135 → pixels 114-236
-const TOP_HANDLE_RANGE = { min: 65 * SCALE, max: 135 * SCALE };
-// Bottom of shield: SVG y≈190, x spans ~75-125 → pixels 131-219
-const BOTTOM_HANDLE_RANGE = { min: 75 * SCALE, max: 125 * SCALE };
-// Left edge: SVG x≈21, y spans ~40-155 → pixels 70-271
-const LEFT_HANDLE_RANGE = { min: 50 * SCALE, max: 145 * SCALE };
-// Right edge: SVG x≈179, y spans ~40-155 → pixels 70-271
-const RIGHT_HANDLE_RANGE = { min: 50 * SCALE, max: 145 * SCALE };
+/** Interpolate Y on the shield's top crown at a given SVG X */
+function shieldCrownY(svgX: number): number {
+  if (svgX <= 90.9) return 15.66 + (svgX - 65.46) / (90.886 - 65.46) * (6.6 - 15.66);
+  if (svgX <= 100)  return 6.6 + (svgX - 90.886) / (100 - 90.886) * (4.5 - 6.6);
+  if (svgX <= 109.1) return 4.5 + (svgX - 100) / (109.145 - 100) * (6.577 - 4.5);
+  return 6.577 + (svgX - 109.145) / (134.526 - 109.145) * (15.616 - 6.577);
+}
 
-/** Distribute N values evenly across a range */
-function distributeHandles(count: number, range: { min: number; max: number }): number[] {
-  if (count === 0) return [];
-  if (count === 1) return [(range.min + range.max) / 2];
-  return Array.from({ length: count }, (_, i) =>
-    range.min + (range.max - range.min) * i / (count - 1),
-  );
+/** Interpolate Y on the shield's bottom curve at a given SVG X */
+function shieldBottomCurveY(svgX: number): number {
+  // Parabolic fit through (41.55,162.47), (100,195.5), (158.45,162.46)
+  const t = (svgX - 100) / 58.45;
+  return 195.5 - t * t * 33;
+}
+
+/** Top handle SVG X positions for 4 core components */
+const TOP_HANDLE_SVG_X = [74, 91.3, 108.7, 126];
+
+/** Left wing edge SVG X */
+const LEFT_WING_SVG_X = 21.2;
+/** Right wing edge SVG X */
+const RIGHT_WING_SVG_X = 178.8;
+/** Left/Right aux SVG Y positions */
+const AUX_SVG_Y = [61.3, 84.6];
+
+/* ---- Fixed layout center (viewport-independent so fitView can zoom) ---- */
+const LAYOUT_CENTER_X = 500;
+
+/** Shield Y = offset below the core component row (viewport-independent) */
+function computeShieldTopY(_hasBrokers: boolean): number {
+  const coreMaxH = Math.max(...CORE_COMPONENTS.map((c) => c.h));
+  return COMP_GAP + coreMaxH;
 }
 
 export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSize) {
   const { width: vw, height: vh } = viewport;
+
 
   // Sync exposed state to unified valtio store
   const hasAnyUnshielded = data.anyUnshielded;
@@ -141,9 +156,10 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
 
     if (!topo.hasDetection && !topo.anyShielded) return null;
 
-    const contentCenterX = vw / 2 + 180;
+    const contentCenterX = LAYOUT_CENTER_X;
     const shieldX = contentCenterX - SHIELD_W / 2;
-    const shieldTopY = vh * 0.15;
+    const hasBrokers = topo.hasDetection && topo.cardIds.length > 0;
+    const shieldTopY = computeShieldTopY(hasBrokers);
 
     const intents: ConnectionIntent[] = [];
 
@@ -348,24 +364,21 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       selectable: false,
     });
 
-    const centerX = vw / 2;
-    const panelOffset = 180;
-    const contentCenterX = centerX + panelOffset;
+    const contentCenterX = LAYOUT_CENTER_X;
 
     // --- Shield position ---
     const shieldX = contentCenterX - SHIELD_W / 2;
-    const shieldTopY = vh * 0.15;
+    const cardCount = data.hasDetection ? data.cards.length : 0;
+    const hasBrokers = data.hasDetection && cardCount > 0;
+    const shieldTopY = computeShieldTopY(hasBrokers);
 
     // Flags
-    const cardCount = data.hasDetection ? data.cards.length : 0;
     const shieldedCount = data.cards.filter((c) => c.status === 'shielded').length;
     const status = data.anyShielded
       ? (data.cards.every((c) => c.status === 'shielded') ? 'protected' : 'partial')
       : 'unprotected';
 
-    const compTransition = 'transform 600ms cubic-bezier(0.4, 0, 0.2, 1), opacity 400ms ease';
-
-    // --- 5 Core components: row ABOVE the shield ---
+    // --- 4 Core components: row ABOVE the shield ---
     {
       const totalW = CORE_COMPONENTS.reduce((a, c) => a + c.w, 0) + (CORE_COMPONENTS.length - 1) * CORE_H_GAP;
       const rowStartX = contentCenterX - totalW / 2;
@@ -390,13 +403,14 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           id: `comp-${comp.id}`,
           type: 'canvas-system-component',
           position: { x: compX, y: compY },
+          width: comp.w,
+          height: comp.h,
           data: {
             componentType: comp.id,
             label: comp.label,
             sublabel: comp.sublabel,
             ...(handleOverrides ? { handleOverrides } : {}),
           },
-          style: { transition: compTransition },
           draggable: false,
           selectable: false,
         });
@@ -433,6 +447,8 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           id: `comp-${comp.id}`,
           type: 'canvas-system-component',
           position: { x: compX, y: compY },
+          width: comp.w,
+          height: comp.h,
           data: {
             componentType: comp.id,
             label: comp.label,
@@ -440,7 +456,6 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
             handleOverrides,
           },
           style: {
-            transition: compTransition,
             opacity: isExtended ? 1 : 0,
             pointerEvents: (isExtended ? 'auto' : 'none') as React.CSSProperties['pointerEvents'],
           },
@@ -478,6 +493,8 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           id: `comp-${comp.id}`,
           type: 'canvas-system-component',
           position: { x: compX, y: compY },
+          width: comp.w,
+          height: comp.h,
           data: {
             componentType: comp.id,
             label: comp.label,
@@ -485,7 +502,6 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
             handleOverrides,
           },
           style: {
-            transition: compTransition,
             opacity: isExtended ? 1 : 0,
             pointerEvents: (isExtended ? 'auto' : 'none') as React.CSSProperties['pointerEvents'],
           },
@@ -495,71 +511,84 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       });
     }
 
-    // --- Compute handle positions for shield ---
+    // --- Compute contour-following handle positions for shield ---
 
-    // Top handles: 5 core components
-    const topOffsets = distributeHandles(CORE_COMPONENTS.length, TOP_HANDLE_RANGE);
+    // Top handles: 5 core components following the crown contour
     const topHandles: HandleSpec[] = [];
     CORE_COMPONENTS.forEach((_, i) => {
+      const svgX = TOP_HANDLE_SVG_X[i];
+      const svgY = shieldCrownY(svgX);
+      const px = svgX * SCALE;
+      const py = svgY * SCALE;
       topHandles.push({
         id: `core-in-${i}`,
         type: 'target',
         position: Position.Top,
-        offset: topOffsets[i],
+        x: px,
+        y: py,
       });
       topHandles.push({
         id: `core-out-${i}`,
         type: 'source',
         position: Position.Top,
-        offset: topOffsets[i] + 4,
+        x: px + 4,
+        y: py,
       });
     });
 
-    // Bottom handles: N brokers
-    const bottomOffsets = distributeHandles(cardCount, BOTTOM_HANDLE_RANGE);
+    // Bottom handles: N brokers following the bottom parabola
     const bottomHandles: HandleSpec[] = [];
     for (let i = 0; i < cardCount; i++) {
+      const svgX = cardCount === 1 ? 100 : 75 + i * 50 / (cardCount - 1);
+      const svgY = shieldBottomCurveY(svgX);
       bottomHandles.push({
         id: `bottom-broker-${i}`,
         type: 'source',
         position: Position.Bottom,
-        offset: bottomOffsets[i],
+        x: svgX * SCALE,
+        y: svgY * SCALE,
       });
     }
 
-    // Left handles: N left auxiliary components
-    const leftOffsets = distributeHandles(LEFT_AUX_COMPONENTS.length, LEFT_HANDLE_RANGE);
+    // Left handles: on left wing edge
     const leftHandles: HandleSpec[] = [];
     LEFT_AUX_COMPONENTS.forEach((_, i) => {
+      const px = LEFT_WING_SVG_X * SCALE;
+      const py = AUX_SVG_Y[i] * SCALE;
       leftHandles.push({
         id: `left-aux-in-${i}`,
         type: 'target',
         position: Position.Left,
-        offset: leftOffsets[i],
+        x: px,
+        y: py,
       });
       leftHandles.push({
         id: `left-aux-out-${i}`,
         type: 'source',
         position: Position.Left,
-        offset: leftOffsets[i] + 4,
+        x: px,
+        y: py + 4,
       });
     });
 
-    // Right handles: N right auxiliary components
-    const rightOffsets = distributeHandles(RIGHT_AUX_COMPONENTS.length, RIGHT_HANDLE_RANGE);
+    // Right handles: on right wing edge
     const rightHandles: HandleSpec[] = [];
     RIGHT_AUX_COMPONENTS.forEach((_, i) => {
+      const px = RIGHT_WING_SVG_X * SCALE;
+      const py = AUX_SVG_Y[i] * SCALE;
       rightHandles.push({
         id: `right-aux-in-${i}`,
         type: 'target',
         position: Position.Right,
-        offset: rightOffsets[i],
+        x: px,
+        y: py,
       });
       rightHandles.push({
         id: `right-aux-out-${i}`,
         type: 'source',
         position: Position.Right,
-        offset: rightOffsets[i] + 4,
+        x: px,
+        y: py + 4,
       });
     });
 
@@ -568,6 +597,8 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       id: 'agenshield',
       type: 'canvas-agenshield',
       position: { x: shieldX, y: shieldTopY },
+      width: SHIELD_W,
+      height: SHIELD_H,
       data: {
         width: SHIELD_W,
         height: SHIELD_H,
@@ -582,6 +613,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       },
       draggable: false,
       selectable: false,
+      zIndex: data.daemonRunning ? 10 : 0,
     });
 
     // --- Broker-wrapped cards (row below shield) ---
@@ -599,6 +631,8 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           id: `broker-${card.id}`,
           type: 'canvas-broker-card',
           position: { x: brokerX, y: brokerStartY },
+          width: BROKER_W,
+          height: BROKER_H,
           data: {
             id: card.id,
             name: card.name,
@@ -735,23 +769,15 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         const brokerBusHandle = 'top-bus';
 
         if (isShielded) {
-          // Shielded: traffic wires from AgenShield -> Broker
-          const channelOffsets = Array.from(
-            { length: WIRE_COUNT },
-            (_, w) => (w - (WIRE_COUNT - 1) / 2) * WIRE_SPACING,
-          );
-
-          channelOffsets.forEach((offset, w) => {
-            result.push({
-              id: `e-shield-broker-${cardId}-${w}`,
-              source: 'agenshield',
-              target: `broker-${cardId}`,
-              sourceHandle: shieldHandle,
-              targetHandle: brokerBusHandle,
-              type: 'canvas-traffic',
-              data: { channelOffset: offset },
-              style: { opacity: 0.5 },
-            });
+          // Shielded: single green shield wire
+          result.push({
+            id: `e-shield-broker-${cardId}`,
+            source: 'agenshield',
+            target: `broker-${cardId}`,
+            sourceHandle: shieldHandle,
+            targetHandle: brokerBusHandle,
+            type: 'canvas-danger',
+            data: { variant: 'shield', fanout: true, balanced: true },
           });
         } else {
           // Unshielded: danger primary wires

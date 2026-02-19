@@ -8,13 +8,15 @@ import { LoggingCard } from '../components/settings/LoggingCard';
 import { AdvancedCard } from '../components/settings/AdvancedCard';
 import { DangerZoneCard } from '../components/settings/DangerZoneCard';
 
-export function Settings() {
+export function Settings({ embedded }: { embedded?: boolean } = {}) {
   return (
-    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
-      <PageHeader
-        title="Settings"
-        description="Configure your AgenShield daemon settings."
-      />
+    <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+      {!embedded && (
+        <PageHeader
+          title="Settings"
+          description="Configure your AgenShield daemon settings."
+        />
+      )}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <AgentIdentityCard />
         <ServerConfigCard />

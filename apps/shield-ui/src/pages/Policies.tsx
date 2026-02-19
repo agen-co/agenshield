@@ -36,11 +36,18 @@ const TAB_TARGETS: Record<string, 'command' | 'url' | 'filesystem'> = {
   filesystem: 'filesystem',
 };
 
-export function Policies() {
+interface PoliciesProps {
+  embedded?: boolean;
+  embeddedTab?: string;
+  onTabChange?: (tab: string) => void;
+}
+
+export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps = {}) {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
 
-  const activeTab = Math.max(0, TAB_SLUGS.indexOf(tab as any));
+  const resolvedTab = embedded ? embeddedTab : tab;
+  const activeTab = Math.max(0, TAB_SLUGS.indexOf(resolvedTab as any));
   const activeTarget = TAB_TARGETS[TAB_SLUGS[activeTab]];
 
   const { data: config } = useConfig();
@@ -191,7 +198,11 @@ export function Policies() {
   );
 
   const handleTabChange = (_e: React.SyntheticEvent, newTab: number) => {
-    navigate(TAB_SLUGS[newTab], { replace: true });
+    if (embedded && onTabChange) {
+      onTabChange(TAB_SLUGS[newTab]);
+    } else {
+      navigate(TAB_SLUGS[newTab], { replace: true });
+    }
     // Close editor when switching tabs (if not dirty)
     if (formOpen && !formDirty) {
       handleCancel();
@@ -199,11 +210,13 @@ export function Policies() {
   };
 
   return (
-    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
-      <PageHeader
-        title="Policies"
-        description="Manage security policies for command, URL, and filesystem filtering."
-      />
+    <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+      {!embedded && (
+        <PageHeader
+          title="Policies"
+          description="Manage security policies for command, URL, and filesystem filtering."
+        />
+      )}
 
       {/* Collapsible editor for Commands + Network tabs */}
       {activeTab <= 1 && (

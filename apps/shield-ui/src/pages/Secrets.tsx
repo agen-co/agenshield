@@ -33,7 +33,7 @@ interface PrefillData {
   scope?: SecretScope;
 }
 
-export function Secrets() {
+export function Secrets({ embedded }: { embedded?: boolean } = {}) {
   const { data, isLoading } = useSecrets();
   const createSecret = useCreateSecret();
   const deleteSecret = useDeleteSecret();
@@ -112,18 +112,20 @@ export function Secrets() {
     : prefillData ?? undefined;
 
   return (
-    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
-      <PageHeader
-        title="Secrets"
-        description="Manage secrets and link them to policies for scoped injection."
-        action={
-          !formOpen ? (
-            <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => guard(() => setFormOpen(true), { description: 'Unlock to add a secret.', actionLabel: 'Add Secret' })}>
-              Add Secret
-            </Button>
-          ) : undefined
-        }
-      />
+    <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+      {!embedded && (
+        <PageHeader
+          title="Secrets"
+          description="Manage secrets and link them to policies for scoped injection."
+          action={
+            !formOpen ? (
+              <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => guard(() => setFormOpen(true), { description: 'Unlock to add a secret.', actionLabel: 'Add Secret' })}>
+                Add Secret
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
 
       {deleteError && (
         <Alert severity="error" variant="outlined" sx={{ mb: 2 }} onClose={() => setDeleteError(null)}>

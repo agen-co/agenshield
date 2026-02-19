@@ -38,17 +38,22 @@ export const SystemComponentNode = memo(({ data }: NodeProps) => {
 
   const themeCtx = useMemo<ThemeCtx>(() => ({
     isDark,
-    chipBody:   isDark ? pcb.component.body : '#D8D8D0',
-    chipBorder: isDark ? 'rgba(80,80,80,0.3)' : 'rgba(80,80,80,0.2)',
+    chipBody:   isDark ? '#28292E' : '#D8D8D0',
+    chipBorder: isDark ? 'rgba(140,140,140,0.35)' : 'rgba(80,80,80,0.2)',
     padColor:   pcb.component.padGold,
     pinColor:   pcb.component.pin,
     traceClr:   isDark ? pcb.trace.silver : '#888888',
-    silkColor:  isDark ? pcb.silk.primary : pcb.light.silk,
-    silkDim:    isDark ? pcb.silk.dim : '#6A6A5A',
+    silkColor:  isDark ? '#FFFFFF' : pcb.light.silk,
+    silkDim:    isDark ? '#B0B4B8' : '#6A6A5A',
   }), [isDark]);
 
   return (
-    <div style={{ position: 'relative', cursor: 'default' }}>
+    <div
+      style={{
+        position: 'relative',
+        cursor: 'pointer',
+      }}
+    >
       {handles.map((spec) => (
         <Handle key={spec.id} type={spec.type} position={spec.position} id={spec.id}
           style={{

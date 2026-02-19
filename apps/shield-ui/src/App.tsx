@@ -173,7 +173,7 @@ function AppRoutes({
   isSetupMode?: boolean;
 }) {
   const location = useLocation();
-  const isCanvasRoute = location.pathname === '/canvas';
+  const isCanvasRoute = location.pathname.startsWith('/canvas');
 
   return (
     <Layout
@@ -190,7 +190,7 @@ function AppRoutes({
       <PageTransition>
         <Routes>
           {/* Canvas — always available (setup panel lives here) */}
-          <Route path="/canvas" element={
+          <Route path="/canvas/*" element={
             <ShieldRoute allowedModes={['any']}><Canvas /></ShieldRoute>
           } />
 
@@ -250,17 +250,24 @@ function AppRoutes({
   );
 }
 
+const DARK_MODE_KEY = 'agenshield-dark-mode';
+
 export function App() {
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const stored = localStorage.getItem(DARK_MODE_KEY);
+      if (stored !== null) return stored === 'true';
     }
-    return false;
+    return true; // default dark
   });
 
   const theme = useMemo(() => (darkMode ? darkTheme : lightTheme), [darkMode]);
 
-  const toggleDarkMode = () => setDarkMode((prev) => !prev);
+  const toggleDarkMode = () => setDarkMode((prev) => {
+    const next = !prev;
+    localStorage.setItem(DARK_MODE_KEY, String(next));
+    return next;
+  });
 
   return (
     <QueryClientProvider client={queryClient}>

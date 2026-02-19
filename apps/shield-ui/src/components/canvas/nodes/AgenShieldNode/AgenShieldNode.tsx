@@ -4,7 +4,10 @@
  * Renders the shield from favicon.svg split into 4 natural pieces
  * (rightWing, centerBody, leftWing, horizontalBar) with colored seam
  * lines between them. Status determines seam color; daemonRunning
- * determines fill brightness and breathing animation.
+ * determines fill brightness, breathing animation, and wing state.
+ *
+ * When daemon is OFF: dimmed (opacity 0.35), wings folded closed, below edges (z-index 0).
+ * When daemon is ON: bright, wings spread open, on top of wires (z-index 10).
  *
  * Handle zones (dynamic arrays):
  *   - topHandles: core component connections (5)
@@ -13,7 +16,7 @@
  *   - rightHandles: right auxiliary connections (2+)
  */
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useTheme } from '@mui/material/styles';
 import type { AgenShieldData } from '../../Canvas.types';
@@ -51,6 +54,12 @@ const STATUS_LABEL: Record<string, string> = {
   protected: 'PROTECTED',
 };
 
+/* ---- Wing animation constants ---- */
+const WING_TRANSITION = 'transform 0.6s ease-in-out';
+const LEFT_WING_ORIGIN = '78px 77px';
+const RIGHT_WING_ORIGIN = '122px 77px';
+const WING_FOLD_ANGLE = 22; // degrees to fold inward when closed
+
 export const AgenShieldNode = memo(({ data }: NodeProps) => {
   const {
     width,
@@ -64,6 +73,8 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
     leftHandles = [],
     rightHandles = [],
   } = data as unknown as AgenShieldData;
+
+  const [hovered, setHovered] = useState(false);
 
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
@@ -80,49 +91,36 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
       ? '#EEA45F'
       : '#E1583E';
 
+  // Shield is dimmed and below edges when daemon is off
+  const shieldOpacity = daemonRunning ? 1 : 0.35;
+
   return (
-    <div style={{ position: 'relative', cursor: 'default' }}>
-      {/* ---- TOP HANDLES: core component connections ---- */}
-      {topHandles.map((h) => (
+    <div
+      style={{
+        position: 'relative',
+        cursor: 'pointer',
+        transition: 'filter 0.2s ease, opacity 0.6s ease-in-out',
+        filter: hovered ? 'brightness(1.05)' : 'none',
+        opacity: shieldOpacity,
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* ---- ALL HANDLES: unified renderer with x/y contour support ---- */}
+      {[...topHandles, ...bottomHandles, ...leftHandles, ...rightHandles].map((h) => (
         <Handle
           key={h.id}
           type={h.type}
-          position={Position.Top}
+          position={h.position}
           id={h.id}
-          style={{ left: h.offset, visibility: 'hidden' }}
-        />
-      ))}
-
-      {/* ---- BOTTOM HANDLES: broker connections ---- */}
-      {bottomHandles.map((h) => (
-        <Handle
-          key={h.id}
-          type={h.type}
-          position={Position.Bottom}
-          id={h.id}
-          style={{ left: h.offset, visibility: 'hidden' }}
-        />
-      ))}
-
-      {/* ---- LEFT HANDLES: left auxiliary connections ---- */}
-      {leftHandles.map((h) => (
-        <Handle
-          key={h.id}
-          type={h.type}
-          position={Position.Left}
-          id={h.id}
-          style={{ top: h.offset, visibility: 'hidden' }}
-        />
-      ))}
-
-      {/* ---- RIGHT HANDLES: right auxiliary connections ---- */}
-      {rightHandles.map((h) => (
-        <Handle
-          key={h.id}
-          type={h.type}
-          position={Position.Right}
-          id={h.id}
-          style={{ top: h.offset, visibility: 'hidden' }}
+          style={{
+            ...(h.x != null && h.y != null
+              ? { left: h.x, top: h.y }
+              : h.position === Position.Left || h.position === Position.Right
+                ? { top: h.offset }
+                : { left: h.offset }),
+            visibility: 'hidden',
+          }}
         />
       ))}
 
@@ -141,11 +139,27 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
               : {}),
           }}
         >
-          {/* Shield pieces */}
+          {/* Center body — always stationary */}
           <path d={SHIELD_PIECES.centerBody} fill={fillColor} />
-          <path d={SHIELD_PIECES.leftWing} fill={fillColor} />
-          <path d={SHIELD_PIECES.rightWing} fill={fillColor} />
           <path d={SHIELD_PIECES.horizontalBar} fill={fillColor} />
+
+          {/* Left wing — folds inward when daemon is off */}
+          <g style={{
+            transformOrigin: LEFT_WING_ORIGIN,
+            transform: daemonRunning ? 'rotate(0deg)' : `rotate(${WING_FOLD_ANGLE}deg)`,
+            transition: WING_TRANSITION,
+          }}>
+            <path d={SHIELD_PIECES.leftWing} fill={fillColor} />
+          </g>
+
+          {/* Right wing — folds inward when daemon is off */}
+          <g style={{
+            transformOrigin: RIGHT_WING_ORIGIN,
+            transform: daemonRunning ? 'rotate(0deg)' : `rotate(-${WING_FOLD_ANGLE}deg)`,
+            transition: WING_TRANSITION,
+          }}>
+            <path d={SHIELD_PIECES.rightWing} fill={fillColor} />
+          </g>
 
           {/* Seam lines */}
           <path
@@ -155,6 +169,11 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
             strokeWidth={1.8}
             strokeLinecap="round"
             filter={seamGlow}
+            style={{
+              transformOrigin: LEFT_WING_ORIGIN,
+              transform: daemonRunning ? 'rotate(0deg)' : `rotate(${WING_FOLD_ANGLE}deg)`,
+              transition: WING_TRANSITION,
+            }}
           />
           <path
             d={SEAM_LINES.rightDiagonal}
@@ -163,6 +182,11 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
             strokeWidth={1.8}
             strokeLinecap="round"
             filter={seamGlow}
+            style={{
+              transformOrigin: RIGHT_WING_ORIGIN,
+              transform: daemonRunning ? 'rotate(0deg)' : `rotate(-${WING_FOLD_ANGLE}deg)`,
+              transition: WING_TRANSITION,
+            }}
           />
           <path
             d={SEAM_LINES.barTop}
