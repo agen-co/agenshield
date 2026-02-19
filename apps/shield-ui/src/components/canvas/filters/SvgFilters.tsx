@@ -6,49 +6,27 @@ export function SvgFilters() {
   return (
     <svg style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', pointerEvents: 'none' }}>
       <defs>
-        {/* LED animation keyframes */}
+        {/* Edge/wire animation keyframes (component keyframes moved to anime.js) */}
         <style>{`
-          @keyframes pcb-led-pulse {
-            0%, 100% { opacity: 0.7; }
-            50% { opacity: 1; }
-          }
-          @keyframes pcb-led-blink {
-            0%, 40% { opacity: 0.9; }
-            50%, 90% { opacity: 0.15; }
-            100% { opacity: 0.9; }
-          }
-          @keyframes pcb-led-glow-breathe {
-            0%, 100% { opacity: 0.15; }
-            50% { opacity: 0.35; }
-          }
-          @keyframes pcb-alert-blink {
-            0%, 30% { opacity: 0.95; }
-            50%, 70% { opacity: 0.25; }
-            100% { opacity: 0.95; }
-          }
-          @keyframes pcb-alert-glow {
-            0%, 100% { opacity: 0.08; }
-            50% { opacity: 0.22; }
-          }
           @keyframes danger-wire-pulse {
             0%, 100% { opacity: 0.5; }
             50% { opacity: 0.85; }
           }
-          @keyframes danger-chip-pulse {
-            0%, 100% { opacity: 0.15; }
-            50% { opacity: 0.35; }
-          }
-          @keyframes danger-chip-breathe {
-            0%, 100% { opacity: 0.04; }
-            50% { opacity: 0.12; }
-          }
-@keyframes danger-card-pulse {
+          @keyframes danger-card-pulse {
             0%, 100% { opacity: 0.15; }
             50% { opacity: 0.45; }
           }
           @keyframes shield-trace-pulse {
             0%, 100% { opacity: 0.5; }
             50% { opacity: 0.75; }
+          }
+          @keyframes shield-logo-breathe {
+            0%, 100% { opacity: 0.12; }
+            50% { opacity: 0.3; }
+          }
+          @keyframes shield-breathe {
+            0%, 100% { transform: scale(1); opacity: 0.95; }
+            50% { transform: scale(1.012); opacity: 1; }
           }
         `}</style>
         {/* Green glow — healthy/shielded */}

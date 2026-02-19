@@ -2,6 +2,7 @@
  * Shared types for the Canvas dashboard
  */
 
+import type { Position } from '@xyflow/react';
 import type { SSEEvent } from '../../state/events';
 
 export type CanvasStatus = 'ok' | 'warning' | 'error';
@@ -194,6 +195,8 @@ export interface ApplicationCardData {
   side: 'left' | 'right';
   skills?: SkillChipData[];
   mcpServers?: McpChipData[];
+  /** Override default handle positions (from pin allocator) */
+  handleOverrides?: HandleSpec[];
   [key: string]: unknown;
 }
 
@@ -242,7 +245,7 @@ export interface ShieldChipData {
 }
 
 /** Identifies which system component this node represents */
-export type SystemComponentType = 'cpu' | 'network' | 'command' | 'filesystem' | 'memory' | 'monitoring' | 'logs';
+export type SystemComponentType = 'cpu' | 'network' | 'command' | 'filesystem' | 'memory' | 'monitoring' | 'logs' | 'secrets' | 'policy-graph';
 
 export interface SystemMetrics {
   cpuPercent: number;    // 0-100
@@ -254,16 +257,25 @@ export interface SystemMetrics {
   logRate: number;       // lines/s
 }
 
+export interface HandleSpec {
+  id: string;
+  type: 'source' | 'target';
+  position: Position;
+  offset?: number;
+}
+
 export interface SystemComponentData {
   componentType: SystemComponentType;
   label: string;
   sublabel: string;
-  /** Whether any unshielded agent can reach this component */
-  exposed: boolean;
-  /** How many unshielded agents connect to this component */
-  exposedCount: number;
+  /** Whether any unshielded agent can reach this component (legacy, now in systemStore) */
+  exposed?: boolean;
+  /** How many unshielded agents connect to this component (legacy, now in systemStore) */
+  exposedCount?: number;
   /** Live system metrics */
   metrics?: SystemMetrics;
+  /** Override default handle positions */
+  handleOverrides?: HandleSpec[];
   [key: string]: unknown;
 }
 
@@ -281,18 +293,27 @@ export interface DangerWireData {
 }
 
 export interface AgenShieldData {
+  width: number;
   height: number;
-  leftHandleCount: number;
-  rightHandleCount: number;
   status: 'unprotected' | 'partial' | 'protected';
-  /** How many total cards are shielded */
+  daemonRunning: boolean;
   shieldedCount: number;
-  /** How many total cards exist */
   totalCount: number;
-  /** X positions of component handles relative to node left edge */
-  compHandleXs: number[];
-  /** Total width of the horizontal crossbar */
-  crossbarWidth: number;
+  /** Handle specs for each zone — computed by layout hook */
+  topHandles: HandleSpec[];
+  bottomHandles: HandleSpec[];
+  leftHandles: HandleSpec[];
+  rightHandles: HandleSpec[];
+  [key: string]: unknown;
+}
+
+export interface BrokerCardData {
+  id: string;
+  name: string;
+  type: string;
+  icon: string;
+  status: 'unshielded' | 'shielding' | 'shielded';
+  isRunning?: boolean;
   [key: string]: unknown;
 }
 
@@ -302,4 +323,34 @@ export interface SetupCanvasData {
   hasDetection: boolean;
   anyShielded: boolean;
   anyUnshielded: boolean;
+  daemonRunning: boolean;
+}
+
+/* ---- Pin Allocator types ---- */
+
+/** Declarative connection request — one per wire */
+export interface ConnectionIntent {
+  edgeId: string;
+  sourceNodeId: string;
+  sourceSide: 'top' | 'bottom' | 'left' | 'right';
+  sourceHandleType: 'source' | 'target';
+  targetNodeId: string;
+  targetSide: 'top' | 'bottom' | 'left' | 'right';
+  targetHandleType: 'source' | 'target';
+  /** X/Y of opposite-end node — for monotonic left-to-right ordering */
+  sourceOrderHint: number;
+  targetOrderHint: number;
+  edgeType: string;
+  edgeData: Record<string, unknown>;
+  /** If set, use this handle ID for source instead of allocating */
+  sourceFixedHandle?: string;
+  /** If set, use this handle ID for target instead of allocating */
+  targetFixedHandle?: string;
+}
+
+export interface PinAllocationResult {
+  /** Per-node handle specs (nodeId → HandleSpec[]) */
+  nodeHandles: Map<string, HandleSpec[]>;
+  /** Per-edge handle assignments (edgeId → { sourceHandle, targetHandle }) */
+  edgeHandles: Map<string, { sourceHandle: string; targetHandle: string }>;
 }

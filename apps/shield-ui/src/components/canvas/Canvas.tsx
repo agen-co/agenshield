@@ -38,6 +38,8 @@ import { ActivityPanel } from './panels/ActivityPanel';
 import { SetupPanel } from './panels/SetupPanel';
 import { useServerMode } from '../../api/hooks';
 import { setupPanelStore, openSetupPanel, closeSetupPanel } from '../../state/setup-panel';
+import { drilldownStore, closeDrilldown } from '../../state/canvas-drilldown';
+import { DrilldownOverlay } from './overlays/DrilldownOverlay';
 
 // Node components — daemon mode
 import { ShieldCoreNode } from './nodes/ShieldCoreNode';
@@ -61,6 +63,7 @@ import { BackplaneBusNode } from './nodes/BackplaneBusNode';
 import { ShieldChipNode } from './nodes/ShieldChipNode';
 import { SystemComponentNode } from './nodes/SystemComponentNode';
 import { AgenShieldNode } from './nodes/AgenShieldNode';
+import { BrokerNode } from './nodes/BrokerNode';
 
 // Edge components
 import { TrafficEdge } from './edges/TrafficEdge';
@@ -94,6 +97,7 @@ const canvasNodeTypes: NodeTypes = {
   'canvas-shield-chip': ShieldChipNode,
   'canvas-system-component': SystemComponentNode,
   'canvas-agenshield': AgenShieldNode,
+  'canvas-broker-card': BrokerNode,
 };
 
 const canvasEdgeTypes: EdgeTypes = {
@@ -110,15 +114,41 @@ const canvasEdgeTypes: EdgeTypes = {
 
 /* ---- CanvasInner: runs inside <ReactFlow> for useReactFlow() access ---- */
 
-function CanvasInner({ containerWidth, containerHeight }: { containerWidth: number; containerHeight: number }) {
-  const { fitView } = useReactFlow();
+function CanvasInner({
+  containerWidth,
+  containerHeight,
+  onFitViewZoom,
+}: {
+  containerWidth: number;
+  containerHeight: number;
+  onFitViewZoom: (zoom: number) => void;
+}) {
+  const { fitView, getZoom } = useReactFlow();
+  const { activeCardId } = useSnapshot(drilldownStore);
+  const prevCardIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const id = setTimeout(() => {
-      fitView({ padding: 0.08, maxZoom: 1 });
+    const id = setTimeout(async () => {
+      await fitView({ padding: 0.08, maxZoom: 1 });
+      onFitViewZoom(getZoom());
     }, 50);
     return () => clearTimeout(id);
-  }, [containerWidth, containerHeight, fitView]);
+  }, [containerWidth, containerHeight, fitView, getZoom, onFitViewZoom]);
+
+  // Zoom into drilled-down card or back to full view
+  useEffect(() => {
+    if (activeCardId && activeCardId !== prevCardIdRef.current) {
+      fitView({
+        nodes: [{ id: `card-${activeCardId}` }, { id: `broker-${activeCardId}` }],
+        padding: 0.3,
+        duration: 400,
+        maxZoom: 2,
+      });
+    } else if (!activeCardId && prevCardIdRef.current) {
+      fitView({ padding: 0.08, maxZoom: 1, duration: 400 });
+    }
+    prevCardIdRef.current = activeCardId;
+  }, [activeCardId, fitView]);
 
   useCanvasAnimations();
   useDotAnimations();
@@ -166,6 +196,11 @@ export function Canvas() {
   const theme = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [dynamicMaxZoom, setDynamicMaxZoom] = useState(1);
+
+  const handleFitViewZoom = useCallback((zoom: number) => {
+    setDynamicMaxZoom(zoom);
+  }, []);
 
   const serverMode = useServerMode();
   const isSetupMode = serverMode === 'setup';
@@ -218,6 +253,10 @@ export function Canvas() {
     closeSetupPanel();
   }, []);
 
+  const handlePaneClick = useCallback(() => {
+    closeDrilldown();
+  }, []);
+
   return (
     <CanvasContainer ref={containerRef}>
       <SvgFilters />
@@ -237,14 +276,14 @@ export function Canvas() {
             zoomOnScroll
             zoomOnPinch
             zoomOnDoubleClick={false}
-            preventScrolling={false}
             minZoom={1}
-            maxZoom={4}
+            maxZoom={dynamicMaxZoom}
             fitView
+            onPaneClick={handlePaneClick}
             fitViewOptions={{ padding: 0.1,interpolate:'smooth' }}
             proOptions={{ hideAttribution: true }}
           >
-            <CanvasInner containerWidth={viewport.width} containerHeight={viewport.height} />
+            <CanvasInner containerWidth={viewport.width} containerHeight={viewport.height} onFitViewZoom={handleFitViewZoom} />
           </ReactFlow>
         </div>
       )}
@@ -282,6 +321,9 @@ export function Canvas() {
 
       {/* Fixed overlay: Activity Panel — right side full-height (daemon mode only) */}
       {!isSetupMode && <ActivityPanel />}
+
+      {/* Fixed overlay: Drilldown — card detail panel */}
+      {isSetupMode && <DrilldownOverlay cards={setupData.cards} />}
     </CanvasContainer>
   );
 }

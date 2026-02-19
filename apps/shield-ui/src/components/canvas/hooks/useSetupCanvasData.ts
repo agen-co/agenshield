@@ -9,9 +9,9 @@
 import { useEffect, useMemo } from 'react';
 import { useSnapshot } from 'valtio';
 import type { DetectedTarget } from '@agenshield/ipc';
-import { useSecurity } from '../../../api/hooks';
+import { useHealthGate, useSecurity, useSystemMetrics } from '../../../api/hooks';
 import { setupPanelStore } from '../../../state/setup-panel';
-import { startMetricsSimulation } from '../../../state/system-metrics';
+import { startMetricsSimulation, systemStore } from '../../../state/system-store';
 import type { ApplicationCardData, SetupCanvasData } from '../Canvas.types';
 
 /** Map target type to a lucide icon name */
@@ -25,13 +25,28 @@ const iconMap: Record<string, string> = {
 
 export function useSetupCanvasData(): SetupCanvasData {
   const { data: securityData } = useSecurity();
+  const daemonRunning = useHealthGate();
   const panelState = useSnapshot(setupPanelStore);
 
-  // Start simulated metrics on mount
+  // Start simulated metrics for cmdRate/logRate on mount
   useEffect(() => {
     const stop = startMetricsSimulation();
     return stop;
   }, []);
+
+  // Bridge real metrics from daemon API into valtio store
+  const { data: metricsData } = useSystemMetrics();
+
+  useEffect(() => {
+    if (metricsData?.data) {
+      const m = metricsData.data;
+      systemStore.metrics.cpuPercent = m.cpuPercent;
+      systemStore.metrics.memPercent = m.memPercent;
+      systemStore.metrics.diskPercent = m.diskPercent;
+      systemStore.metrics.netUp = m.netUp;
+      systemStore.metrics.netDown = m.netDown;
+    }
+  }, [metricsData]);
 
   const currentUser = String(securityData?.data?.currentUser ?? 'Unknown');
 
@@ -84,6 +99,6 @@ export function useSetupCanvasData(): SetupCanvasData {
     const hasDetection = cards.length > 0;
     const anyShielded = cards.some((c) => c.status === 'shielded');
     const anyUnshielded = cards.some((c) => c.status !== 'shielded');
-    return { currentUser, cards, hasDetection, anyShielded, anyUnshielded };
-  }, [cards, currentUser]);
+    return { currentUser, cards, hasDetection, anyShielded, anyUnshielded, daemonRunning };
+  }, [cards, currentUser, daemonRunning]);
 }

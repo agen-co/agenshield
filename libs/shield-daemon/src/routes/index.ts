@@ -25,6 +25,7 @@ import { policyGraphRoutes } from './policy-graph';
 import { alertsRoutes } from './alerts';
 import { rpcRoutes } from './rpc';
 import { playgroundRoutes } from './playground';
+import { metricsRoutes } from './metrics';
 import { setupRoutes } from '../setup';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
@@ -137,6 +138,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(policyGraphRoutes);
       await api.register(alertsRoutes);
       await api.register(playgroundRoutes);
+      await api.register(metricsRoutes);
       await api.register(setupRoutes);
     },
     { prefix: API_PREFIX }

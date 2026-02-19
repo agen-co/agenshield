@@ -17,13 +17,13 @@ import type { DangerWireData } from '../../Canvas.types';
 const VARIANT_CONFIGS: Record<DangerWireData['variant'], PcbTraceEdgeConfig> = {
   primary: {
     strokeColor: '#E1583E',
-    strokeWidth: 2.5,
+    strokeWidth: 4.0,
     opacity: 0.35,
     pathStyle: { filter: 'drop-shadow(0 0 3px rgba(225,88,62,0.35))' },
     showViaPads: false,
     chamferRadius: 10,
     electricShots: {
-      pulseWidth: 30, color: '#FF6B4F', opacity: 0.9,
+      pulseWidth: 40, color: '#FF6B4F', opacity: 0.9,
       minInterval: 800, maxInterval: 2000,
       minDuration: 500, maxDuration: 900,
       maxConcurrent: 2,
@@ -31,27 +31,27 @@ const VARIANT_CONFIGS: Record<DangerWireData['variant'], PcbTraceEdgeConfig> = {
   },
   penetration: {
     strokeColor: '#E1583E',
-    strokeWidth: 1.5,
-    opacity: 0.25,
-    pathStyle: { filter: 'drop-shadow(0 0 2px rgba(225,88,62,0.2))' },
+    strokeWidth: 3.5,
+    opacity: 0.4,
+    pathStyle: { filter: 'drop-shadow(0 0 3px rgba(225,88,62,0.3))' },
     showViaPads: false,
     chamferRadius: 8,
     electricShots: {
-      pulseWidth: 18, color: '#FF6B4F', opacity: 0.65,
-      minInterval: 2000, maxInterval: 5000,
+      pulseWidth: 28, color: '#FF6B4F', opacity: 0.75,
+      minInterval: 1500, maxInterval: 4000,
       minDuration: 400, maxDuration: 700,
       maxConcurrent: 1,
     },
   },
   tendril: {
     strokeColor: '#CC3333',
-    strokeWidth: 1.0,
+    strokeWidth: 2.0,
     strokeDasharray: '6 4',
     opacity: 0.15,
     showViaPads: false,
     chamferRadius: 6,
     electricShots: {
-      pulseWidth: 10, color: '#E04444', opacity: 0.5,
+      pulseWidth: 15, color: '#E04444', opacity: 0.5,
       minInterval: 3000, maxInterval: 6000,
       minDuration: 600, maxDuration: 1200,
       maxConcurrent: 1,
@@ -59,13 +59,13 @@ const VARIANT_CONFIGS: Record<DangerWireData['variant'], PcbTraceEdgeConfig> = {
   },
   shield: {
     strokeColor: '#2D6B3F',
-    strokeWidth: 1.8,
+    strokeWidth: 3.0,
     opacity: 0.3,
     pathStyle: { filter: 'drop-shadow(0 0 2px rgba(45,107,63,0.3))' },
     showViaPads: false,
     chamferRadius: 10,
     electricShots: {
-      pulseWidth: 22, color: '#3DA05A', opacity: 0.8,
+      pulseWidth: 30, color: '#3DA05A', opacity: 0.8,
       minInterval: 2000, maxInterval: 5000,
       minDuration: 500, maxDuration: 1000,
       maxConcurrent: 1,
@@ -83,22 +83,25 @@ export const DangerWireEdge = memo((props: EdgeProps) => {
   const fanout = (props.data?.fanout as boolean) ?? false;
 
   const baseConfig = VARIANT_CONFIGS[variant];
+  const wrapperStyle = props.style as React.CSSProperties | undefined;
 
   return (
-    <PcbTraceEdge
-      {...props}
-      config={{
-        ...baseConfig,
-        channelOffset,
-        targetRow,
-        channelCenterY,
-        channelSpacing,
-        fanout,
-        stubTop: (data?.stubTop as number) ?? 15,
-        stubBottom: (data?.stubBottom as number) ?? 15,
-        balanced: (data?.balanced as boolean) ?? false,
-      }}
-    />
+    <g style={wrapperStyle}>
+      <PcbTraceEdge
+        {...props}
+        config={{
+          ...baseConfig,
+          channelOffset,
+          targetRow,
+          channelCenterY,
+          channelSpacing,
+          fanout,
+          stubTop: (data?.stubTop as number) ?? 15,
+          stubBottom: (data?.stubBottom as number) ?? 15,
+          balanced: (data?.balanced as boolean) ?? false,
+        }}
+      />
+    </g>
   );
 });
 DangerWireEdge.displayName = 'DangerWireEdge';

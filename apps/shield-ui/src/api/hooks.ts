@@ -393,6 +393,19 @@ export function useBrowsePath(dirPath: string | null) {
   });
 }
 
+// --- System metrics hook ---
+
+export function useSystemMetrics() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: ['system-metrics'] as const,
+    queryFn: api.getMetrics,
+    enabled: healthy,
+    refetchInterval: healthy ? 2000 : false,
+    staleTime: 1500,
+  });
+}
+
 // --- Alerts hooks ---
 
 export function useAlerts() {

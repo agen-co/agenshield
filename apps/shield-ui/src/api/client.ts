@@ -155,6 +155,10 @@ export type SecurityStatus = SecurityStatusData;
 // --- API methods ---
 
 export const api = {
+  // System metrics
+  getMetrics: () =>
+    request<{ success: boolean; data: { cpuPercent: number; memPercent: number; diskPercent: number; netUp: number; netDown: number } }>('/metrics'),
+
   // Activity history
   getActivity: (limit = 500) =>
     request<{ data: Array<{ type: string; timestamp: string; data: unknown }> }>(`/activity?limit=${limit}`),

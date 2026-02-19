@@ -9,15 +9,17 @@
  *   - Dynamic skill/MCP sub-chips (or default U2 COMM / U3 MEM)
  *   - Instance badge when multiple instances of same type
  *
- * Handles: left-bus and right-bus (side-facing, for backplane bus connection).
+ * Handles: left-bus and right-bus (static, bus-facing), plus dynamic danger
+ * handles from pin allocator (or fallback hardcoded positions).
  */
 
-import React, { memo } from 'react';
+import React, { memo, useCallback } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Terminal, Globe, Monitor, Cpu } from 'lucide-react';
 import { useTheme } from '@mui/material/styles';
 import { pcb } from '../../styles/pcb-tokens';
 import type { ApplicationCardData } from '../../Canvas.types';
+import { openDrilldown } from '../../../../state/canvas-drilldown';
 
 /* ---- Dimensions ---- */
 const CARD_W = 300;
@@ -147,11 +149,16 @@ const MAX_VISIBLE_SUBCHIPS = 4;
 
 export const ApplicationCardNode = memo(({ data }: NodeProps) => {
   const {
-    name, type, version, binaryPath, status, icon, selected,
+    id: cardId, name, type, version, binaryPath, status, icon, selected,
     isRunning, runAsRoot, currentUser, side,
     instanceIndex, instanceCount,
     skills, mcpServers,
+    handleOverrides: dangerHandles,
   } = data as unknown as ApplicationCardData;
+
+  const handleClick = useCallback(() => {
+    openDrilldown(cardId);
+  }, [cardId]);
 
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
@@ -211,22 +218,29 @@ export const ApplicationCardNode = memo(({ data }: NodeProps) => {
   const busPadY = CARD_H / 2;
 
   return (
-    <div style={{ position: 'relative', cursor: 'default' }}>
-      {/* === Handles — bus-facing on both sides (layout picks the correct one) === */}
+    <div style={{ position: 'relative', cursor: 'pointer' }} onClick={handleClick}>
+      {/* === Static bus handles — always present === */}
       <Handle type="target" position={Position.Left} id="left-bus"
         style={{ top: CARD_H / 2, visibility: 'hidden' }} />
       <Handle type="target" position={Position.Right} id="right-bus"
         style={{ top: CARD_H / 2, left: SVG_W, visibility: 'hidden' }} />
 
-      {/* === Danger wire handles (for penetration/tendril wires) === */}
-      <Handle type="source" position={Position.Top} id="danger-up"
-        style={{ left: SVG_W / 2 - 3, visibility: 'hidden' }} />
-      <Handle type="target" position={Position.Top} id="danger-up-in"
-        style={{ left: SVG_W / 2 + 3, visibility: 'hidden' }} />
-      <Handle type="source" position={Position.Top} id="danger-top-out"
-        style={{ left: SVG_W / 2 - 30, visibility: 'hidden' }} />
-      <Handle type="target" position={Position.Bottom} id="danger-bottom-in"
-        style={{ left: SVG_W / 2, visibility: 'hidden' }} />
+      {/* === Danger wire handles — dynamic from pin allocator, or fallback to hardcoded === */}
+      {(dangerHandles ?? [
+        { id: 'danger-up', type: 'source' as const, position: Position.Top, offset: SVG_W / 2 - 3 },
+        { id: 'danger-up-in', type: 'target' as const, position: Position.Top, offset: SVG_W / 2 + 3 },
+        { id: 'danger-top-out', type: 'source' as const, position: Position.Top, offset: SVG_W / 2 - 30 },
+        { id: 'danger-bottom-in', type: 'target' as const, position: Position.Bottom, offset: SVG_W / 2 },
+      ]).map((spec) => (
+        <Handle key={spec.id} type={spec.type} position={spec.position} id={spec.id}
+          style={{
+            ...(spec.position === Position.Top || spec.position === Position.Bottom
+              ? { left: spec.offset ?? SVG_W / 2 }
+              : { top: spec.offset ?? CARD_H / 2 }),
+            ...(spec.position === Position.Right ? { left: SVG_W } : {}),
+            visibility: 'hidden',
+          }} />
+      ))}
 
       <svg width={SVG_W} height={CARD_H} viewBox={`0 0 ${SVG_W} ${CARD_H}`}
         style={{ display: 'block', overflow: 'visible' }}>
@@ -576,6 +590,32 @@ export const ApplicationCardNode = memo(({ data }: NodeProps) => {
           fill="none" stroke={silkDim} strokeWidth={0.7} opacity={0.35} />
         <circle cx={BODY_X + CARD_W - 10} cy={CARD_H - 10} r={3.5}
           fill="none" stroke={silkDim} strokeWidth={0.7} opacity={0.35} />
+
+        {/* Connection pads at danger handle positions */}
+        {dangerHandles && (
+          <g>
+            {dangerHandles
+              .filter(h => h.position === Position.Top)
+              .map(h => (
+                <g key={`pad-${h.id}`}>
+                  <rect x={(h.offset ?? SVG_W / 2) - 1.75} y={-4} width={3.5} height={4}
+                    fill={padColor} rx={0.5} />
+                  <line x1={h.offset ?? SVG_W / 2} y1={-4} x2={h.offset ?? SVG_W / 2} y2={-8}
+                    stroke={pinColor} strokeWidth={1} />
+                </g>
+              ))}
+            {dangerHandles
+              .filter(h => h.position === Position.Bottom)
+              .map(h => (
+                <g key={`pad-${h.id}`}>
+                  <rect x={(h.offset ?? SVG_W / 2) - 1.75} y={CARD_H} width={3.5} height={4}
+                    fill={padColor} rx={0.5} />
+                  <line x1={h.offset ?? SVG_W / 2} y1={CARD_H + 4} x2={h.offset ?? SVG_W / 2} y2={CARD_H + 8}
+                    stroke={pinColor} strokeWidth={1} />
+                </g>
+              ))}
+          </g>
+        )}
 
         {/* Selected glow */}
         {selected && (
