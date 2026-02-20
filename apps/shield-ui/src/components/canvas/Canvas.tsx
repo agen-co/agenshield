@@ -610,7 +610,7 @@ export function Canvas() {
             zoomOnScroll
             zoomOnPinch
             zoomOnDoubleClick={false}
-            minZoom={0.5}
+            minZoom={.8}
             maxZoom={zoomPhase !== 'idle' ? 20 : 1.5}
             onPaneClick={handlePaneClick}
             onNodeClick={handleNodeClick}
