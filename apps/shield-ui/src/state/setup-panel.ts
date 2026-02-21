@@ -29,6 +29,25 @@ export interface SetupPanelState {
   panelOpen: boolean;
   /** Panel mode */
   panelMode: 'initial-setup' | 'add-profile' | null;
+  /** IDs of cards dismissed (hidden) from the canvas */
+  dismissedCardIds: string[];
+  /** Pre-selected target ID for direct shield-wizard entry */
+  preSelectedTargetId: string | null;
+}
+
+const DISMISSED_KEY = 'agenshield:dismissed-cards';
+
+function loadDismissedIds(): string[] {
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistDismissedIds(ids: string[]): void {
+  localStorage.setItem(DISMISSED_KEY, JSON.stringify(ids));
 }
 
 export const setupPanelStore = proxy<SetupPanelState>({
@@ -38,6 +57,8 @@ export const setupPanelStore = proxy<SetupPanelState>({
   shieldProgress: {},
   panelOpen: false,
   panelMode: null,
+  dismissedCardIds: loadDismissedIds(),
+  preSelectedTargetId: null,
 });
 
 /**
@@ -102,6 +123,36 @@ export const KNOWN_PRESETS = [
   { id: 'openclaw', name: 'OpenClaw', icon: 'Globe' },
   { id: 'cursor', name: 'Cursor', icon: 'Monitor' },
 ] as const;
+
+/**
+ * Dismiss (hide) a card from the canvas.
+ */
+export function dismissCard(id: string): void {
+  if (!setupPanelStore.dismissedCardIds.includes(id)) {
+    setupPanelStore.dismissedCardIds.push(id);
+    persistDismissedIds([...setupPanelStore.dismissedCardIds]);
+  }
+}
+
+/**
+ * Restore a previously dismissed card.
+ */
+export function restoreCard(id: string): void {
+  const idx = setupPanelStore.dismissedCardIds.indexOf(id);
+  if (idx !== -1) {
+    setupPanelStore.dismissedCardIds.splice(idx, 1);
+    persistDismissedIds([...setupPanelStore.dismissedCardIds]);
+  }
+}
+
+/**
+ * Open setup panel pre-selecting a specific target (skip detection step).
+ */
+export function openSetupPanelForTarget(targetId: string): void {
+  setupPanelStore.preSelectedTargetId = targetId;
+  setupPanelStore.panelOpen = true;
+  setupPanelStore.panelMode = 'add-profile';
+}
 
 /**
  * Add a manual target to the detection list.

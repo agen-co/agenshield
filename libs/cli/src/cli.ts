@@ -33,6 +33,9 @@ import {
   createUninstallCommand,
   createDevCommand,
   createUpdateCommand,
+  createStartCommand,
+  createStopCommand,
+  createUpgradeCommand,
 } from './commands/index.js';
 
 // Package version - will be replaced during build
@@ -55,6 +58,9 @@ function createProgram(): Command {
 Current user: ${priv.username} (UID: ${priv.uid})${priv.isRoot ? ' [ROOT]' : ''}
 
 Examples:
+  $ agenshield start                Start daemon and open dashboard
+  $ agenshield stop                 Stop daemon
+  $ agenshield upgrade              Stop, update, and restart
   $ agenshield status               Check current status
   $ agenshield doctor               Run diagnostics
   $ agenshield setup                Run setup wizard
@@ -69,6 +75,9 @@ Examples:
     );
 
   // Register commands
+  program.addCommand(createStartCommand());
+  program.addCommand(createStopCommand());
+  program.addCommand(createUpgradeCommand());
   program.addCommand(createSetupCommand());
   program.addCommand(createStatusCommand());
   program.addCommand(createDoctorCommand());

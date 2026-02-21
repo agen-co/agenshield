@@ -85,6 +85,9 @@ export {
   type SetupShieldCompletePayload,
   type SetupCompletePayload,
   type SetupErrorPayload,
+  type SetupStateChangePayload,
+  type SetupScanCompletePayload,
+  type SetupLogPayload,
   SETUP_EVENT_TYPES,
 } from './setup.events';
 

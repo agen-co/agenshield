@@ -1,17 +1,14 @@
 /**
  * Canvas Dashboard — full-screen ReactFlow visualization of the AgenShield system.
  *
- * Dual mode:
- * - **Daemon mode**: Full monitoring topology (firewalls, shield core, HUD, targets)
- * - **Setup mode**: Unshielded system topology (system bus, expansion cards, PSU)
+ * Single layout: setup topology (shield logo hub, system components, broker cards).
+ * Canvas is the primary view; no sidebar.
  *
- * Logo is a fixed overlay. ActivityPanel is a fixed overlay (full-height right side).
  * SetupPanel is a fixed overlay (full-height left side) for setup/add-profile flows.
- * HUD indicators are individual ReactFlow nodes. Canvas is locked (no zoom, no scroll).
  * CanvasInner runs inside <ReactFlow> to access useReactFlow() for dot animations.
  *
- * Navigation: Clicking a system component node navigates to /canvas/<page>/<tab>.
- * Browser back button returns to /canvas with zoom-out animation.
+ * Navigation: Clicking a system component node navigates to /<page>/<tab>.
+ * Browser back button returns to / with zoom-out animation.
  */
 
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
@@ -20,28 +17,19 @@ import '@xyflow/react/dist/style.css';
 import { useTheme } from '@mui/material/styles';
 import { useSnapshot } from 'valtio';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Shield, Plus } from 'lucide-react';
 import {
   CanvasContainer,
-  LogoOverlay,
-  LogoText,
-  LogoStatusChip,
-  LogoSub,
 } from './Canvas.styles';
-import { pcb } from './styles/pcb-tokens';
 import { SvgFilters } from './filters/SvgFilters';
-import { useCanvasData } from './hooks/useCanvasData';
-import { useCanvasLayout } from './hooks/useCanvasLayout';
 import { useSetupCanvasData } from './hooks/useSetupCanvasData';
 import { useSetupCanvasLayout } from './hooks/useSetupCanvasLayout';
 import { useCanvasAnimations } from './hooks/useCanvasAnimations';
 import { useDotAnimations } from './hooks/useDotAnimations';
 import { DotOverlay } from './overlays/DotOverlay';
 import { PcbBackground } from './backgrounds/PcbBackground';
-import { ActivityPanel } from './panels/ActivityPanel';
 import { SetupPanel } from './panels/SetupPanel';
 import { useServerMode } from '../../api/hooks';
-import { setupPanelStore, openSetupPanel, closeSetupPanel } from '../../state/setup-panel';
+import { setupPanelStore, openSetupPanel, closeSetupPanel, openSetupPanelForTarget } from '../../state/setup-panel';
 import {
   drilldownStore,
   clearDrilldown,
@@ -53,19 +41,9 @@ import type { SystemComponentData } from './Canvas.types';
 import { DrilldownOverlay } from './overlays/DrilldownOverlay';
 import { PageOverlay } from './overlays/PageOverlay';
 
-// Node components — daemon mode
-import { ShieldCoreNode } from './nodes/ShieldCoreNode';
+// Node components
 import { CloudNode } from './nodes/CloudNode';
-import { TargetNode } from './nodes/TargetNode';
-import { TargetStatsNode } from './nodes/TargetStatsNode';
-import { FirewallPieceNode } from './nodes/FirewallPieceNode';
 import { ComputerNode } from './nodes/ComputerNode';
-import { DeniedBucketNode } from './nodes/DeniedBucketNode';
-import { ControllerNode } from './nodes/ControllerNode';
-import { HudIndicatorNode } from './nodes/HudIndicatorNode';
-import { SystemMetricsNode } from './nodes/SystemMetricsNode';
-
-// Node components — setup mode
 import { ApplicationCardNode } from './nodes/ApplicationCardNode';
 import { SystemBusNode } from './nodes/SystemBusNode';
 import { SystemBoardNode } from './nodes/SystemBoardNode';
@@ -76,6 +54,7 @@ import { ShieldChipNode } from './nodes/ShieldChipNode';
 import { SystemComponentNode } from './nodes/SystemComponentNode';
 import { AgenShieldNode } from './nodes/AgenShieldNode';
 import { BrokerNode } from './nodes/BrokerNode';
+import { HiddenChipNode } from './overlays/HiddenChip';
 
 // Edge components
 import { TrafficEdge } from './edges/TrafficEdge';
@@ -86,20 +65,9 @@ import { ExposedEdge, PowerEdge } from './edges/ExposedEdge';
 import { DangerWireEdge } from './edges/DangerWireEdge';
 
 const canvasNodeTypes: NodeTypes = {
-  // Shared
   'canvas-pcb-background': PcbBackground,
   'canvas-computer': ComputerNode,
   'canvas-cloud': CloudNode,
-  // Daemon mode
-  'canvas-core': ShieldCoreNode,
-  'canvas-target': TargetNode,
-  'canvas-target-stats': TargetStatsNode,
-  'canvas-firewall-piece': FirewallPieceNode,
-  'canvas-denied-bucket': DeniedBucketNode,
-  'canvas-controller': ControllerNode,
-  'canvas-hud-indicator': HudIndicatorNode,
-  'canvas-system-metrics': SystemMetricsNode,
-  // Setup mode
   'canvas-application-card': ApplicationCardNode,
   'canvas-system-bus': SystemBusNode,
   'canvas-system-board': SystemBoardNode,
@@ -110,15 +78,14 @@ const canvasNodeTypes: NodeTypes = {
   'canvas-system-component': SystemComponentNode,
   'canvas-agenshield': AgenShieldNode,
   'canvas-broker-card': BrokerNode,
+  'canvas-hidden-chip': HiddenChipNode,
 };
 
 const canvasEdgeTypes: EdgeTypes = {
-  // Shared / daemon mode
   'canvas-traffic': TrafficEdge,
   'canvas-disconnected': DisconnectedEdge,
   'canvas-cloud': CloudEdge,
   'canvas-denied': DeniedEdge,
-  // Setup mode
   'canvas-exposed': ExposedEdge,
   'canvas-power': PowerEdge,
   'canvas-danger': DangerWireEdge,
@@ -188,8 +155,8 @@ function CanvasInner({
   const skipClampRef = useRef(false);
   const prevDimsRef = useRef({ w: 0, h: 0 });
 
-  // Parse canvas sub-path from route
-  const subPath = location.pathname.replace(/^\/canvas\/?/, '');
+  // Parse sub-path from route (canvas is now at /)
+  const subPath = location.pathname.replace(/^\//, '');
   const page = subPath.split('/')[0] || '';
   const zoomTarget = (location.state as Record<string, unknown>)?.zoomTarget as string | undefined;
 
@@ -456,61 +423,23 @@ function CanvasInner({
   return <DotOverlay />;
 }
 
-/** Floating "Add Target" button when setup panel is closed */
-function AddTargetButton({ onClick }: { onClick: () => void }) {
-  const theme = useTheme();
-  const isDark = theme.palette.mode === 'dark';
-
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        position: 'absolute',
-        bottom: 20,
-        left: 20,
-        zIndex: 10,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '8px 14px',
-        borderRadius: 8,
-        border: `1px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'}`,
-        backgroundColor: isDark ? 'rgba(28,28,28,0.9)' : 'rgba(255,255,255,0.9)',
-        backdropFilter: 'blur(8px)',
-        color: theme.palette.text.primary,
-        fontSize: 12,
-        fontWeight: 600,
-        fontFamily: "'Manrope', sans-serif",
-        cursor: 'pointer',
-        transition: 'background-color 0.2s',
-        pointerEvents: 'auto',
-      }}
-    >
-      <Plus size={14} />
-      Add Target
-    </button>
-  );
-}
-
 export function Canvas() {
-  const theme = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const navigate = useNavigate();
   const location = useLocation();
 
   const serverMode = useServerMode();
-  const isSetupMode = serverMode === 'setup';
   const { panelOpen, panelMode } = useSnapshot(setupPanelStore);
 
-  // Parse canvas sub-path from route
-  const canvasSubPath = location.pathname.replace(/^\/canvas\/?/, '');
+  // Parse sub-path from route (canvas is now at /)
+  const canvasSubPath = location.pathname.replace(/^\//, '');
   const canvasPage = canvasSubPath.split('/')[0] || null;
   const canvasTab = canvasSubPath.split('/')[1] || undefined;
 
-  // Auto-open panel in setup mode
+  // Auto-open panel
   useEffect(() => {
-    if (isSetupMode && !panelOpen) {
+    if (!panelOpen) {
       openSetupPanel('initial-setup');
     }
   }, [serverMode]);
@@ -536,24 +465,15 @@ export function Canvas() {
     return () => { observer.disconnect(); cancelAnimationFrame(rafId); };
   }, [handleResize]);
 
-  // Data aggregation — dual mode
-  const daemonData = useCanvasData();
+  // Data aggregation + layout computation
   const setupData = useSetupCanvasData();
-
-  // Layout computation — dual mode
-  const daemonLayout = useCanvasLayout(daemonData, viewport);
   const setupLayout = useSetupCanvasLayout(setupData, viewport);
-
-  const { nodes, edges } = isSetupMode ? setupLayout : daemonLayout;
+  const { nodes, edges } = setupLayout;
 
   // Memoize types to avoid re-renders
   const nodeTypes = useMemo(() => canvasNodeTypes, []);
   const edgeTypes = useMemo(() => canvasEdgeTypes, []);
 
-
-  const handleOpenPanel = useCallback(() => {
-    openSetupPanel('add-profile');
-  }, []);
 
   const handleClosePanel = useCallback(() => {
     closeSetupPanel();
@@ -563,7 +483,7 @@ export function Canvas() {
 
   const handlePaneClick = useCallback(() => {
     if (drilldownStore.zoomPhase === 'zoomed') {
-      navigate('/canvas');
+      navigate('/');
     }
   }, [navigate]);
 
@@ -574,19 +494,29 @@ export function Canvas() {
         const route = COMPONENT_ROUTE_MAP[compData.componentType];
         if (route) {
           const tab = route.defaultTab ? `/${route.defaultTab}` : '';
-          navigate(`/canvas/${route.pageId}${tab}`, {
+          navigate(`/${route.pageId}${tab}`, {
             state: { zoomTarget: `comp-${compData.componentType}` },
           });
         }
       }
     } else if (node.type === 'canvas-agenshield') {
-      navigate('/canvas/overview', {
-        state: { zoomTarget: node.id },
-      });
+      const shieldData = node.data as unknown as { daemonRunning?: boolean; shieldedCount?: number };
+      if (!shieldData.daemonRunning || (shieldData.shieldedCount ?? 0) === 0) {
+        openSetupPanel('initial-setup');
+      } else {
+        navigate('/overview', {
+          state: { zoomTarget: node.id },
+        });
+      }
     } else if (node.type === 'canvas-broker-card') {
-      navigate('/canvas/overview', {
-        state: { zoomTarget: node.id },
-      });
+      const brokerData = node.data as Record<string, unknown>;
+      if (brokerData.status !== 'shielded') {
+        openSetupPanelForTarget(brokerData.id as string);
+      } else {
+        navigate('/overview', {
+          state: { zoomTarget: node.id },
+        });
+      }
     }
   }, [navigate]);
 
@@ -628,40 +558,13 @@ export function Canvas() {
         mode={panelMode ?? 'add-profile'}
       />
 
-      {/* Fixed overlay: Logo — top-left (hidden in setup mode, branding is in panel) */}
-      {!isSetupMode && (
-        <LogoOverlay style={panelOpen ? { left: 400 } : undefined}>
-          <Shield size={22} color={theme.palette.mode === 'dark' ? pcb.trace.bright : pcb.light.silk} />
-          <div>
-            <LogoText>AgenShield</LogoText>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-              <LogoStatusChip $running={daemonData.daemonRunning}>
-                {daemonData.daemonRunning ? 'Running' : 'Stopped'}
-              </LogoStatusChip>
-              <LogoSub>
-                v{daemonData.daemonVersion}
-                {daemonData.daemonPid ? ` · PID ${daemonData.daemonPid}` : ''}
-              </LogoSub>
-            </div>
-          </div>
-        </LogoOverlay>
-      )}
-
-      {/* "Add Target" button when panel is closed and in daemon mode */}
-      {!panelOpen && !isSetupMode && (
-        <AddTargetButton onClick={handleOpenPanel} />
-      )}
-
-      {/* Fixed overlay: Activity Panel — right side full-height (daemon mode only) */}
-      {!isSetupMode && <ActivityPanel />}
-
-      {/* Fixed overlay: Page overlay — route-driven drilldown (both modes) */}
+      {/* Fixed overlay: Page overlay — route-driven drilldown */}
       {(zoomPhase === 'zooming-in' || zoomPhase === 'zoomed') && canvasPage && (
         <PageOverlay page={canvasPage} tab={canvasTab} phase={zoomPhase} />
       )}
 
-      {/* Fixed overlay: Drilldown — card detail panel (setup mode only) */}
-      {isSetupMode && <DrilldownOverlay cards={setupData.cards} />}
+      {/* Fixed overlay: Drilldown — card detail panel */}
+      <DrilldownOverlay cards={setupData.cards} />
     </CanvasContainer>
   );
 }

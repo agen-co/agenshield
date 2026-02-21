@@ -4,7 +4,7 @@
  * Props-driven: receives `page` and `tab` from the route, not from valtio state.
  * Lazy-loads the corresponding page component.
  * Supports tabbed navigation for Policies (commands/network/filesystem).
- * Escape key and back button navigate to /canvas (zoom-out).
+ * Escape key and back button navigate to / (zoom-out).
  */
 
 import { lazy, Suspense, useCallback, useEffect, memo } from 'react';
@@ -75,26 +75,26 @@ export const PageOverlay = memo(({ page, tab }: PageOverlayProps) => {
   // Escape key closes overlay
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') navigate('/canvas');
+      if (e.key === 'Escape') navigate('/');
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [navigate]);
 
   const handleBack = useCallback(() => {
-    navigate('/canvas');
+    navigate('/');
   }, [navigate]);
 
   const handleTabChange = useCallback((_: React.SyntheticEvent, newIdx: number) => {
-    navigate(`/canvas/policies/${POLICY_TABS[newIdx].slug}`, { replace: true });
+    navigate(`/policies/${POLICY_TABS[newIdx].slug}`, { replace: true });
   }, [navigate]);
 
   const handlePoliciesTabChange = useCallback((newTab: string) => {
-    navigate(`/canvas/policies/${newTab}`, { replace: true });
+    navigate(`/policies/${newTab}`, { replace: true });
   }, [navigate]);
 
   const handleMetricsTabChange = useCallback((_: React.SyntheticEvent, newIdx: number) => {
-    navigate(`/canvas/metrics/${METRICS_TABS[newIdx].slug}`, { replace: true });
+    navigate(`/metrics/${METRICS_TABS[newIdx].slug}`, { replace: true });
   }, [navigate]);
 
   const meta = PAGE_META[page];

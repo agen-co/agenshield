@@ -5,7 +5,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import type { MigrationScanResult, MigrationSelection } from '@agenshield/ipc';
-import { setupStore, type SetupPhase } from '../state/setup';
+import { setupStore, type SetupPhase, type WizardState, type WizardStepId } from '../state/setup';
 import type { ExecutableInfo } from '../state/setup';
 
 const BASE_URL = '/api';
@@ -151,10 +151,12 @@ export function useExecutables() {
 
 // --- SSE hook for setup events ---
 
-export function useSetupSSE() {
+export function useSetupSSE(enabled = true) {
   const sourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
+
     const es = new EventSource('/sse/events');
     sourceRef.current = es;
 
@@ -250,6 +252,29 @@ export function useSetupSSE() {
     es.addEventListener('setup:error', handleError);
     es.addEventListener('setup:log', handleLog);
 
+    es.onopen = () => {
+      // Fetch initial state since SSE only sends change events
+      setupApi.getState().then(({ data }) => {
+        if (data.state) {
+          setupStore.wizardState = data.state as unknown as WizardState;
+          if ((data.state as Record<string, unknown>).steps) {
+            const steps = (data.state as Record<string, unknown>).steps as { id: string; status: string }[];
+            setupStore.completedEngineSteps = steps
+              .filter(s => s.status === 'completed')
+              .map(s => s.id) as WizardStepId[];
+          }
+        }
+        if (data.context) {
+          setupStore.context = data.context;
+        }
+        if (data.phase) {
+          setupStore.phase = data.phase as SetupPhase;
+        }
+      }).catch(() => {
+        // Ignore — SSE events will populate state when available
+      });
+    };
+
     es.onerror = () => {
       // Reconnection is handled automatically by EventSource
     };
@@ -258,5 +283,5 @@ export function useSetupSSE() {
       es.close();
       sourceRef.current = null;
     };
-  }, []);
+  }, [enabled]);
 }

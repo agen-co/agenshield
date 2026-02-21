@@ -27,6 +27,7 @@ import { Position, type Node, type Edge } from '@xyflow/react';
 import type { SetupCanvasData, SystemComponentType, ConnectionIntent, HandleSpec } from '../Canvas.types';
 import { VARIANTS } from '../nodes/SystemComponentNode/system.constants';
 import { setAllExposed, setExtendedComponentsActive } from '../../../state/system-store';
+import { useServerMode } from '../../../api/hooks';
 import { allocatePins } from '../utils/pinAllocator';
 
 interface ViewportSize {
@@ -112,7 +113,8 @@ function computeShieldTopY(_hasBrokers: boolean): number {
 
 export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSize) {
   const { width: vw, height: vh } = viewport;
-
+  const serverMode = useServerMode();
+  const isCliSetup = serverMode === 'setup';
 
   // Sync exposed state to unified valtio store
   const hasAnyUnshielded = data.anyUnshielded;
@@ -133,11 +135,14 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       JSON.stringify({
         cardIds: data.cards.map((c) => c.id),
         cardStatuses: data.cards.map((c) => `${c.id}:${c.status}`),
+        stoppedIds: data.stoppedShieldedCards.map((c) => c.id),
+        dismissedCount: data.dismissedCardIds.length,
         hasDetection: data.hasDetection,
         anyShielded: data.anyShielded,
         anyUnshielded: data.anyUnshielded,
+        isCliSetup,
       }),
-    [data.cards, data.hasDetection, data.anyShielded, data.anyUnshielded],
+    [data.cards, data.stoppedShieldedCards, data.dismissedCardIds, data.hasDetection, data.anyShielded, data.anyUnshielded, isCliSetup],
   );
 
   /* ==================================================================
@@ -149,16 +154,19 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
     const topo = JSON.parse(topologyKey) as {
       cardIds: string[];
       cardStatuses: string[];
+      stoppedIds: string[];
+      dismissedCount: number;
       hasDetection: boolean;
       anyShielded: boolean;
       anyUnshielded: boolean;
+      isCliSetup: boolean;
     };
 
     if (!topo.hasDetection && !topo.anyShielded) return null;
 
     const contentCenterX = LAYOUT_CENTER_X;
     const shieldX = contentCenterX - SHIELD_W / 2;
-    const hasBrokers = topo.hasDetection && topo.cardIds.length > 0;
+    const hasBrokers = topo.hasDetection && (topo.cardIds.length > 0 || topo.stoppedIds.length > 0);
     const shieldTopY = computeShieldTopY(hasBrokers);
 
     const intents: ConnectionIntent[] = [];
@@ -264,8 +272,10 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       });
     }
 
-    // --- Penetration wires (unshielded broker ↔ core comp) ---
-    if (topo.hasDetection) {
+    // --- Penetration wires (unshielded main-row broker ↔ core comp) ---
+    // In CLI setup mode, skip all penetration/tendril wires — cards float
+    // without connections until they become shielded.
+    if (topo.hasDetection && !topo.isCliSetup) {
       const unshieldedCards = topo.cardIds.filter((id) => {
         const entry = topo.cardStatuses.find((s) => s.startsWith(`${id}:`));
         return entry?.split(':')[1] !== 'shielded';
@@ -303,7 +313,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         });
       });
 
-      // --- Tendril wires (broker ↔ broker, adjacent only) ---
+      // --- Tendril wires (broker ↔ broker, adjacent only, main row only) ---
       const unshieldedBrokers = topo.cardIds.filter((id) => {
         const entry = topo.cardStatuses.find((s) => s.startsWith(`${id}:`));
         return entry?.split(':')[1] !== 'shielded';
@@ -336,7 +346,12 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       nodeDims.set(`comp-${comp.id}`, { width: comp.w, height: comp.h });
     });
     if (topo.hasDetection) {
+      // Main row brokers
       topo.cardIds.forEach((id) => {
+        nodeDims.set(`broker-${id}`, { width: BROKER_W, height: BROKER_H });
+      });
+      // Stopped-shielded row brokers
+      topo.stoppedIds.forEach((id) => {
         nodeDims.set(`broker-${id}`, { width: BROKER_W, height: BROKER_H });
       });
     }
@@ -368,14 +383,17 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
 
     // --- Shield position ---
     const shieldX = contentCenterX - SHIELD_W / 2;
-    const cardCount = data.hasDetection ? data.cards.length : 0;
-    const hasBrokers = data.hasDetection && cardCount > 0;
+    const mainCardCount = data.hasDetection ? data.cards.length : 0;
+    const stoppedCardCount = data.stoppedShieldedCards.length;
+    const totalVisibleCards = mainCardCount + stoppedCardCount;
+    const hasBrokers = data.hasDetection && totalVisibleCards > 0;
     const shieldTopY = computeShieldTopY(hasBrokers);
 
     // Flags
-    const shieldedCount = data.cards.filter((c) => c.status === 'shielded').length;
+    const allVisibleCards = [...data.cards, ...data.stoppedShieldedCards];
+    const shieldedCount = allVisibleCards.filter((c) => c.status === 'shielded').length;
     const status = data.anyShielded
-      ? (data.cards.every((c) => c.status === 'shielded') ? 'protected' : 'partial')
+      ? (allVisibleCards.every((c) => c.status === 'shielded') ? 'protected' : 'partial')
       : 'unprotected';
 
     // --- 4 Core components: row ABOVE the shield ---
@@ -536,10 +554,10 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       });
     });
 
-    // Bottom handles: N brokers following the bottom parabola
+    // Bottom handles: N brokers (main + stopped-shielded) following the bottom parabola
     const bottomHandles: HandleSpec[] = [];
-    for (let i = 0; i < cardCount; i++) {
-      const svgX = cardCount === 1 ? 100 : 75 + i * 50 / (cardCount - 1);
+    for (let i = 0; i < totalVisibleCards; i++) {
+      const svgX = totalVisibleCards === 1 ? 100 : 75 + i * 50 / (totalVisibleCards - 1);
       const svgY = shieldBottomCurveY(svgX);
       bottomHandles.push({
         id: `bottom-broker-${i}`,
@@ -605,7 +623,8 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         status,
         daemonRunning: data.daemonRunning,
         shieldedCount,
-        totalCount: cardCount,
+        totalCount: totalVisibleCards,
+        updateAvailable: serverMode === 'update',
         topHandles,
         bottomHandles,
         leftHandles,
@@ -616,16 +635,17 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       zIndex: data.daemonRunning ? 10 : 0,
     });
 
-    // --- Broker-wrapped cards (row below shield) ---
-    if (data.hasDetection && cardCount > 0) {
-      const brokerStartY = shieldTopY + SHIELD_H + BROKER_GAP;
-      const brokerRowW = cardCount * BROKER_W + (cardCount - 1) * BROKER_H_GAP;
+    // --- Broker-wrapped cards: single row (main cards first, then stopped-shielded) ---
+    const brokerStartY = shieldTopY + SHIELD_H + BROKER_GAP;
+    const allBrokerCards = [...data.cards, ...data.stoppedShieldedCards];
+    if (data.hasDetection && totalVisibleCards > 0) {
+      const brokerRowW = totalVisibleCards * BROKER_W + (totalVisibleCards - 1) * BROKER_H_GAP;
       const brokerStartX = contentCenterX - brokerRowW / 2;
 
-      data.cards.forEach((card, i) => {
+      allBrokerCards.forEach((card, i) => {
         const brokerX = brokerStartX + i * (BROKER_W + BROKER_H_GAP);
-
         const brokerHandleOverrides = pinAllocation?.nodeHandles.get(`broker-${card.id}`);
+        const isStoppedShielded = !card.isRunning && card.status === 'shielded';
 
         result.push({
           id: `broker-${card.id}`,
@@ -640,11 +660,33 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
             icon: card.icon,
             status: card.status,
             isRunning: card.isRunning,
+            ...(isStoppedShielded ? { dimmed: true } : {}),
             ...(brokerHandleOverrides ? { handleOverrides: brokerHandleOverrides } : {}),
           },
+          ...(isStoppedShielded ? { style: { opacity: 0.5 } } : {}),
           draggable: false,
           selectable: false,
         });
+      });
+    }
+
+    // --- Hidden chip node (below broker row, when cards are dismissed) ---
+    if (data.dismissedCardIds.length > 0) {
+      const chipY = brokerStartY + (totalVisibleCards > 0 ? BROKER_H + 30 : 0);
+
+      result.push({
+        id: 'hidden-chip',
+        type: 'canvas-hidden-chip',
+        position: { x: contentCenterX - 60, y: chipY },
+        width: 120,
+        height: 28,
+        data: {
+          count: data.dismissedCardIds.length,
+          dismissedIds: data.dismissedCardIds,
+          dismissedNames: data.dismissedNames,
+        },
+        draggable: false,
+        selectable: false,
       });
     }
 
@@ -662,9 +704,12 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
     const topo = JSON.parse(topologyKey) as {
       cardIds: string[];
       cardStatuses: string[];
+      stoppedIds: string[];
+      dismissedCount: number;
       hasDetection: boolean;
       anyShielded: boolean;
       anyUnshielded: boolean;
+      isCliSetup: boolean;
     };
 
     const getAllocatedHandles = (edgeId: string) =>
@@ -757,12 +802,15 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       });
     }
 
-    // --- AgenShield -> Brokers (traffic/danger wires) ---
+    // --- AgenShield -> Main-row Brokers (traffic/danger wires) ---
     if (topo.hasDetection) {
       topo.cardIds.forEach((cardId, i) => {
         const statusEntry = topo.cardStatuses.find((s) => s.startsWith(`${cardId}:`));
         const cardStatus = statusEntry?.split(':')[1] ?? 'unshielded';
         const isShielded = cardStatus === 'shielded';
+
+        // In CLI setup mode, skip ALL edges for non-shielded cards — they float
+        if (topo.isCliSetup && !isShielded) return;
 
         // Handle ID for this broker on the shield
         const shieldHandle = `bottom-broker-${i}`;
@@ -780,7 +828,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
             data: { variant: 'shield', fanout: true, balanced: true },
           });
         } else {
-          // Unshielded: danger primary wires
+          // Unshielded: danger primary wires (daemon mode only)
           const dangerOffsets = Array.from(
             { length: DANGER_WIRE_COUNT },
             (_, w) => (w - (DANGER_WIRE_COUNT - 1) / 2) * DANGER_WIRE_SPACING,
@@ -828,30 +876,49 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         }
       });
 
-      // Cross-contamination tendrils — adjacent brokers only
-      const unshieldedBrokers: string[] = [];
-      topo.cardIds.forEach((cardId) => {
-        const statusEntry = topo.cardStatuses.find((s) => s.startsWith(`${cardId}:`));
-        const st = statusEntry?.split(':')[1] ?? 'unshielded';
-        if (st !== 'shielded') unshieldedBrokers.push(cardId);
+      // --- AgenShield -> Stopped-shielded Brokers (dimmed shield wires) ---
+      topo.stoppedIds.forEach((cardId, i) => {
+        const shieldHandleIdx = topo.cardIds.length + i;
+        const shieldHandle = `bottom-broker-${shieldHandleIdx}`;
+        const brokerBusHandle = 'top-bus';
+
+        result.push({
+          id: `e-shield-broker-${cardId}`,
+          source: 'agenshield',
+          target: `broker-${cardId}`,
+          sourceHandle: shieldHandle,
+          targetHandle: brokerBusHandle,
+          type: 'canvas-danger',
+          data: { variant: 'shield', fanout: true, balanced: true, dimmed: true },
+        });
       });
 
-      for (let a = 0; a < unshieldedBrokers.length; a++) {
-        for (let b = a + 1; b < unshieldedBrokers.length && b <= a + 1; b++) {
-          const idA = unshieldedBrokers[a];
-          const idB = unshieldedBrokers[b];
-          const tendrilId = `e-tendril-${idA}-${idB}`;
-          const tendrilHandles = getAllocatedHandles(tendrilId);
+      // Cross-contamination tendrils — adjacent main-row brokers only (daemon mode)
+      if (!topo.isCliSetup) {
+        const unshieldedBrokers: string[] = [];
+        topo.cardIds.forEach((cardId) => {
+          const statusEntry = topo.cardStatuses.find((s) => s.startsWith(`${cardId}:`));
+          const st = statusEntry?.split(':')[1] ?? 'unshielded';
+          if (st !== 'shielded') unshieldedBrokers.push(cardId);
+        });
 
-          result.push({
-            id: tendrilId,
-            source: `broker-${idA}`,
-            target: `broker-${idB}`,
-            sourceHandle: tendrilHandles?.sourceHandle ?? 'danger-top-out',
-            targetHandle: tendrilHandles?.targetHandle ?? 'danger-bottom-in',
-            type: 'canvas-danger',
-            data: { variant: 'tendril' },
-          });
+        for (let a = 0; a < unshieldedBrokers.length; a++) {
+          for (let b = a + 1; b < unshieldedBrokers.length && b <= a + 1; b++) {
+            const idA = unshieldedBrokers[a];
+            const idB = unshieldedBrokers[b];
+            const tendrilId = `e-tendril-${idA}-${idB}`;
+            const tendrilHandles = getAllocatedHandles(tendrilId);
+
+            result.push({
+              id: tendrilId,
+              source: `broker-${idA}`,
+              target: `broker-${idB}`,
+              sourceHandle: tendrilHandles?.sourceHandle ?? 'danger-top-out',
+              targetHandle: tendrilHandles?.targetHandle ?? 'danger-bottom-in',
+              type: 'canvas-danger',
+              data: { variant: 'tendril' },
+            });
+          }
         }
       }
     }

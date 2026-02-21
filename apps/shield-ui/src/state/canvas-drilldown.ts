@@ -4,7 +4,7 @@
  * Zoom phase state machine:
  *   idle → zooming-in → zoomed (overlay appears) → zooming-out (overlay gone) → idle
  *
- * Component drilldown is now route-driven (/canvas/<page>/<tab>).
+ * Component drilldown is now route-driven (/<page>/<tab>).
  * Only setup-mode card drilldown (activeCardId) remains in valtio.
  */
 

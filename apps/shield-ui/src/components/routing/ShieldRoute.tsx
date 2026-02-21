@@ -24,7 +24,7 @@ export function ShieldRoute({ children, allowedModes, fallback }: ShieldRoutePro
   if (!serverMode) return null;
 
   if (!allowedModes.includes(serverMode) && !allowedModes.includes('any')) {
-    const redirectTo = fallback ?? (serverMode === 'setup' ? '/canvas' : '/');
+    const redirectTo = fallback ?? '/';
     return <Navigate to={redirectTo} replace />;
   }
 

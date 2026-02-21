@@ -9,12 +9,13 @@
  *   - danger handles for penetration/tendril wires
  */
 
-import React, { memo, useState } from 'react';
+import React, { memo, useState, useCallback } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Terminal, Globe, Monitor, Cpu } from 'lucide-react';
+import { Terminal, Globe, Monitor, Cpu, X } from 'lucide-react';
 import { useTheme } from '@mui/material/styles';
 import { pcb } from '../../styles/pcb-tokens';
 import type { BrokerCardData, HandleSpec } from '../../Canvas.types';
+import { dismissCard } from '../../../../state/setup-panel';
 
 /* ---- Dimensions ---- */
 const BROKER_W = 180;
@@ -40,7 +41,7 @@ const BRAND_ICONS: Record<string, string> = {
 
 export const BrokerNode = memo(({ data }: NodeProps) => {
   const {
-    name, type, icon, status, isRunning,
+    id, name, type, icon, status, isRunning, dimmed,
     handleOverrides: dangerHandles,
   } = data as unknown as BrokerCardData & { handleOverrides?: HandleSpec[] };
 
@@ -49,6 +50,9 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
 
+  const isStopped = isRunning === false;
+  const isStoppedShielded = isStopped && status === 'shielded';
+
   const bodyColor = isDark ? '#161820' : '#F2F2EE';
   const brokerBorder = isDark ? 'rgba(60,60,60,0.3)' : 'rgba(100,100,100,0.3)';
   const innerBg = isDark ? '#191B20' : '#E4E4DE';
@@ -56,8 +60,14 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
   const silkColor = isDark ? pcb.silk.primary : '#2A2A2A';
   const silkDim = isDark ? pcb.silk.dim : '#6A6A6A';
   const padColor = pcb.component.padGold;
-  const ledColor = STATUS_LED[status] ?? pcb.component.ledRed;
+  // LED: stopped+shielded → grey, otherwise normal status color
+  const ledColor = isStoppedShielded ? pcb.component.ledOff : (STATUS_LED[status] ?? pcb.component.ledRed);
   const Icon = ICON_MAP[icon] ?? Terminal;
+
+  const handleDismiss = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    dismissCard(id);
+  }, [id]);
 
   // Via pad positions (decorative corners)
   const vias = [
@@ -79,6 +89,33 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      {/* === Dismiss button (visible on hover) === */}
+      {hovered && (
+        <button
+          onClick={handleDismiss}
+          style={{
+            position: 'absolute',
+            top: -6,
+            right: -6,
+            width: 16,
+            height: 16,
+            borderRadius: '50%',
+            border: 'none',
+            backgroundColor: isDark ? 'rgba(60,60,60,0.85)' : 'rgba(180,180,180,0.85)',
+            color: isDark ? '#ccc' : '#444',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            zIndex: 10,
+            lineHeight: 1,
+          }}
+        >
+          <X size={10} />
+        </button>
+      )}
+
       {/* === Top bus handle (connects to + bottom arm) === */}
       <Handle type="target" position={Position.Top} id="top-bus"
         style={{ left: BROKER_W / 2, visibility: 'hidden' }} />
@@ -141,6 +178,38 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
         <rect x={PAD} y={PAD} width={INNER_W} height={INNER_H}
           fill="url(#pcb-chip-gradient)" rx={2} opacity={0.3} />
 
+        {/* === Protection stack mini-chips (shielded + running) === */}
+        {status === 'shielded' && !isStopped && (
+          <g>
+            {/* Firewall mini-chip */}
+            <g transform={`translate(${PAD + 10}, ${PAD + 2})`}>
+              <rect width={16} height={10} fill={isDark ? '#1A2420' : '#E8F0EB'}
+                stroke="#2D6B3F" strokeWidth={0.4} rx={1.5} opacity={0.8} />
+              <text x={8} y={5.5} textAnchor="middle" dominantBaseline="central"
+                fill="#2D6B3F" fontSize={3.5} fontFamily="'IBM Plex Mono', monospace"
+                fontWeight={600}>FW</text>
+            </g>
+
+            {/* Broker mini-chip */}
+            <g transform={`translate(${PAD + INNER_W / 2 - 8}, ${PAD + 2})`}>
+              <rect width={16} height={10} fill={isDark ? '#1A2420' : '#E8F0EB'}
+                stroke="#2D6B3F" strokeWidth={0.4} rx={1.5} opacity={0.8} />
+              <text x={8} y={5.5} textAnchor="middle" dominantBaseline="central"
+                fill="#2D6B3F" fontSize={3.5} fontFamily="'IBM Plex Mono', monospace"
+                fontWeight={600}>BRK</text>
+            </g>
+
+            {/* Shield mini-chip */}
+            <g transform={`translate(${PAD + INNER_W - 26}, ${PAD + 2})`}>
+              <rect width={16} height={10} fill={isDark ? '#1A2420' : '#E8F0EB'}
+                stroke="#2D6B3F" strokeWidth={0.4} rx={1.5} opacity={0.8} />
+              <text x={8} y={5.5} textAnchor="middle" dominantBaseline="central"
+                fill="#2D6B3F" fontSize={3.5} fontFamily="'IBM Plex Mono', monospace"
+                fontWeight={600}>SHL</text>
+            </g>
+          </g>
+        )}
+
         {/* App icon */}
         {BRAND_ICONS[type] ? (
           <image
@@ -193,11 +262,27 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
           {status.toUpperCase()}
         </text>
 
+        {/* STOPPED label (when not running) */}
+        {isStopped && (
+          <text x={PAD + INNER_W / 2} y={PAD + INNER_H + 2} textAnchor="middle" dominantBaseline="central"
+            fill={silkDim} fontSize={4} fontFamily="'IBM Plex Mono', monospace"
+            letterSpacing={0.8} opacity={0.5}>
+            STOPPED
+          </text>
+        )}
+
         {/* === Exposed overlay (when unshielded) === */}
         {status === 'unshielded' && (
           <rect x={PAD - 1} y={PAD - 1} width={INNER_W + 2} height={INNER_H + 2}
             fill="none" stroke="#E1583E" strokeWidth={1} rx={3}
             style={{ animation: 'danger-card-pulse 2s ease-in-out infinite' }} />
+        )}
+
+        {/* === Shielded overlay (when shielded + running) === */}
+        {status === 'shielded' && !isStopped && (
+          <rect x={PAD - 1} y={PAD - 1} width={INNER_W + 2} height={INNER_H + 2}
+            fill="none" stroke="#2D6B3F" strokeWidth={1} rx={3}
+            style={{ animation: 'shielded-card-pulse 3s ease-in-out infinite' }} />
         )}
 
         {/* === Bottom silkscreen === */}

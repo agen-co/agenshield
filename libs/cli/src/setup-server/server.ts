@@ -45,12 +45,14 @@ export function createSetupServer(engine: WizardEngine): SetupServer {
 
     broadcastSetupEvent('setup:state_change', {
       state,
-      phase: state.isComplete ? 'complete' : 'execution',
+      // Don't include phase — let route handlers and initial state fetch set it correctly.
+      // Including phase here overrides the correct phase during detection/configuration.
     });
 
     // Auto-shutdown after completion
     if (state.isComplete && !isComplete) {
       isComplete = true;
+      broadcastSetupEvent('setup:complete', { state });
       setTimeout(() => {
         completionResolve?.();
       }, SHUTDOWN_DELAY);

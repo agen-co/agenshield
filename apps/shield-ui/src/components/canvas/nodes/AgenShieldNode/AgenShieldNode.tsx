@@ -55,10 +55,10 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /* ---- Wing animation constants ---- */
-const WING_TRANSITION = 'transform 0.6s ease-in-out';
-const LEFT_WING_ORIGIN = '78px 77px';
-const RIGHT_WING_ORIGIN = '122px 77px';
-const WING_FOLD_ANGLE = 22; // degrees to fold inward when closed
+const WING_CLOSED_LEFT = 'translate(25px, -9px)';
+const WING_CLOSED_RIGHT = 'translate(-25px, -9px)';
+const WING_OPEN = 'translate(0, 0)';
+const WING_TRANSITION = 'transform 0.8s ease-in-out, opacity 0.8s ease-in-out';
 
 export const AgenShieldNode = memo(({ data }: NodeProps) => {
   const {
@@ -68,6 +68,7 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
     daemonRunning,
     shieldedCount,
     totalCount,
+    updateAvailable,
     topHandles = [],
     bottomHandles = [],
     leftHandles = [],
@@ -91,8 +92,15 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
       ? '#EEA45F'
       : '#E1583E';
 
-  // Shield is dimmed and below edges when daemon is off
-  const shieldOpacity = daemonRunning ? 1 : 0.35;
+  // Shield is dimmed when daemon is off
+  const shieldOpacity = daemonRunning ? 1 : 0.6;
+
+  // Status label logic
+  const statusLabel = daemonRunning
+    ? (STATUS_LABEL[status] ?? 'UNKNOWN')
+    : totalCount === 0
+      ? 'NOT INSTALLED'
+      : 'OFFLINE';
 
   return (
     <div
@@ -143,19 +151,17 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
           <path d={SHIELD_PIECES.centerBody} fill={fillColor} />
           <path d={SHIELD_PIECES.horizontalBar} fill={fillColor} />
 
-          {/* Left wing — folds inward when daemon is off */}
+          {/* Left wing — slides right+up when daemon is off */}
           <g style={{
-            transformOrigin: LEFT_WING_ORIGIN,
-            transform: daemonRunning ? 'rotate(0deg)' : `rotate(${WING_FOLD_ANGLE}deg)`,
+            transform: daemonRunning ? WING_OPEN : WING_CLOSED_LEFT,
             transition: WING_TRANSITION,
           }}>
             <path d={SHIELD_PIECES.leftWing} fill={fillColor} />
           </g>
 
-          {/* Right wing — folds inward when daemon is off */}
+          {/* Right wing — slides left+up when daemon is off */}
           <g style={{
-            transformOrigin: RIGHT_WING_ORIGIN,
-            transform: daemonRunning ? 'rotate(0deg)' : `rotate(-${WING_FOLD_ANGLE}deg)`,
+            transform: daemonRunning ? WING_OPEN : WING_CLOSED_RIGHT,
             transition: WING_TRANSITION,
           }}>
             <path d={SHIELD_PIECES.rightWing} fill={fillColor} />
@@ -169,11 +175,6 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
             strokeWidth={1.8}
             strokeLinecap="round"
             filter={seamGlow}
-            style={{
-              transformOrigin: LEFT_WING_ORIGIN,
-              transform: daemonRunning ? 'rotate(0deg)' : `rotate(${WING_FOLD_ANGLE}deg)`,
-              transition: WING_TRANSITION,
-            }}
           />
           <path
             d={SEAM_LINES.rightDiagonal}
@@ -182,11 +183,6 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
             strokeWidth={1.8}
             strokeLinecap="round"
             filter={seamGlow}
-            style={{
-              transformOrigin: RIGHT_WING_ORIGIN,
-              transform: daemonRunning ? 'rotate(0deg)' : `rotate(-${WING_FOLD_ANGLE}deg)`,
-              transition: WING_TRANSITION,
-            }}
           />
           <path
             d={SEAM_LINES.barTop}
@@ -218,7 +214,7 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
           letterSpacing={1}
           opacity={0.8}
         >
-          {STATUS_LABEL[status] ?? 'UNKNOWN'}
+          {statusLabel}
         </text>
 
         {/* === Count indicator === */}
@@ -235,6 +231,24 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
           >
             {shieldedCount}/{totalCount}
           </text>
+        )}
+
+        {/* === Update badge — only when a new version is available === */}
+        {updateAvailable && (
+          <g style={{ cursor: 'pointer' }}>
+            <rect
+              x={75} y={186} width={50} height={14} rx={3}
+              fill="#6BAEF2" opacity={0.9}
+            />
+            <text
+              x={100} y={193}
+              textAnchor="middle" dominantBaseline="central"
+              fill="#fff" fontSize={7} fontWeight={700}
+              fontFamily="'IBM Plex Mono', monospace" letterSpacing={0.5}
+            >
+              UPDATE
+            </text>
+          </g>
         )}
       </svg>
     </div>

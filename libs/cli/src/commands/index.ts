@@ -12,3 +12,6 @@ export { createBrokerCommand } from './broker.js';
 export { createUninstallCommand } from './uninstall.js';
 export { createDevCommand } from './dev.js';
 export { createUpdateCommand } from './update.js';
+export { createStartCommand } from './start.js';
+export { createStopCommand } from './stop.js';
+export { createUpgradeCommand } from './upgrade.js';

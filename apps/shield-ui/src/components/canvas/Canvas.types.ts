@@ -283,6 +283,14 @@ export interface SystemComponentData {
   [key: string]: unknown;
 }
 
+export interface HiddenChipData {
+  count: number;
+  dismissedIds: string[];
+  /** Name lookup for dismissed cards */
+  dismissedNames: Record<string, string>;
+  [key: string]: unknown;
+}
+
 export interface DangerWireData {
   variant: 'primary' | 'penetration' | 'tendril' | 'shield';
   channelOffset?: number;
@@ -303,6 +311,7 @@ export interface AgenShieldData {
   daemonRunning: boolean;
   shieldedCount: number;
   totalCount: number;
+  updateAvailable?: boolean;
   /** Handle specs for each zone — computed by layout hook */
   topHandles: HandleSpec[];
   bottomHandles: HandleSpec[];
@@ -318,16 +327,22 @@ export interface BrokerCardData {
   icon: string;
   status: 'unshielded' | 'shielding' | 'shielded';
   isRunning?: boolean;
+  /** Whether this card is in the stopped-shielded bottom row */
+  dimmed?: boolean;
   [key: string]: unknown;
 }
 
 export interface SetupCanvasData {
   currentUser: string;
   cards: ApplicationCardData[];
+  stoppedShieldedCards: ApplicationCardData[];
   hasDetection: boolean;
   anyShielded: boolean;
   anyUnshielded: boolean;
   daemonRunning: boolean;
+  dismissedCardIds: string[];
+  /** Name lookup for dismissed cards (id → name) */
+  dismissedNames: Record<string, string>;
 }
 
 /* ---- Pin Allocator types ---- */

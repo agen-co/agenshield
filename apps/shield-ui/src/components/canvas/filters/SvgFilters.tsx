@@ -40,6 +40,10 @@ export function SvgFilters() {
             0%, 49% { opacity: 1; }
             50%, 100% { opacity: 0.3; }
           }
+          @keyframes shielded-card-pulse {
+            0%, 100% { opacity: 0.2; stroke-width: 0.8; }
+            50% { opacity: 0.6; stroke-width: 1.2; }
+          }
         `}</style>
         {/* Green glow — healthy/shielded */}
         <filter id="canvas-glow-green" x="-50%" y="-50%" width="200%" height="200%">

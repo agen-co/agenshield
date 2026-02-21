@@ -267,6 +267,11 @@ export function createSetupCommand(): Command {
     .option('--list-presets', 'List available presets and exit')
     .option('--cli', 'Use terminal/Ink UI instead of web browser')
     .action(async (options) => {
+      // Deprecation notice
+      console.log('\x1b[33m⚠ Note: `agenshield setup` will be deprecated in a future release.\x1b[0m');
+      console.log('\x1b[33m  Use `agenshield start` instead — the daemon now handles setup automatically.\x1b[0m');
+      console.log('');
+
       // Handle --list-presets
       if (options.listPresets) {
         console.log(formatPresetList());
