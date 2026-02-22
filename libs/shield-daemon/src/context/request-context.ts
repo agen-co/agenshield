@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { SkillManager } from '@agentshield/skills';
 import type { ProfileSocketManager } from '../services/profile-sockets';
+import type { PrivilegeExecutor } from '../services/privilege-executor';
 import {
   type ShieldContext,
   type ShieldRequestSource,
@@ -24,6 +25,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     skillManager: SkillManager;
     profileSocketManager?: ProfileSocketManager;
+    privilegeExecutor?: PrivilegeExecutor;
   }
 }
 

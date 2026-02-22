@@ -12,9 +12,15 @@
 import { proxy } from 'valtio';
 import type { SystemComponentType, SystemMetrics } from '../components/canvas/Canvas.types';
 
+export type ComponentHealth = 'ok' | 'warn' | 'danger';
+
 export interface ComponentStatus {
   exposed: boolean;
   active: boolean;
+  health: ComponentHealth;
+  okCount: number;
+  warnCount: number;
+  dangerCount: number;
 }
 
 export interface MetricsSnapshot {
@@ -30,31 +36,46 @@ const MAX_HISTORY = 150; // 150 * 2s = 5 min
 
 export interface SystemStoreState {
   metrics: SystemMetrics;
+  metricsLoaded: boolean;
   metricsHistory: MetricsSnapshot[];
   components: Record<SystemComponentType, ComponentStatus>;
+  wingsForceOpen: boolean;
+  systemInfo: {
+    hostname: string;
+    activeUser: string;
+    uptime: number;
+    platform: string;
+    arch: string;
+    cpuModel: string;
+    totalMemory: number;
+    nodeVersion: string;
+  } | null;
 }
 
 export const systemStore = proxy<SystemStoreState>({
   metrics: {
-    cpuPercent: 35,
-    memPercent: 52,
-    diskPercent: 41,
-    netUp: 125_000,
-    netDown: 340_000,
-    cmdRate: 2.5,
-    logRate: 18,
+    cpuPercent: 0,
+    memPercent: 0,
+    diskPercent: 0,
+    netUp: 0,
+    netDown: 0,
+    cmdRate: 0,
+    logRate: 0,
   },
+  metricsLoaded: false,
   metricsHistory: [] as MetricsSnapshot[],
+  wingsForceOpen: false,
+  systemInfo: null,
   components: {
-    cpu:        { exposed: false, active: true },
-    network:    { exposed: false, active: true },
-    command:    { exposed: false, active: true },
-    filesystem: { exposed: false, active: true },
-    memory:     { exposed: false, active: true },
-    monitoring:     { exposed: false, active: true },
-    logs:           { exposed: false, active: true },
-    secrets:        { exposed: false, active: true },
-    'policy-graph': { exposed: false, active: true },
+    cpu:        { exposed: false, active: true, health: 'ok', okCount: 0, warnCount: 0, dangerCount: 0 },
+    network:    { exposed: false, active: true, health: 'ok', okCount: 0, warnCount: 0, dangerCount: 0 },
+    command:    { exposed: false, active: true, health: 'ok', okCount: 0, warnCount: 0, dangerCount: 0 },
+    filesystem: { exposed: false, active: true, health: 'ok', okCount: 0, warnCount: 0, dangerCount: 0 },
+    memory:     { exposed: false, active: true, health: 'ok', okCount: 0, warnCount: 0, dangerCount: 0 },
+    monitoring:     { exposed: false, active: true, health: 'ok', okCount: 0, warnCount: 0, dangerCount: 0 },
+    skills:         { exposed: false, active: true, health: 'ok', okCount: 0, warnCount: 0, dangerCount: 0 },
+    secrets:        { exposed: false, active: true, health: 'ok', okCount: 0, warnCount: 0, dangerCount: 0 },
+    'policy-graph': { exposed: false, active: true, health: 'ok', okCount: 0, warnCount: 0, dangerCount: 0 },
   },
 });
 
@@ -73,12 +94,40 @@ export function setAllExposed(exposed: boolean): void {
   }
 }
 
-/** Show/hide auxiliary components (monitoring, logs, secrets, policy-graph) based on AgenShield activity */
+/** Update a component's health status and counts */
+export function setComponentHealth(
+  type: SystemComponentType,
+  health: ComponentHealth,
+  counts: { ok: number; warn: number; danger: number },
+): void {
+  const c = systemStore.components[type];
+  c.health = health;
+  c.okCount = counts.ok;
+  c.warnCount = counts.warn;
+  c.dangerCount = counts.danger;
+}
+
+/** Show/hide auxiliary components (monitoring, skills, secrets, policy-graph) based on AgenShield activity */
 export function setExtendedComponentsActive(active: boolean): void {
   systemStore.components.monitoring.active = active;
-  systemStore.components.logs.active = active;
+  systemStore.components.skills.active = active;
   systemStore.components.secrets.active = active;
   systemStore.components['policy-graph'].active = active;
+}
+
+/** Mark metrics as loaded (first real data received from daemon) */
+export function markMetricsLoaded(): void {
+  systemStore.metricsLoaded = true;
+}
+
+/** Force wings open (e.g. after passcode setup) */
+export function setWingsForceOpen(open: boolean): void {
+  systemStore.wingsForceOpen = open;
+}
+
+/** Update system info from daemon metrics response */
+export function setSystemInfo(info: NonNullable<SystemStoreState['systemInfo']>): void {
+  systemStore.systemInfo = info;
 }
 
 /** Push a metrics snapshot into the rolling history buffer */

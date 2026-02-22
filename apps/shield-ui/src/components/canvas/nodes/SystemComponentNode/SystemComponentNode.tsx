@@ -5,7 +5,7 @@
  * to the variant Component. The orchestrator has ZERO valtio subscriptions —
  * only variant components subscribe to their own metrics & status.
  *
- * 7 variants: cpu, network, command, filesystem, memory, monitoring, logs.
+ * 9 variants: cpu, network, command, filesystem, memory, monitoring, skills, secrets, policy-graph.
  */
 
 import { memo, useMemo } from 'react';

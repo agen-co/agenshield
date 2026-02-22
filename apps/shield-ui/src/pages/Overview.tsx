@@ -1,159 +1,106 @@
 /**
- * Overview page - enhanced dashboard with charts and activity
+ * Overview page — full-viewport monitor dashboard.
+ *
+ * Layout (no page scrolling):
+ *   - Compact metric cards row (flexShrink: 0)
+ *   - StatsRow + AlertsBanner (flexShrink: 0)
+ *   - Main area (flex: 1): TargetList | Activity table (fillHeight) | EventDetailPanel
  */
 
-import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  Skeleton,
-  Chip,
-} from '@mui/material';
+import { useState, useCallback } from 'react';
+import { Box } from '@mui/material';
 import { useStatus, useConfig, useSecurity } from '../api/hooks';
 import { tokens } from '../styles/tokens';
 import { slideIn } from '../styles/animations';
 import { PageHeader } from '../components/shared/PageHeader';
 import { StatsRow } from '../components/overview/StatsRow';
-import { TrafficChart } from '../components/overview/TrafficChart';
-import { ActivityFeed } from '../components/overview/ActivityFeed';
-import { ArchitectureGraph } from '../components/overview/ArchitectureGraph';
 import { AlertsBanner } from '../components/overview/AlertsBanner';
+import { MetricCard } from '../components/overview/MetricCard';
+import { TargetList } from '../components/overview/TargetList';
+import { EventDetailPanel } from '../components/overview/EventDetailPanel';
+import { Activity } from './Activity';
+import type { SSEEvent } from '../state/events';
 
-export function Overview({ embedded }: { embedded?: boolean } = {}) {
+export function Overview({ embedded, targetFilter }: { embedded?: boolean; targetFilter?: string } = {}) {
   const { data: status, isLoading: statusLoading } = useStatus();
   const { data: config, isLoading: configLoading } = useConfig();
   const { data: security } = useSecurity();
 
-  const daemonStatus = status?.data;
-  const shieldConfig = config?.data;
-  const statusPending = statusLoading || !daemonStatus;
-  const configPending = configLoading || !shieldConfig;
+  const [selectedSource, setSelectedSource] = useState(targetFilter ?? 'all');
+  const [selectedEvent, setSelectedEvent] = useState<SSEEvent | null>(null);
+
+  const handleSourceSelect = useCallback((source: string) => {
+    setSelectedSource(source);
+  }, []);
+
+  const handleSelectEvent = useCallback((event: SSEEvent | null) => {
+    setSelectedEvent(event);
+  }, []);
 
   const cardAnim = (delay: number) => ({
     animation: `${slideIn} 0.4s ease-out ${delay}ms both`,
   });
 
   return (
-    <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+    <Box sx={embedded
+      ? { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }
+      : { maxWidth: tokens.page.maxWidth, mx: 'auto', display: 'flex', flexDirection: 'column', height: '100vh' }
+    }>
       {!embedded && (
-        <PageHeader
-          title="Overview"
-          description="Monitor your AgenShield daemon status and activity."
-        />
+        <Box sx={{ flexShrink: 0 }}>
+          <PageHeader
+            title="Overview"
+            description="Monitor your AgenShield daemon status and activity."
+          />
+        </Box>
       )}
 
-      <StatsRow
-        status={status}
-        config={config}
-        security={security}
-        statusLoading={statusLoading}
-        configLoading={configLoading}
-      />
+      {/* Compact metric cards row */}
+      <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap', flexShrink: 0, ...cardAnim(50) }}>
+        <MetricCard label="CPU" dataKey="cpuPercent" compact />
+        <MetricCard label="Memory" dataKey="memPercent" compact />
+        <MetricCard label="Disk" dataKey="diskPercent" compact />
+        <MetricCard label="Network" dataKey="netUp" unit="B/s" compact />
+      </Box>
 
-      <AlertsBanner />
+      <Box sx={{ flexShrink: 0 }}>
+        <StatsRow
+          status={status}
+          config={config}
+          security={security}
+          statusLoading={statusLoading}
+          configLoading={configLoading}
+        />
+        <AlertsBanner />
+      </Box>
 
-      {/* Two-column layout: left (main) + right (sidebar) */}
+      {/* Main area: Target list + Activity log + Event detail panel */}
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', lg: '2fr 1fr' },
-          gap: 3,
-          mt: 3,
+          display: 'flex',
+          mt: 2,
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 2,
+          overflow: 'hidden',
+          flex: 1,
+          minHeight: 0,
+          ...cardAnim(100),
         }}
       >
-        {/* Left column - main content */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <Box sx={cardAnim(100)}>
-            <TrafficChart />
-          </Box>
-          <Box sx={cardAnim(200)}>
-            <ArchitectureGraph />
-          </Box>
+        {!targetFilter && (
+          <TargetList selected={selectedSource} onSelect={handleSourceSelect} />
+        )}
+        <Box sx={{ flex: 1, minWidth: 0, p: 2, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <Activity
+            embedded
+            fillHeight
+            sourceFilter={targetFilter ?? selectedSource}
+            selectedEventId={selectedEvent?.id ?? null}
+            onSelectEvent={handleSelectEvent}
+          />
         </Box>
-
-        {/* Right column - stacked cards */}
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
-          <Box sx={cardAnim(150)}>
-            <ActivityFeed />
-          </Box>
-          <Card sx={cardAnim(250)}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom fontWeight={600}>
-                Daemon Information
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Box>
-                  <Typography variant="body2" color="text.secondary">Version</Typography>
-                  <Typography variant="body1">
-                    {statusPending ? <Skeleton width={100} /> : daemonStatus?.version}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="body2" color="text.secondary">Port</Typography>
-                  <Typography variant="body1">
-                    {statusPending ? <Skeleton width={100} /> : daemonStatus?.port}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="body2" color="text.secondary">Started At</Typography>
-                  <Typography variant="body1">
-                    {statusPending ? (
-                      <Skeleton width={200} />
-                    ) : daemonStatus?.startedAt ? (
-                      new Date(daemonStatus.startedAt).toLocaleString()
-                    ) : (
-                      <Skeleton width={200} />
-                    )}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="body2" color="text.secondary">Log Level</Typography>
-                  <Box>
-                    {configPending ? (
-                      <Skeleton width={100} />
-                    ) : (
-                      <Chip
-                        label={shieldConfig?.daemon?.logLevel ?? 'info'}
-                        size="small"
-                        variant="outlined"
-                      />
-                    )}
-                  </Box>
-                </Box>
-                {daemonStatus?.agentUsername && (
-                  <Box>
-                    <Typography variant="body2" color="text.secondary">Agent User</Typography>
-                    <Typography variant="body1" fontFamily="'IBM Plex Mono', monospace">
-                      {daemonStatus.agentUsername}
-                    </Typography>
-                  </Box>
-                )}
-                {daemonStatus?.workspaceGroup && (
-                  <Box>
-                    <Typography variant="body2" color="text.secondary">Workspace Group</Typography>
-                    <Typography variant="body1" fontFamily="'IBM Plex Mono', monospace">
-                      {daemonStatus.workspaceGroup}
-                    </Typography>
-                  </Box>
-                )}
-                {daemonStatus?.openclaw && (
-                  <Box>
-                    <Typography variant="body2" color="text.secondary">OpenClaw Gateway</Typography>
-                    <Box>
-                      <Chip
-                        label={daemonStatus.openclaw.gateway?.running ? 'Running' : 'Stopped'}
-                        color={daemonStatus.openclaw.gateway?.running ? 'success' : 'error'}
-                        size="small"
-                        variant="outlined"
-                      />
-                    </Box>
-                  </Box>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
-        </Box>
+        <EventDetailPanel event={selectedEvent} onClose={() => setSelectedEvent(null)} />
       </Box>
     </Box>
   );

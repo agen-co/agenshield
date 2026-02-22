@@ -157,7 +157,11 @@ export type SecurityStatus = SecurityStatusData;
 export const api = {
   // System metrics
   getMetrics: () =>
-    request<{ success: boolean; data: { cpuPercent: number; memPercent: number; diskPercent: number; netUp: number; netDown: number } }>('/metrics'),
+    request<{ success: boolean; data: {
+      cpuPercent: number; memPercent: number; diskPercent: number; netUp: number; netDown: number;
+      hostname?: string; activeUser?: string; uptime?: number; platform?: string; arch?: string;
+      cpuModel?: string; totalMemory?: number; nodeVersion?: string;
+    } }>('/metrics'),
 
   // Activity history
   getActivity: (limit = 500) =>

@@ -26,20 +26,20 @@ import { alertsRoutes } from './alerts';
 import { rpcRoutes } from './rpc';
 import { playgroundRoutes } from './playground';
 import { metricsRoutes } from './metrics';
-import { setupRoutes } from '../setup';
+import { targetLifecycleRoutes } from './target-lifecycle';
+import { logStreamRoutes } from './logs';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 import { getSessionManager } from '../auth/session';
 import { registerShieldContext } from '../context';
-import { registerSetupModeMiddleware } from '../middleware/setup-mode';
+import { sanitizeLogUrl } from '../utils/log-sanitizer';
 
 /**
  * Register all API routes under the /api prefix
  */
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
-  // Register context extraction and mode detection before all routes
+  // Register context extraction before all routes
   registerShieldContext(app);
-  registerSetupModeMiddleware(app);
 
   // Touch idle auto-lock timer on every non-SSE API request
   app.addHook('onRequest', (request, _reply, done) => {
@@ -79,7 +79,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       const status = reply.statusCode;
       const color = status >= 400 ? '\x1b[31m' : status >= 300 ? '\x1b[33m' : '\x1b[32m';
       const traceId = request.shieldContext?.traceId ?? '-';
-      console.log(`${color}${request.method}\x1b[0m ${request.url} \x1b[2m${status} ${ms}ms [${traceId}]\x1b[0m`);
+      const safeUrl = sanitizeLogUrl(request.url);
+      app.log.info({ method: request.method, url: safeUrl, status, ms, traceId }, `${color}${request.method}\x1b[0m ${safeUrl} \x1b[2m${status} ${ms}ms [${traceId}]\x1b[0m`);
 
       // Include request/response bodies for non-GET, non-auth routes
       const isAuthRoute = request.url.includes('/auth/');
@@ -96,9 +97,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             responseBody = undefined;
           }
         }
-        emitApiRequest(request.method, request.url, status, ms, requestBody, responseBody);
+        emitApiRequest(request.method, safeUrl, status, ms, requestBody, responseBody);
       } else {
-        emitApiRequest(request.method, request.url, status, ms);
+        emitApiRequest(request.method, safeUrl, status, ms);
       }
     }
     done();
@@ -139,7 +140,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(alertsRoutes);
       await api.register(playgroundRoutes);
       await api.register(metricsRoutes);
-      await api.register(setupRoutes);
+      await api.register(targetLifecycleRoutes);
+      await api.register(logStreamRoutes);
     },
     { prefix: API_PREFIX }
   );

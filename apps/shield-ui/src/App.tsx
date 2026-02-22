@@ -7,7 +7,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { ThemeProvider, CssBaseline } from '@mui/material';
+import { ThemeProvider, CssBaseline, GlobalStyles } from '@mui/material';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { lightTheme, darkTheme } from './theme';
 import { Layout } from './components/layout/Layout';
@@ -16,9 +16,8 @@ import { AuthProvider } from './context/AuthContext';
 import { UnlockProvider } from './context/UnlockContext';
 import { PasscodeDialog } from './components/PasscodeDialog';
 import { useAuth } from './context/AuthContext';
-import { useHealth, useServerMode } from './api/hooks';
+import { useHealth } from './api/hooks';
 import { useSSE } from './hooks/useSSE';
-import { UpdatePage } from './pages/Update';
 import { Notifications } from './components/shared/Notifications';
 import { queryClient } from './api/query-client';
 
@@ -26,12 +25,10 @@ import { queryClient } from './api/query-client';
  * Inner app that has access to auth context
  */
 function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggleDarkMode: () => void }) {
-  const { requiresFullAuth, isReadOnly, loaded, passcodeSet, protectionEnabled, token } = useAuth();
+  const { requiresFullAuth, loaded, passcodeSet, protectionEnabled, token } = useAuth();
   const { isError: healthError, isLoading: healthLoading, refetch: retryHealth, isFetching, isSuccess } = useHealth();
-  const serverMode = useServerMode();
-  // Connect to SSE events — always connect (setup mode uses SSE for progress)
-  // Token triggers SSE reconnect on auth state change (authenticated <-> anonymous)
-  useSSE(!!serverMode, token);
+  // Connect to SSE events — token triggers reconnect on auth state change
+  useSSE(true, token);
 
   // Debounce disconnect state: only confirm after 5s of sustained failure
   const disconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,26 +62,6 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
     };
   }, [healthError, healthLoading, isSuccess]);
 
-  // Update mode: render update wizard
-  if (serverMode === 'update') {
-    return <UpdatePage />;
-  }
-
-  // In setup mode, skip all auth gates — go straight to canvas
-  if (serverMode === 'setup') {
-    return (
-      <BrowserRouter>
-        <AppRoutes
-          darkMode={darkMode}
-          onToggleDarkMode={onToggleDarkMode}
-          isConfirmedDisconnected={isConfirmedDisconnected}
-          retryHealth={retryHealth}
-          isFetching={isFetching}
-        />
-      </BrowserRouter>
-    );
-  }
-
   // When anonymous read-only is disabled and not authenticated, block the entire UI
   if (loaded && requiresFullAuth) {
     return (
@@ -94,14 +71,8 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
     );
   }
 
-  // When protection is enabled but no passcode set yet, show setup
-  if (loaded && protectionEnabled && !passcodeSet) {
-    return (
-      <BrowserRouter>
-        <PasscodeDialog open={true} mode="setup" fullScreen />
-      </BrowserRouter>
-    );
-  }
+  // Passcode setup is now handled in-panel (SetupPanel's PasscodeStep)
+  // instead of a blocking full-screen dialog.
 
   return (
     <BrowserRouter>
@@ -144,7 +115,7 @@ function AppRoutes({
       hideSidebar
     >
       <Routes>
-        <Route path="/*" element={<Canvas />} />
+        <Route path="/*" element={<Canvas darkMode={darkMode} onToggleDarkMode={onToggleDarkMode} />} />
       </Routes>
     </Layout>
   );
@@ -173,6 +144,12 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
+        <GlobalStyles styles={{
+          '@keyframes spin': {
+            from: { transform: 'rotate(0deg)' },
+            to: { transform: 'rotate(360deg)' },
+          },
+        }} />
         <Notifications />
         <AuthProvider>
           <UnlockProvider>

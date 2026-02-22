@@ -9,6 +9,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
+import { execSync } from 'node:child_process';
 import { ensureSudoAccess } from '../utils/privileges.js';
 import { stopDaemon } from '../utils/daemon.js';
 
@@ -63,6 +64,29 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
       const icon = progress.success ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
       console.log(`${icon} ${progress.step}: ${progress.message || progress.error || ''}`);
     });
+
+    // Clean up user data directory (databases, vault, pid, logs)
+    const sudoUser = process.env['SUDO_USER'];
+    let dataDir: string;
+    if (sudoUser) {
+      try {
+        dataDir = execSync(`eval echo ~${sudoUser}`, { encoding: 'utf-8' }).trim() + '/.agenshield';
+      } catch {
+        dataDir = path.join(os.homedir(), '.agenshield');
+      }
+    } else {
+      dataDir = path.join(os.homedir(), '.agenshield');
+    }
+
+    if (fs.existsSync(dataDir)) {
+      try {
+        // Use sudo rm — directory may contain root-owned files (e.g. skills/)
+        execSync(`sudo rm -rf "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        console.log(`\x1b[32m✓\x1b[0m cleanup: Deleted ${dataDir} (databases, vault, logs)`);
+      } catch {
+        console.log(`\x1b[33m!\x1b[0m cleanup: Could not fully remove ${dataDir} (may contain root-owned files)`);
+      }
+    }
 
     console.log('');
 

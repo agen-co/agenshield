@@ -66,6 +66,13 @@ export class ProfileRepository extends BaseRepository {
   }
 
   /**
+   * Get all profiles for a given preset ID, ordered by creation time.
+   */
+  getByPresetId(presetId: string): Profile[] {
+    return (this.db.prepare(Q.selectByPresetId).all(presetId) as DbProfileRow[]).map(mapProfile);
+  }
+
+  /**
    * Rotate the broker token for a target profile.
    * Returns the updated profile or null if not found.
    */

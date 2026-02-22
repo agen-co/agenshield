@@ -12,6 +12,9 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import type { DaemonConfig } from '@agenshield/ipc';
+import { sanitizeLogUrl } from './utils/log-sanitizer';
+import { setDaemonLogger } from './logger';
+import { createLogBufferDestination } from './services/log-buffer';
 import { getStorage } from '@agenshield/storage';
 import { SkillManager } from '@agentshield/skills';
 import { registerRoutes } from './routes/index';
@@ -40,9 +43,9 @@ import {
   createAgenCoConnection,
   RemoteSkillSource,
 } from './adapters';
-import { getDaemonMode } from './middleware/setup-mode';
 import { initPolicyManager } from './services/policy-manager';
 import { pushSecretsToBroker } from './services/broker-bridge';
+import { startMetricsCollector, stopMetricsCollector } from './services/metrics-collector';
 
 /**
  * Create and configure the Fastify server
@@ -50,11 +53,45 @@ import { pushSecretsToBroker } from './services/broker-bridge';
  * @returns Configured Fastify instance
  */
 export async function createServer(config: DaemonConfig): Promise<FastifyInstance> {
-  const app = Fastify({
-    logger: {
-      level: config.logLevel,
+  const devMode = isDevMode();
+
+  // Build Pino logger options
+  const loggerOpts: Record<string, unknown> = {
+    level: devMode ? 'debug' : config.logLevel,
+    serializers: {
+      req(request: { method?: string; url?: string }) {
+        return {
+          method: request.method,
+          url: request.url ? sanitizeLogUrl(request.url) : request.url,
+        };
+      },
     },
+  };
+
+  if (devMode) {
+    // Pretty-print in dev mode
+    loggerOpts.transport = {
+      target: 'pino-pretty',
+      options: { translateTime: 'HH:MM:ss', ignore: 'pid,hostname' },
+    };
+  } else {
+    // In production, tee logs to both stdout and the in-memory ring buffer
+    // so the CLI `logs` command can stream them.
+    const pino = (await import('pino')).default;
+    const multistream = pino.multistream([
+      { stream: process.stdout },
+      { stream: createLogBufferDestination() },
+    ]);
+    loggerOpts.stream = multistream;
+  }
+
+  const app = Fastify({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    logger: loggerOpts as any,
   });
+
+  // Expose Pino logger globally for non-route code
+  setDaemonLogger(app.log);
 
   // Enable CORS for development
   await app.register(cors, { origin: true, methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'] });
@@ -64,7 +101,7 @@ export async function createServer(config: DaemonConfig): Promise<FastifyInstanc
 
   // Serve static UI assets if available
   const uiPath = getUiAssetsPath();
-  console.log(uiPath ? `UI assets: ${uiPath}` : 'UI assets: not found (API-only mode)');
+  app.log.info(uiPath ? `UI assets: ${uiPath}` : 'UI assets: not found (API-only mode)');
   if (uiPath) {
     await app.register(fastifyStatic, {
       root: uiPath,
@@ -91,15 +128,7 @@ export async function createServer(config: DaemonConfig): Promise<FastifyInstanc
 export async function startServer(config: DaemonConfig): Promise<FastifyInstance> {
   const app = await createServer(config);
 
-  const mode = getDaemonMode();
-  console.log(`[Daemon] Starting in ${mode} mode`);
-
-  // In setup mode, skip heavy services — they start after POST /api/setup/complete
-  if (mode === 'daemon') {
-    await startDaemonServices(app, config);
-  } else {
-    console.log('[Daemon] Setup mode — skipping heavy services until setup completes');
-  }
+  await startDaemonServices(app, config);
 
   // Normalize localhost to 127.0.0.1 to avoid IPv6 binding issues on macOS
   // (localhost resolves to ::1 on macOS, but clients often connect via 127.0.0.1)
@@ -141,7 +170,7 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
         execSync(`chown -R root:${socketGroup} "${skillsDir}"`, { stdio: 'pipe' });
       } catch { /* best-effort — may not be root */ }
     }
-    console.log(`[Daemon] Created skills directory: ${skillsDir}`);
+    app.log.info(`Created skills directory: ${skillsDir}`);
   } else if (!devMode) {
     try {
       const stat = fs.statSync(skillsDir);
@@ -152,28 +181,31 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   }
 
   if (devMode) {
-    console.log(`[Daemon] Running in DEV MODE — agentHome=${agentHome}, skillsDir=${skillsDir}`);
+    app.log.info(`Running in DEV MODE — agentHome=${agentHome}, skillsDir=${skillsDir}`);
   }
 
   // Initialize installation key (generate if first run, cache for sync access in watcher)
   try {
     await getInstallationKey();
-    console.log('[Daemon] Installation key ready');
+    app.log.info('Installation key ready');
   } catch (err) {
-    console.warn('[Daemon] Failed to initialize installation key:', (err as Error).message);
+    app.log.warn({ err }, 'Failed to initialize installation key');
   }
 
   // ─── Get storage (already initialized in main.ts) ────────
   const storage = getStorage();
   const vaultState = storage.isUnlocked() ? 'unlocked' : 'locked (unlock via passcode to manage secrets)';
-  console.log(`[Daemon] Storage ready — vault state: ${vaultState}`);
+  app.log.info(`Storage ready — vault state: ${vaultState}`);
+
+  // Start background metrics collector (2s interval, stores to SQLite)
+  startMetricsCollector();
 
   // ─── Initialize PolicyManager ──────────────────────────────
   const policyManager = initPolicyManager(storage, {
     eventBus,
     pushSecrets: pushSecretsToBroker,
   });
-  console.log(`[Daemon] PolicyManager ready — engine v${policyManager.engineVersion}`);
+  app.log.info(`PolicyManager ready — engine v${policyManager.engineVersion}`);
 
   if (devMode) {
     // Seed dev data (profiles, preset policies)
@@ -186,24 +218,24 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
     storage.policyGraph.expireBySession();
     const pruned = storage.policyGraph.pruneExpired();
     if (pruned > 0) {
-      console.log(`[Daemon] Pruned ${pruned} stale policy graph activations`);
+      app.log.info(`Pruned ${pruned} stale policy graph activations`);
     }
   } catch (err) {
-    console.warn('[Daemon] Policy graph activation cleanup failed:', (err as Error).message);
+    app.log.warn({ err }, 'Policy graph activation cleanup failed');
   }
 
   // ─── Reconcile broker token files ──────────────────────────
   reconcileTokenFiles(storage);
-  console.log('[Daemon] Broker token files reconciled');
+  app.log.info('Broker token files reconciled');
 
   // ─── Start per-profile daemon sockets ──────────────────────
   const profileSocketManager = new ProfileSocketManager(storage, rpcHandlers);
   try {
     await profileSocketManager.start();
     app.decorate('profileSocketManager', profileSocketManager);
-    console.log('[Daemon] Per-profile daemon sockets started');
+    app.log.info('Per-profile daemon sockets started');
   } catch (err) {
-    console.warn('[Daemon] Failed to start profile sockets:', (err as Error).message);
+    app.log.warn({ err }, 'Failed to start profile sockets');
   }
 
   // ─── Wire auto-lock handler for idle timeout ──────────────
@@ -213,18 +245,18 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
       .then(({ clearBrokerSecrets }) => clearBrokerSecrets())
       .catch(() => { /* non-fatal */ });
     emitSecurityLocked('idle_timeout');
-    console.log('[Daemon] Auto-locked vault after idle timeout');
+    app.log.info('Auto-locked vault after idle timeout');
   });
 
   // ─── Verify config integrity (HMAC) ──────────────────
   try {
     await verifyConfigIntegrity();
-    console.log('[Daemon] Config integrity verified');
+    app.log.info('Config integrity verified');
   } catch (err) {
     if (err instanceof ConfigTamperError) {
-      console.error('[Daemon] CONFIG TAMPER DETECTED — enforcing deny-all policy');
+      app.log.error('CONFIG TAMPER DETECTED — enforcing deny-all policy');
     } else {
-      console.warn('[Daemon] Config integrity check failed:', (err as Error).message);
+      app.log.warn({ err }, 'Config integrity check failed');
     }
   }
 
@@ -387,16 +419,28 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   // Start process health watcher for broker/gateway lifecycle events
   await startProcessHealthWatcher(10000);
 
+  // Initialize privilege executor for root operations (lazy — prompts user on first use)
+  const { OsascriptExecutor } = await import('./services/osascript-executor.js');
+  const executor = new OsascriptExecutor();
+  app.decorate('privilegeExecutor', executor);
+
   // Stop watchers, proxy pool, and MCP on server close
   app.addHook('onClose', async () => {
     emitProcessStopped('daemon', { pid: process.pid });
     stopSecurityWatcher();
+    stopMetricsCollector();
     skillManager.stopWatcher();
     stopProcessHealthWatcher();
     activityWriter.stop();
     shutdownProxyPool();
     await profileSocketManager.stop();
     await deactivateMCP();
+    // Shut down the privilege executor if it's still running
+    if (app.privilegeExecutor) {
+      try {
+        await app.privilegeExecutor.shutdown();
+      } catch { /* non-fatal */ }
+    }
     // Clear broker's in-memory secrets on shutdown
     try {
       const { clearBrokerSecrets } = await import('./services/broker-bridge.js');

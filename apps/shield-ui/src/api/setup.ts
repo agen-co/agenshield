@@ -1,157 +1,18 @@
 /**
- * API client and React Query hooks for Setup Wizard endpoints
+ * SSE hook for shield progress events
+ *
+ * The old wizard API functions have been removed — the daemon always starts
+ * in full mode and the UI determines flow based on DB state.
  */
 
-import { useQuery, useMutation } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
-import type { MigrationScanResult, MigrationSelection } from '@agenshield/ipc';
-import { setupStore, type SetupPhase, type WizardState, type WizardStepId } from '../state/setup';
-import type { ExecutableInfo } from '../state/setup';
+import { setupPanelStore } from '../state/setup-panel';
 
-const BASE_URL = '/api';
-
-async function setupRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error?.message || `API Error: ${res.status}`);
-  }
-  return res.json();
-}
-
-// --- API client ---
-
-export const setupApi = {
-  getState: () =>
-    setupRequest<{
-      success: boolean;
-      data: { state: unknown; context: Record<string, unknown>; phase: string };
-    }>('/setup/state'),
-
-  configure: (mode: 'quick' | 'advanced', baseName?: string) =>
-    setupRequest<{ success: boolean; data: { mode: string; baseName: string; names: Record<string, string> } }>(
-      '/setup/configure',
-      { method: 'POST', body: JSON.stringify({ mode, baseName }) },
-    ),
-
-  checkConflicts: (baseName: string) =>
-    setupRequest<{
-      success: boolean;
-      data: {
-        hasConflicts: boolean;
-        users: string[];
-        groups: string[];
-        names: Record<string, string>;
-      };
-    }>('/setup/check-conflicts', {
-      method: 'POST',
-      body: JSON.stringify({ baseName }),
-    }),
-
-  confirm: () =>
-    setupRequest<{ success: boolean; data: { started: boolean } }>('/setup/confirm', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
-
-  setPasscode: (passcode?: string, skip?: boolean) =>
-    setupRequest<{ success: boolean; data: { started: boolean } }>('/setup/passcode', {
-      method: 'POST',
-      body: JSON.stringify({ passcode, skip }),
-    }),
-
-  getExecutables: () =>
-    setupRequest<{ success: boolean; data: { executables: ExecutableInfo[] } }>(
-      '/setup/executables',
-    ),
-
-  installTarget: () =>
-    setupRequest<{
-      success: boolean;
-      data: { installed: boolean; preset: string; version?: string };
-    }>('/setup/install-target', { method: 'POST', body: JSON.stringify({}) }),
-
-  getScanResult: () =>
-    setupRequest<{ success: boolean; data: MigrationScanResult }>('/setup/scan-result'),
-
-  selectItems: (selection: MigrationSelection) =>
-    setupRequest<{ success: boolean; data: { started: boolean } }>('/setup/select-items', {
-      method: 'POST',
-      body: JSON.stringify(selection),
-    }),
-};
-
-// --- React Query hooks ---
-
-export function useSetupState() {
-  return useQuery({
-    queryKey: ['setup', 'state'],
-    queryFn: setupApi.getState,
-    refetchInterval: 5000,
-  });
-}
-
-export function useConfigure() {
-  return useMutation({
-    mutationFn: ({ mode, baseName }: { mode: 'quick' | 'advanced'; baseName?: string }) =>
-      setupApi.configure(mode, baseName),
-  });
-}
-
-export function useCheckConflicts() {
-  return useMutation({
-    mutationFn: (baseName: string) => setupApi.checkConflicts(baseName),
-  });
-}
-
-export function useConfirmSetup() {
-  return useMutation({
-    mutationFn: () => setupApi.confirm(),
-  });
-}
-
-export function useSetPasscode() {
-  return useMutation({
-    mutationFn: ({ passcode, skip }: { passcode?: string; skip?: boolean }) =>
-      setupApi.setPasscode(passcode, skip),
-  });
-}
-
-export function useInstallTarget() {
-  return useMutation({
-    mutationFn: () => setupApi.installTarget(),
-  });
-}
-
-export function useScanResult() {
-  return useQuery({
-    queryKey: ['setup', 'scan-result'],
-    queryFn: setupApi.getScanResult,
-    enabled: setupStore.phase === 'selection',
-    staleTime: Infinity,
-  });
-}
-
-export function useSelectItems() {
-  return useMutation({
-    mutationFn: (selection: MigrationSelection) => setupApi.selectItems(selection),
-  });
-}
-
-export function useExecutables() {
-  return useQuery({
-    queryKey: ['setup', 'executables'],
-    queryFn: setupApi.getExecutables,
-    staleTime: 60_000,
-  });
-}
-
-// --- SSE hook for setup events ---
-
-export function useSetupSSE(enabled = true) {
+/**
+ * Subscribe to shield progress events via SSE.
+ * Updates setupPanelStore.shieldProgress in real time.
+ */
+export function useShieldSSE(enabled = true) {
   const sourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -160,124 +21,63 @@ export function useSetupSSE(enabled = true) {
     const es = new EventSource('/sse/events');
     sourceRef.current = es;
 
-    const handleStateChange = (e: MessageEvent) => {
+    const handleShieldProgress = (e: MessageEvent) => {
       try {
-        const data = JSON.parse(e.data);
-        if (data.state) {
-          setupStore.wizardState = data.state;
-          // Update completed steps and clear log lines for completed steps
-          if (data.state.steps) {
-            setupStore.completedEngineSteps = data.state.steps
-              .filter((s: { status: string }) => s.status === 'completed')
-              .map((s: { id: string }) => s.id);
-            // Clear stepLogs for steps that are no longer running
-            for (const step of data.state.steps as { id: string; status: string }[]) {
-              if (step.status === 'completed' || step.status === 'error') {
-                delete setupStore.stepLogs[step.id];
-              }
-            }
-          }
-        }
-        if (data.context) {
-          setupStore.context = data.context;
-        }
-        if (data.phase) {
-          setupStore.phase = data.phase as SetupPhase;
+        const data = JSON.parse(e.data) as {
+          targetId?: string;
+          step?: string;
+          progress?: number;
+          message?: string;
+        };
+        if (data.targetId) {
+          setupPanelStore.shieldProgress[data.targetId] = {
+            status: data.step === 'complete' ? 'completed' : 'in_progress',
+            currentStep: data.step ?? '',
+            progress: data.progress ?? 0,
+            message: data.message ?? '',
+          };
         }
       } catch {
         // ignore parse errors
       }
     };
 
-    const handleComplete = (e: MessageEvent) => {
+    const handleShieldComplete = (e: MessageEvent) => {
       try {
-        const data = JSON.parse(e.data);
-        setupStore.phase = 'complete';
-        setupStore.graphPhase = 'secured';
-        if (data.state) setupStore.wizardState = data.state;
-        if (data.context) setupStore.context = data.context;
-      } catch {
-        // ignore
-      }
-    };
-
-    const handleError = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.error) {
-          console.error('Setup error:', data.error);
+        const data = JSON.parse(e.data) as { targetId?: string; profileId?: string };
+        if (data.targetId) {
+          setupPanelStore.shieldProgress[data.targetId] = {
+            status: 'completed',
+            currentStep: 'complete',
+            progress: 100,
+            message: 'Shielding complete',
+            profileId: data.profileId,
+          };
         }
       } catch {
         // ignore
       }
     };
 
-    const handleScanComplete = (e: MessageEvent) => {
+    const handleShieldError = (e: MessageEvent) => {
       try {
-        const data = JSON.parse(e.data);
-        setupStore.phase = 'selection';
-        if (data.scanResult) {
-          setupStore.scanResult = data.scanResult;
-        }
-        if (data.state) {
-          setupStore.wizardState = data.state;
-          if (data.state.steps) {
-            setupStore.completedEngineSteps = data.state.steps
-              .filter((s: { status: string }) => s.status === 'completed')
-              .map((s: { id: string }) => s.id);
-          }
-        }
-        if (data.context) {
-          setupStore.context = data.context;
+        const data = JSON.parse(e.data) as { targetId?: string; error?: string };
+        if (data.targetId) {
+          setupPanelStore.shieldProgress[data.targetId] = {
+            status: 'error',
+            currentStep: 'error',
+            progress: 0,
+            message: data.error ?? 'Shield failed',
+          };
         }
       } catch {
         // ignore
       }
     };
 
-    const handleLog = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.stepId && data.message) {
-          setupStore.stepLogs[data.stepId] = data.message;
-        }
-      } catch {
-        // ignore parse errors
-      }
-    };
-
-    es.addEventListener('setup:state_change', handleStateChange);
-    es.addEventListener('setup:scan_complete', handleScanComplete);
-    es.addEventListener('setup:complete', handleComplete);
-    es.addEventListener('setup:error', handleError);
-    es.addEventListener('setup:log', handleLog);
-
-    es.onopen = () => {
-      // Fetch initial state since SSE only sends change events
-      setupApi.getState().then(({ data }) => {
-        if (data.state) {
-          setupStore.wizardState = data.state as unknown as WizardState;
-          if ((data.state as Record<string, unknown>).steps) {
-            const steps = (data.state as Record<string, unknown>).steps as { id: string; status: string }[];
-            setupStore.completedEngineSteps = steps
-              .filter(s => s.status === 'completed')
-              .map(s => s.id) as WizardStepId[];
-          }
-        }
-        if (data.context) {
-          setupStore.context = data.context;
-        }
-        if (data.phase) {
-          setupStore.phase = data.phase as SetupPhase;
-        }
-      }).catch(() => {
-        // Ignore — SSE events will populate state when available
-      });
-    };
-
-    es.onerror = () => {
-      // Reconnection is handled automatically by EventSource
-    };
+    es.addEventListener('setup:shield_progress', handleShieldProgress);
+    es.addEventListener('setup:shield_complete', handleShieldComplete);
+    es.addEventListener('setup:error', handleShieldError);
 
     return () => {
       es.close();

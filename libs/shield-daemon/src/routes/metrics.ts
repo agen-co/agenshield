@@ -7,6 +7,7 @@
 import os from 'node:os';
 import { execSync } from 'node:child_process';
 import type { FastifyInstance } from 'fastify';
+import { getStorage } from '@agenshield/storage';
 
 /* ---- CPU measurement (async, 100ms sample) ---- */
 
@@ -147,7 +148,37 @@ export async function metricsRoutes(app: FastifyInstance): Promise<void> {
         diskPercent,
         netUp: net.netUp,
         netDown: net.netDown,
+        // System info
+        hostname: os.hostname(),
+        platform: os.platform(),
+        arch: os.arch(),
+        uptime: Math.floor(os.uptime()),
+        activeUser: os.userInfo().username,
+        cpuModel: os.cpus()[0]?.model ?? 'unknown',
+        totalMemory: total,
+        nodeVersion: process.version,
       },
     };
+  });
+
+  /**
+   * GET /metrics/history — Return persisted metrics history.
+   */
+  app.get<{
+    Querystring: { limit?: string; since?: string };
+  }>('/metrics/history', async (request) => {
+    const limit = Math.min(Number(request.query.limit) || 150, 500);
+    const since = Number(request.query.since) || 0;
+
+    try {
+      const storage = getStorage();
+      const snapshots = since > 0
+        ? storage.metrics.getSince(since, limit)
+        : storage.metrics.getRecent(limit);
+
+      return { success: true, data: snapshots };
+    } catch {
+      return { success: true, data: [] };
+    }
   });
 }

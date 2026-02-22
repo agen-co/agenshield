@@ -83,6 +83,22 @@ export const DangerWireEdge = memo((props: EdgeProps) => {
   const fanout = (props.data?.fanout as boolean) ?? false;
 
   const baseConfig = VARIANT_CONFIGS[variant];
+
+  // Merge health-based color overrides when present
+  const config: PcbTraceEdgeConfig = data?.colorOverride
+    ? {
+        ...baseConfig,
+        strokeColor: data.colorOverride,
+        pathStyle: {
+          ...baseConfig.pathStyle,
+          filter: `drop-shadow(0 0 2px ${data.colorOverride}40)`,
+        },
+        electricShots: baseConfig.electricShots
+          ? { ...baseConfig.electricShots, color: data.electricColorOverride ?? data.colorOverride }
+          : undefined,
+      }
+    : baseConfig;
+
   const wrapperStyle = props.style as React.CSSProperties | undefined;
 
   return (
@@ -90,7 +106,7 @@ export const DangerWireEdge = memo((props: EdgeProps) => {
       <PcbTraceEdge
         {...props}
         config={{
-          ...baseConfig,
+          ...config,
           channelOffset,
           targetRow,
           channelCenterY,

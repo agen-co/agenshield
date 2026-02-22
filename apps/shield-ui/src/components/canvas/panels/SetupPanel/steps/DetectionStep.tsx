@@ -137,12 +137,11 @@ export function DetectionStep({
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
         {KNOWN_PRESETS.map((preset) => {
           const Icon = presetIcons[preset.id] ?? Terminal;
-          const alreadyAdded = existingIds.has(preset.id);
+          const instanceCount = targets.filter((t) => t.type === preset.id).length;
           return (
             <button
               key={preset.id}
               onClick={() => handleManualAdd(preset.id)}
-              disabled={alreadyAdded}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -155,13 +154,12 @@ export function DetectionStep({
                 fontSize: 11,
                 fontWeight: 500,
                 fontFamily: "'Manrope', sans-serif",
-                cursor: alreadyAdded ? 'default' : 'pointer',
-                opacity: alreadyAdded ? 0.4 : 1,
+                cursor: 'pointer',
                 transition: 'background-color 0.2s',
               }}
             >
               <Icon size={12} />
-              {preset.name}
+              {preset.name}{instanceCount > 0 ? ` (${instanceCount})` : ''}
             </button>
           );
         })}

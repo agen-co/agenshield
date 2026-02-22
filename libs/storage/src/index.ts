@@ -42,6 +42,8 @@ export { AlertsRepository } from './repositories/alerts';
 export type { AlertGetAllOptions, AlertCountOptions } from './repositories/alerts';
 export { PolicySetRepository } from './repositories/policy-set';
 export type { PolicySet, CreatePolicySetInput, UpdatePolicySetInput } from './repositories/policy-set';
+export { MetricsRepository } from './repositories/metrics';
+export type { MetricsSnapshot, MetricsSnapshotInput } from './repositories/metrics';
 
 // Migrations
 export { runMigrations, runActivityMigrations, getCurrentVersion, getDbVersion, validateDbIntegrity } from './migrations/index';

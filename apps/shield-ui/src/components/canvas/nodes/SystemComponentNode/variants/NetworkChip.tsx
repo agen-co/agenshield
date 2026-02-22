@@ -9,7 +9,7 @@ import { memo, useRef, useEffect } from 'react';
 import { animate, type JSAnimation } from 'animejs';
 import { useSnapshot } from 'valtio';
 import { systemStore } from '../../../../../state/system-store';
-import { StatusLed, AlertIndicator, useExposedBorder, formatRate } from '../primitives';
+import { StatusLed, AlertIndicator, useExposedBorder, formatRate, MiniSparkline } from '../primitives';
 import { pcb } from '../../../styles/pcb-tokens';
 import type { VariantProps } from '../system.types';
 
@@ -107,6 +107,12 @@ export const NetworkChip = memo(({ label, sublabel, refDesignator, theme, layout
           Q ${coilCx + 2} ${coilCy + 5} ${coilCx + 5} ${coilCy + 5}
           Q ${coilCx + 2} ${coilCy + 5} ${coilCx + 2} ${coilCy + 7}`} />
       </g>
+
+      {/* Sparkline background */}
+      <MiniSparkline dataKey="netDown"
+        x={body.x + 30} y={body.y + body.h * 0.55}
+        w={body.w * 0.35} h={body.h * 0.3}
+        color={pcb.signal.cyan} />
 
       {/* Throughput indicators */}
       <g opacity={0.7}>

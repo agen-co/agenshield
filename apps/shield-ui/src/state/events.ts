@@ -12,6 +12,7 @@ export interface SSEEvent {
   type: EventType | (string & {});
   data: Record<string, unknown>;
   timestamp: number;
+  source?: string;  // 'daemon' | 'system' | targetId
 }
 
 export const eventStore = proxy({

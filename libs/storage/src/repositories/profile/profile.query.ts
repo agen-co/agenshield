@@ -17,5 +17,6 @@ export const Q = {
   selectByType: `SELECT * FROM ${TABLE} WHERE type = ? ORDER BY name`,
   selectGlobal: `SELECT * FROM ${TABLE} WHERE type = 'global' LIMIT 1`,
   selectByToken: `SELECT * FROM ${TABLE} WHERE broker_token = ?`,
+  selectByPresetId: `SELECT * FROM ${TABLE} WHERE preset_id = ? ORDER BY created_at`,
   delete: `DELETE FROM ${TABLE} WHERE id = ?`,
 } as const;

@@ -45,7 +45,10 @@ export {
   DEFAULT_BASE_GID,
   DEFAULT_BASE_NAME,
   ASH_PREFIX,
+  isAgenshieldUser,
+  listAgenshieldUsers,
   type CreateResult,
+  type AgenshieldUserMeta,
 } from './users';
 
 // Directories management (Phase 5)
@@ -168,6 +171,7 @@ export {
 export {
   // Registry functions
   getPreset,
+  resolvePresetId,
   listPresets,
   listAutoDetectablePresets,
   autoDetectPreset,
@@ -212,3 +216,22 @@ export {
   getAgenCoSkillPath,
   type SkillInjectionResult,
 } from './skill-injector';
+
+// PATH Router Override
+export {
+  generateRouterWrapper,
+  buildInstallRouterCommands,
+  buildRemoveRouterCommands,
+  findOriginalBinary,
+  isRouterWrapper,
+  scanForRouterWrappers,
+  readPathRegistry,
+  writePathRegistry,
+  addRegistryInstance,
+  removeRegistryInstance,
+  PATH_REGISTRY_PATH,
+  ROUTER_MARKER,
+  type PathRegistry,
+  type PathRegistryEntry,
+  type PathRegistryInstance,
+} from './path-override';

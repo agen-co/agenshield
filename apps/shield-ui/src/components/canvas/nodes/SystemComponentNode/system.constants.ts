@@ -9,7 +9,7 @@
 import { Position } from '@xyflow/react';
 import type { SystemComponentType } from '../../Canvas.types';
 import type { VariantModule, HandleSpec } from './system.types';
-import { CpuChip, NetworkChip, CommandChip, FilesystemChip, MemoryChip, MonitoringChip, LogsChip, SecretsChip, PolicyGraphChip } from './variants';
+import { CpuChip, NetworkChip, CommandChip, FilesystemChip, MemoryChip, MonitoringChip, SkillsChip, SecretsChip, PolicyGraphChip } from './variants';
 
 /**
  * Compute center pin pair from bottomGullPins formula (margin=12).
@@ -103,12 +103,12 @@ export const VARIANTS: Record<SystemComponentType, VariantModule> = {
     defaultHandles: defaultHandles(170, 130, gullPinPair(14, 142, 4)),
     Component: MonitoringChip,
   },
-  logs: {
+  skills: {
     w: 170, h: 130,
     refDesignator: 'U7',
     layout: { body: { x: 14, y: 8, w: 142, h: 104 } },
     defaultHandles: defaultHandles(170, 130, gullPinPair(14, 142, 4)),
-    Component: LogsChip,
+    Component: SkillsChip,
   },
   secrets: {
     w: 170, h: 130,

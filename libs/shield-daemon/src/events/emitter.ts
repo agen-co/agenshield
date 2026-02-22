@@ -34,6 +34,7 @@ export interface DaemonEvent {
   timestamp: string;
   data: unknown;
   profileId?: string;
+  source?: string;  // 'daemon' | 'system' | targetId (e.g. 'claude-code')
 }
 
 class DaemonEventEmitter extends EventEmitter {
@@ -54,12 +55,14 @@ class DaemonEventEmitter extends EventEmitter {
   /**
    * Emit a typed event to all SSE subscribers
    */
-  broadcast(type: EventType, data: unknown, profileId?: string): void {
+  broadcast(type: EventType, data: unknown, profileId?: string, source?: string): void {
+    const resolvedSource = source ?? deriveSource(type, data);
     const event: DaemonEvent = {
       type,
       timestamp: new Date().toISOString(),
       data,
       ...(profileId !== undefined && { profileId }),
+      source: resolvedSource,
     };
     this.emit('event', event);
   }
@@ -76,6 +79,21 @@ class DaemonEventEmitter extends EventEmitter {
 export const daemonEvents = DaemonEventEmitter.getInstance();
 
 /**
+ * Derive a source label from the event type and data when not explicitly provided.
+ */
+function deriveSource(type: string, data: unknown): string {
+  const d = data as Record<string, unknown> | undefined;
+  if (type.startsWith('interceptor:')) return (d?.target as string) ?? 'system';
+  if (type.startsWith('setup:')) return (d?.targetId as string) ?? 'daemon';
+  if (type.startsWith('process:broker')) return (d?.process as string) ?? 'system';
+  if (type.startsWith('resource:')) return 'system';
+  if (type.startsWith('daemon:') || type.startsWith('config:') || type.startsWith('security:')) return 'daemon';
+  if (type.startsWith('skills:')) return (d?.target as string) ?? 'daemon';
+  if (type.startsWith('api:')) return 'daemon';
+  return 'daemon';
+}
+
+/**
  * Typed EventBus singleton — new event system.
  * Runs alongside legacy daemonEvents for SSE compatibility.
  */
@@ -84,9 +102,9 @@ export const eventBus = new EventBus({ maxListeners: 100 });
 /**
  * Typed broadcast: emits to both the new EventBus and the legacy SSE emitter.
  */
-function broadcast<T extends EventType>(type: T, data: EventRegistry[T], profileId?: string): void {
+function broadcast<T extends EventType>(type: T, data: EventRegistry[T], profileId?: string, source?: string): void {
   eventBus.emit(type, data);
-  daemonEvents.broadcast(type, data as unknown, profileId);
+  daemonEvents.broadcast(type, data as unknown, profileId, source);
 }
 
 // ===== Typed event helpers =====

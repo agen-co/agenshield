@@ -8,7 +8,7 @@
 import { memo } from 'react';
 import { useSnapshot } from 'valtio';
 import { systemStore } from '../../../../../state/system-store';
-import { StatusLed, AlertIndicator, useExposedBorder, gaugeColor } from '../primitives';
+import { StatusLed, AlertIndicator, useExposedBorder, gaugeColor, MiniSparkline } from '../primitives';
 import type { VariantProps } from '../system.types';
 
 export const MemoryChip = memo(({ label, sublabel, refDesignator, theme, layout }: VariantProps) => {
@@ -64,6 +64,12 @@ export const MemoryChip = memo(({ label, sublabel, refDesignator, theme, layout 
           </g>
         );
       })}
+
+      {/* Sparkline background */}
+      <MiniSparkline dataKey="memPercent"
+        x={body.x + 8} y={body.y + 3}
+        w={body.w - 16} h={body.h * 0.35}
+        color={memColor} />
 
       {/* Memory % label */}
       <text x={body.x + body.w - 6} y={body.y + body.h - 3} textAnchor="end" dominantBaseline="auto"

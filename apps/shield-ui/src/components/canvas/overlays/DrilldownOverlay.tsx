@@ -2,17 +2,14 @@
  * DrilldownOverlay — floating panel showing detail for a drilled-into card or system component.
  *
  * Card drilldown: Shows card name, type, version, MCP servers, and skills.
- * Component drilldown: Shows component-specific content.
- *   - logs: Renders a recent activity/event table from eventStore
- *   - Others: Summary card (label, status)
+ * Component drilldown: Shows component-specific content (label, status summary).
  */
 
 import { memo, useCallback } from 'react';
 import { useSnapshot } from 'valtio';
 import { useTheme } from '@mui/material/styles';
-import { ArrowLeft, Server, Wrench, Circle, Activity, Cpu, Network, Terminal, HardDrive, MemoryStick, Eye, FileText, KeyRound, Scale } from 'lucide-react';
+import { ArrowLeft, Server, Wrench, Circle, Cpu, Network, Terminal, HardDrive, MemoryStick, Eye, Zap, KeyRound, Scale } from 'lucide-react';
 import { drilldownStore, closeDrilldown } from '../../../state/canvas-drilldown';
-import { eventStore } from '../../../state/events';
 import type { ApplicationCardData, SystemComponentType } from '../Canvas.types';
 
 interface DrilldownOverlayProps {
@@ -26,15 +23,10 @@ const COMPONENT_META: Record<SystemComponentType, { label: string; icon: typeof 
   filesystem: { label: 'Filesystem', icon: HardDrive, description: 'File system access control' },
   memory: { label: 'Memory', icon: MemoryStick, description: 'Memory usage tracking' },
   monitoring: { label: 'Monitor', icon: Eye, description: 'System monitoring & metrics' },
-  logs: { label: 'Logs', icon: FileText, description: 'Event log & activity stream' },
+  skills: { label: 'Skills', icon: Zap, description: 'Agent skill management' },
   secrets: { label: 'Secrets', icon: KeyRound, description: 'Secret vault management' },
   'policy-graph': { label: 'Policy Graph', icon: Scale, description: 'Active policy rule engine' },
 };
-
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
 
 /** Component-specific drilldown content */
 const ComponentDrilldown = memo(({ componentType }: { componentType: SystemComponentType }) => {
@@ -50,10 +42,6 @@ const ComponentDrilldown = memo(({ componentType }: { componentType: SystemCompo
   const handleClose = useCallback(() => {
     closeDrilldown();
   }, []);
-
-  if (componentType === 'logs') {
-    return <LogsDrilldown onClose={handleClose} />;
-  }
 
   return (
     <div>
@@ -99,120 +87,6 @@ const ComponentDrilldown = memo(({ componentType }: { componentType: SystemCompo
   );
 });
 ComponentDrilldown.displayName = 'ComponentDrilldown';
-
-/** Logs-specific drilldown: activity/event table */
-const LogsDrilldown = memo(({ onClose }: { onClose: () => void }) => {
-  const theme = useTheme();
-  const isDark = theme.palette.mode === 'dark';
-  const textPrimary = theme.palette.text.primary;
-  const textSecondary = theme.palette.text.secondary;
-  const borderColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
-  const { events } = useSnapshot(eventStore);
-
-  const recentEvents = events.slice(0, 30);
-
-  return (
-    <div>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        <button
-          onClick={onClose}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 28, height: 28, borderRadius: 6,
-            border: `1px solid ${borderColor}`,
-            backgroundColor: 'transparent', color: textSecondary,
-            cursor: 'pointer', padding: 0,
-          }}
-        >
-          <ArrowLeft size={14} />
-        </button>
-        <Activity size={18} color={textPrimary} />
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>Activity Log</div>
-          <div style={{ fontSize: 11, color: textSecondary }}>
-            {events.length} total events
-          </div>
-        </div>
-      </div>
-
-      {/* Event table */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {/* Column headers */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '70px 1fr 60px',
-          gap: 6,
-          padding: '4px 8px',
-          fontSize: 9,
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: 0.8,
-          color: textSecondary,
-          fontFamily: "'IBM Plex Mono', monospace",
-        }}>
-          <span>Time</span>
-          <span>Event</span>
-          <span>Status</span>
-        </div>
-
-        {recentEvents.length === 0 ? (
-          <div style={{
-            padding: '12px 8px',
-            fontSize: 12,
-            color: textSecondary,
-            fontStyle: 'italic',
-            textAlign: 'center',
-          }}>
-            No events yet
-          </div>
-        ) : (
-          recentEvents.map((evt, idx) => {
-            const isError = String(evt.type).includes('denied') || String(evt.type).includes('error');
-            const isWarning = String(evt.type).includes('warn');
-            const statusColor = isError ? '#E1583E' : isWarning ? '#EEA45F' : '#6CB685';
-            const statusLabel = isError ? 'DENY' : isWarning ? 'WARN' : 'OK';
-
-            return (
-              <div
-                key={`${evt.id}-${idx}`}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '70px 1fr 60px',
-                  gap: 6,
-                  padding: '4px 8px',
-                  borderRadius: 3,
-                  backgroundColor: idx % 2 === 0
-                    ? (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.015)')
-                    : 'transparent',
-                  fontSize: 10,
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  alignItems: 'center',
-                }}
-              >
-                <span style={{ color: textSecondary, fontSize: 9 }}>
-                  {formatTime(evt.timestamp)}
-                </span>
-                <span style={{
-                  color: textPrimary,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                  {String(evt.type).replace(/^(api|security|core|exec|wrapper)\./, '')}
-                </span>
-                <span style={{ color: statusColor, fontSize: 9, fontWeight: 600 }}>
-                  {statusLabel}
-                </span>
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-});
-LogsDrilldown.displayName = 'LogsDrilldown';
 
 export const DrilldownOverlay = memo(({ cards }: DrilldownOverlayProps) => {
   const { activeCardId } = useSnapshot(drilldownStore);

@@ -1,6 +1,14 @@
 import { styled } from '@mui/material/styles';
 import { pcb } from './styles/pcb-tokens';
 
+export const ThemeToggleOverlay = styled('div')({
+  position: 'absolute',
+  top: 20,
+  right: 20,
+  zIndex: 10,
+  pointerEvents: 'auto',
+});
+
 export const CanvasContainer = styled('div')(({ theme }) => ({
   width: '100%',
   height: 'calc(100vh - 0px)',
@@ -25,6 +33,19 @@ export const CanvasContainer = styled('div')(({ theme }) => ({
     border: '1px solid #888',
     backgroundColor: '#D4A04A',
     opacity: 0.6,
+  },
+  // Remove all focus outlines from canvas elements
+  '& .react-flow__node:focus, & .react-flow__node:focus-visible': {
+    outline: 'none',
+  },
+  '& .react-flow__edge:focus, & .react-flow__edge:focus-visible': {
+    outline: 'none',
+  },
+  '& .react-flow__pane:focus, & .react-flow__pane:focus-visible': {
+    outline: 'none',
+  },
+  '& *:focus': {
+    outline: 'none',
   },
 }));
 

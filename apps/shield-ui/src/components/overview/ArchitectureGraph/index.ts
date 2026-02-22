@@ -1,1 +1,0 @@
-export { ArchitectureGraph } from './ArchitectureGraph';

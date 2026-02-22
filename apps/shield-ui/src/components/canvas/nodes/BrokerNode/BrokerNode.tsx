@@ -54,9 +54,9 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
   const isStoppedShielded = isStopped && status === 'shielded';
 
   const bodyColor = isDark ? '#161820' : '#F2F2EE';
-  const brokerBorder = isDark ? 'rgba(60,60,60,0.3)' : 'rgba(100,100,100,0.3)';
+  const brokerBorder = isDark ? 'rgba(160,160,168,0.25)' : 'rgba(80,80,80,0.25)';
   const innerBg = isDark ? '#191B20' : '#E4E4DE';
-  const innerBorder = isDark ? 'rgba(60,60,60,0.25)' : 'rgba(100,100,100,0.25)';
+  const innerBorder = isDark ? 'rgba(160,160,168,0.15)' : 'rgba(80,80,80,0.2)';
   const silkColor = isDark ? pcb.silk.primary : '#2A2A2A';
   const silkDim = isDark ? pcb.silk.dim : '#6A6A6A';
   const padColor = pcb.component.padGold;

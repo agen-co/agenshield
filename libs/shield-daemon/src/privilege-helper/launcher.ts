@@ -25,15 +25,21 @@ export interface PrivilegeHelperHandle {
 function findHelperScript(): string {
   const __dirname = path.dirname(new URL(import.meta.url).pathname);
 
-  // Try compiled JS first (production)
+  // Try compiled JS first (production — same directory)
   const jsPath = path.join(__dirname, 'helper.js');
   if (fs.existsSync(jsPath)) return jsPath;
+
+  // Try esbuild additional entry point output (preserves directory structure)
+  const nestedJsPath = path.join(__dirname, 'privilege-helper', 'helper.js');
+  if (fs.existsSync(nestedJsPath)) return nestedJsPath;
 
   // Try TypeScript source (dev mode via tsx)
   const tsPath = path.join(__dirname, 'helper.ts');
   if (fs.existsSync(tsPath)) return tsPath;
 
-  throw new Error('Privilege helper script not found');
+  throw new Error(
+    `Privilege helper script not found. Searched:\n  ${jsPath}\n  ${nestedJsPath}\n  ${tsPath}`,
+  );
 }
 
 /**

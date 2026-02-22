@@ -2,12 +2,10 @@ import { useNavigate } from 'react-router-dom';
 import { Box, Typography } from '@mui/material';
 import { SearchX } from 'lucide-react';
 import { PrimaryButton } from '../elements';
-import { useServerMode } from '../api/hooks';
 import { tokens } from '../styles/tokens';
 
 export function NotFound() {
   const navigate = useNavigate();
-  const serverMode = useServerMode();
 
   return (
     <Box
@@ -31,7 +29,7 @@ export function NotFound() {
         The page you're looking for doesn't exist or has been moved.
       </Typography>
       <PrimaryButton onClick={() => navigate('/')}>
-        {serverMode === 'setup' ? 'Go to Setup' : 'Go to Home'}
+        Go to Home
       </PrimaryButton>
     </Box>
   );

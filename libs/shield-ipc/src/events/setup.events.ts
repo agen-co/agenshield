@@ -29,6 +29,7 @@ export interface SetupCompletePayload {
 export interface SetupErrorPayload {
   error: string;
   targetId?: string;
+  step?: string;
 }
 
 export interface SetupStateChangePayload {

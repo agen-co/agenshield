@@ -153,6 +153,15 @@ export interface SystemMetricsNodeData {
   [key: string]: unknown;
 }
 
+export interface MetricsClusterNodeData {
+  cpuPercent: number;
+  memPercent: number;
+  diskPercent: number;
+  netUp: number;
+  netDown: number;
+  [key: string]: unknown;
+}
+
 export interface HudPanelNodeData {
   indicators: HudIndicatorData[];
   [key: string]: unknown;
@@ -245,7 +254,7 @@ export interface ShieldChipData {
 }
 
 /** Identifies which system component this node represents */
-export type SystemComponentType = 'cpu' | 'network' | 'command' | 'filesystem' | 'memory' | 'monitoring' | 'logs' | 'secrets' | 'policy-graph';
+export type SystemComponentType = 'cpu' | 'network' | 'command' | 'filesystem' | 'memory' | 'monitoring' | 'skills' | 'secrets' | 'policy-graph';
 
 export interface SystemMetrics {
   cpuPercent: number;    // 0-100
@@ -301,6 +310,10 @@ export interface DangerWireData {
   channelCenterY?: number;
   channelSpacing?: number;
   targetRow?: number;
+  /** Override stroke color (health-based edge coloring) */
+  colorOverride?: string;
+  /** Override electric shot color */
+  electricColorOverride?: string;
   [key: string]: unknown;
 }
 

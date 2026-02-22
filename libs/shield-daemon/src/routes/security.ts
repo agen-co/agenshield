@@ -4,14 +4,32 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { GetSecurityStatusResponse } from '@agenshield/ipc';
-import { checkSecurityStatus } from '@agenshield/sandbox';
+import { checkSecurityStatus, type TargetProcessMapping } from '@agenshield/sandbox';
+import { getStorage } from '@agenshield/storage';
 import { isAuthenticated } from '../auth/middleware';
 import { redactSecurityStatus } from '../auth/redact';
 
 export async function securityRoutes(app: FastifyInstance): Promise<void> {
   app.get('/security', async (request): Promise<GetSecurityStatusResponse> => {
     try {
-      const status = checkSecurityStatus();
+      // Build target-to-user mappings from profiles for cross-target validation
+      let knownTargets: TargetProcessMapping[] | undefined;
+      try {
+        const profiles = getStorage().profiles.getByType('target');
+        const targets = profiles
+          .map((p) => ({
+            targetName: p.targetName ?? p.name,
+            users: [p.agentUsername, p.brokerUsername].filter((u): u is string => Boolean(u)),
+          }))
+          .filter((t) => t.users.length > 0);
+        if (targets.length > 0) {
+          knownTargets = targets;
+        }
+      } catch {
+        // Storage may not be initialized — fall through to discovery
+      }
+
+      const status = checkSecurityStatus({ knownTargets });
 
       // Merge secret names detected in the calling user's environment
       const userSecrets = process.env['AGENSHIELD_USER_SECRETS'];

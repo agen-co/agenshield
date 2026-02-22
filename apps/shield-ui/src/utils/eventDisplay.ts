@@ -143,14 +143,90 @@ export function resolveEventColor(color: string, palette: Palette): string {
 import type { SSEEvent } from '../state/events';
 import type { StatusVariant } from '../components/shared/StatusBadge/StatusBadge.types';
 
+/* ------------------------------------------------------------------ */
+/*  Event Severity                                                      */
+/* ------------------------------------------------------------------ */
+
+export type EventSeverity = 'error' | 'warn' | 'info' | 'debug' | 'verbose';
+
+export const SEVERITY_COLORS: Record<EventSeverity, string> = {
+  error: '#E1583E',
+  warn: '#EEA45F',
+  info: '#6BAEF2',
+  debug: '#9E9E9E',
+  verbose: '#BDBDBD',
+};
+
+/** Derive a severity level from the event type and payload */
+export function getEventSeverity(event: SSEEvent): EventSeverity {
+  const t = event.type;
+
+  // Error: blocked / denied / threat events
+  if (BLOCKED_EVENT_TYPES.has(t)) return 'error';
+  if (t === 'exec:denied') return 'error';
+  if (t === 'security:critical' || t === 'security:alert') return 'error';
+  if (t === 'agenco:error') return 'error';
+  if (t === 'skills:install_failed' || t === 'skills:analysis_failed') return 'error';
+  if (t === 'interceptor:event') {
+    const d = event.data as Record<string, unknown>;
+    const dtype = String(d.type ?? '');
+    if (dtype === 'denied' || dtype === 'deny') return 'error';
+    // Allowed interceptor events are info
+    if (dtype === 'allowed' || dtype === 'allow') return 'info';
+  }
+
+  // Warn: security warnings, alerts, resource limits, broker crashes
+  if (t === 'security:status' || t === 'security:warning') return 'warn';
+  if (t.startsWith('alerts:')) return 'warn';
+  if (t === 'resource:limit_exceeded') return 'warn';
+  if (t === 'process:broker_crashed') return 'warn';
+  if (t === 'skills:quarantined' || t === 'skills:untrusted_detected' || t === 'skills:integrity_violation') return 'warn';
+
+  // Info: meaningful operational events
+  if (t === 'skills:installed' || t === 'skills:uninstalled') return 'info';
+  if (t === 'skills:analyzed' || t === 'skills:integrity_restored') return 'info';
+  if (t === 'config:changed') return 'info';
+  if (t.startsWith('setup:')) return 'info';
+  if (t.endsWith('_started') || t.endsWith('_stopped') || t === 'process:started' || t === 'process:stopped') return 'info';
+  if (t === 'agenco:connected' || t === 'agenco:disconnected' || t === 'agenco:auth_completed') return 'info';
+  if (t.startsWith('wrappers:')) return 'debug';
+
+  // Debug: low-level operational
+  if (t === 'api:request' || t === 'api:outbound') return 'debug';
+  if (t.startsWith('broker:')) return 'debug';
+  if (t.startsWith('agenco:')) return 'debug';
+
+  // Verbose: heartbeats, noise
+  if (t === 'daemon:status') return 'verbose';
+  if (t === 'skills:approved') return 'verbose';
+  if (isNoiseEvent(event)) return 'verbose';
+
+  return 'debug';
+}
+
+/* ------------------------------------------------------------------ */
+/*  Noise filter                                                        */
+/* ------------------------------------------------------------------ */
+
 /** Noisy allowed exec commands to always filter in the overview feed (matched by prefix) */
 const NOISE_COMMANDS = ['arp ', 'networksetup ', 'ifconfig ', 'scutil '];
+
+/** API polling paths that are just the UI refreshing data */
+const NOISE_API_PATHS = ['/api/metrics', '/api/security', '/api/health', '/api/status', '/api/alerts', '/api/targets'];
 
 /** Returns true for low-value system probe events (allowed exec of arp, networksetup, etc.) */
 export function isNoiseEvent(event: SSEEvent): boolean {
   // Hide low-signal system events
   if (event.type === 'skills:approved') return true;
   if (event.type === 'daemon:status') return true;
+
+  // Hide API polling requests (GET to known polling endpoints)
+  if (event.type === 'api:request') {
+    const d = event.data as Record<string, unknown>;
+    const method = String(d.method ?? '').toUpperCase();
+    const path = String(d.path ?? '');
+    if (method === 'GET' && NOISE_API_PATHS.some((p) => path.startsWith(p))) return true;
+  }
 
   if (event.type !== 'interceptor:event') return false;
   const d = event.data as Record<string, unknown>;

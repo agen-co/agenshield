@@ -11,7 +11,7 @@
  *          [CPU] [NET] [FS] [MEM]
  *                     │
  *  SEC ──┐       ┌────┴────┐       ┌── MON
- *  POL ──┘───────│  SHIELD │───────└── LOG
+ *  POL ──┘───────│  SHIELD │───────└── SKL
  *                └────┬────┘
  *                     │
  *              [Broker][Broker]
@@ -26,9 +26,17 @@ import { Position, type Node, type Edge } from '@xyflow/react';
 
 import type { SetupCanvasData, SystemComponentType, ConnectionIntent, HandleSpec } from '../Canvas.types';
 import { VARIANTS } from '../nodes/SystemComponentNode/system.constants';
-import { setAllExposed, setExtendedComponentsActive } from '../../../state/system-store';
-import { useServerMode } from '../../../api/hooks';
+import { METRICS_CLUSTER_DIMS } from '../nodes/MetricsClusterNode';
+import { useSnapshot } from 'valtio';
+import { setAllExposed, setExtendedComponentsActive, systemStore, type ComponentHealth } from '../../../state/system-store';
 import { allocatePins } from '../utils/pinAllocator';
+
+/* ---- Health → wire color mapping ---- */
+const HEALTH_EDGE_COLORS: Record<ComponentHealth, { stroke: string; electric: string }> = {
+  ok:     { stroke: '#2D6B3F', electric: '#3DA05A' },
+  warn:   { stroke: '#E8B84A', electric: '#F0C95C' },
+  danger: { stroke: '#E1583E', electric: '#FF6B4F' },
+};
 
 interface ViewportSize {
   width: number;
@@ -42,7 +50,7 @@ const SYSTEM_COMPONENTS: { id: SystemComponentType; label: string; sublabel: str
   { id: 'filesystem', label: 'DISK', sublabel: 'nvme0', w: VARIANTS.filesystem.w, h: VARIANTS.filesystem.h },
   { id: 'memory', label: 'MEMORY', sublabel: 'DDR5', w: VARIANTS.memory.w, h: VARIANTS.memory.h },
   { id: 'monitoring', label: 'MONITOR', sublabel: 'sys', w: VARIANTS.monitoring.w, h: VARIANTS.monitoring.h },
-  { id: 'logs', label: 'LOGS', sublabel: 'syslog', w: VARIANTS.logs.w, h: VARIANTS.logs.h },
+  { id: 'skills', label: 'SKILLS', sublabel: 'tools', w: VARIANTS.skills.w, h: VARIANTS.skills.h },
   { id: 'secrets', label: 'SECRETS', sublabel: 'vault', w: VARIANTS.secrets.w, h: VARIANTS.secrets.h },
   { id: 'policy-graph', label: 'POLICY', sublabel: 'rules', w: VARIANTS['policy-graph'].w, h: VARIANTS['policy-graph'].h },
 ];
@@ -50,12 +58,10 @@ const SYSTEM_COMPONENTS: { id: SystemComponentType; label: string; sublabel: str
 const findComp = (id: SystemComponentType) => SYSTEM_COMPONENTS.find((c) => c.id === id)!;
 const filterComps = (ids: SystemComponentType[]) => SYSTEM_COMPONENTS.filter((c) => ids.includes(c.id));
 
-/** 4 core components positioned ABOVE the shield */
-const CORE_COMPONENTS = filterComps(['cpu', 'network', 'filesystem', 'memory']);
 /** Secrets, PolicyGraph on left side of shield */
 const LEFT_AUX_COMPONENTS = filterComps(['secrets', 'policy-graph']);
 /** Monitor, Logs on right side of shield */
-const RIGHT_AUX_COMPONENTS = filterComps(['monitoring', 'logs']);
+const RIGHT_AUX_COMPONENTS = filterComps(['monitoring', 'skills']);
 
 /* ---- Shield dimension constants ---- */
 const SHIELD_W = 350;
@@ -64,7 +70,6 @@ const SHIELD_H = 350;
 /* ---- Component positioning ---- */
 const COMP_GAP = 60;           // Gap between component and shield edge
 const COMP_V_GAP = 20;        // Vertical gap between stacked components
-const CORE_H_GAP = 24;        // Horizontal gap between core components in top row
 const BROKER_GAP = 80;        // Gap from shield bottom to broker row
 const BROKER_H_GAP = 40;      // Horizontal gap between brokers
 const BROKER_W = 180;
@@ -92,8 +97,8 @@ function shieldBottomCurveY(svgX: number): number {
   return 195.5 - t * t * 33;
 }
 
-/** Top handle SVG X positions for 4 core components */
-const TOP_HANDLE_SVG_X = [74, 91.3, 108.7, 126];
+/** Top handle SVG X position for metrics cluster (crown tip) */
+const METRICS_HANDLE_SVG_X = 100;
 
 /** Left wing edge SVG X */
 const LEFT_WING_SVG_X = 21.2;
@@ -105,16 +110,14 @@ const AUX_SVG_Y = [61.3, 84.6];
 /* ---- Fixed layout center (viewport-independent so fitView can zoom) ---- */
 const LAYOUT_CENTER_X = 500;
 
-/** Shield Y = offset below the core component row (viewport-independent) */
+/** Shield Y = offset below the metrics cluster node (viewport-independent) */
 function computeShieldTopY(_hasBrokers: boolean): number {
-  const coreMaxH = Math.max(...CORE_COMPONENTS.map((c) => c.h));
-  return COMP_GAP + coreMaxH;
+  return COMP_GAP + METRICS_CLUSTER_DIMS.h;
 }
 
 export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSize) {
   const { width: vw, height: vh } = viewport;
-  const serverMode = useServerMode();
-  const isCliSetup = serverMode === 'setup';
+  const systemStoreSnap = useSnapshot(systemStore);
 
   // Sync exposed state to unified valtio store
   const hasAnyUnshielded = data.anyUnshielded;
@@ -122,13 +125,22 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
     setAllExposed(hasAnyUnshielded);
   }, [hasAnyUnshielded]);
 
-  // Show auxiliary components only when AgenShield is active (at least one shielded card)
+  // Show auxiliary components only when AgenShield is active (at least one shielded card or forced open)
   const hasAnyShielded = data.anyShielded;
+  const wingsForced = systemStoreSnap.wingsForceOpen;
   useEffect(() => {
-    setExtendedComponentsActive(hasAnyShielded);
-  }, [hasAnyShielded]);
+    setExtendedComponentsActive(hasAnyShielded || wingsForced);
+  }, [hasAnyShielded, wingsForced]);
 
-  const isExtended = data.anyShielded;
+  const isExtended = data.anyShielded || wingsForced;
+
+  // Aux component health for edge coloring
+  const auxHealth = {
+    secrets: systemStoreSnap.components.secrets.health,
+    'policy-graph': systemStoreSnap.components['policy-graph'].health,
+    monitoring: systemStoreSnap.components.monitoring.health,
+    skills: systemStoreSnap.components.skills.health,
+  };
 
   const topologyKey = useMemo(
     () =>
@@ -140,9 +152,10 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         hasDetection: data.hasDetection,
         anyShielded: data.anyShielded,
         anyUnshielded: data.anyUnshielded,
-        isCliSetup,
+        isExtended,
+        auxHealth,
       }),
-    [data.cards, data.stoppedShieldedCards, data.dismissedCardIds, data.hasDetection, data.anyShielded, data.anyUnshielded, isCliSetup],
+    [data.cards, data.stoppedShieldedCards, data.dismissedCardIds, data.hasDetection, data.anyShielded, data.anyUnshielded, isExtended, auxHealth],
   );
 
   /* ==================================================================
@@ -159,10 +172,11 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       hasDetection: boolean;
       anyShielded: boolean;
       anyUnshielded: boolean;
-      isCliSetup: boolean;
+      isExtended: boolean;
+      auxHealth: Record<string, ComponentHealth>;
     };
 
-    if (!topo.hasDetection && !topo.anyShielded) return null;
+    if (!topo.hasDetection && !topo.anyShielded && !topo.isExtended) return null;
 
     const contentCenterX = LAYOUT_CENTER_X;
     const shieldX = contentCenterX - SHIELD_W / 2;
@@ -171,38 +185,36 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
 
     const intents: ConnectionIntent[] = [];
 
-    // --- Core components ↔ shield top ---
-    if (topo.anyShielded) {
-      CORE_COMPONENTS.forEach((comp, i) => {
-        intents.push({
-          edgeId: `e-comp-shield-${comp.id}-down`,
-          sourceNodeId: `comp-${comp.id}`,
-          sourceSide: 'bottom',
-          sourceHandleType: 'source',
-          targetNodeId: 'agenshield',
-          targetSide: 'top',
-          targetHandleType: 'target',
-          sourceOrderHint: contentCenterX,
-          targetOrderHint: contentCenterX,
-          edgeType: 'canvas-danger',
-          edgeData: { variant: 'shield', fanout: true, balanced: true },
-          targetFixedHandle: `core-in-${i}`,
-        });
+    // --- Metrics cluster ↔ shield top ---
+    if (topo.anyShielded || topo.isExtended) {
+      intents.push({
+        edgeId: 'e-metrics-shield-down',
+        sourceNodeId: 'metrics-cluster',
+        sourceSide: 'bottom',
+        sourceHandleType: 'source',
+        targetNodeId: 'agenshield',
+        targetSide: 'top',
+        targetHandleType: 'target',
+        sourceOrderHint: contentCenterX,
+        targetOrderHint: contentCenterX,
+        edgeType: 'canvas-danger',
+        edgeData: { variant: 'shield', fanout: true, balanced: true },
+        targetFixedHandle: 'metrics-in',
+      });
 
-        intents.push({
-          edgeId: `e-comp-shield-${comp.id}-up`,
-          sourceNodeId: 'agenshield',
-          sourceSide: 'top',
-          sourceHandleType: 'source',
-          targetNodeId: `comp-${comp.id}`,
-          targetSide: 'bottom',
-          targetHandleType: 'target',
-          sourceOrderHint: contentCenterX,
-          targetOrderHint: contentCenterX,
-          edgeType: 'canvas-danger',
-          edgeData: { variant: 'shield', fanout: true, balanced: true },
-          sourceFixedHandle: `core-out-${i}`,
-        });
+      intents.push({
+        edgeId: 'e-metrics-shield-up',
+        sourceNodeId: 'agenshield',
+        sourceSide: 'top',
+        sourceHandleType: 'source',
+        targetNodeId: 'metrics-cluster',
+        targetSide: 'bottom',
+        targetHandleType: 'target',
+        sourceOrderHint: contentCenterX,
+        targetOrderHint: contentCenterX,
+        edgeType: 'canvas-danger',
+        edgeData: { variant: 'shield', fanout: true, balanced: true },
+        sourceFixedHandle: 'metrics-out',
       });
 
       // --- Left aux ↔ shield left ---
@@ -272,44 +284,42 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       });
     }
 
-    // --- Penetration wires (unshielded main-row broker ↔ core comp) ---
+    // --- Penetration wires (unshielded main-row broker ↔ metrics cluster) ---
     // In CLI setup mode, skip all penetration/tendril wires — cards float
     // without connections until they become shielded.
-    if (topo.hasDetection && !topo.isCliSetup) {
+    if (topo.hasDetection && !false) {
       const unshieldedCards = topo.cardIds.filter((id) => {
         const entry = topo.cardStatuses.find((s) => s.startsWith(`${id}:`));
         return entry?.split(':')[1] !== 'shielded';
       });
 
       unshieldedCards.forEach((cardId) => {
-        CORE_COMPONENTS.forEach((comp) => {
-          intents.push({
-            edgeId: `e-pen-${cardId}-${comp.id}-up`,
-            sourceNodeId: `broker-${cardId}`,
-            sourceSide: 'top',
-            sourceHandleType: 'source',
-            targetNodeId: `comp-${comp.id}`,
-            targetSide: 'bottom',
-            targetHandleType: 'target',
-            sourceOrderHint: contentCenterX,
-            targetOrderHint: contentCenterX,
-            edgeType: 'canvas-danger',
-            edgeData: { variant: 'penetration', fanout: true, stubTop: 25, stubBottom: 15 },
-          });
+        intents.push({
+          edgeId: `e-pen-${cardId}-metrics-up`,
+          sourceNodeId: `broker-${cardId}`,
+          sourceSide: 'top',
+          sourceHandleType: 'source',
+          targetNodeId: 'metrics-cluster',
+          targetSide: 'bottom',
+          targetHandleType: 'target',
+          sourceOrderHint: contentCenterX,
+          targetOrderHint: contentCenterX,
+          edgeType: 'canvas-danger',
+          edgeData: { variant: 'penetration', fanout: true, stubTop: 25, stubBottom: 15 },
+        });
 
-          intents.push({
-            edgeId: `e-pen-${cardId}-${comp.id}-down`,
-            sourceNodeId: `comp-${comp.id}`,
-            sourceSide: 'bottom',
-            sourceHandleType: 'source',
-            targetNodeId: `broker-${cardId}`,
-            targetSide: 'top',
-            targetHandleType: 'target',
-            sourceOrderHint: contentCenterX,
-            targetOrderHint: contentCenterX,
-            edgeType: 'canvas-danger',
-            edgeData: { variant: 'penetration', fanout: true, stubTop: 15, stubBottom: 25 },
-          });
+        intents.push({
+          edgeId: `e-pen-${cardId}-metrics-down`,
+          sourceNodeId: 'metrics-cluster',
+          sourceSide: 'bottom',
+          sourceHandleType: 'source',
+          targetNodeId: `broker-${cardId}`,
+          targetSide: 'top',
+          targetHandleType: 'target',
+          sourceOrderHint: contentCenterX,
+          targetOrderHint: contentCenterX,
+          edgeType: 'canvas-danger',
+          edgeData: { variant: 'penetration', fanout: true, stubTop: 15, stubBottom: 25 },
         });
       });
 
@@ -342,9 +352,12 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
 
     // Node dimensions for allocator
     const nodeDims = new Map<string, { width: number; height: number }>();
-    SYSTEM_COMPONENTS.forEach((comp) => {
+    // Auxiliary components (left/right of shield)
+    [...LEFT_AUX_COMPONENTS, ...RIGHT_AUX_COMPONENTS].forEach((comp) => {
       nodeDims.set(`comp-${comp.id}`, { width: comp.w, height: comp.h });
     });
+    // Metrics cluster (above shield)
+    nodeDims.set('metrics-cluster', { width: METRICS_CLUSTER_DIMS.w, height: METRICS_CLUSTER_DIMS.h });
     if (topo.hasDetection) {
       // Main row brokers
       topo.cardIds.forEach((id) => {
@@ -396,44 +409,29 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       ? (allVisibleCards.every((c) => c.status === 'shielded') ? 'protected' : 'partial')
       : 'unprotected';
 
-    // --- 4 Core components: row ABOVE the shield ---
+    // --- Metrics Cluster: unified node ABOVE the shield ---
     {
-      const totalW = CORE_COMPONENTS.reduce((a, c) => a + c.w, 0) + (CORE_COMPONENTS.length - 1) * CORE_H_GAP;
-      const rowStartX = contentCenterX - totalW / 2;
-      const maxH = Math.max(...CORE_COMPONENTS.map((c) => c.h));
-      const rowY = shieldTopY - COMP_GAP - maxH;
+      const clusterW = METRICS_CLUSTER_DIMS.w;
+      const clusterH = METRICS_CLUSTER_DIMS.h;
+      const clusterY = shieldTopY - COMP_GAP - clusterH;
 
-      let accX = rowStartX;
-      CORE_COMPONENTS.forEach((comp) => {
-        const compX = accX;
-        const compY = rowY + (maxH - comp.h); // Bottom-align
+      const allocatedHandles = pinAllocation?.nodeHandles.get('metrics-cluster');
 
-        const allocatedHandles = pinAllocation?.nodeHandles.get(`comp-${comp.id}`);
-        const handleOverrides: HandleSpec[] | undefined = allocatedHandles
-          ? [
-              ...allocatedHandles,
-              { id: 'left', type: 'target' as const, position: Position.Left, offset: comp.h / 2 },
-              { id: 'right', type: 'target' as const, position: Position.Right, offset: comp.h / 2 },
-            ]
-          : undefined;
-
-        result.push({
-          id: `comp-${comp.id}`,
-          type: 'canvas-system-component',
-          position: { x: compX, y: compY },
-          width: comp.w,
-          height: comp.h,
-          data: {
-            componentType: comp.id,
-            label: comp.label,
-            sublabel: comp.sublabel,
-            ...(handleOverrides ? { handleOverrides } : {}),
-          },
-          draggable: false,
-          selectable: false,
-        });
-
-        accX += comp.w + CORE_H_GAP;
+      result.push({
+        id: 'metrics-cluster',
+        type: 'canvas-metrics-cluster',
+        position: {
+          x: contentCenterX - clusterW / 2,
+          y: clusterY,
+        },
+        width: clusterW,
+        height: clusterH,
+        data: {
+          ...(allocatedHandles ? { handleOverrides: allocatedHandles } : {}),
+        },
+        draggable: false,
+        selectable: false,
+        zIndex: 5,
       });
     }
 
@@ -475,6 +473,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           },
           style: {
             opacity: isExtended ? 1 : 0,
+            transition: 'opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
             pointerEvents: (isExtended ? 'auto' : 'none') as React.CSSProperties['pointerEvents'],
           },
           draggable: false,
@@ -521,6 +520,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           },
           style: {
             opacity: isExtended ? 1 : 0,
+            transition: 'opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
             pointerEvents: (isExtended ? 'auto' : 'none') as React.CSSProperties['pointerEvents'],
           },
           draggable: false,
@@ -531,28 +531,28 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
 
     // --- Compute contour-following handle positions for shield ---
 
-    // Top handles: 5 core components following the crown contour
+    // Top handles: single pair for metrics cluster at crown tip
     const topHandles: HandleSpec[] = [];
-    CORE_COMPONENTS.forEach((_, i) => {
-      const svgX = TOP_HANDLE_SVG_X[i];
+    {
+      const svgX = METRICS_HANDLE_SVG_X;
       const svgY = shieldCrownY(svgX);
       const px = svgX * SCALE;
       const py = svgY * SCALE;
       topHandles.push({
-        id: `core-in-${i}`,
+        id: 'metrics-in',
         type: 'target',
         position: Position.Top,
         x: px,
         y: py,
       });
       topHandles.push({
-        id: `core-out-${i}`,
+        id: 'metrics-out',
         type: 'source',
         position: Position.Top,
         x: px + 4,
         y: py,
       });
-    });
+    }
 
     // Bottom handles: N brokers (main + stopped-shielded) following the bottom parabola
     const bottomHandles: HandleSpec[] = [];
@@ -624,7 +624,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         daemonRunning: data.daemonRunning,
         shieldedCount,
         totalCount: totalVisibleCards,
-        updateAvailable: serverMode === 'update',
+        updateAvailable: false,
         topHandles,
         bottomHandles,
         leftHandles,
@@ -709,27 +709,28 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       hasDetection: boolean;
       anyShielded: boolean;
       anyUnshielded: boolean;
-      isCliSetup: boolean;
+      isExtended: boolean;
+      auxHealth: Record<string, ComponentHealth>;
     };
 
     const getAllocatedHandles = (edgeId: string) =>
       pinAllocation?.edgeHandles.get(edgeId);
 
     // --- Green shield connections ---
-    if (topo.anyShielded) {
-      // Core components ↔ shield top
-      CORE_COMPONENTS.forEach((comp, i) => {
-        const downId = `e-comp-shield-${comp.id}-down`;
-        const upId = `e-comp-shield-${comp.id}-up`;
+    if (topo.anyShielded || topo.isExtended) {
+      // Metrics cluster ↔ shield top
+      {
+        const downId = 'e-metrics-shield-down';
+        const upId = 'e-metrics-shield-up';
         const downHandles = getAllocatedHandles(downId);
         const upHandles = getAllocatedHandles(upId);
 
         result.push({
           id: downId,
-          source: `comp-${comp.id}`,
+          source: 'metrics-cluster',
           target: 'agenshield',
-          sourceHandle: downHandles?.sourceHandle ?? 'bottom',
-          targetHandle: downHandles?.targetHandle ?? `core-in-${i}`,
+          sourceHandle: downHandles?.sourceHandle ?? 'bottom-out',
+          targetHandle: downHandles?.targetHandle ?? 'metrics-in',
           type: 'canvas-danger',
           data: { variant: 'shield', fanout: true, balanced: true },
         });
@@ -737,20 +738,22 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         result.push({
           id: upId,
           source: 'agenshield',
-          target: `comp-${comp.id}`,
-          sourceHandle: upHandles?.sourceHandle ?? `core-out-${i}`,
-          targetHandle: upHandles?.targetHandle ?? 'bottom-in',
+          target: 'metrics-cluster',
+          sourceHandle: upHandles?.sourceHandle ?? 'metrics-out',
+          targetHandle: upHandles?.targetHandle ?? 'top-in',
           type: 'canvas-danger',
           data: { variant: 'shield', fanout: true, balanced: true },
         });
-      });
+      }
 
-      // Left aux ↔ shield left
+      // Left aux ↔ shield left (with health-based wire colors)
       LEFT_AUX_COMPONENTS.forEach((comp, i) => {
         const leftId = `e-aux-shield-${comp.id}-left`;
         const rightId = `e-aux-shield-${comp.id}-right`;
         const leftHandles = getAllocatedHandles(leftId);
         const rightHandles = getAllocatedHandles(rightId);
+        const health = topo.auxHealth[comp.id] ?? 'ok';
+        const colors = HEALTH_EDGE_COLORS[health];
 
         result.push({
           id: leftId,
@@ -759,7 +762,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           sourceHandle: leftHandles?.sourceHandle ?? 'right',
           targetHandle: leftHandles?.targetHandle ?? `left-aux-in-${i}`,
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true },
+          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric },
         });
 
         result.push({
@@ -769,16 +772,18 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           sourceHandle: rightHandles?.sourceHandle ?? `left-aux-out-${i}`,
           targetHandle: rightHandles?.targetHandle ?? 'right',
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true },
+          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric },
         });
       });
 
-      // Right aux ↔ shield right
+      // Right aux ↔ shield right (with health-based wire colors)
       RIGHT_AUX_COMPONENTS.forEach((comp, i) => {
         const leftId = `e-aux-shield-${comp.id}-left`;
         const rightId = `e-aux-shield-${comp.id}-right`;
         const leftHandles = getAllocatedHandles(leftId);
         const rightHandles = getAllocatedHandles(rightId);
+        const health = topo.auxHealth[comp.id] ?? 'ok';
+        const colors = HEALTH_EDGE_COLORS[health];
 
         result.push({
           id: leftId,
@@ -787,7 +792,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           sourceHandle: leftHandles?.sourceHandle ?? 'left',
           targetHandle: leftHandles?.targetHandle ?? `right-aux-in-${i}`,
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true },
+          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric },
         });
 
         result.push({
@@ -797,7 +802,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           sourceHandle: rightHandles?.sourceHandle ?? `right-aux-out-${i}`,
           targetHandle: rightHandles?.targetHandle ?? 'left',
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true },
+          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric },
         });
       });
     }
@@ -810,7 +815,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         const isShielded = cardStatus === 'shielded';
 
         // In CLI setup mode, skip ALL edges for non-shielded cards — they float
-        if (topo.isCliSetup && !isShielded) return;
+        if (false && !isShielded) return;
 
         // Handle ID for this broker on the shield
         const shieldHandle = `bottom-broker-${i}`;
@@ -846,17 +851,17 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
             });
           });
 
-          // Penetration wires: broker <-> each core component
-          CORE_COMPONENTS.forEach((comp) => {
-            const upId = `e-pen-${cardId}-${comp.id}-up`;
-            const downId = `e-pen-${cardId}-${comp.id}-down`;
+          // Penetration wires: broker <-> metrics cluster
+          {
+            const upId = `e-pen-${cardId}-metrics-up`;
+            const downId = `e-pen-${cardId}-metrics-down`;
             const upHandles = getAllocatedHandles(upId);
             const downHandles = getAllocatedHandles(downId);
 
             result.push({
               id: upId,
               source: `broker-${cardId}`,
-              target: `comp-${comp.id}`,
+              target: 'metrics-cluster',
               sourceHandle: upHandles?.sourceHandle ?? 'danger-up',
               targetHandle: upHandles?.targetHandle ?? 'bottom-in',
               type: 'canvas-danger',
@@ -865,14 +870,14 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
 
             result.push({
               id: downId,
-              source: `comp-${comp.id}`,
+              source: 'metrics-cluster',
               target: `broker-${cardId}`,
-              sourceHandle: downHandles?.sourceHandle ?? 'bottom',
+              sourceHandle: downHandles?.sourceHandle ?? 'bottom-out',
               targetHandle: downHandles?.targetHandle ?? 'danger-up-in',
               type: 'canvas-danger',
               data: { variant: 'penetration', fanout: true, stubTop: 15, stubBottom: 25 },
             });
-          });
+          }
         }
       });
 
@@ -894,7 +899,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       });
 
       // Cross-contamination tendrils — adjacent main-row brokers only (daemon mode)
-      if (!topo.isCliSetup) {
+      if (!false) {
         const unshieldedBrokers: string[] = [];
         topo.cardIds.forEach((cardId) => {
           const statusEntry = topo.cardStatuses.find((s) => s.startsWith(`${cardId}:`));

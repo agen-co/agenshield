@@ -4,11 +4,30 @@
  * Periodically checks security status and emits events when it changes.
  */
 
-import { checkSecurityStatus, type SecurityStatus } from '@agenshield/sandbox';
+import { checkSecurityStatus, type SecurityStatus, type TargetProcessMapping } from '@agenshield/sandbox';
+import { getStorage } from '@agenshield/storage';
 import { emitSecurityStatus, emitSecurityWarning, emitSecurityCritical } from '../events/emitter';
 
 let lastStatus: SecurityStatus | null = null;
 let watcherInterval: NodeJS.Timeout | null = null;
+
+/**
+ * Build target-to-user mappings from profiles for cross-target validation
+ */
+function getKnownTargets(): TargetProcessMapping[] | undefined {
+  try {
+    const profiles = getStorage().profiles.getByType('target');
+    const targets = profiles
+      .map((p) => ({
+        targetName: p.targetName ?? p.name,
+        users: [p.agentUsername, p.brokerUsername].filter((u): u is string => Boolean(u)),
+      }))
+      .filter((t) => t.users.length > 0);
+    return targets.length > 0 ? targets : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Compare two security statuses for changes
@@ -32,7 +51,7 @@ function hasStatusChanged(prev: SecurityStatus | null, current: SecurityStatus):
  */
 function checkAndEmit(): void {
   try {
-    const status = checkSecurityStatus();
+    const status = checkSecurityStatus({ knownTargets: getKnownTargets() });
 
     // Merge secret names detected in the calling user's environment
     const userSecrets = process.env['AGENSHIELD_USER_SECRETS'];

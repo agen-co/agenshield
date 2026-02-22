@@ -23,7 +23,8 @@
         "additionalEntryPoints": [
           "libs/shield-daemon/src/main.ts",
           "libs/shield-daemon/src/auth/index.ts",
-          "libs/shield-daemon/src/vault/index.ts"
+          "libs/shield-daemon/src/vault/index.ts",
+          "libs/shield-daemon/src/privilege-helper/helper.ts"
         ],
         "tsConfig": "libs/shield-daemon/tsconfig.lib.json",
         "format": ["esm"],

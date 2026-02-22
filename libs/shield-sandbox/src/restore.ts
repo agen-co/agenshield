@@ -12,6 +12,7 @@ import { BACKUP_CONFIG, DEFAULT_PORT } from '@agenshield/ipc';
 import { loadBackup, deleteBackup, restoreOriginalConfig } from './backup';
 import { deleteSandboxUser } from './macos';
 import { GUARDED_SHELL_PATH } from './guarded-shell';
+import { scanForRouterWrappers, ROUTER_MARKER, PATH_REGISTRY_PATH } from './path-override';
 
 /**
  * Execute a command with sudo
@@ -56,8 +57,9 @@ export interface RestoreResult {
  * Fallback for manually started daemons without launchd
  */
 function findDaemonPidByPort(port: number): number | null {
+  // Try without sudo first
   try {
-    const output = execSync(`lsof -ti :${port}`, {
+    const output = execSync(`lsof -ti :${port} -sTCP:LISTEN`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 3000,
@@ -68,6 +70,20 @@ function findDaemonPidByPort(port: number): number | null {
     }
   } catch {
     // lsof failed or no process found
+  }
+  // Sudo fallback — catches root-owned or differently-permissioned processes
+  try {
+    const output = execSync(`sudo lsof -ti :${port} -sTCP:LISTEN`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    }).trim();
+    if (output) {
+      const pid = parseInt(output.split('\n')[0], 10);
+      if (!isNaN(pid)) return pid;
+    }
+  } catch {
+    // sudo not available or lsof failed
   }
   return null;
 }
@@ -353,6 +369,56 @@ function removeGuardedShell(): RestoreProgress {
 }
 
 /**
+ * Remove AgenShield PATH router wrappers from /usr/local/bin.
+ * For each wrapper: restore backup if exists, otherwise remove.
+ * Also delete the path registry.
+ */
+function removeRouterWrappers(): RestoreProgress {
+  const errors: string[] = [];
+
+  // Scan for wrappers with AGENSHIELD_ROUTER marker
+  const wrappers = scanForRouterWrappers();
+
+  for (const binName of wrappers) {
+    const targetPath = `/usr/local/bin/${binName}`;
+    const backupPath = `/usr/local/bin/.${binName}.agenshield-backup`;
+
+    if (fs.existsSync(backupPath)) {
+      const result = sudoExec(`mv "${backupPath}" "${targetPath}"`);
+      if (!result.success) {
+        errors.push(`Failed to restore ${binName}: ${result.error}`);
+      }
+    } else {
+      const result = sudoExec(`rm -f "${targetPath}"`);
+      if (!result.success) {
+        errors.push(`Failed to remove ${binName}: ${result.error}`);
+      }
+    }
+  }
+
+  // Delete path registry
+  if (fs.existsSync(PATH_REGISTRY_PATH)) {
+    sudoExec(`rm -f "${PATH_REGISTRY_PATH}"`);
+  }
+
+  if (errors.length > 0) {
+    return {
+      step: 'cleanup',
+      success: true, // Non-critical
+      message: `Router cleanup partial: ${errors.join('; ')}`,
+    };
+  }
+
+  return {
+    step: 'cleanup',
+    success: true,
+    message: wrappers.length > 0
+      ? `Removed ${wrappers.length} PATH router wrapper(s)`
+      : 'No PATH router wrappers found',
+  };
+}
+
+/**
  * Clean up AgenShield directories and files
  */
 function cleanup(): RestoreProgress {
@@ -374,6 +440,26 @@ function cleanup(): RestoreProgress {
         errors.push(`Failed to remove ${p}: ${result.error}`);
       }
     }
+  }
+
+  // Scan for per-target broker plists (e.g. com.agenshield.broker.claudecode.plist)
+  const plistDir = '/Library/LaunchDaemons';
+  try {
+    if (fs.existsSync(plistDir)) {
+      for (const file of fs.readdirSync(plistDir)) {
+        if (file.startsWith('com.agenshield.') && file.endsWith('.plist')) {
+          const fullPath = path.join(plistDir, file);
+          const label = file.replace('.plist', '');
+          sudoExec(`launchctl bootout system/${label} 2>/dev/null || true`);
+          const result = sudoExec(`rm -f "${fullPath}"`);
+          if (!result.success) {
+            errors.push(`Failed to remove ${fullPath}: ${result.error}`);
+          }
+        }
+      }
+    }
+  } catch {
+    // Best effort — directory may not exist or not readable
   }
 
   if (errors.length > 0) {
@@ -504,6 +590,9 @@ export function restoreInstallation(
   // Remove guarded shell
   runStep(() => removeGuardedShell());
 
+  // Remove PATH router wrappers
+  runStep(() => removeRouterWrappers());
+
   // Cleanup directories
   runStep(() => cleanup());
 
@@ -623,18 +712,33 @@ export function forceUninstall(
     return result.success;
   };
 
-  // Loop stop daemon + broker until both are fully gone (launchd may respawn)
-  const MAX_ATTEMPTS = 5;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const daemonUp = isDaemonPresent();
-    const brokerUp = isBrokerPresent();
-    if (!daemonUp && !brokerUp) break;
+  // Always attempt to stop daemon (safe no-op if not running)
+  runStep(() => stopDaemon());
 
-    if (daemonUp) runStep(() => stopDaemon());
-    if (brokerUp) runStep(() => stopBrokerDaemon());
+  // Discover and stop all agenshield plists (daemon, broker, per-target brokers)
+  const plistDir = '/Library/LaunchDaemons';
+  try {
+    if (fs.existsSync(plistDir)) {
+      for (const file of fs.readdirSync(plistDir)) {
+        if (file.startsWith('com.agenshield.') && file.endsWith('.plist')) {
+          const label = file.replace('.plist', '');
+          sudoExec(`launchctl bootout system/${label} 2>/dev/null || true`);
+          sudoExec(`rm -f "${path.join(plistDir, file)}"`);
+        }
+      }
+    }
+  } catch {
+    // Best effort
+  }
 
-    // Brief pause for launchd to settle
-    try { execSync('sleep 1', { encoding: 'utf-8' }); } catch { /* ignore */ }
+  // Brief pause for launchd to settle
+  try { execSync('sleep 1', { encoding: 'utf-8' }); } catch { /* ignore */ }
+
+  // Verify daemon is gone — retry kill if still on port
+  const remainingPid = findDaemonPidByPort(DEFAULT_PORT);
+  if (remainingPid) {
+    sudoExec(`kill -9 ${remainingPid}`);
+    waitForProcessExit(remainingPid, 3000);
   }
 
   // Discover sandbox users
@@ -717,6 +821,9 @@ export function forceUninstall(
 
   // Remove guarded shell
   runStep(() => removeGuardedShell());
+
+  // Remove PATH router wrappers
+  runStep(() => removeRouterWrappers());
 
   // Cleanup directories
   runStep(() => cleanup());

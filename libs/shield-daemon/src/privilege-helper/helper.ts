@@ -7,14 +7,16 @@
  *
  * Usage: node helper.js <socketPath>
  *
- * Auto-exits after 60 seconds of inactivity.
+ * Runs for the daemon's lifetime. The daemon sends periodic `ping` heartbeats
+ * to verify the helper is alive. Exits cleanly on `shutdown` RPC or signal.
+ * Falls back to a 24-hour idle timeout as a safety net.
  */
 
 import * as net from 'node:net';
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
 
-const IDLE_TIMEOUT_MS = 60_000;
+const IDLE_TIMEOUT_MS = 24 * 60 * 60_000; // 24h safety net
 
 interface RpcRequest {
   id: number;

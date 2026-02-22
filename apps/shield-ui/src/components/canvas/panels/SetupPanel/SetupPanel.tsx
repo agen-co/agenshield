@@ -1,12 +1,8 @@
 /**
  * SetupPanel — left-side panel for initial setup and add-profile flows.
  *
- * Two modes:
- * - **CLI setup mode** (`serverMode === 'setup'`): Uses wizard engine SSE for
- *   real-time step progress. Shows all wizard steps grouped by phase. Action
- *   buttons map to wizard API calls (configure, confirm, passcode).
- * - **Daemon mode**: Uses setupPanelStore + daemon endpoints. Shows simplified
- *   4-step flow: Detection → Configure → Shielding → Complete.
+ * Shows a simplified 4-step flow:
+ * State Overview → Detection → Configure → Shielding → Complete.
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -30,14 +26,16 @@ import { ConfigureStep } from './steps/ConfigureStep';
 import { ShieldingStep } from './steps/ShieldingStep';
 import { CompleteStep } from './steps/CompleteStep';
 import { StateOverviewStep } from './steps/StateOverviewStep';
-import { WizardStepList } from './steps/WizardStepList';
+import { PasscodeStep } from './steps/PasscodeStep';
+import { ScanResultsStep } from './steps/ScanResultsStep';
 import { setupPanelStore, resetSetupPanel, markShieldComplete } from '../../../../state/setup-panel';
-import { setupStore, type WizardState } from '../../../../state/setup';
-import { useServerMode } from '../../../../api/hooks';
-import { useSetupSSE, useConfigure, useConfirmSetup, useSetPasscode } from '../../../../api/setup';
+import { useShieldSSE } from '../../../../api/setup';
+import { useTargets } from '../../../../api/targets';
+import { useAuth } from '../../../../context/AuthContext';
+import { setWingsForceOpen } from '../../../../state/system-store';
 
 const STEPS: { id: SetupStep; label: string }[] = [
-  { id: 'detection', label: 'Detect' },
+  { id: 'scan-results', label: 'Targets' },
   { id: 'configure', label: 'Configure' },
   { id: 'shielding', label: 'Shield' },
   { id: 'complete', label: 'Complete' },
@@ -46,99 +44,108 @@ const STEPS: { id: SetupStep; label: string }[] = [
 export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
-
-  const serverMode = useServerMode();
-  const isCliSetup = serverMode === 'setup';
+  const { passcodeSet } = useAuth();
 
   const panelState = useSnapshot(setupPanelStore);
-  const wizardSnap = useSnapshot(setupStore);
 
-  // Connect to wizard SSE in CLI setup mode
-  useSetupSSE(isCliSetup);
+  // Connect to shield progress SSE
+  useShieldSSE(open);
 
-  // Wizard API mutations (CLI setup mode)
-  const configure = useConfigure();
-  const confirmSetup = useConfirmSetup();
-  const setPasscode = useSetPasscode();
-
-  // --- Daemon mode state ---
   const [currentStep, setCurrentStep] = useState<SetupStep>('state-overview');
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const [shieldError, setShieldError] = useState<string | null>(null);
 
-  // Reset state when panel opens; check for pre-selected target
+  // For auto-refreshing target list
+  const { refetch: refetchTargets } = useTargets();
+
+  // Reset state when panel opens; check for pre-selected target or passcode setup
   useEffect(() => {
-    if (open && !isCliSetup) {
+    if (open) {
       const preSelected = setupPanelStore.preSelectedTargetId;
       if (preSelected) {
         setSelectedTargetId(preSelected);
         setCurrentStep('configure');
         setupPanelStore.preSelectedTargetId = null;
+      } else if (!passcodeSet && mode === 'initial-setup') {
+        // First-run: start with passcode setup
+        setCurrentStep('passcode');
+        setSelectedTargetId(null);
+        resetSetupPanel();
       } else {
         setCurrentStep('state-overview');
         setSelectedTargetId(null);
         resetSetupPanel();
       }
     }
-  }, [open, isCliSetup]);
+  }, [open, passcodeSet, mode]);
 
-  // Watch for shield completion via SSE events in the store (daemon mode)
+  // Watch for shield completion via SSE events in the store
   useEffect(() => {
-    if (!isCliSetup && selectedTargetId && panelState.shieldProgress[selectedTargetId]?.status === 'completed') {
+    if (!selectedTargetId) return;
+    const entry = panelState.shieldProgress[selectedTargetId];
+    if (entry?.status === 'completed') {
       setCurrentStep('complete');
+    } else if (entry?.status === 'error') {
+      setShieldError(entry.message ?? 'Shield operation failed');
+      setCurrentStep('configure');
     }
-  }, [isCliSetup, selectedTargetId, panelState.shieldProgress]);
+  }, [selectedTargetId, panelState.shieldProgress]);
 
-  // --- Daemon mode handlers ---
   const handleSelectTarget = useCallback((targetId: string) => {
     setSelectedTargetId(targetId);
     setCurrentStep('configure');
   }, []);
 
-  const handleShield = useCallback(async () => {
+  const handleShield = useCallback(async (baseName?: string) => {
     if (!selectedTargetId) return;
+    setShieldError(null);
     setCurrentStep('shielding');
 
     try {
-      const res = await fetch(`/api/setup/shield/${selectedTargetId}`, { method: 'POST' });
+      const res = await fetch(`/api/targets/lifecycle/${selectedTargetId}/shield`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseName }),
+      });
       if (!res.ok) {
-        console.error('[SetupPanel] Shield failed:', await res.text());
+        let errorMsg = 'Shield operation failed';
+        try {
+          const body = await res.json();
+          errorMsg = body.error?.message ?? errorMsg;
+          if (body.error?.step) errorMsg += ` (step: ${body.error.step})`;
+        } catch { /* fallback to generic message */ }
+        setShieldError(errorMsg);
+        setCurrentStep('configure');
         return;
       }
       const json = await res.json();
       if (json.success && json.data?.profileId) {
-        // Use HTTP response as fallback — SSE may have already advanced,
-        // but if not, ensure the store is updated and step advances.
         markShieldComplete(selectedTargetId, json.data.profileId);
       }
     } catch (err) {
-      console.error('[SetupPanel] Shield request failed:', err);
+      setShieldError((err as Error).message || 'Network error');
+      setCurrentStep('configure');
     }
   }, [selectedTargetId]);
 
   const handleComplete = useCallback(async () => {
-    if (mode === 'initial-setup') {
-      try {
-        await fetch('/api/setup/complete', { method: 'POST' });
-      } catch (err) {
-        console.error('[SetupPanel] Complete request failed:', err);
-      }
-    }
+    // Refresh target list so the canvas updates
+    refetchTargets();
     onClose();
-  }, [mode, onClose]);
+  }, [onClose, refetchTargets]);
 
   const handleAddAnother = useCallback(() => {
-    setCurrentStep('state-overview');
+    setCurrentStep(mode === 'initial-setup' ? 'scan-results' : 'state-overview');
     setSelectedTargetId(null);
-  }, []);
+  }, [mode]);
 
   const handleRefresh = useCallback(async () => {
     setupPanelStore.isDetecting = true;
     try {
-      const res = await fetch('/api/setup/detection');
+      const res = await fetch('/api/targets/lifecycle/detect', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setupPanelStore.detectedTargets = data.data.targets;
-        setupPanelStore.oldInstallations = data.data.oldInstallations;
+        setupPanelStore.detectedTargets = data.data;
       }
     } catch (err) {
       console.error('[SetupPanel] Detection failed:', err);
@@ -147,45 +154,17 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
     }
   }, []);
 
-  // Auto-detect on first open (daemon mode only)
+  // Auto-detect on first open
   useEffect(() => {
-    if (open && !isCliSetup && panelState.detectedTargets.length === 0 && !panelState.isDetecting) {
+    if (open && panelState.detectedTargets.length === 0 && !panelState.isDetecting) {
       handleRefresh();
     }
-  }, [open, isCliSetup]);
-
-  // --- CLI setup mode handlers ---
-  const handleCliStartSetup = useCallback(async () => {
-    try {
-      await configure.mutateAsync({ mode: 'quick' });
-      await confirmSetup.mutateAsync();
-    } catch (err) {
-      console.error('[SetupPanel] CLI setup start failed:', err);
-    }
-  }, [configure, confirmSetup]);
-
-  const handleCliSetPasscode = useCallback(async (passcode: string) => {
-    try {
-      await setPasscode.mutateAsync({ passcode });
-    } catch (err) {
-      console.error('[SetupPanel] CLI passcode failed:', err);
-    }
-  }, [setPasscode]);
-
-  const handleCliSkipPasscode = useCallback(async () => {
-    try {
-      await setPasscode.mutateAsync({ skip: true });
-    } catch (err) {
-      console.error('[SetupPanel] CLI skip passcode failed:', err);
-    }
-  }, [setPasscode]);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Render ---
   const stepIndex = STEPS.findIndex((s) => s.id === currentStep);
-  const selectedTarget = !isCliSetup
-    ? (panelState.detectedTargets as DetectedTarget[]).find((t) => t.id === selectedTargetId) ?? null
-    : null;
-  const shieldProgress = !isCliSetup && selectedTargetId
+  const selectedTarget = (panelState.detectedTargets as DetectedTarget[]).find((t) => t.id === selectedTargetId) ?? null;
+  const shieldProgress = selectedTargetId
     ? (panelState.shieldProgress[selectedTargetId] as ShieldProgressEntry | undefined) ?? null
     : null;
 
@@ -221,11 +200,9 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
             {mode === 'initial-setup' ? 'System Setup' : 'Add Target'}
           </PanelTitle>
           <PanelSubtitle>
-            {isCliSetup
-              ? 'Installing and configuring AgenShield'
-              : mode === 'initial-setup'
-                ? 'Detect and shield targets on this system'
-                : 'Shield a new target with AgenShield'
+            {mode === 'initial-setup'
+              ? 'Detect and shield targets on this system'
+              : 'Shield a new target with AgenShield'
             }
           </PanelSubtitle>
         </div>
@@ -246,9 +223,8 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
         )}
       </PanelHeader>
 
-      {/* Step indicator — CLI setup shows phase progress, daemon shows 4-step flow.
-          Skipped on state-overview (landing page, not a wizard step). */}
-      {!isCliSetup && currentStep !== 'state-overview' && (
+      {/* Step indicator — hidden during passcode, scan-results, and state-overview steps */}
+      {currentStep !== 'state-overview' && currentStep !== 'passcode' && currentStep !== 'scan-results' && (
         <StepIndicator>
           {STEPS.map((step, i) => (
             <div key={step.id} style={{ display: 'flex', alignItems: 'center' }}>
@@ -261,61 +237,64 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
 
       {/* Body */}
       <PanelBody>
-        {isCliSetup ? (
-          /* === CLI setup mode: wizard step list === */
-          <WizardStepList
-            wizardState={wizardSnap.wizardState as WizardState | null}
-            stepLogs={wizardSnap.stepLogs as Record<string, string>}
-            phase={wizardSnap.phase}
-            onStartSetup={handleCliStartSetup}
-            onSetPasscode={handleCliSetPasscode}
-            onSkipPasscode={handleCliSkipPasscode}
-            isStarting={configure.isPending || confirmSetup.isPending}
-            isSettingPasscode={setPasscode.isPending}
+        {currentStep === 'passcode' && (
+          <PasscodeStep
+            onComplete={() => {
+              handleRefresh();
+              setCurrentStep('scan-results');
+            }}
+            onTyping={() => {
+              setWingsForceOpen(true);
+            }}
           />
-        ) : (
-          /* === Daemon mode: state-first flow === */
-          <>
-            {currentStep === 'state-overview' && (
-              <StateOverviewStep
-                targets={panelState.detectedTargets as DetectedTarget[]}
-                isLoading={panelState.isDetecting}
-                onSelectTarget={handleSelectTarget}
-                onScanTargets={() => setCurrentStep('detection')}
-                onAddManual={() => setCurrentStep('detection')}
-              />
-            )}
-            {currentStep === 'detection' && (
-              <DetectionStep
-                targets={panelState.detectedTargets as DetectedTarget[]}
-                oldInstallations={panelState.oldInstallations as OldInstallation[]}
-                isLoading={panelState.isDetecting}
-                onRefresh={handleRefresh}
-                onSelectTarget={handleSelectTarget}
-                selectedTargetId={selectedTargetId}
-              />
-            )}
-            {currentStep === 'configure' && (
-              <ConfigureStep
-                target={selectedTarget}
-                onBack={() => setCurrentStep('state-overview')}
-                onShield={handleShield}
-              />
-            )}
-            {currentStep === 'shielding' && selectedTargetId && (
-              <ShieldingStep
-                targetId={selectedTargetId}
-                progress={shieldProgress}
-              />
-            )}
-            {currentStep === 'complete' && (
-              <CompleteStep
-                mode={mode}
-                onComplete={handleComplete}
-                onAddAnother={handleAddAnother}
-              />
-            )}
-          </>
+        )}
+        {currentStep === 'scan-results' && (
+          <ScanResultsStep
+            targets={panelState.detectedTargets as DetectedTarget[]}
+            isLoading={panelState.isDetecting}
+            onSelectTarget={handleSelectTarget}
+            onRescan={handleRefresh}
+          />
+        )}
+        {currentStep === 'state-overview' && (
+          <StateOverviewStep
+            targets={panelState.detectedTargets as DetectedTarget[]}
+            isLoading={panelState.isDetecting}
+            onSelectTarget={handleSelectTarget}
+            onScanTargets={() => setCurrentStep('detection')}
+            onAddManual={() => setCurrentStep('detection')}
+          />
+        )}
+        {currentStep === 'detection' && (
+          <DetectionStep
+            targets={panelState.detectedTargets as DetectedTarget[]}
+            oldInstallations={panelState.oldInstallations as OldInstallation[]}
+            isLoading={panelState.isDetecting}
+            onRefresh={handleRefresh}
+            onSelectTarget={handleSelectTarget}
+            selectedTargetId={selectedTargetId}
+          />
+        )}
+        {currentStep === 'configure' && (
+          <ConfigureStep
+            target={selectedTarget}
+            onBack={() => setCurrentStep(mode === 'initial-setup' ? 'scan-results' : 'state-overview')}
+            onShield={handleShield}
+            error={shieldError}
+          />
+        )}
+        {currentStep === 'shielding' && selectedTargetId && (
+          <ShieldingStep
+            targetId={selectedTargetId}
+            progress={shieldProgress}
+          />
+        )}
+        {currentStep === 'complete' && (
+          <CompleteStep
+            mode={mode}
+            onComplete={handleComplete}
+            onAddAnother={handleAddAnother}
+          />
         )}
       </PanelBody>
     </PanelRoot>

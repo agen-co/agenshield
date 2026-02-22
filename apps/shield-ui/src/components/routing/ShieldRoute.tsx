@@ -1,13 +1,11 @@
 /**
  * ShieldRoute — mode-aware route wrapper
  *
- * Gates page access based on the current daemon mode (setup vs daemon).
- * Redirects to the appropriate fallback when a route is not available
- * in the current mode.
+ * Daemon always runs in 'daemon' mode now. This wrapper renders children
+ * if 'daemon' or 'any' is in allowedModes, otherwise redirects.
  */
 
 import { Navigate } from 'react-router-dom';
-import { useServerMode } from '../../api/hooks';
 
 type RouteMode = 'setup' | 'daemon' | 'update' | 'any';
 
@@ -18,12 +16,7 @@ interface ShieldRouteProps {
 }
 
 export function ShieldRoute({ children, allowedModes, fallback }: ShieldRouteProps) {
-  const serverMode = useServerMode();
-
-  // Still loading — render nothing to avoid flash
-  if (!serverMode) return null;
-
-  if (!allowedModes.includes(serverMode) && !allowedModes.includes('any')) {
+  if (!allowedModes.includes('daemon') && !allowedModes.includes('any')) {
     const redirectTo = fallback ?? '/';
     return <Navigate to={redirectTo} replace />;
   }

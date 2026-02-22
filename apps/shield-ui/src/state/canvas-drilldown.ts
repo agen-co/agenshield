@@ -14,30 +14,31 @@ import type { SystemComponentType } from '../components/canvas/Canvas.types';
 /* ---- Component → page route mapping ---- */
 
 export const COMPONENT_ROUTE_MAP: Record<SystemComponentType, {
-  pageId: 'activity' | 'secrets' | 'policies' | 'overview' | 'settings' | 'metrics';
+  pageId: 'skills' | 'secrets' | 'policies' | 'overview' | 'settings' | 'metrics';
   defaultTab?: string;
   title: string;
 }> = {
-  logs:           { pageId: 'activity', title: 'Activity' },
+  skills:         { pageId: 'skills', title: 'Skills' },
   secrets:        { pageId: 'secrets', title: 'Secrets' },
   'policy-graph': { pageId: 'policies', defaultTab: 'commands', title: 'Policies' },
   monitoring:     { pageId: 'overview', title: 'Overview' },
-  cpu:            { pageId: 'metrics', defaultTab: 'cpu', title: 'System Metrics' },
+  cpu:            { pageId: 'metrics', title: 'System Metrics' },
   command:        { pageId: 'policies', defaultTab: 'commands', title: 'Policies' },
-  network:        { pageId: 'metrics', defaultTab: 'network', title: 'System Metrics' },
-  filesystem:     { pageId: 'metrics', defaultTab: 'disk', title: 'System Metrics' },
-  memory:         { pageId: 'metrics', defaultTab: 'memory', title: 'System Metrics' },
+  network:        { pageId: 'metrics', title: 'System Metrics' },
+  filesystem:     { pageId: 'metrics', title: 'System Metrics' },
+  memory:         { pageId: 'metrics', title: 'System Metrics' },
 };
 
 /* ---- Reverse mapping: page → default zoom target component ---- */
 
-export const PAGE_ZOOM_TARGETS: Record<string, SystemComponentType> = {
-  activity: 'logs',
+export const PAGE_ZOOM_TARGETS: Record<string, string> = {
+  skills: 'skills',
   secrets: 'secrets',
   policies: 'network',
   overview: 'monitoring',
   settings: 'memory',
-  metrics: 'cpu',
+  metrics: 'metrics-cluster',
+  target: 'agenshield', // fallback — overridden per-target in Canvas.tsx
 };
 
 /* ---- Zoom phase state ---- */

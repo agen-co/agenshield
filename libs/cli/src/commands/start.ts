@@ -11,6 +11,7 @@ import {
   startDaemon,
   DAEMON_CONFIG,
 } from '../utils/daemon.js';
+import { ensureSudoAccess, startSudoKeepalive } from '../utils/privileges.js';
 
 /**
  * Open the daemon UI in the default browser
@@ -46,8 +47,20 @@ export function createStartCommand(): Command {
         return;
       }
 
+      // Ensure sudo credentials are cached before spawning the daemon
+      ensureSudoAccess();
+
+      let sudoKeepalive: NodeJS.Timeout | undefined;
+      if (options.foreground) {
+        sudoKeepalive = startSudoKeepalive();
+      }
+
       console.log('Starting AgenShield daemon...');
-      const result = await startDaemon({ foreground: options.foreground });
+      const result = await startDaemon({ foreground: options.foreground, sudo: true });
+
+      if (sudoKeepalive) {
+        clearInterval(sudoKeepalive);
+      }
 
       if (result.success) {
         console.log(`\x1b[32m✓ ${result.message}\x1b[0m`);

@@ -8,7 +8,7 @@
 import { memo } from 'react';
 import { useSnapshot } from 'valtio';
 import { systemStore } from '../../../../../state/system-store';
-import { StatusLed, AlertIndicator, useExposedBorder, gaugeColor } from '../primitives';
+import { StatusLed, AlertIndicator, useExposedBorder, gaugeColor, MiniSparkline } from '../primitives';
 import type { VariantProps } from '../system.types';
 
 export const CpuChip = memo(({ label, sublabel, refDesignator, theme, layout }: VariantProps) => {
@@ -76,6 +76,12 @@ export const CpuChip = memo(({ label, sublabel, refDesignator, theme, layout }: 
       {/* Thermal pad */}
       <rect x={dieCx - dieW * 0.3} y={dieCy - dieH * 0.3} width={dieW * 0.6} height={dieH * 0.6}
         fill={silkDim} opacity={0.06} rx={0.5} />
+
+      {/* Sparkline background */}
+      <MiniSparkline dataKey="cpuPercent"
+        x={dieCx - dieW / 2 + 2} y={dieCy - dieH / 2 + 2}
+        w={dieW - 4} h={dieH * 0.4}
+        color={gColor} />
 
       {/* CPU gauge bar */}
       <rect x={gaugeX} y={gaugeY} width={gaugeW} height={gaugeH}

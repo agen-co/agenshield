@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Network, Terminal, HardDrive, MemoryStick,
-  Eye, FileText, KeyRound, BarChart3, Cpu, Wifi,
+  Eye, Zap, KeyRound, BarChart3,
 } from 'lucide-react';
 import { CircularLoader } from '../../../elements';
 import {
@@ -22,12 +22,13 @@ import {
   ContentPanel,
   OverlayHeader,
   ScrollArea,
+  FullHeightArea,
 } from './PageOverlay.styles';
 
 /* ---- Page → title and icon lookup ---- */
 
 const PAGE_META: Record<string, { title: string; icon: typeof Terminal }> = {
-  activity: { title: 'Activity', icon: FileText },
+  skills: { title: 'Skills', icon: Zap },
   secrets: { title: 'Secrets', icon: KeyRound },
   policies: { title: 'Policies', icon: Terminal },
   overview: { title: 'Overview', icon: Eye },
@@ -37,12 +38,12 @@ const PAGE_META: Record<string, { title: string; icon: typeof Terminal }> = {
 
 /* ---- Lazy-loaded page components ---- */
 
-const LazyActivity = lazy(() => import('../../../pages/Activity').then(m => ({ default: m.Activity })));
+const LazySkills = lazy(() => import('../../../pages/Skills').then(m => ({ default: m.Skills })));
 const LazyPolicies = lazy(() => import('../../../pages/Policies').then(m => ({ default: m.Policies })));
 const LazySecrets = lazy(() => import('../../../pages/Secrets').then(m => ({ default: m.Secrets })));
 const LazyOverview = lazy(() => import('../../../pages/Overview').then(m => ({ default: m.Overview })));
 const LazySettings = lazy(() => import('../../../pages/Settings').then(m => ({ default: m.Settings })));
-const LazyCoreMetrics = lazy(() => import('./CoreMetricsView'));
+const LazyAllMetrics = lazy(() => import('./CoreMetricsView').then(m => ({ default: m.AllMetricsView })));
 
 /* ---- Policy tab config ---- */
 
@@ -52,17 +53,12 @@ const POLICY_TABS = [
   { slug: 'filesystem', label: 'Filesystem', icon: HardDrive },
 ] as const;
 
-const METRICS_TABS = [
-  { slug: 'cpu', label: 'CPU', icon: Cpu },
-  { slug: 'memory', label: 'Memory', icon: MemoryStick },
-  { slug: 'disk', label: 'Disk', icon: HardDrive },
-  { slug: 'network', label: 'Network', icon: Wifi },
-] as const;
+/* Metrics tabs removed — AllMetricsView shows all 4 charts at once */
 
 /* ---- PageOverlay ---- */
 
 interface PageOverlayProps {
-  page: string;       // 'activity' | 'policies' | 'secrets' | 'overview' | 'settings' | 'metrics'
+  page: string;       // 'skills' | 'policies' | 'secrets' | 'overview' | 'settings' | 'metrics'
   tab?: string;       // 'commands' | 'network' | 'filesystem' (policies) or 'cpu' | 'memory' | 'disk' | 'network' (metrics)
   phase?: string;     // 'zooming-in' | 'zoomed'
 }
@@ -93,9 +89,6 @@ export const PageOverlay = memo(({ page, tab }: PageOverlayProps) => {
     navigate(`/policies/${newTab}`, { replace: true });
   }, [navigate]);
 
-  const handleMetricsTabChange = useCallback((_: React.SyntheticEvent, newIdx: number) => {
-    navigate(`/metrics/${METRICS_TABS[newIdx].slug}`, { replace: true });
-  }, [navigate]);
 
   const meta = PAGE_META[page];
   if (!meta) return null;
@@ -103,9 +96,6 @@ export const PageOverlay = memo(({ page, tab }: PageOverlayProps) => {
   const Icon = meta.icon;
   const policyTabIdx = page === 'policies'
     ? Math.max(0, POLICY_TABS.findIndex(t => t.slug === (tab ?? 'commands')))
-    : -1;
-  const metricsTabIdx = page === 'metrics'
-    ? Math.max(0, METRICS_TABS.findIndex(t => t.slug === (tab ?? 'cpu')))
     : -1;
 
   return (
@@ -166,49 +156,39 @@ export const PageOverlay = memo(({ page, tab }: PageOverlayProps) => {
             </Tabs>
           )}
 
-          {/* Metrics tabs (inline in header) */}
-          {page === 'metrics' && (
-            <Tabs
-              value={metricsTabIdx}
-              onChange={handleMetricsTabChange}
-              sx={{ ml: 'auto', minHeight: 36 }}
-            >
-              {METRICS_TABS.map((t) => {
-                const TabIcon = t.icon;
-                return (
-                  <Tab
-                    key={t.slug}
-                    icon={<TabIcon size={13} />}
-                    iconPosition="start"
-                    label={t.label}
-                    sx={{ minHeight: 36, textTransform: 'none', fontSize: 13, py: 0 }}
-                  />
-                );
-              })}
-            </Tabs>
-          )}
         </OverlayHeader>
 
-        <ScrollArea>
-          <Suspense fallback={
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-              <CircularLoader />
-            </div>
-          }>
-            {page === 'activity' && <LazyActivity embedded />}
-            {page === 'policies' && (
-              <LazyPolicies
-                embedded
-                embeddedTab={tab ?? 'commands'}
-                onTabChange={handlePoliciesTabChange}
-              />
-            )}
-            {page === 'secrets' && <LazySecrets embedded />}
-            {page === 'overview' && <LazyOverview embedded />}
-            {page === 'settings' && <LazySettings embedded />}
-            {page === 'metrics' && <LazyCoreMetrics tab={(tab ?? 'cpu') as 'cpu' | 'memory' | 'disk' | 'network'} />}
-          </Suspense>
-        </ScrollArea>
+        {page === 'overview' ? (
+          <FullHeightArea>
+            <Suspense fallback={
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+                <CircularLoader />
+              </div>
+            }>
+              <LazyOverview embedded />
+            </Suspense>
+          </FullHeightArea>
+        ) : (
+          <ScrollArea>
+            <Suspense fallback={
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+                <CircularLoader />
+              </div>
+            }>
+              {page === 'skills' && <LazySkills embedded />}
+              {page === 'policies' && (
+                <LazyPolicies
+                  embedded
+                  embeddedTab={tab ?? 'commands'}
+                  onTabChange={handlePoliciesTabChange}
+                />
+              )}
+              {page === 'secrets' && <LazySecrets embedded />}
+              {page === 'settings' && <LazySettings embedded />}
+              {page === 'metrics' && <LazyAllMetrics />}
+            </Suspense>
+          </ScrollArea>
+        )}
       </ContentPanel>
     </OverlayRoot>
   );

@@ -87,11 +87,17 @@ export function useSSE(enabled = true, token?: string | null) {
           }
         }
 
+        // Extract source tag from the daemon event wrapper
+        const source = rawData && typeof rawData === 'object' && 'source' in rawData
+          ? (rawData.source as string)
+          : undefined;
+
         const event: SSEEvent = {
           id: crypto.randomUUID(),
           type,
           data,
           timestamp: serverTs,
+          source,
         };
         addEvent(event);
       },
@@ -105,11 +111,12 @@ export function useSSE(enabled = true, token?: string | null) {
           if (!historyLoaded.current) {
             historyLoaded.current = true;
             api.getActivity().then((res) => {
-              const historical: SSEEvent[] = res.data.map((e) => ({
+              const historical: SSEEvent[] = res.data.map((e: Record<string, unknown>) => ({
                 id: crypto.randomUUID(),
-                type: e.type,
-                data: (e.data ?? {}) as Record<string, unknown>,
-                timestamp: new Date(e.timestamp).getTime(),
+                type: e.type as string,
+                data: ((e.data ?? {}) as Record<string, unknown>),
+                timestamp: new Date(e.timestamp as string).getTime(),
+                source: e.source as string | undefined,
               }));
               setEvents(historical);
             }).catch(() => {

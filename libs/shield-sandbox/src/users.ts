@@ -6,6 +6,7 @@
  */
 
 import { exec } from 'node:child_process';
+import * as fs from 'node:fs';
 import { promisify } from 'node:util';
 import type { UserConfig, UserDefinition, GroupDefinition } from '@agenshield/ipc';
 
@@ -285,6 +286,23 @@ export async function createUser(userDef: UserDefinition, options?: VerboseOptio
 
       log(`Running: sudo chmod 755 ${userDef.home}`);
       await execAsync(`sudo chmod 755 ${userDef.home}`);
+
+      // Create .agenshield marker directory (root-owned) for user identification
+      const markerDir = `${userDef.home}/.agenshield`;
+      log(`Creating marker: ${markerDir}`);
+      await execAsync(`sudo mkdir -p ${markerDir}`);
+      await execAsync(`sudo chown root:wheel ${markerDir}`);
+      await execAsync(`sudo chmod 755 ${markerDir}`);
+
+      const meta = JSON.stringify({
+        createdAt: new Date().toISOString(),
+        version: '1.0',
+        username: userDef.username,
+        uid: userDef.uid,
+      }, null, 2);
+      await execAsync(`sudo sh -c 'cat > ${markerDir}/meta.json << EOFMETA\n${meta}\nEOFMETA'`);
+      await execAsync(`sudo chown root:wheel ${markerDir}/meta.json`);
+      await execAsync(`sudo chmod 644 ${markerDir}/meta.json`);
     }
 
     return { success: true, message: `Created user ${userDef.username} (UID: ${userDef.uid})` };
@@ -376,7 +394,22 @@ export async function deleteUser(username: string): Promise<CreateResult> {
       return { success: true, message: `User ${username} does not exist` };
     }
 
+    // Look up home directory before deleting the user record
+    let homeDir: string | null = null;
+    try {
+      const info = await getUserInfo(username);
+      homeDir = info?.['NFSHomeDirectory'] ?? null;
+    } catch { /* best effort */ }
+
     await execAsync(`sudo dscl . -delete /Users/${username}`);
+
+    // Clean up .agenshield marker directory
+    if (homeDir && homeDir !== '/var/empty') {
+      try {
+        await execAsync(`sudo rm -rf ${homeDir}/.agenshield`);
+      } catch { /* best effort */ }
+    }
+
     return { success: true, message: `Deleted user ${username}` };
   } catch (error) {
     return {
@@ -513,4 +546,60 @@ export async function verifyUsersAndGroups(config?: UserConfig): Promise<{
     missingGroups,
     missingUsers,
   };
+}
+
+/**
+ * Metadata stored in the .agenshield marker directory
+ */
+export interface AgenshieldUserMeta {
+  createdAt: string;
+  version: string;
+  username: string;
+  uid: number;
+}
+
+/**
+ * Check if a macOS user was created by AgenShield by looking for the marker directory.
+ *
+ * @param username - The macOS username to check
+ * @returns true if the user has an .agenshield/meta.json marker
+ */
+export function isAgenshieldUser(username: string): boolean {
+  try {
+    const metaPath = `/Users/${username}/.agenshield/meta.json`;
+    return fs.existsSync(metaPath);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * List all AgenShield-managed macOS users by scanning /Users/ash_* directories.
+ *
+ * @returns Array of objects with username and parsed metadata
+ */
+export function listAgenshieldUsers(): { username: string; meta: AgenshieldUserMeta | null }[] {
+  const results: { username: string; meta: AgenshieldUserMeta | null }[] = [];
+
+  try {
+    const entries = fs.readdirSync('/Users', { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith(ASH_PREFIX)) continue;
+
+      const metaPath = `/Users/${entry.name}/.agenshield/meta.json`;
+      let meta: AgenshieldUserMeta | null = null;
+      try {
+        const raw = fs.readFileSync(metaPath, 'utf-8');
+        meta = JSON.parse(raw) as AgenshieldUserMeta;
+      } catch {
+        // No marker or invalid JSON — still include as unverified
+      }
+
+      results.push({ username: entry.name, meta });
+    }
+  } catch {
+    // /Users not readable (shouldn't happen on macOS)
+  }
+
+  return results;
 }

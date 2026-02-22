@@ -1,8 +1,12 @@
 /**
- * Activity page - full activity history with filters and CSS Grid table layout
+ * Activity page - full activity history with filters and CSS Grid table layout.
+ *
+ * Supports two modes:
+ *  - Standalone (default): full page layout with PageHeader and maxHeight table
+ *  - Embedded (in Overview): compact filters, fillHeight, click-to-select with detail panel
  */
 
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   Box,
   Select,
@@ -13,12 +17,13 @@ import {
   Checkbox,
   ListItemText,
   FormControlLabel,
+  alpha,
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material';
 import {
   Activity as ActivityIcon,
   Trash2,
-  ChevronRight,
+  ArrowUp,
 } from 'lucide-react';
 import { useTheme } from '@mui/material/styles';
 import { format, isAfter, subHours, subDays } from 'date-fns';
@@ -36,11 +41,14 @@ import {
   getEventSummary,
   getEventColor,
   getEventStatus,
+  getEventSeverity,
   isNoiseEvent,
   EVENT_DISPLAY,
   BLOCKED_EVENT_TYPES,
+  SEVERITY_COLORS,
 } from '../utils/eventDisplay';
 import { StatusBadge } from '../components/shared/StatusBadge';
+import { EventDetailPanel } from '../components/overview/EventDetailPanel';
 
 type TimeFilter = 'all' | '1h' | '6h' | '24h' | '7d';
 type TypeFilter = 'blocked' | 'api' | 'security' | 'broker' | 'config' | 'skills' | 'exec' | 'agenco' | 'wrappers' | 'process' | 'interceptor';
@@ -67,11 +75,16 @@ const TYPE_OPTIONS: { label: string; value: TypeFilter }[] = [
   { label: 'Interceptor', value: 'interceptor' },
 ];
 
-const GRID_COLUMNS = '28px 90px 150px 1fr auto';
+const GRID_COLUMNS = '90px 150px 1fr 60px 60px';
 const ROW_HEIGHT = 44;
-const PANEL_MAX_HEIGHT = 200;
 
-
+export interface ActivityProps {
+  embedded?: boolean;
+  sourceFilter?: string;
+  selectedEventId?: string | null;
+  onSelectEvent?: (event: SSEEvent | null) => void;
+  fillHeight?: boolean;
+}
 
 function getTimeThreshold(filter: TimeFilter): Date | null {
   if (filter === 'all') return null;
@@ -99,7 +112,13 @@ function matchesTypeFilter(event: SSEEvent, filter: TypeFilter): boolean {
   return event.type.startsWith(`${filter}:`);
 }
 
-export function Activity({ embedded }: { embedded?: boolean } = {}) {
+export function Activity({
+  embedded,
+  sourceFilter,
+  selectedEventId,
+  onSelectEvent,
+  fillHeight,
+}: ActivityProps) {
   const theme = useTheme();
   const guard = useGuardedAction();
   const { events } = useSnapshot(eventStore);
@@ -107,27 +126,45 @@ export function Activity({ embedded }: { embedded?: boolean } = {}) {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [typeFilters, setTypeFilters] = useState<TypeFilter[]>([]);
   const [hideNoise, setHideNoise] = useState(true);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // Internal selection state for standalone mode
+  const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
+
+  // Use external or internal selection
+  const activeSelectedId = onSelectEvent ? selectedEventId : internalSelectedId;
+  const handleSelectEvent = useCallback((event: SSEEvent | null) => {
+    if (onSelectEvent) {
+      onSelectEvent(event);
+    } else {
+      setInternalSelectedId(event?.id ?? null);
+    }
+  }, [onSelectEvent]);
+
+  // Find selected event object for standalone detail panel
+  const selectedEvent = useMemo(() => {
+    if (!activeSelectedId) return null;
+    return (events as SSEEvent[]).find((e) => e.id === activeSelectedId) ?? null;
+  }, [events, activeSelectedId]);
+
+  // --- Event buffering ---
+  const [pendingCount, setPendingCount] = useState(0);
+  const [frozenLength, setFrozenLength] = useState<number | null>(null);
+  const isScrolledRef = useRef(false);
 
   const handleTypeFilterChange = useCallback((e: SelectChangeEvent<TypeFilter[]>) => {
     const val = e.target.value;
     setTypeFilters(typeof val === 'string' ? val.split(',') as TypeFilter[] : val);
   }, []);
 
-  const toggleExpand = useCallback((id: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const filteredEvents = useMemo(() => {
+  const allFilteredEvents = useMemo(() => {
     let result = [...events] as SSEEvent[];
 
-    if (hideNoise) {
+    if (sourceFilter && sourceFilter !== 'all') {
+      result = result.filter((e) => (e.source ?? 'daemon') === sourceFilter);
+    }
+
+    if (hideNoise || embedded) {
       result = result.filter((e) => !isNoiseEvent(e));
     }
 
@@ -150,17 +187,57 @@ export function Activity({ embedded }: { embedded?: boolean } = {}) {
     }
 
     return result;
-  }, [events, hideNoise, timeFilter, typeFilters, search]);
+  }, [events, sourceFilter, hideNoise, embedded, timeFilter, typeFilters, search]);
+
+  // Visible events: buffer new events when scrolled down
+  const visibleEvents = useMemo(() => {
+    if (frozenLength === null) return allFilteredEvents;
+    // Show only events up to the frozen snapshot length
+    return allFilteredEvents.slice(0, frozenLength);
+  }, [allFilteredEvents, frozenLength]);
+
+  // Track new events arriving while frozen
+  useEffect(() => {
+    if (frozenLength !== null && allFilteredEvents.length > frozenLength) {
+      setPendingCount(allFilteredEvents.length - frozenLength);
+    }
+  }, [allFilteredEvents.length, frozenLength]);
+
+  const flushPending = useCallback(() => {
+    setFrozenLength(null);
+    setPendingCount(0);
+    // Scroll to top
+    parentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = parentRef.current;
+    if (!el) return;
+    const scrollTop = el.scrollTop;
+
+    if (scrollTop > 100 && !isScrolledRef.current) {
+      // User scrolled down — freeze the event list
+      isScrolledRef.current = true;
+      setFrozenLength(allFilteredEvents.length);
+    } else if (scrollTop < 50 && isScrolledRef.current) {
+      // User scrolled back to top — flush pending
+      isScrolledRef.current = false;
+      setFrozenLength(null);
+      setPendingCount(0);
+    }
+  }, [allFilteredEvents.length]);
 
   const virtualizer = useVirtualizer({
-    count: filteredEvents.length,
+    count: visibleEvents.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: 10,
+    overscan: 15,
   });
 
+  const showStandalonePanel = !onSelectEvent && !!selectedEvent;
+
   return (
-    <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+    <Box sx={embedded ? { display: 'flex', flexDirection: 'column', flex: fillHeight ? 1 : undefined, minHeight: 0 } : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       {!embedded && (
         <PageHeader
           title="Activity"
@@ -181,8 +258,15 @@ export function Activity({ embedded }: { embedded?: boolean } = {}) {
         />
       )}
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center' }}>
-        <Box sx={{ flex: 1 }}>
+      {/* Filter bar */}
+      <Box sx={{
+        display: 'flex',
+        gap: embedded ? 1 : 2,
+        mb: embedded ? 1.5 : 3,
+        alignItems: 'center',
+        flexShrink: 0,
+      }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
           <SearchInput
             value={search}
             onChange={setSearch}
@@ -200,7 +284,7 @@ export function Activity({ embedded }: { embedded?: boolean } = {}) {
               ? 'All Types'
               : selected.map((v) => TYPE_OPTIONS.find((o) => o.value === v)?.label ?? v).join(', ')
           }
-          sx={{ minWidth: 180, height: 40, '& .MuiSelect-select': { py: 0.75 } }}
+          sx={{ minWidth: embedded ? 140 : 180, height: 36, '& .MuiSelect-select': { py: 0.75 } }}
         >
           {TYPE_OPTIONS.map((opt) => (
             <MenuItem key={opt.value} value={opt.value}>
@@ -214,7 +298,7 @@ export function Activity({ embedded }: { embedded?: boolean } = {}) {
           onChange={(e) => setTimeFilter(e.target.value as TimeFilter)}
           size="small"
           displayEmpty
-          sx={{ minWidth: 140, height: 40 }}
+          sx={{ minWidth: embedded ? 110 : 140, height: 36 }}
         >
           {TIME_OPTIONS.map((opt) => (
             <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
@@ -222,250 +306,293 @@ export function Activity({ embedded }: { embedded?: boolean } = {}) {
         </Select>
       </Box>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        <FormControlLabel
-          control={
-            <Checkbox
+      {/* Noise filter row — hidden in embedded mode */}
+      {!embedded && (
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, flexShrink: 0 }}>
+          <FormControlLabel
+            control={
+              <Checkbox
+                size="small"
+                checked={hideNoise}
+                onChange={(e) => setHideNoise(e.target.checked)}
+                sx={{ p: 0, mr: 0.75 }}
+              />
+            }
+            label="Hide noise (system probes)"
+            slotProps={{ typography: { variant: 'caption', color: 'text.secondary' } }}
+            sx={{ ml: 0 }}
+          />
+          <Box sx={{ flex: 1 }} />
+          {typeFilters.length > 0 && (
+            <Chip
+              label="Clear filters"
               size="small"
-              checked={hideNoise}
-              onChange={(e) => setHideNoise(e.target.checked)}
-              sx={{ p: 0, mr: 0.75 }}
+              onDelete={() => setTypeFilters([])}
+              sx={{ height: 24 }}
             />
-          }
-          label="Hide noise (system probes)"
-          slotProps={{ typography: { variant: 'caption', color: 'text.secondary' } }}
-          sx={{ ml: 0 }}
-        />
-        <Box sx={{ flex: 1 }} />
-        {typeFilters.length > 0 && (
-          <Chip
-            label="Clear filters"
-            size="small"
-            onDelete={() => setTypeFilters([])}
-            sx={{ height: 24 }}
+          )}
+        </Box>
+      )}
+
+      {/* Main content area: table + optional standalone detail panel */}
+      <Box sx={{
+        display: 'flex',
+        flex: fillHeight ? 1 : undefined,
+        minHeight: 0,
+        overflow: 'hidden',
+      }}>
+        {/* Table area */}
+        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {events.length === 0 ? (
+            <Box sx={{ p: 4 }}>
+              <EmptyState
+                icon={<ActivityIcon size={28} />}
+                title="No activity yet"
+                description="Events will appear here as they are received from the daemon via SSE."
+              />
+            </Box>
+          ) : visibleEvents.length === 0 ? (
+            <Box sx={{ p: 4 }}>
+              <EmptyState
+                title="No matching events"
+                description="Try adjusting your filters or search query."
+              />
+            </Box>
+          ) : (
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                flex: fillHeight ? 1 : undefined,
+                minHeight: 0,
+                position: 'relative',
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 2,
+                overflow: 'hidden',
+              }}
+            >
+              {/* "N new events" floating button */}
+              {pendingCount > 0 && (
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={<ArrowUp size={14} />}
+                  onClick={flushPending}
+                  sx={{
+                    position: 'absolute',
+                    top: 44,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 2,
+                    textTransform: 'none',
+                    borderRadius: 4,
+                    px: 2,
+                    py: 0.25,
+                    fontSize: 12,
+                    boxShadow: 4,
+                  }}
+                >
+                  {pendingCount} new event{pendingCount !== 1 ? 's' : ''}
+                </Button>
+              )}
+
+              {/* Sticky table header */}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: GRID_COLUMNS,
+                  alignItems: 'center',
+                  gap: 1.5,
+                  px: 2,
+                  height: 36,
+                  borderBottom: '1px solid',
+                  borderColor: 'divider',
+                  bgcolor: 'background.paper',
+                  flexShrink: 0,
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  Time
+                </Typography>
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  Type
+                </Typography>
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  Details
+                </Typography>
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  Severity
+                </Typography>
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  Status
+                </Typography>
+              </Box>
+
+              <Box
+                ref={parentRef}
+                onScroll={handleScroll}
+                sx={{
+                  flex: fillHeight ? 1 : undefined,
+                  maxHeight: fillHeight ? undefined : 'calc(100vh - 280px)',
+                  overflow: 'auto',
+                  minHeight: 0,
+                }}
+              >
+                <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+                  {virtualizer.getVirtualItems().map(virtualRow => {
+                    const event = visibleEvents[virtualRow.index];
+                    const display = getEventDisplay(event.type);
+                    const IconComp = display.icon;
+                    const eventColor = getEventColor(event);
+                    const color = resolveEventColor(eventColor, theme.palette);
+                    const status = getEventStatus(event);
+                    const severity = getEventSeverity(event);
+                    const isSelected = activeSelectedId === event.id;
+
+                    return (
+                      <Box
+                        key={virtualRow.key}
+                        data-index={virtualRow.index}
+                        sx={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: ROW_HEIGHT,
+                          transform: `translateY(${virtualRow.start}px)`,
+                          borderBottom: '1px solid',
+                          borderColor: 'divider',
+                          cursor: 'pointer',
+                          bgcolor: isSelected ? alpha(theme.palette.primary.main, 0.06) : undefined,
+                          borderLeft: isSelected ? `3px solid ${theme.palette.primary.main}` : '3px solid transparent',
+                          '&:hover': { bgcolor: isSelected ? alpha(theme.palette.primary.main, 0.08) : 'action.hover' },
+                        }}
+                        onClick={() => handleSelectEvent(isSelected ? null : event)}
+                      >
+                        <Box
+                          sx={{
+                            display: 'grid',
+                            gridTemplateColumns: GRID_COLUMNS,
+                            alignItems: 'center',
+                            gap: 1.5,
+                            height: ROW_HEIGHT,
+                            px: 2,
+                          }}
+                        >
+                          {/* Time */}
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              fontFamily: '"IBM Plex Mono", monospace',
+                              whiteSpace: 'nowrap',
+                              color: 'text.secondary',
+                            }}
+                          >
+                            {format(event.timestamp, 'HH:mm:ss')}
+                          </Typography>
+
+                          {/* Type — icon box + label */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 24,
+                                height: 24,
+                                borderRadius: '6px',
+                                backgroundColor: `${color}14`,
+                                color,
+                                flexShrink: 0,
+                              }}
+                            >
+                              <IconComp size={13} />
+                            </Box>
+                            <Typography
+                              variant="caption"
+                              fontWeight={500}
+                              sx={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {display.label}
+                            </Typography>
+                          </Box>
+
+                          {/* Details */}
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              fontFamily: '"IBM Plex Mono", monospace',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              minWidth: 0,
+                              color: 'text.secondary',
+                            }}
+                          >
+                            {getEventSummary(event)}
+                          </Typography>
+
+                          {/* Severity */}
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: SEVERITY_COLORS[severity],
+                              fontWeight: 600,
+                              fontSize: 11,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.5,
+                            }}
+                          >
+                            <Box
+                              component="span"
+                              sx={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: '50%',
+                                bgcolor: SEVERITY_COLORS[severity],
+                                flexShrink: 0,
+                              }}
+                            />
+                            {severity}
+                          </Typography>
+
+                          {/* Status badge */}
+                          <StatusBadge
+                            label={status.label}
+                            variant={status.variant}
+                            dot={false}
+                            size="small"
+                          />
+                        </Box>
+                      </Box>
+                    );
+                  })}
+                </div>
+              </Box>
+            </Box>
+          )}
+
+          {visibleEvents.length > 0 && !fillHeight && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block', textAlign: 'center', flexShrink: 0 }}>
+              Showing {visibleEvents.length} of {events.length} events
+            </Typography>
+          )}
+        </Box>
+
+        {/* Standalone detail panel (non-embedded mode) */}
+        {!embedded && (
+          <EventDetailPanel
+            event={selectedEvent}
+            onClose={() => handleSelectEvent(null)}
           />
         )}
       </Box>
-
-      {events.length === 0 ? (
-        <Box sx={{ p: 4 }}>
-          <EmptyState
-            icon={<ActivityIcon size={28} />}
-            title="No activity yet"
-            description="Events will appear here as they are received from the daemon via SSE."
-          />
-        </Box>
-      ) : filteredEvents.length === 0 ? (
-        <Box sx={{ p: 4 }}>
-          <EmptyState
-            title="No matching events"
-            description="Try adjusting your filters or search query."
-          />
-        </Box>
-      ) : (
-        <Box
-          ref={parentRef}
-          sx={{
-            maxHeight: 'calc(100vh - 280px)',
-            overflow: 'auto',
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 2,
-          }}
-        >
-          {/* Sticky table header */}
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: GRID_COLUMNS,
-              alignItems: 'center',
-              gap: 1.5,
-              px: 2,
-              height: 36,
-              borderBottom: '1px solid',
-              borderColor: 'divider',
-              bgcolor: 'background.paper',
-              position: 'sticky',
-              top: 0,
-              zIndex: 1,
-            }}
-          >
-            <Box />
-            <Typography variant="caption" color="text.secondary" fontWeight={600}>
-              Time
-            </Typography>
-            <Typography variant="caption" color="text.secondary" fontWeight={600}>
-              Type
-            </Typography>
-            <Typography variant="caption" color="text.secondary" fontWeight={600}>
-              Details
-            </Typography>
-            <Typography variant="caption" color="text.secondary" fontWeight={600}>
-              Status
-            </Typography>
-          </Box>
-
-          <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
-            {virtualizer.getVirtualItems().map(virtualRow => {
-              const event = filteredEvents[virtualRow.index];
-              const display = getEventDisplay(event.type);
-              const IconComp = display.icon;
-              const eventColor = getEventColor(event);
-              const color = resolveEventColor(eventColor, theme.palette);
-              const status = getEventStatus(event);
-              const isExpanded = expandedIds.has(event.id);
-
-              return (
-                <Box
-                  key={virtualRow.key}
-                  ref={virtualizer.measureElement}
-                  data-index={virtualRow.index}
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${virtualRow.start}px)`,
-                    borderBottom: '1px solid',
-                    borderColor: 'divider',
-                    cursor: 'pointer',
-                    '&:hover': { bgcolor: 'action.hover' },
-                  }}
-                  onClick={() => toggleExpand(event.id)}
-                >
-                  {/* Grid row */}
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gridTemplateColumns: GRID_COLUMNS,
-                      alignItems: 'center',
-                      gap: 1.5,
-                      height: ROW_HEIGHT,
-                      px: 2,
-                    }}
-                  >
-                    {/* Chevron */}
-                    <ChevronRight
-                      size={14}
-                      style={{
-                        flexShrink: 0,
-                        transition: 'transform 0.2s ease',
-                        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                        color: theme.palette.text.disabled,
-                      }}
-                    />
-
-                    {/* Time */}
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        fontFamily: '"IBM Plex Mono", monospace',
-                        whiteSpace: 'nowrap',
-                        color: 'text.secondary',
-                      }}
-                    >
-                      {format(event.timestamp, 'HH:mm:ss')}
-                    </Typography>
-
-                    {/* Type — icon box + label */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: 24,
-                          height: 24,
-                          borderRadius: '6px',
-                          backgroundColor: `${color}14`,
-                          color,
-                          flexShrink: 0,
-                        }}
-                      >
-                        <IconComp size={13} />
-                      </Box>
-                      <Typography
-                        variant="caption"
-                        fontWeight={500}
-                        sx={{
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {display.label}
-                      </Typography>
-                    </Box>
-
-                    {/* Details */}
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        fontFamily: '"IBM Plex Mono", monospace',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        minWidth: 0,
-                        color: 'text.secondary',
-                      }}
-                    >
-                      {getEventSummary(event)}
-                    </Typography>
-
-                    {/* Status badge — matches policy allow/deny style */}
-                    <StatusBadge
-                      label={status.label}
-                      variant={status.variant}
-                      dot={false}
-                      size="small"
-                    />
-                  </Box>
-
-                  {/* Accordion panel — CSS grid-template-rows for smooth animation */}
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gridTemplateRows: isExpanded ? '1fr' : '0fr',
-                      transition: 'grid-template-rows 0.2s ease-out',
-                    }}
-                  >
-                    <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
-                      <Box
-                        sx={{
-                          maxHeight: PANEL_MAX_HEIGHT,
-                          overflow: 'auto',
-                          mx: 2,
-                          mt: 0.5,
-                          mb: 1.5,
-                          p: 1.5,
-                          bgcolor: 'action.hover',
-                          borderRadius: 1,
-                          fontFamily: '"IBM Plex Mono", monospace',
-                          fontSize: '0.75rem',
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-all',
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mb: 0.5, fontFamily: 'inherit' }}>
-                          ID: {event.id} | {format(event.timestamp, 'yyyy-MM-dd HH:mm:ss.SSS')}
-                        </Typography>
-                        {JSON.stringify(event.data, null, 2)}
-                      </Box>
-                    </Box>
-                  </Box>
-                </Box>
-              );
-            })}
-          </div>
-        </Box>
-      )}
-
-      {filteredEvents.length > 0 && (
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block', textAlign: 'center' }}>
-          Showing {filteredEvents.length} of {events.length} events
-        </Typography>
-      )}
     </Box>
   );
 }

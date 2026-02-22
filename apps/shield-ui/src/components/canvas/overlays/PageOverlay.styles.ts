@@ -47,3 +47,12 @@ export const ScrollArea = styled('div')({
   overflow: 'auto',
   padding: 24,
 });
+
+/** Full-height variant for Overview — no scroll, flex column */
+export const FullHeightArea = styled('div')({
+  flex: 1,
+  overflow: 'hidden',
+  display: 'flex',
+  flexDirection: 'column',
+  padding: 24,
+});

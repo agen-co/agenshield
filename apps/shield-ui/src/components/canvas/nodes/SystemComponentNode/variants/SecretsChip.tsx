@@ -7,16 +7,19 @@
 import { memo } from 'react';
 import { useSnapshot } from 'valtio';
 import { systemStore } from '../../../../../state/system-store';
-import { StatusLed, AlertIndicator, useExposedBorder } from '../primitives';
+import { StatusLed, AlertIndicator, useExposedBorder, StatusBadgeRow } from '../primitives';
 import type { VariantProps } from '../system.types';
 
 export const SecretsChip = memo(({ label, sublabel, refDesignator, theme, layout }: VariantProps) => {
   const snap = useSnapshot(systemStore);
-  const { exposed, active } = snap.components.secrets;
+  const { exposed, active, health, okCount, warnCount, dangerCount } = snap.components.secrets;
 
   const { body } = layout;
   const { padColor, silkDim, silkColor, chipBody } = theme;
-  const chipBorder = exposed ? '#E1583E' : theme.chipBorder;
+  const chipBorder = exposed ? '#E1583E'
+    : health === 'danger' ? '#E1583E'
+    : health === 'warn' ? '#E8B84A'
+    : theme.chipBorder;
 
   const borderRef = useExposedBorder(exposed);
 
@@ -67,6 +70,14 @@ export const SecretsChip = memo(({ label, sublabel, refDesignator, theme, layout
       <text x={body.x + 8} y={body.y + 22} textAnchor="start" dominantBaseline="hanging"
         fill={silkDim} fontSize={6} fontFamily="'IBM Plex Mono', monospace"
         letterSpacing={0.3}>{sublabel}</text>
+
+      {/* Health stat badges */}
+      <StatusBadgeRow
+        x={body.x + body.w / 2}
+        y={body.y + body.h - 18}
+        ok={okCount} warn={warnCount} danger={dangerCount}
+        silkDim={silkDim}
+      />
 
       {/* Ref designator */}
       <text x={body.x + 6} y={body.y + body.h - 6} textAnchor="start" dominantBaseline="auto"

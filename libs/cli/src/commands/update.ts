@@ -45,10 +45,10 @@ async function runUpdateWebUI(engineOptions: UpdateEngineOptions): Promise<void>
   const port = 5200;
   try {
     const { execSync } = await import('node:child_process');
-    const pids = execSync(`lsof -ti :${port} 2>/dev/null || true`, { encoding: 'utf-8' }).trim();
+    const pids = execSync(`lsof -ti :${port} -sTCP:LISTEN 2>/dev/null || true`, { encoding: 'utf-8' }).trim();
     if (pids) {
       console.log(`  Stopping existing process on port ${port} (PID: ${pids.split('\n').join(', ')})...`);
-      execSync(`lsof -ti :${port} 2>/dev/null | xargs kill -9 2>/dev/null || true`, { encoding: 'utf-8' });
+      execSync(`lsof -ti :${port} -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null || true`, { encoding: 'utf-8' });
       await new Promise(r => setTimeout(r, 500));
     }
   } catch { /* ignore */ }

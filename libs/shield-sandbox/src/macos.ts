@@ -246,14 +246,19 @@ export function deleteSandboxUser(
   // Get home directory before deleting user
   let homeDir: string | undefined;
   try {
-    const output = execSync(`dscl . -read /Users/${username} NFSHomeDirectory | awk '{print $2}'`, {
-      encoding: 'utf-8',
-    }).trim();
-    if (output) {
-      homeDir = output;
+    const output = execSync(
+      `dscl . -read /Users/${username} NFSHomeDirectory`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+    ).trim();
+    const match = output.match(/NFSHomeDirectory:\s+(.+)/);
+    if (match?.[1]) {
+      homeDir = match[1].trim();
     }
   } catch {
-    // Fallback to default location
+    // Key not found or user doesn't exist — fall through to default
+  }
+  // Always fall back to standard location
+  if (!homeDir) {
     homeDir = `/Users/${username}`;
   }
 

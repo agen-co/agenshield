@@ -17,8 +17,11 @@ import '@xyflow/react/dist/style.css';
 import { useTheme } from '@mui/material/styles';
 import { useSnapshot } from 'valtio';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { IconButton } from '@mui/material';
+import { Sun, Moon } from 'lucide-react';
 import {
   CanvasContainer,
+  ThemeToggleOverlay,
 } from './Canvas.styles';
 import { SvgFilters } from './filters/SvgFilters';
 import { useSetupCanvasData } from './hooks/useSetupCanvasData';
@@ -28,7 +31,6 @@ import { useDotAnimations } from './hooks/useDotAnimations';
 import { DotOverlay } from './overlays/DotOverlay';
 import { PcbBackground } from './backgrounds/PcbBackground';
 import { SetupPanel } from './panels/SetupPanel';
-import { useServerMode } from '../../api/hooks';
 import { setupPanelStore, openSetupPanel, closeSetupPanel, openSetupPanelForTarget } from '../../state/setup-panel';
 import {
   drilldownStore,
@@ -40,6 +42,8 @@ import {
 import type { SystemComponentData } from './Canvas.types';
 import { DrilldownOverlay } from './overlays/DrilldownOverlay';
 import { PageOverlay } from './overlays/PageOverlay';
+import { TargetOverlay } from './overlays/TargetOverlay';
+import { useCanvasHealthSync } from '../../hooks/useCanvasHealthSync';
 
 // Node components
 import { CloudNode } from './nodes/CloudNode';
@@ -55,6 +59,7 @@ import { SystemComponentNode } from './nodes/SystemComponentNode';
 import { AgenShieldNode } from './nodes/AgenShieldNode';
 import { BrokerNode } from './nodes/BrokerNode';
 import { HiddenChipNode } from './overlays/HiddenChip';
+import { MetricsClusterNode } from './nodes/MetricsClusterNode';
 
 // Edge components
 import { TrafficEdge } from './edges/TrafficEdge';
@@ -79,6 +84,7 @@ const canvasNodeTypes: NodeTypes = {
   'canvas-agenshield': AgenShieldNode,
   'canvas-broker-card': BrokerNode,
   'canvas-hidden-chip': HiddenChipNode,
+  'canvas-metrics-cluster': MetricsClusterNode,
 };
 
 const canvasEdgeTypes: EdgeTypes = {
@@ -284,16 +290,23 @@ function CanvasInner({
 
     if (page) {
       // Deep-link: zoom straight to the target node (fill screen)
-      const targetNodeId = zoomTarget ?? `comp-${PAGE_ZOOM_TARGETS[page]}`;
+      let targetNodeId: string;
+      if (page === 'target') {
+        const tid = location.pathname.split('/')[2];
+        targetNodeId = zoomTarget ?? `broker-${tid}`;
+      } else {
+        const zoomId = PAGE_ZOOM_TARGETS[page];
+        targetNodeId = zoomTarget ?? (zoomId?.includes('-') ? zoomId : `comp-${zoomId}`);
+      }
       setZoomPhase('zooming-in');
       fitViewContent({
         nodes: [{ id: targetNodeId }],
         maxZoom: 20,
         duration: 600,
       });
-      const tid = setTimeout(() => setZoomPhase('zoomed'), 600);
+      const tid2 = setTimeout(() => setZoomPhase('zoomed'), 600);
       prevPageRef.current = page;
-      return () => clearTimeout(tid);
+      return () => clearTimeout(tid2);
     }
 
     fitViewContent({ padding: OVERVIEW_PADDING, maxZoom: 1.5 });
@@ -323,7 +336,14 @@ function CanvasInner({
     // --- Page route transitions ---
     if (page && page !== prevPageRef.current) {
       // Zoom in until the target node fills the screen
-      const targetNodeId = zoomTarget ?? `comp-${PAGE_ZOOM_TARGETS[page]}`;
+      let targetNodeId: string;
+      if (page === 'target') {
+        const tid = location.pathname.split('/')[2];
+        targetNodeId = zoomTarget ?? `broker-${tid}`;
+      } else {
+        const zoomId = PAGE_ZOOM_TARGETS[page];
+        targetNodeId = zoomTarget ?? (zoomId?.includes('-') ? zoomId : `comp-${zoomId}`);
+      }
       setZoomPhase('zooming-in');
       fitViewContent({
         nodes: [{ id: targetNodeId }],
@@ -423,26 +443,34 @@ function CanvasInner({
   return <DotOverlay />;
 }
 
-export function Canvas() {
+interface CanvasProps {
+  darkMode?: boolean;
+  onToggleDarkMode?: () => void;
+}
+
+export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const navigate = useNavigate();
   const location = useLocation();
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
 
-  const serverMode = useServerMode();
-  const { panelOpen, panelMode } = useSnapshot(setupPanelStore);
+  // Sync live API data into per-component health counts
+  useCanvasHealthSync();
+
+  const { panelOpen, panelMode, detectedTargets, isDetecting } = useSnapshot(setupPanelStore);
 
   // Parse sub-path from route (canvas is now at /)
   const canvasSubPath = location.pathname.replace(/^\//, '');
-  const canvasPage = canvasSubPath.split('/')[0] || null;
-  const canvasTab = canvasSubPath.split('/')[1] || undefined;
+  const pathParts = canvasSubPath.split('/');
+  const canvasPage = pathParts[0] || null;
+  const isTargetRoute = canvasPage === 'target';
+  const targetId = isTargetRoute ? pathParts[1] : undefined;
+  const targetTab = isTargetRoute ? (pathParts[2] || 'overview') : undefined;
+  const canvasTab = isTargetRoute ? undefined : (pathParts[1] || undefined);
 
-  // Auto-open panel
-  useEffect(() => {
-    if (!panelOpen) {
-      openSetupPanel('initial-setup');
-    }
-  }, [serverMode]);
+  const autoOpenedRef = useRef(false);
 
   // Track container dimensions with debounced ResizeObserver
   const handleResize = useCallback(() => {
@@ -469,6 +497,15 @@ export function Canvas() {
   const setupData = useSetupCanvasData();
   const setupLayout = useSetupCanvasLayout(setupData, viewport);
   const { nodes, edges } = setupLayout;
+
+  // Auto-open panel once initial detection finishes (not immediately on mount)
+  const detectionDone = detectedTargets.length > 0 || (!isDetecting && setupData.daemonRunning);
+  useEffect(() => {
+    if (detectionDone && !autoOpenedRef.current && !panelOpen) {
+      autoOpenedRef.current = true;
+      openSetupPanel('initial-setup');
+    }
+  }, [detectionDone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Memoize types to avoid re-renders
   const nodeTypes = useMemo(() => canvasNodeTypes, []);
@@ -508,12 +545,16 @@ export function Canvas() {
           state: { zoomTarget: node.id },
         });
       }
+    } else if (node.type === 'canvas-metrics-cluster') {
+      navigate('/metrics', {
+        state: { zoomTarget: node.id },
+      });
     } else if (node.type === 'canvas-broker-card') {
       const brokerData = node.data as Record<string, unknown>;
       if (brokerData.status !== 'shielded') {
         openSetupPanelForTarget(brokerData.id as string);
       } else {
-        navigate('/overview', {
+        navigate(`/target/${brokerData.id}/overview`, {
           state: { zoomTarget: node.id },
         });
       }
@@ -523,6 +564,29 @@ export function Canvas() {
   return (
     <CanvasContainer ref={containerRef}>
       <SvgFilters />
+
+      {/* Dark/light mode toggle */}
+      {onToggleDarkMode && (
+        <ThemeToggleOverlay>
+          <IconButton
+            onClick={onToggleDarkMode}
+            size="small"
+            sx={{
+              width: 32,
+              height: 32,
+              borderRadius: '8px',
+              background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+              border: `1px solid ${isDark ? 'rgba(160,160,168,0.2)' : 'rgba(0,0,0,0.12)'}`,
+              color: isDark ? '#A0A4A8' : '#6A6A5A',
+              '&:hover': {
+                background: isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.1)',
+              },
+            }}
+          >
+            {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+          </IconButton>
+        </ThemeToggleOverlay>
+      )}
 
       {/* ReactFlow canvas */}
       {viewport.width > 0 && (
@@ -560,7 +624,9 @@ export function Canvas() {
 
       {/* Fixed overlay: Page overlay — route-driven drilldown */}
       {(zoomPhase === 'zooming-in' || zoomPhase === 'zoomed') && canvasPage && (
-        <PageOverlay page={canvasPage} tab={canvasTab} phase={zoomPhase} />
+        isTargetRoute && targetId
+          ? <TargetOverlay targetId={targetId} tab={targetTab} phase={zoomPhase} />
+          : <PageOverlay page={canvasPage} tab={canvasTab} phase={zoomPhase} />
       )}
 
       {/* Fixed overlay: Drilldown — card detail panel */}

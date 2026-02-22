@@ -1,10 +1,8 @@
 /**
- * Aggregates setup-mode canvas data from the detection store.
+ * Aggregates canvas data from the detection store.
  *
- * Two data sources depending on server mode:
- * - **CLI setup mode** (`serverMode === 'setup'`): Reads from `setupStore.context`
- *   (wizard engine SSE state) to derive the detected target and its shield status.
- * - **Daemon mode**: Reads from `setupPanelStore` (detection API + SSE progress).
+ * Reads from `setupPanelStore` (detection API + SSE progress) to derive
+ * detected targets and their shield status.
  *
  * Maps detected targets to ApplicationCardData[] with status derived
  * from shielding progress. Computes instanceIndex/instanceCount for
@@ -14,10 +12,9 @@
 import { useEffect, useMemo } from 'react';
 import { useSnapshot } from 'valtio';
 import type { DetectedTarget } from '@agenshield/ipc';
-import { useHealthGate, useServerMode, useSecurity, useSystemMetrics } from '../../../api/hooks';
+import { useHealthGate, useSecurity, useSystemMetrics, useMetricsHistory } from '../../../api/hooks';
 import { setupPanelStore } from '../../../state/setup-panel';
-import { setupStore, type WizardStepId } from '../../../state/setup';
-import { startMetricsSimulation, systemStore, pushMetricsSnapshot } from '../../../state/system-store';
+import { startMetricsSimulation, systemStore, pushMetricsSnapshot, markMetricsLoaded, setSystemInfo } from '../../../state/system-store';
 import type { ApplicationCardData, SetupCanvasData } from '../Canvas.types';
 
 /** Map target type to a lucide icon name */
@@ -29,30 +26,30 @@ const iconMap: Record<string, string> = {
   openclaw: 'Globe',
 };
 
-/** Derive card status from wizard engine completed steps */
-function deriveStatusFromWizard(completedSteps: WizardStepId[]): ApplicationCardData['status'] {
-  if (completedSteps.includes('verify') || completedSteps.includes('complete')) {
-    return 'shielded';
-  }
-  if (completedSteps.includes('confirm')) {
-    return 'shielding';
-  }
-  return 'unshielded';
-}
-
 export function useSetupCanvasData(): SetupCanvasData {
   const { data: securityData } = useSecurity();
   const daemonRunning = useHealthGate();
-  const serverMode = useServerMode();
-  const isCliSetup = serverMode === 'setup';
   const panelState = useSnapshot(setupPanelStore);
-  const wizardSnap = useSnapshot(setupStore);
 
   // Start simulated metrics for cmdRate/logRate on mount
   useEffect(() => {
     const stop = startMetricsSimulation();
     return stop;
   }, []);
+
+  // Backfill metrics history from daemon (persisted snapshots)
+  const { data: historyData } = useMetricsHistory();
+
+  useEffect(() => {
+    if (historyData && historyData.length > 0 && systemStore.metricsHistory.length === 0) {
+      // Prepend persisted history into the valtio store (dedup by checking existing timestamps)
+      const existing = new Set(systemStore.metricsHistory.map((s) => s.timestamp));
+      const newSnapshots = historyData.filter((s) => !existing.has(s.timestamp));
+      if (newSnapshots.length > 0) {
+        systemStore.metricsHistory.unshift(...newSnapshots);
+      }
+    }
+  }, [historyData]);
 
   // Bridge real metrics from daemon API into valtio store
   const { data: metricsData } = useSystemMetrics();
@@ -65,6 +62,7 @@ export function useSetupCanvasData(): SetupCanvasData {
       systemStore.metrics.diskPercent = m.diskPercent;
       systemStore.metrics.netUp = m.netUp;
       systemStore.metrics.netDown = m.netDown;
+      if (!systemStore.metricsLoaded) markMetricsLoaded();
       pushMetricsSnapshot({
         timestamp: Date.now(),
         cpuPercent: m.cpuPercent,
@@ -73,53 +71,63 @@ export function useSetupCanvasData(): SetupCanvasData {
         netUp: m.netUp,
         netDown: m.netDown,
       });
+      // Update system info (only when available from expanded response)
+      if (m.hostname) {
+        setSystemInfo({
+          hostname: m.hostname,
+          activeUser: m.activeUser ?? 'unknown',
+          uptime: m.uptime ?? 0,
+          platform: m.platform ?? 'unknown',
+          arch: m.arch ?? 'unknown',
+          cpuModel: m.cpuModel ?? 'unknown',
+          totalMemory: m.totalMemory ?? 0,
+          nodeVersion: m.nodeVersion ?? 'unknown',
+        });
+      }
     }
   }, [metricsData]);
+
+  // Auto-detect targets on mount when daemon is healthy
+  useEffect(() => {
+    if (!daemonRunning) return;
+    if (setupPanelStore.detectedTargets.length > 0 || setupPanelStore.isDetecting) return;
+
+    setupPanelStore.isDetecting = true;
+    fetch('/api/targets/lifecycle/detect', { method: 'POST' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setupPanelStore.detectedTargets = data.data;
+        }
+      })
+      .catch(() => {
+        // Detection failed — non-fatal
+      })
+      .finally(() => {
+        setupPanelStore.isDetecting = false;
+      });
+  }, [daemonRunning]);
 
   const currentUser = String(securityData?.data?.currentUser ?? 'Unknown');
 
   const cards = useMemo((): ApplicationCardData[] => {
-    // --- CLI setup mode: derive target from wizard engine context ---
-    if (isCliSetup) {
-      const ctx = wizardSnap.context;
-      if (!ctx?.presetName) return [];
-
-      const completedSteps = wizardSnap.completedEngineSteps as WizardStepId[];
-      const status = deriveStatusFromWizard(completedSteps);
-
-      return [{
-        id: (ctx.presetId as string) ?? 'setup-target',
-        name: (ctx.presetName as string) ?? 'Unknown',
-        type: (ctx.presetId as string) ?? 'unknown',
-        version: ctx.presetVersion as string | undefined,
-        binaryPath: ctx.binaryPath as string | undefined,
-        status,
-        icon: iconMap[(ctx.presetId as string) ?? ''] ?? 'Terminal',
-        isRunning: false,
-        runAsRoot: false,
-        currentUser,
-        instanceIndex: 0,
-        instanceCount: 1,
-        side: 'left' as const,
-        skills: [],
-        mcpServers: [],
-      }];
-    }
-
-    // --- Daemon mode: derive targets from detection store ---
     const targets = panelState.detectedTargets as DetectedTarget[];
     const progress = panelState.shieldProgress;
 
+    // Only include targets that are actually present on the system (detected) or shielded.
+    // Targets with method === 'manual' that aren't shielded are not installed — skip them.
+    const visibleTargets = targets.filter((t) => t.shielded || t.method !== 'manual');
+
     // Count instances per type
     const typeCounts: Record<string, number> = {};
-    targets.forEach((t) => {
+    visibleTargets.forEach((t) => {
       typeCounts[t.type] = (typeCounts[t.type] ?? 0) + 1;
     });
 
     // Track index per type as we iterate
     const typeIndices: Record<string, number> = {};
 
-    return targets.map((t, i) => {
+    return visibleTargets.map((t, i) => {
       const p = progress[t.id];
       let status: ApplicationCardData['status'] = 'unshielded';
       if (t.shielded || p?.status === 'completed') {
@@ -149,9 +157,15 @@ export function useSetupCanvasData(): SetupCanvasData {
         mcpServers: [],
       };
     });
-  }, [isCliSetup, wizardSnap.context, wizardSnap.completedEngineSteps, panelState.detectedTargets, panelState.shieldProgress, currentUser]);
+  }, [panelState.detectedTargets, panelState.shieldProgress, currentUser]);
 
-  const dismissedCardIds = panelState.dismissedCardIds as string[];
+  const rawDismissedCardIds = panelState.dismissedCardIds as string[];
+
+  // Only count dismissed targets that are actually installed (present in cards list)
+  const dismissedCardIds = useMemo(
+    () => rawDismissedCardIds.filter((id) => cards.some((c) => c.id === id)),
+    [rawDismissedCardIds, cards],
+  );
 
   return useMemo(() => {
     // Filter out dismissed cards

@@ -44,13 +44,13 @@ export const PanelHeader = styled('div')(({ theme }) => ({
 }));
 
 export const PanelTitle = styled('div')({
-  fontSize: 14,
+  fontSize: 16,
   fontWeight: 700,
   lineHeight: 1.2,
 });
 
 export const PanelSubtitle = styled('div')(({ theme }) => ({
-  fontSize: 11,
+  fontSize: 12,
   color: theme.palette.text.secondary,
   marginTop: 2,
 }));
@@ -93,7 +93,7 @@ export const StepDot = styled('div', {
 export const StepLabel = styled('span', {
   shouldForwardProp: shouldForwardProp('$active'),
 })<{ $active: boolean }>(({ theme, $active }) => ({
-  fontSize: 10,
+  fontSize: 11,
   fontWeight: $active ? 600 : 400,
   color: $active ? theme.palette.text.primary : theme.palette.text.secondary,
   marginLeft: 2,
@@ -140,13 +140,13 @@ export const TargetInfo = styled('div')({
 });
 
 export const TargetName = styled('div')({
-  fontSize: 13,
+  fontSize: 14,
   fontWeight: 600,
   lineHeight: 1.2,
 });
 
 export const TargetMeta = styled('div')(({ theme }) => ({
-  fontSize: 10,
+  fontSize: 11,
   color: theme.palette.text.secondary,
   marginTop: 2,
 }));
@@ -177,14 +177,14 @@ export const ProgressLabel = styled('div')(({ theme }) => ({
 }));
 
 export const SectionTitle = styled('div')({
-  fontSize: 12,
+  fontSize: 14,
   fontWeight: 700,
   marginBottom: 8,
   marginTop: 4,
 });
 
 export const EmptyText = styled('div')(({ theme }) => ({
-  fontSize: 12,
+  fontSize: 13,
   color: theme.palette.text.secondary,
   textAlign: 'center',
   padding: '24px 0',
@@ -197,7 +197,7 @@ export const ActionButton = styled('button')(({ theme }) => ({
   border: 'none',
   backgroundColor: theme.palette.mode === 'dark' ? '#EDEDED' : '#171717',
   color: theme.palette.mode === 'dark' ? '#171717' : '#EDEDED',
-  fontSize: 12,
+  fontSize: 13,
   fontWeight: 600,
   fontFamily: "'Manrope', sans-serif",
   cursor: 'pointer',
@@ -218,7 +218,7 @@ export const SecondaryButton = styled('button')(({ theme }) => ({
   border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`,
   backgroundColor: 'transparent',
   color: theme.palette.text.primary,
-  fontSize: 12,
+  fontSize: 13,
   fontWeight: 500,
   fontFamily: "'Manrope', sans-serif",
   cursor: 'pointer',

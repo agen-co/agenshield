@@ -38,6 +38,12 @@ export const pcb = {
     ledAmber: '#E8B84A',
     ledOff: '#333333',
   },
+  accent: {
+    cpu: '#3DC75F',       // green — matches ledGreen
+    network: '#00E5FF',   // cyan
+    disk: '#E8B84A',      // amber — matches ledAmber
+    memory: '#8B5CF6',    // purple
+  },
   light: {
     base: '#EAEAE6',         // neutral warm grey
     silk: '#1A1A1A',         // dark text on light

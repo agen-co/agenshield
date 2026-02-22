@@ -34,7 +34,7 @@ import { ConfirmDialog } from '../components/shared/ConfirmDialog';
 import { UntrustedSkillsSection } from '../components/skills/UntrustedSkillsSection';
 import { useGuardedAction } from '../hooks/useGuardedAction';
 
-export function Skills() {
+export function Skills({ embedded }: { embedded?: boolean } = {}) {
   const snap = useSnapshot(skillsStore);
   const guard = useGuardedAction();
   const navigate = useNavigate();
@@ -151,11 +151,13 @@ export function Skills() {
   const showEmpty = !hasSkills && !snap.searchLoading && !snap.installedLoading;
 
   return (
-    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
-      <PageHeader
-        title="Skills"
-        description="Manage, discover, and analyze agent skills."
-      />
+    <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+      {!embedded && (
+        <PageHeader
+          title="Skills"
+          description="Manage, discover, and analyze agent skills."
+        />
+      )}
 
       <Box sx={{ mb: 3 }}>
         <SearchInput

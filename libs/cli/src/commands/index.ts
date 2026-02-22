@@ -15,3 +15,5 @@ export { createUpdateCommand } from './update.js';
 export { createStartCommand } from './start.js';
 export { createStopCommand } from './stop.js';
 export { createUpgradeCommand } from './upgrade.js';
+export { createInstallCommand } from './install.js';
+export { createLogsCommand } from './logs.js';

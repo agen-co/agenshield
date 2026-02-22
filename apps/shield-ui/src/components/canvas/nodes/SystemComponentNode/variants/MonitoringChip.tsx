@@ -8,17 +8,20 @@
 import { memo } from 'react';
 import { useSnapshot } from 'valtio';
 import { systemStore } from '../../../../../state/system-store';
-import { StatusLed, AlertIndicator, useExposedBorder, gaugeColor } from '../primitives';
+import { StatusLed, AlertIndicator, useExposedBorder, gaugeColor, StatusBadgeRow } from '../primitives';
 import type { VariantProps } from '../system.types';
 
 export const MonitoringChip = memo(({ label, sublabel, refDesignator, theme, layout }: VariantProps) => {
   const snap = useSnapshot(systemStore);
   const cpuPercent = snap.metrics.cpuPercent;
-  const { exposed, active } = snap.components.monitoring;
+  const { exposed, active, health, okCount, warnCount, dangerCount } = snap.components.monitoring;
 
   const { body } = layout;
   const { padColor, silkDim, silkColor, chipBody } = theme;
-  const chipBorder = exposed ? '#E1583E' : theme.chipBorder;
+  const chipBorder = exposed ? '#E1583E'
+    : health === 'danger' ? '#E1583E'
+    : health === 'warn' ? '#E8B84A'
+    : theme.chipBorder;
 
   const borderRef = useExposedBorder(exposed);
 
@@ -81,6 +84,14 @@ export const MonitoringChip = memo(({ label, sublabel, refDesignator, theme, lay
       <text x={body.x + 8} y={body.y + 22} textAnchor="start" dominantBaseline="hanging"
         fill={silkDim} fontSize={6} fontFamily="'IBM Plex Mono', monospace"
         letterSpacing={0.3}>{sublabel}</text>
+
+      {/* Health stat badges */}
+      <StatusBadgeRow
+        x={body.x + body.w / 2}
+        y={body.y + body.h - 18}
+        ok={okCount} warn={warnCount} danger={dangerCount}
+        silkDim={silkDim}
+      />
 
       {/* Ref designator */}
       <text x={body.x + 6} y={body.y + body.h - 6} textAnchor="start" dominantBaseline="auto"

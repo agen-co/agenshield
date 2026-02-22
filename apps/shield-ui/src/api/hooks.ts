@@ -55,12 +55,11 @@ export function useHealth() {
 }
 
 /**
- * Returns the server mode from the health endpoint.
- * 'setup' when served by setup server, 'daemon' when served by daemon.
+ * Returns the server mode. Always 'daemon' — setup mode has been removed.
+ * Kept for backwards compatibility with components that check the mode.
  */
-export function useServerMode() {
-  const { data } = useHealth();
-  return data?.data?.mode;
+export function useServerMode(): string {
+  return 'daemon';
 }
 
 /**
@@ -403,6 +402,32 @@ export function useSystemMetrics() {
     enabled: healthy,
     refetchInterval: healthy ? 2000 : false,
     staleTime: 1500,
+  });
+}
+
+/**
+ * Fetch metrics history from the daemon (persisted SQLite snapshots).
+ * Runs once on mount to backfill the valtio metricsHistory buffer.
+ */
+export function useMetricsHistory(limit = 150) {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: ['metrics-history', limit] as const,
+    queryFn: async () => {
+      const res = await fetch(`/api/metrics/history?limit=${limit}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return (json.data ?? []) as Array<{
+        timestamp: number;
+        cpuPercent: number;
+        memPercent: number;
+        diskPercent: number;
+        netUp: number;
+        netDown: number;
+      }>;
+    },
+    enabled: healthy,
+    staleTime: 60_000, // Refetch at most once per minute
   });
 }
 

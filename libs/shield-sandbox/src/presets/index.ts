@@ -7,6 +7,7 @@
 
 import type { TargetPreset, PresetDetectionResult } from './types.js';
 import { openclawPreset } from './openclaw.js';
+import { claudeCodePreset } from './claude-code.js';
 import { devHarnessPreset } from './dev-harness.js';
 import { customPreset } from './custom.js';
 
@@ -15,6 +16,7 @@ export * from './types.js';
 
 // Re-export individual presets
 export { openclawPreset } from './openclaw.js';
+export { claudeCodePreset } from './claude-code.js';
 export { devHarnessPreset } from './dev-harness.js';
 export { customPreset } from './custom.js';
 
@@ -25,9 +27,21 @@ export { customPreset } from './custom.js';
  */
 export const PRESETS: Record<string, TargetPreset> = {
   openclaw: openclawPreset,
+  'claude-code': claudeCodePreset,
   'dev-harness': devHarnessPreset,
   custom: customPreset,
 };
+
+/**
+ * Resolve an instance ID (e.g. 'claude-code-1') to its base preset ID ('claude-code').
+ * Returns the input unchanged if it's already a valid preset ID or no base match is found.
+ */
+export function resolvePresetId(instanceId: string): string {
+  if (PRESETS[instanceId]) return instanceId;
+  const match = instanceId.match(/^(.+)-(\d+)$/);
+  if (match && PRESETS[match[1]]) return match[1];
+  return instanceId;
+}
 
 /**
  * Get preset by ID

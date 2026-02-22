@@ -8,7 +8,7 @@
 import { memo } from 'react';
 import { useSnapshot } from 'valtio';
 import { systemStore } from '../../../../../state/system-store';
-import { StatusLed, AlertIndicator, useExposedBorder, gaugeColor } from '../primitives';
+import { StatusLed, AlertIndicator, useExposedBorder, gaugeColor, MiniSparkline } from '../primitives';
 import type { VariantProps } from '../system.types';
 
 export const FilesystemChip = memo(({ label, sublabel, refDesignator, theme, layout }: VariantProps) => {
@@ -60,6 +60,12 @@ export const FilesystemChip = memo(({ label, sublabel, refDesignator, theme, lay
       <rect x={body.x} y={body.y} width={body.w} height={body.h}
         fill="url(#pcb-chip-gradient)" rx={2} opacity={0.3} />
       {holes}
+
+      {/* Sparkline background */}
+      <MiniSparkline dataKey="diskPercent"
+        x={body.x + 4} y={body.y + 4}
+        w={body.w * 0.45} h={body.h * 0.35}
+        color={diskColor} />
 
       {/* Platter rings */}
       <circle cx={platCx} cy={platCy} r={platR}
