@@ -272,8 +272,9 @@ export function deleteSandboxUser(
   result = sudoExec(`dscl . -delete /Groups/${username}`);
   // Not critical if this fails
 
-  // Remove home directory if requested
-  if (removeHomeDir && homeDir) {
+  // Remove home directory if requested (skip protected system paths)
+  const PROTECTED_PATHS = ['/var/empty', '/private/var/empty', '/var/run', '/tmp', '/dev/null'];
+  if (removeHomeDir && homeDir && !PROTECTED_PATHS.includes(homeDir)) {
     result = sudoExec(`rm -rf "${homeDir}"`);
     if (!result.success) {
       // Log but don't fail - user is already deleted

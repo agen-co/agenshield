@@ -69,6 +69,22 @@ const VARIANT_CONFIGS: Record<DangerWireData['variant'], PcbTraceEdgeConfig> = {
       minInterval: 2000, maxInterval: 5000,
       minDuration: 500, maxDuration: 1000,
       maxConcurrent: 1,
+      timerDriven: false,
+    },
+  },
+  shielding: {
+    strokeColor: '#E8A030',
+    strokeWidth: 3.5,
+    opacity: 0.4,
+    pathStyle: { filter: 'drop-shadow(0 0 3px rgba(232,160,48,0.35))' },
+    showViaPads: false,
+    chamferRadius: 10,
+    electricShots: {
+      pulseWidth: 35, color: '#F0B848', opacity: 0.85,
+      minInterval: 400, maxInterval: 1000,
+      minDuration: 400, maxDuration: 800,
+      maxConcurrent: 2,
+      timerDriven: true,
     },
   },
 };
@@ -81,6 +97,8 @@ export const DangerWireEdge = memo((props: EdgeProps) => {
   const channelCenterY = props.data?.channelCenterY as number | undefined;
   const channelSpacing = props.data?.channelSpacing as number | undefined;
   const fanout = (props.data?.fanout as boolean) ?? false;
+  const eventDriven = (props.data?.eventDriven as boolean) ?? false;
+  const timerDriven = props.data?.timerDriven as boolean | undefined;
 
   const baseConfig = VARIANT_CONFIGS[variant];
 
@@ -115,6 +133,13 @@ export const DangerWireEdge = memo((props: EdgeProps) => {
           stubTop: (data?.stubTop as number) ?? 15,
           stubBottom: (data?.stubBottom as number) ?? 15,
           balanced: (data?.balanced as boolean) ?? false,
+          edgeId: props.id,
+          eventDriven,
+          ...(timerDriven != null ? {
+            electricShots: config.electricShots
+              ? { ...config.electricShots, timerDriven }
+              : undefined,
+          } : {}),
         }}
       />
     </g>

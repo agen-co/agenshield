@@ -394,13 +394,14 @@ export function useBrowsePath(dirPath: string | null) {
 
 // --- System metrics hook ---
 
-export function useSystemMetrics() {
+export function useSystemMetrics(intervalOverride?: number | false) {
   const healthy = useHealthGate();
+  const interval = intervalOverride !== undefined ? intervalOverride : (healthy ? 2000 : false);
   return useQuery({
     queryKey: ['system-metrics'] as const,
     queryFn: api.getMetrics,
     enabled: healthy,
-    refetchInterval: healthy ? 2000 : false,
+    refetchInterval: interval,
     staleTime: 1500,
   });
 }
@@ -433,23 +434,25 @@ export function useMetricsHistory(limit = 150) {
 
 // --- Alerts hooks ---
 
-export function useAlerts() {
+export function useAlerts(intervalOverride?: number | false) {
   const healthy = useHealthGate();
+  const interval = intervalOverride !== undefined ? intervalOverride : (healthy ? 15000 : false);
   return useQuery({
     queryKey: queryKeys.alerts,
     queryFn: () => api.alerts.getAll({ includeAcknowledged: true }),
     enabled: healthy,
-    refetchInterval: healthy ? 15000 : false,
+    refetchInterval: interval,
   });
 }
 
-export function useAlertsCount() {
+export function useAlertsCount(intervalOverride?: number | false) {
   const healthy = useHealthGate();
+  const interval = intervalOverride !== undefined ? intervalOverride : (healthy ? 10000 : false);
   return useQuery({
     queryKey: queryKeys.alertsCount,
     queryFn: api.alerts.getCount,
     enabled: healthy,
-    refetchInterval: healthy ? 10000 : false,
+    refetchInterval: interval,
   });
 }
 

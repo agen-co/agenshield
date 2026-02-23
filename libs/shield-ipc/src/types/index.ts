@@ -19,3 +19,4 @@ export * from './marketplace';
 export * from './migration';
 export * from './setup';
 export * from './playground';
+export * from './privilege-executor';

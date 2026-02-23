@@ -328,7 +328,7 @@ export const api = {
 
   // Profile management
   getProfiles: () =>
-    request<{ data: Array<{ id: string; name: string; type: string; targetName?: string; presetId?: string; description?: string; createdAt: string; updatedAt: string }> }>('/profiles'),
+    request<{ data: Array<{ id: string; name: string; type: string; targetName?: string; presetId?: string; description?: string; agentUsername?: string; agentUid?: number; agentHomeDir?: string; brokerUsername?: string; brokerUid?: number; brokerHomeDir?: string; policiesCount?: number; secretsCount?: number; createdAt: string; updatedAt: string }> }>('/profiles'),
 
   createProfile: (body: { id: string; name: string; type?: string; targetName?: string; presetId?: string; description?: string }) =>
     request<{ data: { id: string; name: string; type: string; createdAt: string; updatedAt: string } }>('/profiles', {

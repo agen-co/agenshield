@@ -76,8 +76,6 @@ const BROKER_W = 180;
 const BROKER_H = 120;
 
 /* ---- Wire routing ---- */
-const DANGER_WIRE_COUNT = 3;
-const DANGER_WIRE_SPACING = 4;
 
 /* ---- Shield contour helpers (viewBox 0 0 200, SCALE=1.75 → 350px node) ---- */
 const SCALE = SHIELD_W / 200;
@@ -134,14 +132,6 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
 
   const isExtended = data.anyShielded || wingsForced;
 
-  // Aux component health for edge coloring
-  const auxHealth = {
-    secrets: systemStoreSnap.components.secrets.health,
-    'policy-graph': systemStoreSnap.components['policy-graph'].health,
-    monitoring: systemStoreSnap.components.monitoring.health,
-    skills: systemStoreSnap.components.skills.health,
-  };
-
   const topologyKey = useMemo(
     () =>
       JSON.stringify({
@@ -153,9 +143,8 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         anyShielded: data.anyShielded,
         anyUnshielded: data.anyUnshielded,
         isExtended,
-        auxHealth,
       }),
-    [data.cards, data.stoppedShieldedCards, data.dismissedCardIds, data.hasDetection, data.anyShielded, data.anyUnshielded, isExtended, auxHealth],
+    [data.cards, data.stoppedShieldedCards, data.dismissedCardIds, data.hasDetection, data.anyShielded, data.anyUnshielded, isExtended],
   );
 
   /* ==================================================================
@@ -173,7 +162,6 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       anyShielded: boolean;
       anyUnshielded: boolean;
       isExtended: boolean;
-      auxHealth: Record<string, ComponentHealth>;
     };
 
     if (!topo.hasDetection && !topo.anyShielded && !topo.isExtended) return null;
@@ -290,7 +278,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
     if (topo.hasDetection && !false) {
       const unshieldedCards = topo.cardIds.filter((id) => {
         const entry = topo.cardStatuses.find((s) => s.startsWith(`${id}:`));
-        return entry?.split(':')[1] !== 'shielded';
+        return entry?.split(':')[1] === 'unshielded';
       });
 
       unshieldedCards.forEach((cardId) => {
@@ -326,7 +314,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       // --- Tendril wires (broker ↔ broker, adjacent only, main row only) ---
       const unshieldedBrokers = topo.cardIds.filter((id) => {
         const entry = topo.cardStatuses.find((s) => s.startsWith(`${id}:`));
-        return entry?.split(':')[1] !== 'shielded';
+        return entry?.split(':')[1] === 'unshielded';
       });
 
       for (let a = 0; a < unshieldedBrokers.length; a++) {
@@ -554,17 +542,26 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       });
     }
 
-    // Bottom handles: N brokers (main + stopped-shielded) following the bottom parabola
+    // Bottom handles: paired source+target per broker following the bottom parabola
     const bottomHandles: HandleSpec[] = [];
     for (let i = 0; i < totalVisibleCards; i++) {
       const svgX = totalVisibleCards === 1 ? 100 : 75 + i * 50 / (totalVisibleCards - 1);
       const svgY = shieldBottomCurveY(svgX);
+      const px = svgX * SCALE;
+      const py = svgY * SCALE;
       bottomHandles.push({
-        id: `bottom-broker-${i}`,
+        id: `bottom-broker-out-${i}`,
         type: 'source',
         position: Position.Bottom,
-        x: svgX * SCALE,
-        y: svgY * SCALE,
+        x: px - 1,
+        y: py,
+      });
+      bottomHandles.push({
+        id: `bottom-broker-in-${i}`,
+        type: 'target',
+        position: Position.Bottom,
+        x: px + 1,
+        y: py,
       });
     }
 
@@ -660,10 +657,11 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
             icon: card.icon,
             status: card.status,
             isRunning: card.isRunning,
+            ...(card.agentUsername ? { agentUsername: card.agentUsername } : {}),
             ...(isStoppedShielded ? { dimmed: true } : {}),
             ...(brokerHandleOverrides ? { handleOverrides: brokerHandleOverrides } : {}),
           },
-          ...(isStoppedShielded ? { style: { opacity: 0.5 } } : {}),
+          /* Stopped-shielded brokers stay at full opacity for better visibility */
           draggable: false,
           selectable: false,
         });
@@ -710,11 +708,14 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       anyShielded: boolean;
       anyUnshielded: boolean;
       isExtended: boolean;
-      auxHealth: Record<string, ComponentHealth>;
     };
 
     const getAllocatedHandles = (edgeId: string) =>
       pinAllocation?.edgeHandles.get(edgeId);
+
+    // Read health directly from systemStoreSnap (decoupled from topologyKey)
+    const getComponentHealth = (id: string): ComponentHealth =>
+      systemStoreSnap.components[id as keyof typeof systemStoreSnap.components]?.health ?? 'ok';
 
     // --- Green shield connections ---
     if (topo.anyShielded || topo.isExtended) {
@@ -732,7 +733,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           sourceHandle: downHandles?.sourceHandle ?? 'bottom-out',
           targetHandle: downHandles?.targetHandle ?? 'metrics-in',
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true },
+          data: { variant: 'shield', fanout: true, balanced: true, eventDriven: true, timerDriven: false },
         });
 
         result.push({
@@ -742,7 +743,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           sourceHandle: upHandles?.sourceHandle ?? 'metrics-out',
           targetHandle: upHandles?.targetHandle ?? 'top-in',
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true },
+          data: { variant: 'shield', fanout: true, balanced: true, eventDriven: true, timerDriven: false },
         });
       }
 
@@ -752,7 +753,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         const rightId = `e-aux-shield-${comp.id}-right`;
         const leftHandles = getAllocatedHandles(leftId);
         const rightHandles = getAllocatedHandles(rightId);
-        const health = topo.auxHealth[comp.id] ?? 'ok';
+        const health = getComponentHealth(comp.id);
         const colors = HEALTH_EDGE_COLORS[health];
 
         result.push({
@@ -762,7 +763,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           sourceHandle: leftHandles?.sourceHandle ?? 'right',
           targetHandle: leftHandles?.targetHandle ?? `left-aux-in-${i}`,
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric },
+          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric, eventDriven: true, timerDriven: false },
         });
 
         result.push({
@@ -772,7 +773,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           sourceHandle: rightHandles?.sourceHandle ?? `left-aux-out-${i}`,
           targetHandle: rightHandles?.targetHandle ?? 'right',
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric },
+          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric, eventDriven: true, timerDriven: false },
         });
       });
 
@@ -782,7 +783,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         const rightId = `e-aux-shield-${comp.id}-right`;
         const leftHandles = getAllocatedHandles(leftId);
         const rightHandles = getAllocatedHandles(rightId);
-        const health = topo.auxHealth[comp.id] ?? 'ok';
+        const health = getComponentHealth(comp.id);
         const colors = HEALTH_EDGE_COLORS[health];
 
         result.push({
@@ -792,7 +793,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           sourceHandle: leftHandles?.sourceHandle ?? 'left',
           targetHandle: leftHandles?.targetHandle ?? `right-aux-in-${i}`,
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric },
+          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric, eventDriven: true, timerDriven: false },
         });
 
         result.push({
@@ -802,7 +803,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
           sourceHandle: rightHandles?.sourceHandle ?? `right-aux-out-${i}`,
           targetHandle: rightHandles?.targetHandle ?? 'left',
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric },
+          data: { variant: 'shield', fanout: true, balanced: true, colorOverride: colors.stroke, electricColorOverride: colors.electric, eventDriven: true, timerDriven: false },
         });
       });
     }
@@ -812,89 +813,103 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
       topo.cardIds.forEach((cardId, i) => {
         const statusEntry = topo.cardStatuses.find((s) => s.startsWith(`${cardId}:`));
         const cardStatus = statusEntry?.split(':')[1] ?? 'unshielded';
-        const isShielded = cardStatus === 'shielded';
 
-        // In CLI setup mode, skip ALL edges for non-shielded cards — they float
-        if (false && !isShielded) return;
+        // Handle IDs for this broker on the shield
+        const shieldHandleOut = `bottom-broker-out-${i}`;
+        const shieldHandleIn = `bottom-broker-in-${i}`;
 
-        // Handle ID for this broker on the shield
-        const shieldHandle = `bottom-broker-${i}`;
-        const brokerBusHandle = 'top-bus';
-
-        if (isShielded) {
-          // Shielded: single green shield wire
+        if (cardStatus === 'shielded') {
+          // Shielded: paired in/out green shield wires (event-driven)
           result.push({
-            id: `e-shield-broker-${cardId}`,
+            id: `e-shield-broker-in-${cardId}`,
             source: 'agenshield',
             target: `broker-${cardId}`,
-            sourceHandle: shieldHandle,
-            targetHandle: brokerBusHandle,
+            sourceHandle: shieldHandleOut,
+            targetHandle: 'top-bus',
             type: 'canvas-danger',
-            data: { variant: 'shield', fanout: true, balanced: true },
+            data: { variant: 'shield', fanout: true, balanced: true, eventDriven: true, timerDriven: false },
+          });
+          result.push({
+            id: `e-shield-broker-out-${cardId}`,
+            source: `broker-${cardId}`,
+            target: 'agenshield',
+            sourceHandle: 'top-bus-out',
+            targetHandle: shieldHandleIn,
+            type: 'canvas-danger',
+            data: { variant: 'shield', fanout: true, balanced: true, eventDriven: true, timerDriven: false },
+          });
+        } else if (cardStatus === 'shielding') {
+          // Shielding: paired orange wires with timer-driven shots
+          result.push({
+            id: `e-shield-broker-in-${cardId}`,
+            source: 'agenshield',
+            target: `broker-${cardId}`,
+            sourceHandle: shieldHandleOut,
+            targetHandle: 'top-bus',
+            type: 'canvas-danger',
+            data: { variant: 'shielding', fanout: true, balanced: true },
+          });
+          result.push({
+            id: `e-shield-broker-out-${cardId}`,
+            source: `broker-${cardId}`,
+            target: 'agenshield',
+            sourceHandle: 'top-bus-out',
+            targetHandle: shieldHandleIn,
+            type: 'canvas-danger',
+            data: { variant: 'shielding', fanout: true, balanced: true },
           });
         } else {
-          // Unshielded: danger primary wires (daemon mode only)
-          const dangerOffsets = Array.from(
-            { length: DANGER_WIRE_COUNT },
-            (_, w) => (w - (DANGER_WIRE_COUNT - 1) / 2) * DANGER_WIRE_SPACING,
-          );
+          // Unshielded: only penetration wires to metrics cluster (no shield↔broker wires)
+          const upId = `e-pen-${cardId}-metrics-up`;
+          const downId = `e-pen-${cardId}-metrics-down`;
+          const upHandles = getAllocatedHandles(upId);
+          const downHandles = getAllocatedHandles(downId);
 
-          dangerOffsets.forEach((offset, w) => {
-            result.push({
-              id: `e-shield-broker-${cardId}-${w}`,
-              source: 'agenshield',
-              target: `broker-${cardId}`,
-              sourceHandle: shieldHandle,
-              targetHandle: brokerBusHandle,
-              type: 'canvas-danger',
-              data: { variant: 'primary', channelOffset: offset },
-            });
+          result.push({
+            id: upId,
+            source: `broker-${cardId}`,
+            target: 'metrics-cluster',
+            sourceHandle: upHandles?.sourceHandle ?? 'danger-up',
+            targetHandle: upHandles?.targetHandle ?? 'bottom-in',
+            type: 'canvas-danger',
+            data: { variant: 'penetration', fanout: true, stubTop: 25, stubBottom: 15 },
           });
 
-          // Penetration wires: broker <-> metrics cluster
-          {
-            const upId = `e-pen-${cardId}-metrics-up`;
-            const downId = `e-pen-${cardId}-metrics-down`;
-            const upHandles = getAllocatedHandles(upId);
-            const downHandles = getAllocatedHandles(downId);
-
-            result.push({
-              id: upId,
-              source: `broker-${cardId}`,
-              target: 'metrics-cluster',
-              sourceHandle: upHandles?.sourceHandle ?? 'danger-up',
-              targetHandle: upHandles?.targetHandle ?? 'bottom-in',
-              type: 'canvas-danger',
-              data: { variant: 'penetration', fanout: true, stubTop: 25, stubBottom: 15 },
-            });
-
-            result.push({
-              id: downId,
-              source: 'metrics-cluster',
-              target: `broker-${cardId}`,
-              sourceHandle: downHandles?.sourceHandle ?? 'bottom-out',
-              targetHandle: downHandles?.targetHandle ?? 'danger-up-in',
-              type: 'canvas-danger',
-              data: { variant: 'penetration', fanout: true, stubTop: 15, stubBottom: 25 },
-            });
-          }
+          result.push({
+            id: downId,
+            source: 'metrics-cluster',
+            target: `broker-${cardId}`,
+            sourceHandle: downHandles?.sourceHandle ?? 'bottom-out',
+            targetHandle: downHandles?.targetHandle ?? 'danger-up-in',
+            type: 'canvas-danger',
+            data: { variant: 'penetration', fanout: true, stubTop: 15, stubBottom: 25 },
+          });
         }
       });
 
-      // --- AgenShield -> Stopped-shielded Brokers (dimmed shield wires) ---
+      // --- AgenShield -> Stopped-shielded Brokers (dimmed shield wires, paired) ---
       topo.stoppedIds.forEach((cardId, i) => {
         const shieldHandleIdx = topo.cardIds.length + i;
-        const shieldHandle = `bottom-broker-${shieldHandleIdx}`;
-        const brokerBusHandle = 'top-bus';
+        const shieldHandleOut = `bottom-broker-out-${shieldHandleIdx}`;
+        const shieldHandleIn = `bottom-broker-in-${shieldHandleIdx}`;
 
         result.push({
-          id: `e-shield-broker-${cardId}`,
+          id: `e-shield-broker-in-${cardId}`,
           source: 'agenshield',
           target: `broker-${cardId}`,
-          sourceHandle: shieldHandle,
-          targetHandle: brokerBusHandle,
+          sourceHandle: shieldHandleOut,
+          targetHandle: 'top-bus',
           type: 'canvas-danger',
-          data: { variant: 'shield', fanout: true, balanced: true, dimmed: true },
+          data: { variant: 'shield', fanout: true, balanced: true, dimmed: true, eventDriven: true, timerDriven: false },
+        });
+        result.push({
+          id: `e-shield-broker-out-${cardId}`,
+          source: `broker-${cardId}`,
+          target: 'agenshield',
+          sourceHandle: 'top-bus-out',
+          targetHandle: shieldHandleIn,
+          type: 'canvas-danger',
+          data: { variant: 'shield', fanout: true, balanced: true, dimmed: true, eventDriven: true, timerDriven: false },
         });
       });
 
@@ -904,7 +919,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
         topo.cardIds.forEach((cardId) => {
           const statusEntry = topo.cardStatuses.find((s) => s.startsWith(`${cardId}:`));
           const st = statusEntry?.split(':')[1] ?? 'unshielded';
-          if (st !== 'shielded') unshieldedBrokers.push(cardId);
+          if (st === 'unshielded') unshieldedBrokers.push(cardId);
         });
 
         for (let a = 0; a < unshieldedBrokers.length; a++) {
@@ -929,7 +944,7 @@ export function useSetupCanvasLayout(data: SetupCanvasData, viewport: ViewportSi
     }
 
     return result;
-  }, [topologyKey, vw, vh, pinAllocation]);
+  }, [topologyKey, vw, vh, pinAllocation, systemStoreSnap]);
 
   return { nodes, edges };
 }

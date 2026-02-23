@@ -4,7 +4,9 @@
 
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
+import { subscribe } from 'valtio';
 import { updateStore, type UpdatePhase } from '../state/update';
+import { eventStore } from '../state/events';
 
 const BASE_URL = '/api';
 
@@ -92,75 +94,57 @@ export function useConfirmUpdate() {
 }
 
 // --- SSE hook for update events ---
+// Subscribes to the main eventStore (populated by useSSE in App.tsx)
+// instead of creating a duplicate EventSource connection.
 
 export function useUpdateSSE() {
-  const sourceRef = useRef<EventSource | null>(null);
+  const lastEventCount = useRef(eventStore.events.length);
 
   useEffect(() => {
-    const es = new EventSource('/sse/events');
-    sourceRef.current = es;
+    const unsub = subscribe(eventStore, () => {
+      const currentCount = eventStore.events.length;
+      if (currentCount <= lastEventCount.current) {
+        lastEventCount.current = currentCount;
+        return;
+      }
 
-    const handleState = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.state) {
-          updateStore.updateState = data.state;
-          // Update completed steps
-          if (data.state.steps) {
-            const completed = data.state.steps
-              .filter((s: { status: string }) => s.status === 'completed')
-              .map((s: { id: string }) => s.id);
-            updateStore.completedSteps = completed;
+      const newCount = currentCount - lastEventCount.current;
+      const newEvents = eventStore.events.slice(0, newCount);
+      lastEventCount.current = currentCount;
 
-            // Clear stepLogs for finished steps
-            for (const step of data.state.steps as { id: string; status: string }[]) {
-              if (step.status === 'completed' || step.status === 'error') {
-                delete updateStore.stepLogs[step.id];
+      for (const event of newEvents) {
+        const data = event.data as Record<string, unknown>;
+
+        if (event.type === 'update:state') {
+          if (data.state) {
+            updateStore.updateState = data.state as NonNullable<typeof updateStore.updateState>;
+            const steps = (data.state as { steps?: Array<{ id: string; status: string }> }).steps;
+            if (steps) {
+              updateStore.completedSteps = steps
+                .filter((s) => s.status === 'completed')
+                .map((s) => s.id);
+              for (const step of steps) {
+                if (step.status === 'completed' || step.status === 'error') {
+                  delete updateStore.stepLogs[step.id];
+                }
               }
             }
           }
+        } else if (event.type === 'update:log') {
+          if (data.stepId && data.message) {
+            updateStore.stepLogs[data.stepId as string] = data.message as string;
+          }
+        } else if (event.type === 'update:complete') {
+          updateStore.phase = 'complete';
+          if (data.state) updateStore.updateState = data.state as NonNullable<typeof updateStore.updateState>;
+        } else if (event.type === 'update:error') {
+          updateStore.phase = 'error';
+          if (data.state) updateStore.updateState = data.state as NonNullable<typeof updateStore.updateState>;
+          if (data.error) console.error('Update error:', data.error);
         }
-      } catch { /* ignore */ }
-    };
+      }
+    });
 
-    const handleLog = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.stepId && data.message) {
-          updateStore.stepLogs[data.stepId] = data.message;
-        }
-      } catch { /* ignore */ }
-    };
-
-    const handleComplete = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        updateStore.phase = 'complete';
-        if (data.state) updateStore.updateState = data.state;
-      } catch { /* ignore */ }
-    };
-
-    const handleError = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        updateStore.phase = 'error';
-        if (data.state) updateStore.updateState = data.state;
-        if (data.error) console.error('Update error:', data.error);
-      } catch { /* ignore */ }
-    };
-
-    es.addEventListener('update:state', handleState);
-    es.addEventListener('update:log', handleLog);
-    es.addEventListener('update:complete', handleComplete);
-    es.addEventListener('update:error', handleError);
-
-    es.onerror = () => {
-      // Reconnection handled automatically
-    };
-
-    return () => {
-      es.close();
-      sourceRef.current = null;
-    };
+    return unsub;
   }, []);
 }

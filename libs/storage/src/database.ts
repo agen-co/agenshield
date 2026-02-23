@@ -6,9 +6,10 @@
 
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { DB_PRAGMAS, FILE_PERMISSIONS, APPLICATION_ID } from './constants';
-import { DatabaseTamperError } from './errors';
+import { DatabasePermissionError, DatabaseTamperError } from './errors';
 
 /**
  * Open (or create) a SQLite database with proper pragmas and file permissions.
@@ -22,7 +23,29 @@ export function openDatabase(dbPath: string, expectedAppId: number = APPLICATION
     fs.mkdirSync(dir, { recursive: true, mode: FILE_PERMISSIONS.DB_DIR });
   }
 
-  const db = new Database(dbPath);
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath);
+  } catch (err) {
+    // Check if this is a permissions issue (root-owned file)
+    if (fs.existsSync(dbPath)) {
+      try {
+        const stat = fs.statSync(dbPath);
+        if (stat.uid === 0 && process.getuid?.() !== 0) {
+          const username = os.userInfo().username;
+          throw new DatabasePermissionError(
+            dbPath,
+            `Cannot open database at ${dbPath}: file is owned by root. ` +
+            `Run: sudo chown -R ${username} "${dir}"`
+          );
+        }
+      } catch (statErr) {
+        if (statErr instanceof DatabasePermissionError) throw statErr;
+        // statSync failed — re-throw original error
+      }
+    }
+    throw err;
+  }
 
   // Set pragmas
   db.pragma(`journal_mode = ${DB_PRAGMAS.JOURNAL_MODE}`);

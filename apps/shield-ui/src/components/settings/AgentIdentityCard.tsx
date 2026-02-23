@@ -1,22 +1,36 @@
 import { TextField, Grid2 as Grid, Card, Typography, Box } from '@mui/material';
-import { useStatus } from '../../api/hooks';
+import { useStatus, useProfiles } from '../../api/hooks';
 
-export function AgentIdentityCard() {
+export function AgentIdentityCard({ profileId }: { profileId?: string | null }) {
   const { data: status } = useStatus();
+  const { data: profilesData } = useProfiles();
 
-  const agentUsername = status?.data?.agentUsername ?? 'ash_default_agent';
-  const workspaceGroup = status?.data?.workspaceGroup ?? 'ash_default_workspace';
+  // Resolve profile by ID
+  const profile = profileId
+    ? profilesData?.data?.find(p => p.id === profileId)
+    : undefined;
+
+  // When we have a target profile, show its identity; otherwise fall back to global
+  const agentUsername = profile?.agentUsername ?? status?.data?.agentUsername ?? 'ash_default_agent';
+  const workspaceGroup = !profile ? (status?.data?.workspaceGroup ?? 'ash_default_workspace') : undefined;
+  const agentUid = profile?.agentUid;
+  const agentHomeDir = profile?.agentHomeDir;
+  const brokerUsername = profile?.brokerUsername;
+  const brokerHomeDir = profile?.brokerHomeDir;
 
   return (
     <Card>
       <Typography variant="h6" fontWeight={600}>
-        Agent Identity
+        {profile ? 'Target Identity' : 'Agent Identity'}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-        The username and workspace group this agent is registered under.
+        {profile
+          ? 'The agent and broker identity configured for this target.'
+          : 'The username and workspace group this agent is registered under.'}
       </Typography>
       <Box sx={{ mt: 3 }}>
         <Grid container spacing={3}>
+          {/* Row 1: Agent Username + Workspace Group (global) or Broker Username (target) */}
           <Grid size={{ xs: 12, sm: 6 }}>
             <TextField
               label="Agent Username"
@@ -28,15 +42,66 @@ export function AgentIdentityCard() {
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField
-              label="Workspace Group"
-              value={workspaceGroup}
-              fullWidth
-              InputProps={{ readOnly: true }}
-              helperText="Group this agent belongs to"
-              sx={{ '& .MuiInputBase-root': { bgcolor: 'action.hover' } }}
-            />
+            {workspaceGroup != null ? (
+              <TextField
+                label="Workspace Group"
+                value={workspaceGroup}
+                fullWidth
+                InputProps={{ readOnly: true }}
+                helperText="Group this agent belongs to"
+                sx={{ '& .MuiInputBase-root': { bgcolor: 'action.hover' } }}
+              />
+            ) : brokerUsername != null ? (
+              <TextField
+                label="Broker Username"
+                value={brokerUsername}
+                fullWidth
+                InputProps={{ readOnly: true }}
+                helperText="Broker user for this target"
+                sx={{ '& .MuiInputBase-root': { bgcolor: 'action.hover' } }}
+              />
+            ) : null}
           </Grid>
+
+          {/* Row 2 (target only): Agent UID + Agent Home Dir */}
+          {profile && (
+            <>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="Agent UID"
+                  value={agentUid != null ? String(agentUid) : '—'}
+                  fullWidth
+                  InputProps={{ readOnly: true }}
+                  helperText="System UID for the agent user"
+                  sx={{ '& .MuiInputBase-root': { bgcolor: 'action.hover' } }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="Agent Home Dir"
+                  value={agentHomeDir ?? '—'}
+                  fullWidth
+                  InputProps={{ readOnly: true }}
+                  helperText="Home directory for the agent user"
+                  sx={{ '& .MuiInputBase-root': { bgcolor: 'action.hover' } }}
+                />
+              </Grid>
+            </>
+          )}
+
+          {/* Row 3 (target only): Broker Home Dir */}
+          {profile && brokerHomeDir != null && (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                label="Broker Home Dir"
+                value={brokerHomeDir}
+                fullWidth
+                InputProps={{ readOnly: true }}
+                helperText="Home directory for the broker user"
+                sx={{ '& .MuiInputBase-root': { bgcolor: 'action.hover' } }}
+              />
+            </Grid>
+          )}
         </Grid>
       </Box>
 

@@ -11,11 +11,19 @@ import {
 } from '../services/profile-token';
 
 export async function profileRoutes(app: FastifyInstance): Promise<void> {
-  // List all profiles
+  // List all profiles (enriched with per-profile counts)
   app.get('/profiles', async () => {
     const storage = getStorage();
     const profiles = storage.profiles.getAll();
-    return { data: profiles };
+    const enriched = profiles.map((p) => {
+      const scoped = storage.for({ profileId: p.id });
+      return {
+        ...p,
+        policiesCount: scoped.policies.getAll().length,
+        secretsCount: scoped.secrets.getAll().length,
+      };
+    });
+    return { data: enriched };
   });
 
   // Create a profile

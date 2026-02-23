@@ -45,6 +45,19 @@ async function main(): Promise<void> {
     }
   }
 
+  // When running as root via sudo, chown the config dir to the calling user
+  // so future non-root daemon starts can access the DB files
+  const sudoUser = process.env['SUDO_USER'];
+  if (process.getuid?.() === 0 && sudoUser) {
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync(`chown -R ${sudoUser} "${configDir}"`, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 5_000,
+      });
+    } catch { /* best effort */ }
+  }
+
   // Load configuration
   const config = loadConfig();
 

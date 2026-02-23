@@ -29,8 +29,8 @@ import { StateOverviewStep } from './steps/StateOverviewStep';
 import { PasscodeStep } from './steps/PasscodeStep';
 import { ScanResultsStep } from './steps/ScanResultsStep';
 import { setupPanelStore, resetSetupPanel, markShieldComplete } from '../../../../state/setup-panel';
-import { useShieldSSE } from '../../../../api/setup';
 import { useTargets } from '../../../../api/targets';
+import { useIsShielding } from '../../../../hooks/useIsShielding';
 import { useAuth } from '../../../../context/AuthContext';
 import { setWingsForceOpen } from '../../../../state/system-store';
 
@@ -47,16 +47,14 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
   const { passcodeSet } = useAuth();
 
   const panelState = useSnapshot(setupPanelStore);
-
-  // Connect to shield progress SSE
-  useShieldSSE(open);
+  const shielding = useIsShielding();
 
   const [currentStep, setCurrentStep] = useState<SetupStep>('state-overview');
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [shieldError, setShieldError] = useState<string | null>(null);
 
-  // For auto-refreshing target list
-  const { refetch: refetchTargets } = useTargets();
+  // For auto-refreshing target list — disable polling during shielding
+  const { refetch: refetchTargets } = useTargets(!shielding);
 
   // Reset state when panel opens; check for pre-selected target or passcode setup
   useEffect(() => {
@@ -96,7 +94,7 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
     setCurrentStep('configure');
   }, []);
 
-  const handleShield = useCallback(async (baseName?: string) => {
+  const handleShield = useCallback(async (baseName?: string, version?: string) => {
     if (!selectedTargetId) return;
     setShieldError(null);
     setCurrentStep('shielding');
@@ -105,7 +103,7 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
       const res = await fetch(`/api/targets/lifecycle/${selectedTargetId}/shield`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ baseName }),
+        body: JSON.stringify({ baseName, openclawVersion: version }),
       });
       if (!res.ok) {
         let errorMsg = 'Shield operation failed';

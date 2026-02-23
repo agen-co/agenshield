@@ -46,6 +46,7 @@ import {
 import { initPolicyManager } from './services/policy-manager';
 import { pushSecretsToBroker } from './services/broker-bridge';
 import { startMetricsCollector, stopMetricsCollector } from './services/metrics-collector';
+import { resolveTargetContext } from './services/target-context';
 
 /**
  * Create and configure the Fastify server
@@ -153,10 +154,11 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   // Start security watcher for real-time monitoring
   startSecurityWatcher(10000); // Check every 10 seconds
 
-  // Derive paths
-  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+  // Derive paths from profile storage (falls back to env vars / defaults)
+  const targetCtx = resolveTargetContext();
+  const agentHome = targetCtx.agentHome;
   const skillsDir = path.resolve(`${agentHome}/.openclaw/workspace/skills`);
-  const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
+  const socketGroup = targetCtx.socketGroup;
 
   const devMode = isDevMode();
 

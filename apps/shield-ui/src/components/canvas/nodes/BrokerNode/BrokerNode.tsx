@@ -42,6 +42,7 @@ const BRAND_ICONS: Record<string, string> = {
 export const BrokerNode = memo(({ data }: NodeProps) => {
   const {
     id, name, type, icon, status, isRunning, dimmed,
+    agentUsername,
     handleOverrides: dangerHandles,
   } = data as unknown as BrokerCardData & { handleOverrides?: HandleSpec[] };
 
@@ -116,9 +117,11 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
         </button>
       )}
 
-      {/* === Top bus handle (connects to + bottom arm) === */}
+      {/* === Top bus handles (in + out pair) === */}
       <Handle type="target" position={Position.Top} id="top-bus"
-        style={{ left: BROKER_W / 2, visibility: 'hidden' }} />
+        style={{ left: BROKER_W / 2 - 8, visibility: 'hidden' }} />
+      <Handle type="source" position={Position.Top} id="top-bus-out"
+        style={{ left: BROKER_W / 2 + 8, visibility: 'hidden' }} />
 
       {/* === Danger wire handles — dynamic from pin allocator, or fallback === */}
       {(dangerHandles ?? [
@@ -227,19 +230,28 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
           </foreignObject>
         )}
 
-        {/* App name */}
-        <text x={PAD + INNER_W / 2} y={PAD + 52} textAnchor="middle" dominantBaseline="central"
-          fill={silkColor} fontSize={9} fontFamily="'IBM Plex Mono', monospace"
+        {/* App name — larger for visibility */}
+        <text x={PAD + INNER_W / 2} y={PAD + 48} textAnchor="middle" dominantBaseline="central"
+          fill={silkColor} fontSize={10.5} fontFamily="'IBM Plex Mono', monospace"
           fontWeight={700} letterSpacing={0.5}>
-          {name.length > 20 ? name.toUpperCase().slice(0, 19) + '…' : name.toUpperCase()}
+          {name.length > 18 ? name.toUpperCase().slice(0, 17) + '…' : name.toUpperCase()}
         </text>
 
         {/* Type label */}
-        <text x={PAD + INNER_W / 2} y={PAD + 65} textAnchor="middle" dominantBaseline="central"
+        <text x={PAD + INNER_W / 2} y={PAD + 60} textAnchor="middle" dominantBaseline="central"
           fill={silkDim} fontSize={6.5} fontFamily="'IBM Plex Mono', monospace"
           letterSpacing={0.3} opacity={0.6}>
           {(type || 'unknown').toUpperCase()}
         </text>
+
+        {/* Agent username (if available) */}
+        {agentUsername && (
+          <text x={PAD + INNER_W / 2} y={PAD + 70} textAnchor="middle" dominantBaseline="central"
+            fill={silkDim} fontSize={5.5} fontFamily="'IBM Plex Mono', monospace"
+            letterSpacing={0.2} opacity={0.75}>
+            {agentUsername.length > 22 ? agentUsername.slice(0, 21) + '…' : agentUsername}
+          </text>
+        )}
 
         {/* Status LED */}
         <g>
@@ -254,11 +266,11 @@ export const BrokerNode = memo(({ data }: NodeProps) => {
             style={{ animation: 'pcb-led-pulse 2s ease-in-out infinite' }} />
         </g>
 
-        {/* Status text */}
+        {/* Status text — more prominent */}
         <text x={PAD + INNER_W / 2} y={PAD + INNER_H - 7} textAnchor="middle" dominantBaseline="central"
           fill={status === 'shielded' ? '#2D6B3F' : status === 'shielding' ? '#EEA45F' : '#E1583E'}
-          fontSize={5} fontFamily="'IBM Plex Mono', monospace"
-          letterSpacing={0.5} opacity={0.6}>
+          fontSize={5.5} fontFamily="'IBM Plex Mono', monospace"
+          fontWeight={600} letterSpacing={0.5} opacity={0.8}>
           {status.toUpperCase()}
         </text>
 

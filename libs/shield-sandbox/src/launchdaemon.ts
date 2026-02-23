@@ -20,6 +20,7 @@ const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShieldES';
 export function generateBrokerPlist(
   config: import('@agenshield/ipc').UserConfig,
   options?: {
+    baseName?: string;
     brokerPath?: string;
     configPath?: string;
     socketPath?: string;
@@ -32,13 +33,14 @@ export function generateBrokerPlist(
   const socketPath = options?.socketPath || '/var/run/agenshield/agenshield.sock';
   const brokerUsername = config.brokerUser.username;
   const socketGroupName = config.groups.socket.name;
+  const label = options?.baseName ? `${LABEL}.${options.baseName}` : LABEL;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>${LABEL}</string>
+    <string>${label}</string>
 
     <key>AssociatedBundleIdentifiers</key>
     <array>

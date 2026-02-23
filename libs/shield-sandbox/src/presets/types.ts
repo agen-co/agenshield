@@ -5,7 +5,7 @@
  * The sandboxing (users, groups, seatbelt, wrappers) is universal for all targets.
  */
 
-import type { UserDefinition, MigrationScanResult, MigrationSelection } from '@agenshield/ipc';
+import type { UserDefinition, MigrationScanResult, MigrationSelection, PrivilegeExecResult } from '@agenshield/ipc';
 
 /**
  * Result of detecting a target application
@@ -74,6 +74,47 @@ export interface PresetMigrationResult {
 }
 
 /**
+ * Context provided to preset install() method
+ */
+export interface InstallContext {
+  /** Agent user home directory */
+  agentHome: string;
+  /** Agent username (e.g., ash_openclaw_agent) */
+  agentUsername: string;
+  /** Socket group name */
+  socketGroupName: string;
+  /** Workspace group name */
+  workspaceGroupName: string;
+  /** Detection result from detect phase */
+  detection?: PresetDetectionResult;
+  /** Host user who originally ran the target */
+  hostUsername: string;
+  /** Requested version to install (e.g., '2026.2.6' or 'latest') */
+  requestedVersion?: string;
+  /** Run a command as root via privilege executor */
+  execAsRoot: (cmd: string, opts?: { timeout?: number }) => Promise<PrivilegeExecResult>;
+  /** Run a command as the agent user via privilege executor */
+  execAsUser: (cmd: string, opts?: { timeout?: number }) => Promise<PrivilegeExecResult>;
+  /** Progress callback */
+  onProgress: (step: string, progress: number, message: string) => void;
+  /** Log callback */
+  onLog: (message: string) => void;
+}
+
+/**
+ * Result of installing the target app's runtime environment
+ */
+export interface InstallResult {
+  success: boolean;
+  failedStep?: string;
+  error?: string;
+  appBinaryPath?: string;
+  version?: string;
+  /** Path to a gateway plist written but NOT loaded (deferred start). */
+  gatewayPlistPath?: string;
+}
+
+/**
  * A preset defines how to detect, migrate, and run a specific target application.
  * The sandboxing (users, groups, seatbelt, wrappers) is universal.
  */
@@ -126,4 +167,14 @@ export interface TargetPreset {
    * This is what the wrapper scripts will invoke.
    */
   getEntryCommand(context: MigrationContext): string;
+
+  /** Policy preset IDs to seed when this target is shielded */
+  policyPresetIds?: string[];
+
+  /**
+   * Install the target app's full runtime environment in the agent user.
+   * Called after sandbox infrastructure is created (users, dirs, wrappers).
+   * Optional — presets that don't define install() skip this step.
+   */
+  install?(context: InstallContext): Promise<InstallResult>;
 }

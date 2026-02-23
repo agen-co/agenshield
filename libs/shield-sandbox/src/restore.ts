@@ -442,6 +442,23 @@ function cleanup(): RestoreProgress {
     }
   }
 
+  // Remove agenshield sudoers files
+  try {
+    const sudoersDir = '/etc/sudoers.d';
+    if (fs.existsSync(sudoersDir)) {
+      for (const file of fs.readdirSync(sudoersDir)) {
+        if (file.startsWith('agenshield-')) {
+          const result = sudoExec(`rm -f "${path.join(sudoersDir, file)}"`);
+          if (!result.success) {
+            errors.push(`Failed to remove sudoers file ${file}: ${result.error}`);
+          }
+        }
+      }
+    }
+  } catch {
+    // Best effort
+  }
+
   // Scan for per-target broker plists (e.g. com.agenshield.broker.claudecode.plist)
   const plistDir = '/Library/LaunchDaemons';
   try {
@@ -711,6 +728,25 @@ export function forceUninstall(
     onProgress?.(result);
     return result.success;
   };
+
+  // Clean up sudoers files FIRST to prevent syntax-error warnings on subsequent sudo calls
+  try {
+    const sudoersDir = '/etc/sudoers.d';
+    if (fs.existsSync(sudoersDir)) {
+      const files = fs.readdirSync(sudoersDir);
+      for (const file of files) {
+        if (file.startsWith('agenshield-')) {
+          sudoExec(`rm -f "${path.join(sudoersDir, file)}"`);
+        }
+      }
+    }
+  } catch { /* best effort */ }
+
+  runStep(() => ({
+    step: 'cleanup',
+    success: true,
+    message: 'Cleaned up sudoers files',
+  }));
 
   // Always attempt to stop daemon (safe no-op if not running)
   runStep(() => stopDaemon());

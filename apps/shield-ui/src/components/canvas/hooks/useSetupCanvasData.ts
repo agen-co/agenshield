@@ -12,8 +12,8 @@
 import { useEffect, useMemo } from 'react';
 import { useSnapshot } from 'valtio';
 import type { DetectedTarget } from '@agenshield/ipc';
-import { useHealthGate, useSecurity, useSystemMetrics, useMetricsHistory } from '../../../api/hooks';
-import { setupPanelStore } from '../../../state/setup-panel';
+import { useHealthGate, useProfiles, useSecurity, useSystemMetrics, useMetricsHistory } from '../../../api/hooks';
+import { setupPanelStore, isShieldingActive } from '../../../state/setup-panel';
 import { startMetricsSimulation, systemStore, pushMetricsSnapshot, markMetricsLoaded, setSystemInfo } from '../../../state/system-store';
 import type { ApplicationCardData, SetupCanvasData } from '../Canvas.types';
 
@@ -28,6 +28,7 @@ const iconMap: Record<string, string> = {
 
 export function useSetupCanvasData(): SetupCanvasData {
   const { data: securityData } = useSecurity();
+  const { data: profilesData } = useProfiles();
   const daemonRunning = useHealthGate();
   const panelState = useSnapshot(setupPanelStore);
 
@@ -52,7 +53,8 @@ export function useSetupCanvasData(): SetupCanvasData {
   }, [historyData]);
 
   // Bridge real metrics from daemon API into valtio store
-  const { data: metricsData } = useSystemMetrics();
+  // Reduce polling from 2s to 15s during shielding to avoid memory pressure
+  const { data: metricsData } = useSystemMetrics(isShieldingActive() ? 15000 : undefined);
 
   useEffect(() => {
     if (metricsData?.data) {
@@ -110,6 +112,24 @@ export function useSetupCanvasData(): SetupCanvasData {
 
   const currentUser = String(securityData?.data?.currentUser ?? 'Unknown');
 
+  // Build a lookup map from targetName/profileId to agentUsername
+  const profileUsernames = useMemo(() => {
+    const map = new Map<string, string>();
+    const profiles = profilesData?.data;
+    if (profiles && Array.isArray(profiles)) {
+      for (const p of profiles) {
+        const username = (p as Record<string, unknown>).agentUsername as string | undefined;
+        if (username) {
+          map.set(p.id, username);
+          if ((p as Record<string, unknown>).targetName) {
+            map.set((p as Record<string, unknown>).targetName as string, username);
+          }
+        }
+      }
+    }
+    return map;
+  }, [profilesData]);
+
   const cards = useMemo((): ApplicationCardData[] => {
     const targets = panelState.detectedTargets as DetectedTarget[];
     const progress = panelState.shieldProgress;
@@ -155,9 +175,10 @@ export function useSetupCanvasData(): SetupCanvasData {
         side: i % 2 === 0 ? 'left' as const : 'right' as const,
         skills: [],
         mcpServers: [],
+        agentUsername: profileUsernames.get(t.id) ?? profileUsernames.get(p?.profileId ?? ''),
       };
     });
-  }, [panelState.detectedTargets, panelState.shieldProgress, currentUser]);
+  }, [panelState.detectedTargets, panelState.shieldProgress, currentUser, profileUsernames]);
 
   const rawDismissedCardIds = panelState.dismissedCardIds as string[];
 

@@ -49,6 +49,14 @@ export function generateAgentProfile(options: {
   (subpath "/sbin")
   (subpath "/bin"))
 
+;; Allow reading the specific shell binaries we permit execution of
+;; (macOS requires file-read* to exec a binary; without this the sandbox
+;; enters an inconsistent state — process-exec is allowed but the read fails)
+(allow file-read*
+  (literal "/bin/sh")
+  (literal "/bin/bash")
+  (literal "/usr/bin/env"))
+
 ;; Sensitive system configuration
 (deny file-read*
   (subpath "/etc")

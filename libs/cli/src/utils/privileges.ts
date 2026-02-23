@@ -82,7 +82,7 @@ export function ensureSudoAccess(): void {
 
   console.log('\nThis operation requires administrator privileges.\n');
   try {
-    execSync('sudo -v', { stdio: 'inherit', timeout: 60_000 });
+    execSync('sudo -v 2>/dev/null', { stdio: 'inherit', timeout: 60_000 });
   } catch {
     console.error('Failed to obtain sudo access.');
     process.exit(1);

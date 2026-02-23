@@ -8,12 +8,19 @@
 import { proxy } from 'valtio';
 import type { DetectedTarget, OldInstallation } from '@agenshield/ipc';
 
+export interface ShieldLogEntry {
+  message: string;
+  stepId?: string;
+  timestamp: number;
+}
+
 export interface ShieldProgressEntry {
   status: 'pending' | 'in_progress' | 'completed' | 'error';
   currentStep?: string;
   progress: number;
   message?: string;
   profileId?: string;
+  logs: ShieldLogEntry[];
 }
 
 export interface SetupPanelState {
@@ -72,7 +79,8 @@ export function resetSetupPanel(): void {
 }
 
 /**
- * Update shield progress for a target (called from SSE handler)
+ * Update shield progress for a target (called from SSE handler).
+ * Preserves existing logs array.
  */
 export function updateShieldProgress(
   targetId: string,
@@ -80,24 +88,51 @@ export function updateShieldProgress(
   progress: number,
   message?: string,
 ): void {
+  const existing = setupPanelStore.shieldProgress[targetId];
   setupPanelStore.shieldProgress[targetId] = {
     status: progress >= 100 ? 'completed' : 'in_progress',
     currentStep: step,
     progress,
     message,
+    logs: existing?.logs ?? [],
   };
 }
 
 /**
- * Mark a target as fully shielded (called from SSE handler)
+ * Mark a target as fully shielded (called from SSE handler).
+ * Preserves existing logs array.
  */
 export function markShieldComplete(targetId: string, profileId: string): void {
+  const existing = setupPanelStore.shieldProgress[targetId];
   setupPanelStore.shieldProgress[targetId] = {
     status: 'completed',
     progress: 100,
     message: 'Shielding complete',
     profileId,
+    logs: existing?.logs ?? [],
   };
+}
+
+const MAX_SHIELD_LOGS = 200;
+
+/**
+ * Append a log entry to a target's shield progress (called from SSE handler).
+ * Capped at MAX_SHIELD_LOGS entries to prevent unbounded memory growth.
+ */
+export function appendShieldLog(targetId: string, message: string, stepId?: string): void {
+  const existing = setupPanelStore.shieldProgress[targetId];
+  if (existing) {
+    existing.logs.push({ message, stepId, timestamp: Date.now() });
+    if (existing.logs.length > MAX_SHIELD_LOGS) {
+      existing.logs.splice(0, existing.logs.length - MAX_SHIELD_LOGS);
+    }
+  } else {
+    setupPanelStore.shieldProgress[targetId] = {
+      status: 'in_progress',
+      progress: 0,
+      logs: [{ message, stepId, timestamp: Date.now() }],
+    };
+  }
 }
 
 /**
@@ -158,6 +193,15 @@ export function openSetupPanelForTarget(targetId: string): void {
  * Add a manual target to the detection list.
  * Allows multiple instances of the same type with unique IDs.
  */
+/**
+ * Whether any target is currently being shielded (in_progress or pending).
+ */
+export function isShieldingActive(): boolean {
+  return Object.values(setupPanelStore.shieldProgress).some(
+    (p) => p.status === 'in_progress' || p.status === 'pending',
+  );
+}
+
 export function addManualTarget(presetId: string, customName?: string): void {
   const preset = KNOWN_PRESETS.find((p) => p.id === presetId);
 

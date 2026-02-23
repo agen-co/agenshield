@@ -7,6 +7,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ApiResponse } from '@agenshield/ipc';
 import { emitProcessStarted, emitProcessStopped, emitProcessRestarted } from '../events/emitter';
+import { resolveTargetContext } from '../services/target-context';
 
 // Lazy-loaded sandbox functions (may not exist in current build)
 let _sandbox: Record<string, unknown> | undefined;
@@ -78,9 +79,10 @@ export async function openclawRoutes(app: FastifyInstance): Promise<void> {
   app.get('/openclaw/dashboard-url', async (): Promise<ApiResponse<{ url: string; token: string }>> => {
     try {
       const sandbox = await getSandbox();
-      const fn = sandbox['getOpenClawDashboardUrl'] as (() => Promise<{ success: boolean; url?: string; token?: string; error?: string }>) | undefined;
+      const fn = sandbox['getOpenClawDashboardUrl'] as ((options?: { agentHome?: string }) => Promise<{ success: boolean; url?: string; token?: string; error?: string }>) | undefined;
       if (!fn) return { success: false, error: { code: 'OPENCLAW_NOT_AVAILABLE', message: 'OpenClaw functions not available in current build' } };
-      const result = await fn();
+      const { agentHome } = resolveTargetContext('openclaw');
+      const result = await fn({ agentHome });
       if (!result.success || !result.url || !result.token) {
         return { success: false, error: { code: 'OPENCLAW_DASHBOARD_ERROR', message: result.error || 'Failed to get dashboard URL' } };
       }

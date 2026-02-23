@@ -17,8 +17,12 @@ interface TargetInfo {
 }
 
 async function targetRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const headers: HeadersInit = {};
+  if (options?.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
   const res = await fetch(`${BASE_URL}${endpoint}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options,
   });
   if (!res.ok) {
@@ -37,10 +41,10 @@ export const targetsApi = {
       method: 'POST',
     }),
 
-  shield: (targetId: string, baseName?: string) =>
+  shield: (targetId: string, baseName?: string, openclawVersion?: string) =>
     targetRequest<{ success: boolean; data: { targetId: string; profileId: string } }>(
       `/targets/lifecycle/${targetId}/shield`,
-      { method: 'POST', body: JSON.stringify({ baseName }) },
+      { method: 'POST', body: JSON.stringify({ baseName, openclawVersion }) },
     ),
 
   unshield: (targetId: string) =>
@@ -64,11 +68,11 @@ export const targetsApi = {
 
 // --- React Query hooks ---
 
-export function useTargets() {
+export function useTargets(polling = true) {
   return useQuery({
     queryKey: ['targets', 'lifecycle'],
     queryFn: targetsApi.list,
-    refetchInterval: 5000,
+    refetchInterval: polling ? 5000 : false,
   });
 }
 
@@ -83,8 +87,8 @@ export function useDetectTargets() {
 export function useShieldTarget() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ targetId, baseName }: { targetId: string; baseName?: string }) =>
-      targetsApi.shield(targetId, baseName),
+    mutationFn: ({ targetId, baseName, openclawVersion }: { targetId: string; baseName?: string; openclawVersion?: string }) =>
+      targetsApi.shield(targetId, baseName, openclawVersion),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['targets', 'lifecycle'] }),
   });
 }

@@ -8,7 +8,7 @@ import { LoggingCard } from '../components/settings/LoggingCard';
 import { AdvancedCard } from '../components/settings/AdvancedCard';
 import { DangerZoneCard } from '../components/settings/DangerZoneCard';
 
-export function Settings({ embedded }: { embedded?: boolean } = {}) {
+export function Settings({ embedded, profileId }: { embedded?: boolean; profileId?: string | null } = {}) {
   return (
     <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       {!embedded && (
@@ -18,7 +18,7 @@ export function Settings({ embedded }: { embedded?: boolean } = {}) {
         />
       )}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <AgentIdentityCard />
+        <AgentIdentityCard profileId={profileId} />
         <ServerConfigCard />
         <OpenClawCard />
         <LoggingCard />

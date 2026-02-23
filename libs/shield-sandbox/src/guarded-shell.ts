@@ -57,6 +57,11 @@ export LC_ALL=C LANG=C
 export PATH="$HOME/bin:$HOME/homebrew/bin"
 export SHELL="/usr/local/bin/guarded-shell"
 
+# Homebrew environment (agent-local prefix)
+export HOMEBREW_PREFIX="$HOME/homebrew"
+export HOMEBREW_CELLAR="$HOME/homebrew/Cellar"
+export HOMEBREW_REPOSITORY="$HOME/homebrew"
+
 # NVM initialization
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
@@ -86,6 +91,11 @@ HISTFILE="$HOME/.zsh_history"
 
 # Re-set PATH (~/bin + ~/homebrew/bin — override anything that may have been added)
 PATH="$HOME/bin:$HOME/homebrew/bin"
+
+# Homebrew environment (agent-local prefix)
+export HOMEBREW_PREFIX="$HOME/homebrew"
+export HOMEBREW_CELLAR="$HOME/homebrew/Cellar"
+export HOMEBREW_REPOSITORY="$HOME/homebrew"
 
 # NVM re-source for interactive shell
 export NVM_DIR="$HOME/.nvm"

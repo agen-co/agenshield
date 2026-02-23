@@ -22,6 +22,7 @@ export interface PathRegistryInstance {
   name: string;
   agentBinPath: string;
   baseName: string;
+  agentUsername: string;
 }
 
 export interface PathRegistryEntry {
@@ -178,6 +179,7 @@ export function isRouterWrapper(filePath: string): boolean {
  */
 export function generateRouterWrapper(binName: string): string {
   // python3 is guaranteed on macOS for JSON parsing
+  // Output format: EXEC:<username>:<binPath> for sudo delegation
   return `#!/bin/bash
 # ${ROUTER_MARKER} — Do not edit. Managed by AgenShield.
 # Router for: ${binName}
@@ -202,44 +204,60 @@ instances = entry.get('instances', [])
 orig = entry.get('originalBinary', '')
 if len(instances) == 0:
     if orig:
-        print('EXEC:' + orig)
+        print('ORIG:' + orig)
     else:
         print('NONE')
 elif len(instances) == 1:
-    print('EXEC:' + instances[0]['agentBinPath'])
+    u = instances[0].get('agentUsername', '')
+    print('EXEC:' + u + ':' + instances[0]['agentBinPath'])
 else:
     for i, inst in enumerate(instances):
-        print(str(i+1) + ') ' + inst['name'] + ' [' + inst['baseName'] + ']')
+        u = inst.get('agentUsername', '')
+        print(str(i+1) + ') ' + inst['name'] + ' [' + inst['baseName'] + ']|' + u + ':' + inst['agentBinPath'])
     print('CHOOSE')
 " 2>/dev/null)
 
 if [[ "$RESULT" == "ERROR" ]]; then
   echo "AgenShield: Failed to read registry." >&2
   exit 1
-elif [[ "$RESULT" == EXEC:* ]]; then
-  BIN="\${RESULT#EXEC:}"
+elif [[ "$RESULT" == ORIG:* ]]; then
+  BIN="\${RESULT#ORIG:}"
   exec "$BIN" "$@"
+elif [[ "$RESULT" == EXEC:* ]]; then
+  PAYLOAD="\${RESULT#EXEC:}"
+  AGENT_USER="\${PAYLOAD%%:*}"
+  BIN="\${PAYLOAD#*:}"
+  if [ -n "$AGENT_USER" ]; then
+    exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
+  else
+    exec "$BIN" "$@"
+  fi
 elif [[ "$RESULT" == "NONE" ]]; then
   echo "AgenShield: No shielded instances configured." >&2
   exit 1
 elif [[ "$RESULT" == *"CHOOSE" ]]; then
   echo "AgenShield: Multiple shielded instances found:" >&2
-  echo "$RESULT" | grep -v CHOOSE >&2
+  echo "$RESULT" | grep -v CHOOSE | sed 's/|.*//' >&2
   printf "Select instance (number): " >&2
   read -r CHOICE
-  BIN=$(python3 -c "
+  SELECTED=$(python3 -c "
 import json, sys
 try:
     d = json.load(open('$REGISTRY'))
     instances = d.get('${binName}', {}).get('instances', [])
     idx = int('$CHOICE') - 1
     if 0 <= idx < len(instances):
-        print(instances[idx]['agentBinPath'])
+        u = instances[idx].get('agentUsername', '')
+        print(u + ':' + instances[idx]['agentBinPath'])
 except:
     pass
 " 2>/dev/null)
-  if [ -n "$BIN" ] && [ -x "$BIN" ]; then
-    exec "$BIN" "$@"
+  if [ -n "$SELECTED" ]; then
+    AGENT_USER="\${SELECTED%%:*}"
+    BIN="\${SELECTED#*:}"
+    if [ -n "$AGENT_USER" ] && [ -n "$BIN" ]; then
+      exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
+    fi
   fi
   echo "Invalid selection." >&2
   exit 1

@@ -7,10 +7,13 @@
  *
  * Zero React re-renders during animation — all DOM manipulation is imperative.
  * anime.js v4 batches all animation instances into a single rAF loop.
+ *
+ * Supports both timer-driven (automatic) and event-driven (imperative) modes.
  */
 
-import { useRef, useEffect, type RefObject } from 'react';
+import { useRef, useEffect, useCallback, type RefObject } from 'react';
 import { animate, type JSAnimation } from 'animejs';
+import { canFireShot, incrementGlobal, decrementGlobal } from '../state/shot-registry';
 
 export interface ElectricShotsConfig {
   /** Bright dash length in px */
@@ -33,6 +36,13 @@ export interface ElectricShotsConfig {
   maxDuration: number;
   /** Max simultaneous shots on this wire */
   maxConcurrent: number;
+  /** Whether to use timer-driven spawn loop (default true) */
+  timerDriven?: boolean;
+}
+
+export interface ElectricShotsHandle {
+  /** Imperatively fire a single shot */
+  fireShot: () => void;
 }
 
 interface ShotState {
@@ -56,6 +66,7 @@ function randomBetween(min: number, max: number): number {
  * @param totalLength - Pre-computed total path length
  * @param strokeWidth - Base wire stroke width
  * @param config - Shot appearance and timing config (undefined = disabled)
+ * @returns Handle with imperative `fireShot()` method
  */
 export function useElectricShots(
   containerRef: RefObject<SVGGElement | null>,
@@ -63,8 +74,18 @@ export function useElectricShots(
   totalLength: number,
   strokeWidth: number,
   config: ElectricShotsConfig | undefined,
-): void {
+): ElectricShotsHandle {
   const stateRef = useRef<ShotState | null>(null);
+  const configRef = useRef(config);
+  configRef.current = config;
+
+  // Stable refs for shot spawning parameters
+  const pathDRef = useRef(pathD);
+  pathDRef.current = pathD;
+  const totalLengthRef = useRef(totalLength);
+  totalLengthRef.current = totalLength;
+  const strokeWidthRef = useRef(strokeWidth);
+  strokeWidthRef.current = strokeWidth;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -81,6 +102,7 @@ export function useElectricShots(
       minDuration,
       maxDuration,
       maxConcurrent,
+      timerDriven = true,
     } = config;
 
     const shotStrokeWidth = strokeWidth * strokeWidthMultiplier;
@@ -93,36 +115,36 @@ export function useElectricShots(
     };
     stateRef.current = state;
 
-    function spawnShot() {
+    function spawnSingleShot() {
       if (state.disposed || !container) return;
 
-      // Schedule next shot with random interval
-      state.timer = setTimeout(spawnShot, randomBetween(minInterval, maxInterval));
-
-      // Skip if at capacity
+      // Skip if at local or global capacity
       if (state.activeCount >= maxConcurrent) return;
+      if (!canFireShot()) return;
 
       // Create path element imperatively
       const shotPath = document.createElementNS(SVG_NS, 'path');
-      shotPath.setAttribute('d', pathD);
+      shotPath.setAttribute('d', pathDRef.current);
       shotPath.setAttribute('fill', 'none');
       shotPath.setAttribute('stroke', color);
       shotPath.setAttribute('stroke-width', String(shotStrokeWidth));
       shotPath.setAttribute('stroke-linecap', 'round');
       shotPath.setAttribute('opacity', String(opacity));
       // Exactly ONE visible dash: pulseWidth on, then rest off
-      shotPath.setAttribute('stroke-dasharray', `${pulseWidth} ${totalLength + pulseWidth}`);
+      const tl = totalLengthRef.current;
+      shotPath.setAttribute('stroke-dasharray', `${pulseWidth} ${tl + pulseWidth}`);
       shotPath.style.pointerEvents = 'none';
       if (filter) shotPath.setAttribute('filter', filter);
 
       container.appendChild(shotPath);
       state.activeCount++;
+      incrementGlobal();
 
       const duration = randomBetween(minDuration, maxDuration);
 
       // Animate dash from entering at source to exiting past target
       const anim = animate(shotPath, {
-        strokeDashoffset: [totalLength, -pulseWidth],
+        strokeDashoffset: [tl, -pulseWidth],
         duration,
         ease: 'linear',
       });
@@ -133,14 +155,26 @@ export function useElectricShots(
       anim.then(() => {
         state.anims.delete(anim);
         state.activeCount--;
+        decrementGlobal();
         if (!state.disposed && shotPath.parentNode) {
           shotPath.parentNode.removeChild(shotPath);
         }
       });
     }
 
-    // Start the spawn loop with a random initial delay
-    state.timer = setTimeout(spawnShot, randomBetween(0, minInterval));
+    function spawnTimerShot() {
+      if (state.disposed || !container) return;
+
+      // Schedule next shot with random interval
+      state.timer = setTimeout(spawnTimerShot, randomBetween(minInterval, maxInterval));
+
+      spawnSingleShot();
+    }
+
+    // Start the spawn loop only if timer-driven
+    if (timerDriven) {
+      state.timer = setTimeout(spawnTimerShot, randomBetween(0, minInterval));
+    }
 
     // Cleanup
     return () => {
@@ -167,5 +201,67 @@ export function useElectricShots(
     config?.minDuration,
     config?.maxDuration,
     config?.maxConcurrent,
+    config?.timerDriven,
   ]);
+
+  const fireShot = useCallback(() => {
+    const state = stateRef.current;
+    const container = containerRef.current;
+    const cfg = configRef.current;
+    if (!state || state.disposed || !container || !cfg) return;
+    if (totalLengthRef.current <= 0 || !pathDRef.current) return;
+
+    const {
+      pulseWidth,
+      color,
+      opacity = 0.85,
+      filter,
+      strokeWidthMultiplier = 1.5,
+      minDuration,
+      maxDuration,
+      maxConcurrent,
+    } = cfg;
+
+    if (state.activeCount >= maxConcurrent) return;
+    if (!canFireShot()) return;
+
+    const shotStrokeWidth = strokeWidthRef.current * strokeWidthMultiplier;
+    const tl = totalLengthRef.current;
+
+    const shotPath = document.createElementNS(SVG_NS, 'path');
+    shotPath.setAttribute('d', pathDRef.current);
+    shotPath.setAttribute('fill', 'none');
+    shotPath.setAttribute('stroke', color);
+    shotPath.setAttribute('stroke-width', String(shotStrokeWidth));
+    shotPath.setAttribute('stroke-linecap', 'round');
+    shotPath.setAttribute('opacity', String(opacity));
+    shotPath.setAttribute('stroke-dasharray', `${pulseWidth} ${tl + pulseWidth}`);
+    shotPath.style.pointerEvents = 'none';
+    if (filter) shotPath.setAttribute('filter', filter);
+
+    container.appendChild(shotPath);
+    state.activeCount++;
+    incrementGlobal();
+
+    const duration = randomBetween(minDuration, maxDuration);
+
+    const anim = animate(shotPath, {
+      strokeDashoffset: [tl, -pulseWidth],
+      duration,
+      ease: 'linear',
+    });
+
+    state.anims.add(anim);
+
+    anim.then(() => {
+      state.anims.delete(anim);
+      state.activeCount--;
+      decrementGlobal();
+      if (!state.disposed && shotPath.parentNode) {
+        shotPath.parentNode.removeChild(shotPath);
+      }
+    });
+  }, []);
+
+  return { fireShot };
 }

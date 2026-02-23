@@ -168,6 +168,10 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
         <string>${config.agentHome}/bin:${config.agentHome}/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>SHELL</key>
         <string>/usr/local/bin/guarded-shell</string>
+        <key>HOMEBREW_PREFIX</key>
+        <string>${config.agentHome}/homebrew</string>
+        <key>HOMEBREW_CELLAR</key>
+        <string>${config.agentHome}/homebrew/Cellar</string>
         <key>NODE_OPTIONS</key>
         <string>--disable-warning=ExperimentalWarning --require ${interceptorPath}</string>
         <key>AGENSHIELD_SOCKET</key>
@@ -263,6 +267,10 @@ export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): stri
         <string>${config.agentHome}/bin:${config.agentHome}/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>SHELL</key>
         <string>/usr/local/bin/guarded-shell</string>
+        <key>HOMEBREW_PREFIX</key>
+        <string>${config.agentHome}/homebrew</string>
+        <key>HOMEBREW_CELLAR</key>
+        <string>${config.agentHome}/homebrew/Cellar</string>
         <key>NODE_OPTIONS</key>
         <string>--disable-warning=ExperimentalWarning --require ${interceptorPath}</string>
         <key>AGENSHIELD_SOCKET</key>
@@ -560,9 +568,11 @@ export function getOpenClawStatusSync(): OpenClawStatus {
  *
  * Constructs the URL from gateway.port and gateway.auth.token fields.
  */
-export async function getOpenClawDashboardUrl(): Promise<{ success: boolean; url?: string; token?: string; error?: string }> {
+export async function getOpenClawDashboardUrl(
+  options?: { agentHome?: string },
+): Promise<{ success: boolean; url?: string; token?: string; error?: string }> {
   try {
-    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const agentHome = options?.agentHome || process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
     const configPath = path.join(agentHome, '.openclaw', 'openclaw.json');
 
     let raw: string;

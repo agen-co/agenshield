@@ -20,6 +20,8 @@ import {
 const BASE_NAME_REGEX = /^[a-z0-9-]*$/;
 const MAX_BASE_NAME = 16;
 
+type VersionChoice = 'detected' | 'latest' | 'custom';
+
 function deriveDefaultBaseName(targetType: string, targetId: string): string {
   const map: Record<string, string> = {
     'claude-code': 'claude',
@@ -47,10 +49,23 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
   const [baseName, setBaseName] = useState(defaultBaseName);
   const [touched, setTouched] = useState(false);
 
+  // Version picker state
+  const detectedVersion = target?.version;
+  const [versionChoice, setVersionChoice] = useState<VersionChoice>(detectedVersion ? 'detected' : 'latest');
+  const [customVersion, setCustomVersion] = useState('');
+
   if (!target) return null;
 
   const isValid = BASE_NAME_REGEX.test(baseName) && baseName.length > 0 && baseName.length <= MAX_BASE_NAME;
   const showError = touched && !isValid;
+
+  const isCustomVersionValid = versionChoice !== 'custom' || /^[\w.-]+$/.test(customVersion);
+
+  const resolvedVersion = versionChoice === 'detected' && detectedVersion
+    ? detectedVersion
+    : versionChoice === 'custom'
+      ? customVersion
+      : undefined; // 'latest' → undefined (server default)
 
   const inputStyle: React.CSSProperties = {
     width: '100%',
@@ -63,6 +78,15 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
     color: theme.palette.text.primary,
     outline: 'none',
     boxSizing: 'border-box',
+  };
+
+  const radioStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '4px 0',
+    fontSize: 12,
+    cursor: 'pointer',
   };
 
   return (
@@ -138,6 +162,68 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
         </div>
       </div>
 
+      {/* Version picker */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{
+          display: 'block',
+          fontSize: 12,
+          fontWeight: 600,
+          marginBottom: 6,
+          color: theme.palette.text.primary,
+        }}>
+          Install version
+        </label>
+
+        {detectedVersion && (
+          <label style={radioStyle}>
+            <input
+              type="radio"
+              name="version"
+              checked={versionChoice === 'detected'}
+              onChange={() => setVersionChoice('detected')}
+              style={{ accentColor: isDark ? '#C0C0C0' : '#333' }}
+            />
+            <span>Detected: <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>{detectedVersion}</span></span>
+          </label>
+        )}
+
+        <label style={radioStyle}>
+          <input
+            type="radio"
+            name="version"
+            checked={versionChoice === 'latest'}
+            onChange={() => setVersionChoice('latest')}
+            style={{ accentColor: isDark ? '#C0C0C0' : '#333' }}
+          />
+          <span>Latest</span>
+        </label>
+
+        <label style={radioStyle}>
+          <input
+            type="radio"
+            name="version"
+            checked={versionChoice === 'custom'}
+            onChange={() => setVersionChoice('custom')}
+            style={{ accentColor: isDark ? '#C0C0C0' : '#333' }}
+          />
+          <span>Custom version</span>
+        </label>
+
+        {versionChoice === 'custom' && (
+          <input
+            type="text"
+            value={customVersion}
+            onChange={(e) => setCustomVersion(e.target.value)}
+            placeholder="e.g. 2026.2.6"
+            style={{
+              ...inputStyle,
+              marginTop: 4,
+              border: `1px solid ${!isCustomVersionValid ? '#E1583E' : isDark ? '#333' : '#CCC'}`,
+            }}
+          />
+        )}
+      </div>
+
       <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 16, opacity: 0.8 }}>
         Shielding will:
       </div>
@@ -174,7 +260,7 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <ActionButton onClick={() => onShield(baseName)} disabled={!isValid}>
+        <ActionButton onClick={() => onShield(baseName, resolvedVersion)} disabled={!isValid || !isCustomVersionValid}>
           Shield {target.name}
         </ActionButton>
         <SecondaryButton onClick={onBack}>

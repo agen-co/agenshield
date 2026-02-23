@@ -14,9 +14,93 @@
 
 import * as net from 'node:net';
 import * as fs from 'node:fs';
-import { execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 const IDLE_TIMEOUT_MS = 24 * 60 * 60_000; // 24h safety net
+const MAX_OUTPUT = 4096; // 4 KB — keep only the tail for error reporting
+
+/** Truncate command output to the last MAX_OUTPUT bytes to avoid multi-MB JSON over the socket. */
+function truncateOutput(output: string): string {
+  if (output.length <= MAX_OUTPUT) return output;
+  return '...[truncated]\n' + output.slice(-MAX_OUTPUT);
+}
+
+/** Ring buffer that keeps only the last `capacity` bytes of streamed output. */
+class RingBuffer {
+  private chunks: string[] = [];
+  private totalLength = 0;
+  constructor(private capacity: number) {}
+
+  append(data: string): void {
+    this.chunks.push(data);
+    this.totalLength += data.length;
+    // Trim when we've accumulated 2x capacity to avoid frequent joins
+    if (this.totalLength > this.capacity * 2) {
+      const joined = this.chunks.join('');
+      this.chunks = [joined.slice(-this.capacity)];
+      this.totalLength = this.chunks[0].length;
+    }
+  }
+
+  toString(): string {
+    const joined = this.chunks.join('');
+    if (joined.length <= this.capacity) return joined;
+    return joined.slice(-this.capacity);
+  }
+}
+
+/**
+ * Spawn a command in a shell and stream output. Returns a promise that
+ * resolves with { code, stdout, stderr } once the child exits or the
+ * timeout fires.
+ */
+function spawnCommand(
+  command: string,
+  timeout: number,
+  env?: NodeJS.ProcessEnv,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn('/bin/bash', ['-c', command], {
+      cwd: '/',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...env, NODE_OPTIONS: '' },
+    });
+
+    const stdoutBuf = new RingBuffer(MAX_OUTPUT);
+    const stderrBuf = new RingBuffer(MAX_OUTPUT);
+    let settled = false;
+
+    const finish = (code: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ code, stdout: stdoutBuf.toString(), stderr: stderrBuf.toString() });
+    };
+
+    child.stdout.on('data', (d: Buffer) => stdoutBuf.append(d.toString()));
+    child.stderr.on('data', (d: Buffer) => stderrBuf.append(d.toString()));
+
+    child.on('close', (code) => finish(code ?? 1));
+    child.on('error', (err) => {
+      stderrBuf.append(err.message);
+      finish(1);
+    });
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        stderrBuf.append(`\nTimeout: command exceeded ${timeout}ms — sending SIGTERM\n`);
+        child.kill('SIGTERM');
+        // Give 5s for graceful exit, then SIGKILL
+        setTimeout(() => {
+          if (!settled) {
+            child.kill('SIGKILL');
+            finish(124); // 124 = timeout convention
+          }
+        }, 5_000);
+      }
+    }, timeout);
+  });
+}
 
 interface RpcRequest {
   id: number;
@@ -66,7 +150,7 @@ function main(): void {
     } catch { /* ignore */ }
   }
 
-  function handleRequest(req: RpcRequest): RpcResponse {
+  async function handleRequest(req: RpcRequest): Promise<RpcResponse> {
     resetIdleTimer();
 
     switch (req.method) {
@@ -78,24 +162,18 @@ function main(): void {
         if (!command) {
           return { id: req.id, error: { code: -1, message: 'Missing command parameter' } };
         }
-        try {
-          const timeout = req.params?.timeout ?? 300_000;
-          const output = execSync(command, {
-            encoding: 'utf-8',
-            timeout,
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
-          return { id: req.id, result: { success: true, output: output.trim() } };
-        } catch (err) {
-          const e = err as { status?: number; stderr?: string; message: string };
-          return {
-            id: req.id,
-            error: {
-              code: e.status ?? -1,
-              message: e.stderr?.trim() || e.message,
-            },
-          };
+        const timeout = req.params?.timeout ?? 300_000;
+        const { code, stdout, stderr } = await spawnCommand(command, timeout, process.env);
+        if (code === 0) {
+          return { id: req.id, result: { success: true, output: truncateOutput(stdout.trim()) } };
         }
+        return {
+          id: req.id,
+          error: {
+            code: code,
+            message: truncateOutput(stderr.trim() || `Command exited with code ${code}`),
+          },
+        };
       }
 
       case 'execAsUser': {
@@ -104,24 +182,19 @@ function main(): void {
         if (!command || !user) {
           return { id: req.id, error: { code: -1, message: 'Missing command or user parameter' } };
         }
-        try {
-          const timeout = req.params?.timeout ?? 300_000;
-          const output = execSync(`sudo -H -u ${user} /bin/bash -c ${JSON.stringify(command)}`, {
-            encoding: 'utf-8',
-            timeout,
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
-          return { id: req.id, result: { success: true, output: output.trim() } };
-        } catch (err) {
-          const e = err as { status?: number; stderr?: string; message: string };
-          return {
-            id: req.id,
-            error: {
-              code: e.status ?? -1,
-              message: e.stderr?.trim() || e.message,
-            },
-          };
+        const timeout = req.params?.timeout ?? 300_000;
+        const wrappedCmd = `sudo -H -u ${user} /bin/bash -c ${JSON.stringify(command)}`;
+        const { code, stdout, stderr } = await spawnCommand(wrappedCmd, timeout, process.env);
+        if (code === 0) {
+          return { id: req.id, result: { success: true, output: truncateOutput(stdout.trim()) } };
         }
+        return {
+          id: req.id,
+          error: {
+            code: code,
+            message: truncateOutput(stderr.trim() || `Command exited with code ${code}`),
+          },
+        };
       }
 
       case 'shutdown':
@@ -153,8 +226,14 @@ function main(): void {
 
         try {
           const req = JSON.parse(line) as RpcRequest;
-          const res = handleRequest(req);
-          socket.write(JSON.stringify(res) + '\n');
+          handleRequest(req).then((res) => {
+            socket.write(JSON.stringify(res) + '\n');
+          }).catch((err) => {
+            socket.write(JSON.stringify({
+              id: req.id,
+              error: { code: -32603, message: `Internal error: ${(err as Error).message}` },
+            }) + '\n');
+          });
         } catch (err) {
           socket.write(JSON.stringify({
             id: 0,

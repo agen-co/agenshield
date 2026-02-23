@@ -86,11 +86,20 @@ export async function getDaemonStatus(): Promise<DaemonStatus> {
  */
 export function findDaemonExecutable(): string | null {
   // Check local installation first (~/.agenshield/dist/)
-  const localDaemon = path.join(
+  const localDaemonPkgPath = path.join(
     os.homedir(), '.agenshield', 'dist', 'node_modules',
-    '@agenshield', 'daemon', 'dist', 'main.js',
+    '@agenshield', 'daemon', 'package.json',
   );
-  if (fs.existsSync(localDaemon)) return localDaemon;
+  if (fs.existsSync(localDaemonPkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(localDaemonPkgPath, 'utf-8'));
+      const binEntry = typeof pkg.bin === 'string'
+        ? pkg.bin
+        : pkg.bin?.['agenshield-daemon'] || './dist/main.js';
+      const resolved = path.resolve(path.dirname(localDaemonPkgPath), binEntry);
+      if (fs.existsSync(resolved)) return resolved;
+    } catch { /* ignore */ }
+  }
 
   // Try npm-installed package first (works when installed via npm)
   // Resolve bin path from package.json so it works both in monorepo (dist/main.js)
@@ -145,6 +154,72 @@ function findTsx(): string | null {
     path.join(process.cwd(), 'node_modules/.bin/tsx'),
   ];
   return searchPaths.find(p => fs.existsSync(p)) || null;
+}
+
+/**
+ * Fix ownership of config files that may have been created by a root-owned daemon.
+ * When the daemon previously ran as root, it creates DB files under ~/.agenshield/
+ * with root:0o600 permissions. A non-root daemon restart then fails with SQLITE_CANTOPEN.
+ *
+ * Returns true if files were fixed, false if no fix was needed.
+ * Throws if the fix was needed but failed.
+ */
+function fixConfigOwnership(): boolean {
+  const configDir = path.join(os.homedir(), '.agenshield');
+  if (!fs.existsSync(configDir)) return false;
+
+  const currentUid = process.getuid?.();
+  if (currentUid === undefined || currentUid === 0) return false; // Running as root or unsupported platform
+
+  // Check if any files in the config dir are root-owned
+  const rootOwnedFiles: string[] = [];
+
+  const dbFiles = ['agenshield.db', 'agenshield-activity.db'];
+  for (const name of dbFiles) {
+    const filePath = path.join(configDir, name);
+    for (const suffix of ['', '-wal', '-shm']) {
+      const fullPath = filePath + suffix;
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.uid === 0) rootOwnedFiles.push(fullPath);
+      } catch { /* file doesn't exist */ }
+    }
+  }
+
+  // Also check other root-owned files (vault.enc, config.json, daemon.pid)
+  for (const name of ['vault.enc', 'config.json', 'daemon.pid']) {
+    const filePath = path.join(configDir, name);
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.uid === 0) rootOwnedFiles.push(filePath);
+    } catch { /* ignore */ }
+  }
+
+  // Check directories that may contain root-owned content
+  for (const dirName of ['skills', 'marketplace', 'logs']) {
+    const dirPath = path.join(configDir, dirName);
+    try {
+      const stat = fs.statSync(dirPath);
+      if (stat.uid === 0) rootOwnedFiles.push(dirPath);
+    } catch { /* ignore */ }
+  }
+
+  if (rootOwnedFiles.length === 0) return false;
+
+  const username = os.userInfo().username;
+  try {
+    execSync(`sudo chown -R ${username} "${configDir}"`, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10_000,
+    });
+    return true;
+  } catch {
+    console.error(
+      `\n  \x1b[31m✗ Files in ${configDir} are owned by root and cannot be accessed.\x1b[0m\n` +
+      `  Run manually: sudo chown -R ${username} "${configDir}"\n`
+    );
+    throw new Error(`Cannot fix root-owned files in ${configDir}. Run: sudo chown -R ${username} "${configDir}"`);
+  }
 }
 
 /**
@@ -304,6 +379,16 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
   // Ensure user config dir
   const configDir = path.join(os.homedir(), '.agenshield');
   fs.mkdirSync(configDir, { recursive: true });
+
+  // Fix ownership of files created by a previous root-owned daemon
+  try {
+    const fixed = fixConfigOwnership();
+    if (fixed) {
+      console.log('  Fixed ownership of root-owned config files.');
+    }
+  } catch {
+    // Error already printed by fixConfigOwnership
+  }
 
   // Determine whether to prepend sudo to spawn commands
   const useSudo = options.sudo && (process.getuid?.() !== 0);

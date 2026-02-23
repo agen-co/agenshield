@@ -11,7 +11,7 @@ export { Storage, initStorage, getStorage, closeStorage } from './storage';
 export type { ScopedStorage } from './storage';
 
 // Errors
-export { StorageLockedError, StorageNotInitializedError, ValidationError, PasscodeError, DatabaseTamperError, DatabaseCorruptedError } from './errors';
+export { StorageLockedError, StorageNotInitializedError, ValidationError, PasscodeError, DatabasePermissionError, DatabaseTamperError, DatabaseCorruptedError } from './errors';
 
 // Constants
 export { DB_FILENAME, ACTIVITY_DB_FILENAME, META_KEYS, APPLICATION_ID, ACTIVITY_APPLICATION_ID } from './constants';

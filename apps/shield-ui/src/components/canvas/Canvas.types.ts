@@ -204,6 +204,8 @@ export interface ApplicationCardData {
   side: 'left' | 'right';
   skills?: SkillChipData[];
   mcpServers?: McpChipData[];
+  /** Agent username from the profile (for display on broker card) */
+  agentUsername?: string;
   /** Override default handle positions (from pin allocator) */
   handleOverrides?: HandleSpec[];
   [key: string]: unknown;
@@ -301,7 +303,7 @@ export interface HiddenChipData {
 }
 
 export interface DangerWireData {
-  variant: 'primary' | 'penetration' | 'tendril' | 'shield';
+  variant: 'primary' | 'penetration' | 'tendril' | 'shield' | 'shielding';
   channelOffset?: number;
   fanout?: boolean;
   balanced?: boolean;
@@ -342,6 +344,8 @@ export interface BrokerCardData {
   isRunning?: boolean;
   /** Whether this card is in the stopped-shielded bottom row */
   dimmed?: boolean;
+  /** Agent username from the profile (for display on broker card) */
+  agentUsername?: string;
   [key: string]: unknown;
 }
 

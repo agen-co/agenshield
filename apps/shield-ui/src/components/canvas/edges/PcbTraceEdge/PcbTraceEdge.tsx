@@ -6,7 +6,7 @@
  * with their own styling config.
  */
 
-import { memo, useRef } from 'react';
+import { memo, useRef, useEffect } from 'react';
 import type { EdgeProps } from '@xyflow/react';
 import {
   computeOrthogonalRoute,
@@ -15,6 +15,7 @@ import {
   getViaPadPositions,
 } from '../../utils/orthogonalRouter';
 import { useElectricShots, type ElectricShotsConfig } from '../../hooks/useElectricShots';
+import { registerShot, unregisterShot } from '../../state/shot-registry';
 
 export interface PcbTraceEdgeConfig {
   strokeColor: string;
@@ -36,6 +37,10 @@ export interface PcbTraceEdgeConfig {
   balanced?: boolean;
   pathStyle?: React.CSSProperties;
   electricShots?: ElectricShotsConfig;
+  /** Edge ID for shot registry (event-driven mode) */
+  edgeId?: string;
+  /** When true, register fireShot with the shot registry for event-driven firing */
+  eventDriven?: boolean;
 }
 
 interface PcbTraceEdgeProps extends EdgeProps {
@@ -87,7 +92,16 @@ export const PcbTraceEdge = memo(
           );
 
     const shotContainerRef = useRef<SVGGElement>(null);
-    useElectricShots(shotContainerRef, route.path, route.totalLength, config.strokeWidth, config.electricShots);
+    const { fireShot } = useElectricShots(shotContainerRef, route.path, route.totalLength, config.strokeWidth, config.electricShots);
+
+    // Register with shot registry for event-driven firing
+    const registryId = config.edgeId ?? id;
+    const isEventDriven = config.eventDriven === true;
+    useEffect(() => {
+      if (!isEventDriven || !registryId) return;
+      registerShot(registryId, fireShot);
+      return () => unregisterShot(registryId);
+    }, [registryId, isEventDriven, fireShot]);
 
     const viaPads = config.showViaPads ? getViaPadPositions(route.waypoints) : [];
     const opacity = config.opacity ?? 1;

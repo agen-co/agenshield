@@ -9,6 +9,7 @@ import { useTheme } from '@mui/material/styles';
 import IconButton from '@mui/material/IconButton';
 import { AlertTriangle, X, CheckCheck, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAlerts, useAcknowledgeAlert, useAcknowledgeAllAlerts } from '../../../../api/hooks';
+import { useIsShielding } from '../../../../hooks/useIsShielding';
 import type { Alert, AlertSeverity } from '@agenshield/ipc';
 import { TimeAgo } from './TimeAgo';
 import { AlertDetailDialog } from './AlertDetailDialog';
@@ -37,7 +38,8 @@ const severityColors: Record<AlertSeverity, string> = {
 
 export function AlertsSection() {
   const theme = useTheme();
-  const { data: response } = useAlerts();
+  const shielding = useIsShielding();
+  const { data: response } = useAlerts(shielding ? 60000 : undefined);
   const acknowledgeAlert = useAcknowledgeAlert();
   const acknowledgeAllAlerts = useAcknowledgeAllAlerts();
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);

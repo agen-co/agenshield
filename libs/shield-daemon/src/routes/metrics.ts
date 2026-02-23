@@ -126,6 +126,20 @@ function getNetThroughput(): { netUp: number; netDown: number } {
   };
 }
 
+/* ---- Active user (resolve real user even when running as root) ---- */
+
+function getActiveUser(): string {
+  if (process.env.SUDO_USER) return process.env.SUDO_USER;
+  if (process.env.LOGNAME && process.env.LOGNAME !== 'root') return process.env.LOGNAME;
+  if (process.platform === 'darwin') {
+    try {
+      const user = execSync('stat -f %Su /dev/console', { encoding: 'utf8', timeout: 2000 }).trim();
+      if (user && user !== 'root') return user;
+    } catch { /* fall through */ }
+  }
+  return os.userInfo().username;
+}
+
 /* ---- Route ---- */
 
 export async function metricsRoutes(app: FastifyInstance): Promise<void> {
@@ -153,7 +167,7 @@ export async function metricsRoutes(app: FastifyInstance): Promise<void> {
         platform: os.platform(),
         arch: os.arch(),
         uptime: Math.floor(os.uptime()),
-        activeUser: os.userInfo().username,
+        activeUser: getActiveUser(),
         cpuModel: os.cpus()[0]?.model ?? 'unknown',
         totalMemory: total,
         nodeVersion: process.version,

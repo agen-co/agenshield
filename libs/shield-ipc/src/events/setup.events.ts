@@ -45,6 +45,7 @@ export interface SetupScanCompletePayload {
 }
 
 export interface SetupLogPayload {
+  targetId?: string;
   message: string;
   stepId?: string;
 }

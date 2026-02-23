@@ -13,7 +13,11 @@ import type {
   PresetDetectionResult,
   MigrationContext,
   PresetMigrationResult,
+  InstallContext,
+  InstallResult,
 } from './types.js';
+import { checkedExecAsRoot, checkedExecAsUser } from './install-helpers.js';
+import { TargetAppInstallError } from '../errors.js';
 
 /**
  * Claude Code preset implementation
@@ -25,6 +29,7 @@ export const claudeCodePreset: TargetPreset = {
 
   requiredBins: ['node', 'npm', 'git', 'bash'],
   optionalBins: ['npx', 'curl', 'python3', 'pip', 'brew', 'ssh'],
+  policyPresetIds: ['claudecode'],
 
   async detect(): Promise<PresetDetectionResult | null> {
     let binaryPath: string | undefined;
@@ -113,5 +118,77 @@ export const claudeCodePreset: TargetPreset = {
 
   getEntryCommand(context: MigrationContext): string {
     return `${context.directories.binDir}/claude`;
+  },
+
+  async install(ctx: InstallContext): Promise<InstallResult> {
+    try {
+      // 1. Install Claude Code (0-50%)
+      ctx.onProgress('installing_claude', 15, 'Installing Claude Code...');
+      ctx.onLog('Step 1/5: Installing Claude Code via installer');
+      try {
+        await checkedExecAsUser(ctx, [
+          `export HOME="${ctx.agentHome}"`,
+          'curl -fsSL https://claude.ai/install.sh | bash',
+        ].join(' && '), 'install_claude', 180_000);
+      } catch (err) {
+        throw new TargetAppInstallError((err as Error).message, 'claude-code');
+      }
+
+      // 2. Verify binary (50-55%)
+      ctx.onProgress('verifying_binary', 52, 'Verifying Claude Code binary...');
+      ctx.onLog('Step 2/5: Verifying Claude Code installation');
+      const verifyResult = await ctx.execAsUser(
+        `export HOME="${ctx.agentHome}" && export PATH="${ctx.agentHome}/.claude/local/bin:$PATH" && claude --version`,
+        { timeout: 15_000 },
+      );
+      const installedVersion = verifyResult.success ? verifyResult.output.trim().split('\n')[0] : undefined;
+      if (!verifyResult.success) {
+        ctx.onLog('Warning: claude --version failed, but install may have succeeded');
+      } else {
+        ctx.onLog(`Claude Code version: ${installedVersion}`);
+      }
+
+      // 3. Stop host Claude (55-65%)
+      ctx.onProgress('stopping_host', 58, 'Stopping host Claude Code processes...');
+      ctx.onLog('Step 3/5: Stopping host Claude Code processes');
+      await ctx.execAsRoot(
+        `pkill -f "claude" -u $(id -u ${ctx.hostUsername}) 2>/dev/null; true`,
+        { timeout: 15_000 },
+      );
+
+      // 4. Copy host config (65-80%)
+      ctx.onProgress('copying_config', 70, 'Copying host configuration...');
+      ctx.onLog('Step 4/5: Copying host Claude Code configuration');
+      const hostConfigDir = `/Users/${ctx.hostUsername}/.claude`;
+      const agentConfigDir = `${ctx.agentHome}/.claude`;
+      await ctx.execAsRoot([
+        `if [ -d "${hostConfigDir}" ]; then`,
+        // Copy config files but preserve the agent's own binaries
+        `  for item in "${hostConfigDir}"/*; do`,
+        '    base=$(basename "$item")',
+        // Skip local/bin and downloads dirs (agent has its own)
+        '    if [ "$base" = "local" ] || [ "$base" = "downloads" ]; then continue; fi',
+        `    cp -a "$item" "${agentConfigDir}/$base" 2>/dev/null || true`,
+        '  done',
+        `  chown -R ${ctx.agentUsername}:${ctx.socketGroupName} "${agentConfigDir}"`,
+        // Rewrite paths in config files
+        `  find "${agentConfigDir}" -name "*.json" -exec sed -i '' 's|/Users/${ctx.hostUsername}|${ctx.agentHome}|g' {} + 2>/dev/null || true`,
+        'fi',
+      ].join('\n'), { timeout: 30_000 });
+
+      // 5. Done (80-100%)
+      ctx.onProgress('complete', 100, 'Claude Code installation complete');
+      ctx.onLog('Step 5/5: Claude Code installation complete');
+
+      return {
+        success: true,
+        appBinaryPath: `${ctx.agentHome}/.claude/local/bin/claude`,
+        version: installedVersion,
+      };
+    } catch (err) {
+      const message = (err as Error).message;
+      const step = (err as { step?: string }).step ?? 'unknown';
+      return { success: false, failedStep: step, error: message };
+    }
   },
 };

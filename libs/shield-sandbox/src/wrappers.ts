@@ -351,7 +351,9 @@ case "$1" in
     ;;
   *)
     # Local operations pass through directly
-    if [ -x "/opt/homebrew/bin/brew" ]; then
+    if [ -x "$HOME/homebrew/bin/brew" ]; then
+      exec "$HOME/homebrew/bin/brew" "$@"
+    elif [ -x "/opt/homebrew/bin/brew" ]; then
       exec /opt/homebrew/bin/brew "$@"
     elif [ -x "/usr/local/bin/brew" ]; then
       exec /usr/local/bin/brew "$@"

@@ -49,17 +49,18 @@ const CLUSTER_H = SUB_H + PADDING * 2 + LABEL_H + INFO_BAR_H + 4;
 interface SubPcbProps {
   label: string;
   value: string;
-  accentColor: string;
   chipId: string;
   ledColor: string;
   isDark: boolean;
+  percent?: number;
 }
 
-function SubPcb({ label, value, accentColor, chipId, ledColor, isDark }: SubPcbProps) {
+function SubPcb({ label, value, chipId, ledColor, isDark, percent }: SubPcbProps) {
   const bg = isDark ? pcb.component.body : pcb.light.body;
   const textColor = isDark ? pcb.silk.primary : pcb.light.silk;
   const dimColor = isDark ? pcb.silk.dim : pcb.light.silkDim;
   const pinColor = isDark ? pcb.component.pin : pcb.light.trace;
+  const borderColor = isDark ? 'rgba(160,160,168,0.15)' : 'rgba(80,80,80,0.15)';
 
   return (
     <div style={{
@@ -67,6 +68,7 @@ function SubPcb({ label, value, accentColor, chipId, ledColor, isDark }: SubPcbP
       height: SUB_H,
       background: bg,
       borderRadius: 4,
+      border: `0.6px solid ${borderColor}`,
       position: 'relative',
       overflow: 'hidden',
     }}>
@@ -77,8 +79,8 @@ function SubPcb({ label, value, accentColor, chipId, ledColor, isDark }: SubPcbP
         left: 0,
         right: 0,
         height: 2,
-        background: accentColor,
-        opacity: 0.8,
+        background: dimColor,
+        opacity: 0.3,
       }} />
 
       {/* Faint trace pattern overlay */}
@@ -86,11 +88,11 @@ function SubPcb({ label, value, accentColor, chipId, ledColor, isDark }: SubPcbP
         style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0.04, pointerEvents: 'none' }}
         viewBox={`0 0 ${SUB_W} ${SUB_H}`}
       >
-        <line x1="10" y1="15" x2="60" y2="15" stroke={accentColor} strokeWidth="0.5" />
-        <line x1="60" y1="15" x2="60" y2="35" stroke={accentColor} strokeWidth="0.5" />
-        <line x1="80" y1="10" x2="130" y2="10" stroke={accentColor} strokeWidth="0.5" />
-        <line x1="80" y1="10" x2="80" y2="45" stroke={accentColor} strokeWidth="0.5" />
-        <line x1="20" y1="45" x2="100" y2="45" stroke={accentColor} strokeWidth="0.5" />
+        <line x1="10" y1="15" x2="60" y2="15" stroke={dimColor} strokeWidth="0.5" />
+        <line x1="60" y1="15" x2="60" y2="35" stroke={dimColor} strokeWidth="0.5" />
+        <line x1="80" y1="10" x2="130" y2="10" stroke={dimColor} strokeWidth="0.5" />
+        <line x1="80" y1="10" x2="80" y2="45" stroke={dimColor} strokeWidth="0.5" />
+        <line x1="20" y1="45" x2="100" y2="45" stroke={dimColor} strokeWidth="0.5" />
       </svg>
 
       {/* Chip marking */}
@@ -131,7 +133,7 @@ function SubPcb({ label, value, accentColor, chipId, ledColor, isDark }: SubPcbP
         <span style={{
           fontSize: 9,
           fontFamily: "'IBM Plex Mono', monospace",
-          color: accentColor,
+          color: textColor,
           textTransform: 'uppercase',
           letterSpacing: 0.5,
           fontWeight: 600,
@@ -147,6 +149,19 @@ function SubPcb({ label, value, accentColor, chipId, ledColor, isDark }: SubPcbP
         }}>
           {value}
         </span>
+        {percent != null && (
+          <div style={{
+            width: '60%', height: 3, borderRadius: 1.5,
+            background: dimColor, opacity: 0.15,
+            position: 'relative', margin: '0 auto',
+          }}>
+            <div style={{
+              width: `${percent}%`, height: '100%',
+              background: getLedColor(percent),
+              borderRadius: 1.5, opacity: 0.6,
+            }} />
+          </div>
+        )}
       </div>
 
       {/* Mini pin row along bottom */}
@@ -313,7 +328,7 @@ export const MetricsClusterNode = memo((props: NodeProps) => {
         <SubPcb
           label="CPU"
           value={loaded ? `${Math.round(m.cpuPercent)}%` : '--'}
-          accentColor={pcb.accent.cpu}
+          percent={loaded ? m.cpuPercent : undefined}
           chipId="U1"
           ledColor={loaded ? getLedColor(m.cpuPercent) : pcb.component.ledGreen}
           isDark={isDark}
@@ -321,7 +336,6 @@ export const MetricsClusterNode = memo((props: NodeProps) => {
         <SubPcb
           label="NETWORK"
           value={loaded ? `↑${formatBytes(m.netUp)} ↓${formatBytes(m.netDown)}` : '--'}
-          accentColor={pcb.accent.network}
           chipId="U2"
           ledColor={pcb.component.ledGreen}
           isDark={isDark}
@@ -329,7 +343,7 @@ export const MetricsClusterNode = memo((props: NodeProps) => {
         <SubPcb
           label="DISK"
           value={loaded ? `${Math.round(m.diskPercent)}%` : '--'}
-          accentColor={pcb.accent.disk}
+          percent={loaded ? m.diskPercent : undefined}
           chipId="U3"
           ledColor={loaded ? getLedColor(m.diskPercent) : pcb.component.ledGreen}
           isDark={isDark}
@@ -337,7 +351,7 @@ export const MetricsClusterNode = memo((props: NodeProps) => {
         <SubPcb
           label="MEMORY"
           value={loaded ? `${Math.round(m.memPercent)}%` : '--'}
-          accentColor={pcb.accent.memory}
+          percent={loaded ? m.memPercent : undefined}
           chipId="U4"
           ledColor={loaded ? getLedColor(m.memPercent) : pcb.component.ledGreen}
           isDark={isDark}

@@ -12,7 +12,8 @@ import { api } from '../api/client';
 import { queryKeys } from '../api/hooks';
 import type { DaemonStatus } from '@agenshield/ipc';
 import { handleSkillSSEEvent, fetchInstalledSkills } from '../stores/skills';
-import { updateShieldProgress, markShieldComplete } from '../state/setup-panel';
+import { updateShieldProgress, markShieldComplete, appendShieldLog } from '../state/setup-panel';
+import { updateStore } from '../state/update';
 
 /** Skill SSE events that change installed skills or their env var requirements */
 const SKILL_ENV_EVENTS = new Set([
@@ -65,17 +66,59 @@ export function useSSE(enabled = true, token?: string | null) {
         }
 
         // Route setup events to the setup panel store
+        // These high-frequency events are skipped from the activity feed to avoid
+        // triggering animation subscriptions and DOM bloat during shielding.
         if (type === 'setup:shield_progress') {
           const { targetId, step, progress, message } = data as { targetId: string; step: string; progress: number; message?: string };
           updateShieldProgress(targetId, step, progress, message);
+          return;
         }
         if (type === 'setup:shield_complete') {
           const { targetId, profileId } = data as { targetId: string; profileId: string };
           markShieldComplete(targetId, profileId);
+          return;
+        }
+        if (type === 'setup:log') {
+          const { targetId: logTargetId, message: logMsg, stepId: logStepId } = data as { targetId?: string; message?: string; stepId?: string };
+          if (logMsg && logTargetId) {
+            appendShieldLog(logTargetId, logMsg, logStepId);
+          }
+          return; // Don't add verbose install logs to the activity feed
         }
         if (type === 'setup:complete') {
           // Mode transition — invalidate health to pick up new mode
           queryClient.invalidateQueries({ queryKey: queryKeys.health });
+        }
+
+        // Route update events to the update store
+        if (type === 'update:state') {
+          if (data.state) {
+            updateStore.updateState = data.state as NonNullable<typeof updateStore.updateState>;
+            const steps = (data.state as { steps?: Array<{ id: string; status: string }> }).steps;
+            if (steps) {
+              updateStore.completedSteps = steps
+                .filter((s) => s.status === 'completed')
+                .map((s) => s.id);
+              for (const step of steps) {
+                if (step.status === 'completed' || step.status === 'error') {
+                  delete updateStore.stepLogs[step.id];
+                }
+              }
+            }
+          }
+        }
+        if (type === 'update:log') {
+          if (data.stepId && data.message) {
+            updateStore.stepLogs[data.stepId as string] = data.message as string;
+          }
+        }
+        if (type === 'update:complete') {
+          updateStore.phase = 'complete';
+          if (data.state) updateStore.updateState = data.state as NonNullable<typeof updateStore.updateState>;
+        }
+        if (type === 'update:error') {
+          updateStore.phase = 'error';
+          if (data.state) updateStore.updateState = data.state as NonNullable<typeof updateStore.updateState>;
         }
 
         // Route skill events to the skills store (don't return — let them also flow into activity feed)

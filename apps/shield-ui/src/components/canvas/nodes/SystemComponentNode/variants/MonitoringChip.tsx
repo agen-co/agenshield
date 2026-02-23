@@ -1,8 +1,8 @@
 /**
  * Monitoring variant — QFP chip with bar chart and test probes.
- * Bar heights reflect actual CPU usage.
+ * Bar heights reflect actual CPU, memory, disk, and network usage.
  *
- * Subscribes only to `systemStore.metrics.cpuPercent` and `systemStore.components.monitoring`.
+ * Subscribes to `systemStore.metrics` and `systemStore.components.monitoring`.
  */
 
 import { memo } from 'react';
@@ -13,7 +13,7 @@ import type { VariantProps } from '../system.types';
 
 export const MonitoringChip = memo(({ label, sublabel, refDesignator, theme, layout }: VariantProps) => {
   const snap = useSnapshot(systemStore);
-  const cpuPercent = snap.metrics.cpuPercent;
+  const { cpuPercent, memPercent, diskPercent, netUp, netDown } = snap.metrics;
   const { exposed, active, health, okCount, warnCount, dangerCount } = snap.components.monitoring;
 
   const { body } = layout;
@@ -25,14 +25,18 @@ export const MonitoringChip = memo(({ label, sublabel, refDesignator, theme, lay
 
   const borderRef = useExposedBorder(exposed);
 
-  // Bar chart — heights driven by cpuPercent
+  // Bar chart — heights driven by real system metrics
   const barX = body.x + body.w * 0.2;
   const barBaseY = body.y + body.h * 0.78;
   const barW = 4;
-  const cpuPct = cpuPercent / 100;
+  const NET_MAX = 10 * 1024 * 1024; // 10 MB/s ceiling
   const barHeights = [
-    cpuPct * 0.6, cpuPct * 1.1, cpuPct * 0.8,
-    cpuPct * 1.3, cpuPct * 0.9, cpuPct * 1.0,
+    cpuPercent / 100,
+    memPercent / 100,
+    diskPercent / 100,
+    Math.min(1, netUp / NET_MAX),
+    Math.min(1, netDown / NET_MAX),
+    (cpuPercent + memPercent + diskPercent) / 300,
   ].map((v) => Math.max(0.05, Math.min(1, v)));
 
   return (

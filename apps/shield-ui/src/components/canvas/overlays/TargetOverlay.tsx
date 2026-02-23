@@ -27,6 +27,7 @@ import { setScope, clearScope } from '../../../state/scope';
 import { setupPanelStore } from '../../../state/setup-panel';
 import { useProfiles } from '../../../api/hooks';
 import { useTargets } from '../../../api/targets';
+import { useIsShielding } from '../../../hooks/useIsShielding';
 
 /* ---- Tab config ---- */
 
@@ -40,7 +41,7 @@ const TARGET_TABS = [
 
 /* ---- Lazy-loaded page components ---- */
 
-const LazyOverview = lazy(() => import('../../../pages/Overview').then(m => ({ default: m.Overview })));
+const LazyTargetOverview = lazy(() => import('../../../pages/TargetOverview').then(m => ({ default: m.TargetOverview })));
 const LazyActivity = lazy(() => import('../../../pages/Activity').then(m => ({ default: m.Activity })));
 const LazyPolicies = lazy(() => import('../../../pages/Policies').then(m => ({ default: m.Policies })));
 const LazySecrets = lazy(() => import('../../../pages/Secrets').then(m => ({ default: m.Secrets })));
@@ -59,9 +60,10 @@ export const TargetOverlay = memo(({ targetId, tab }: TargetOverlayProps) => {
   const isDark = theme.palette.mode === 'dark';
   const navigate = useNavigate();
   const location = useLocation();
+  const shielding = useIsShielding();
 
-  // Resolve target info from lifecycle API
-  const { data: targetsData } = useTargets();
+  // Resolve target info from lifecycle API — disable polling during shielding
+  const { data: targetsData } = useTargets(!shielding);
   const targetInfo = useMemo(() => {
     const targets = targetsData?.data;
     return targets?.find(t => t.id === targetId);
@@ -201,11 +203,11 @@ export const TargetOverlay = memo(({ targetId, tab }: TargetOverlayProps) => {
         </OverlayHeader>
 
         {activeTab === 'overview' ? (
-          <FullHeightArea>
+          <ScrollArea>
             <Suspense fallback={fallback}>
-              <LazyOverview embedded targetFilter={targetId} />
+              <LazyTargetOverview targetId={targetId} targetInfo={targetInfo} profileId={profileId} />
             </Suspense>
-          </FullHeightArea>
+          </ScrollArea>
         ) : activeTab === 'activity' ? (
           <FullHeightArea>
             <Suspense fallback={fallback}>
@@ -217,7 +219,7 @@ export const TargetOverlay = memo(({ targetId, tab }: TargetOverlayProps) => {
             <Suspense fallback={fallback}>
               {activeTab === 'policies' && <LazyPolicies embedded />}
               {activeTab === 'secrets' && <LazySecrets embedded />}
-              {activeTab === 'settings' && <LazySettings embedded />}
+              {activeTab === 'settings' && <LazySettings embedded profileId={profileId} />}
             </Suspense>
           </ScrollArea>
         )}

@@ -13,9 +13,10 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { isDevMode } from '../config/paths';
+import { resolveTargetContext } from './target-context';
 
 function getOpenClawConfigPath(): string {
-  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+  const { agentHome } = resolveTargetContext('openclaw');
   return path.join(agentHome, '.openclaw', 'openclaw.json');
 }
 
@@ -43,8 +44,8 @@ export function readOpenClawConfig(): OpenClawConfig {
             return {};
           }
           // File owned by agent user — read via sudo
-          const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-          const agentUsername = path.basename(agentHome);
+          const ctx = resolveTargetContext('openclaw');
+          const agentUsername = ctx.agentUsername;
           const raw = execSync(
             `sudo -H -u ${agentUsername} cat "${configPath}"`,
             { encoding: 'utf-8', cwd: '/', stdio: ['pipe', 'pipe', 'pipe'] }
@@ -66,8 +67,9 @@ export function readOpenClawConfig(): OpenClawConfig {
 
 function writeConfig(config: OpenClawConfig): void {
   const configPath = getOpenClawConfigPath();
-  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-  const agentUsername = path.basename(agentHome);
+  const ctx = resolveTargetContext('openclaw');
+  const agentHome = ctx.agentHome;
+  const agentUsername = ctx.agentUsername;
 
   const configDir = path.dirname(configPath);
   if (!fs.existsSync(configDir)) {
@@ -76,8 +78,7 @@ function writeConfig(config: OpenClawConfig): void {
     } else {
       fs.mkdirSync(configDir, { recursive: true, mode: 0o2775 });
       // Fix group ownership so agent + broker can both access
-      const socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default';
-      try { execSync(`chown :${socketGroup} "${configDir}"`, { stdio: 'pipe' }); } catch { /* best-effort */ }
+      try { execSync(`chown :${ctx.socketGroup} "${configDir}"`, { stdio: 'pipe' }); } catch { /* best-effort */ }
     }
   }
 

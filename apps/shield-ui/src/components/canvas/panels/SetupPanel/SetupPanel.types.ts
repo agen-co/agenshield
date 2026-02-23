@@ -17,12 +17,19 @@ export interface SetupPanelProps {
   mode: SetupPanelMode;
 }
 
+export interface ShieldLogEntry {
+  message: string;
+  stepId?: string;
+  timestamp: number;
+}
+
 export interface ShieldProgressEntry {
   status: 'pending' | 'in_progress' | 'completed' | 'error';
   currentStep?: string;
   progress: number;
   message?: string;
   profileId?: string;
+  logs: ShieldLogEntry[];
 }
 
 export interface DetectionStepProps {
@@ -37,7 +44,7 @@ export interface DetectionStepProps {
 export interface ConfigureStepProps {
   target: DetectedTarget | null;
   onBack: () => void;
-  onShield: (baseName?: string) => void;
+  onShield: (baseName?: string, version?: string) => void;
   error?: string | null;
 }
 

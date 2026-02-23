@@ -14,7 +14,6 @@
 
 import { Command } from 'commander';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   AGENSHIELD_HOME,
@@ -24,26 +23,13 @@ import {
   getVersionFilePath,
   checkNodeVersion,
   downloadAndExtract,
+  installFromLocal,
+  findMonorepoRoot,
   writeShim,
   writeVersionInfo,
   readVersionInfo,
+  ensurePathInShellRc,
 } from '../utils/home.js';
-
-/**
- * Detect the user's default shell rc file for PATH instructions.
- */
-function detectRcFile(): string {
-  const shell = process.env['SHELL'] || '';
-  if (shell.endsWith('/zsh')) return '~/.zshrc';
-  if (shell.endsWith('/bash')) {
-    // On macOS, .bash_profile is preferred over .bashrc for login shells
-    const bashProfile = path.join(os.homedir(), '.bash_profile');
-    if (fs.existsSync(bashProfile)) return '~/.bash_profile';
-    return '~/.bashrc';
-  }
-  if (shell.endsWith('/fish')) return '~/.config/fish/config.fish';
-  return '~/.profile';
-}
 
 /**
  * Read the version from the CLI's own package.json (fallback for --version).
@@ -73,6 +59,7 @@ export function createInstallCommand(): Command {
     .option('--version <version>', 'Install a specific version (default: own version or latest)')
     .option('--channel <channel>', 'Release channel', 'stable')
     .option('--force', 'Overwrite existing installation')
+    .option('--local', 'Install from local monorepo build output instead of npm')
     .action(async (options) => {
       console.log('');
       console.log('  AgenShield Local Install');
@@ -96,35 +83,69 @@ export function createInstallCommand(): Command {
         process.exit(0);
       }
 
-      // 3. Determine version
-      const version: string = options.version ?? getOwnVersion();
-      const channel: string = options.channel ?? 'stable';
-      console.log(`  \x1b[36m⬇\x1b[0m Installing agenshield@${version} (${channel})...`);
-
-      // 4. Create directories
+      // 3. Create directories (skip dist for --local; installFromLocal symlinks it)
       const dirs = [
         getBinDir(),
-        getDistDir(),
         path.join(AGENSHIELD_HOME, 'logs'),
       ];
+      if (!options.local) {
+        dirs.push(getDistDir());
+      }
       for (const dir of dirs) {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      // 5. Download and extract
-      // Clear dist dir if --force and it already exists
+      // 4. Clear dist dir if --force and it already exists
       const distDir = getDistDir();
-      if (options.force && fs.existsSync(distDir)) {
-        fs.rmSync(distDir, { recursive: true, force: true });
-        fs.mkdirSync(distDir, { recursive: true });
+      if (options.force) {
+        try {
+          const stat = fs.lstatSync(distDir);
+          if (stat.isSymbolicLink() || stat.isFile()) {
+            fs.unlinkSync(distDir);
+          } else if (stat.isDirectory()) {
+            fs.rmSync(distDir, { recursive: true, force: true });
+          }
+        } catch { /* doesn't exist yet */ }
+        if (!options.local) {
+          fs.mkdirSync(distDir, { recursive: true });
+        }
       }
 
-      const result = downloadAndExtract(version);
+      // 5. Install: local monorepo copy or npm download
+      let result: { success: boolean; version: string; error?: string };
+      let channel: string;
+
+      if (options.local) {
+        const repoRoot = findMonorepoRoot();
+        if (!repoRoot) {
+          console.log('  \x1b[31m✗ Could not find monorepo root (no package.json with workspaces field).\x1b[0m');
+          process.exit(1);
+        }
+
+        // Read version from libs/cli/package.json
+        let localVersion = 'unknown';
+        try {
+          const cliPkg = JSON.parse(
+            fs.readFileSync(path.join(repoRoot, 'libs', 'cli', 'package.json'), 'utf-8'),
+          );
+          if (cliPkg.version) localVersion = cliPkg.version;
+        } catch { /* ignore */ }
+
+        channel = 'local';
+        console.log(`  \x1b[36m⬇\x1b[0m Installing agenshield@${localVersion} from local build...`);
+        result = installFromLocal(repoRoot);
+      } else {
+        const version: string = options.version ?? getOwnVersion();
+        channel = options.channel ?? 'stable';
+        console.log(`  \x1b[36m⬇\x1b[0m Installing agenshield@${version} (${channel})...`);
+        result = downloadAndExtract(version);
+      }
+
       if (!result.success) {
-        console.log(`  \x1b[31m✗ Download failed: ${result.error}\x1b[0m`);
+        console.log(`  \x1b[31m✗ Install failed: ${result.error}\x1b[0m`);
         process.exit(1);
       }
-      console.log(`  \x1b[32m✓\x1b[0m Downloaded and extracted agenshield@${result.version}`);
+      console.log(`  \x1b[32m✓\x1b[0m Installed agenshield@${result.version}`);
 
       // 6. Write shim
       writeShim();
@@ -149,25 +170,24 @@ export function createInstallCommand(): Command {
       }
       console.log(`  \x1b[32m✓\x1b[0m Verified CLI entry point`);
 
-      // 9. PATH instructions
-      const binDir = getBinDir();
-      const rcFile = detectRcFile();
-      const exportLine = `export PATH="$HOME/.agenshield/bin:$PATH"`;
+      // 9. Auto-add PATH to shell rc
+      const { added, rcFile } = ensurePathInShellRc();
+      if (added) {
+        console.log(`  \x1b[32m✓\x1b[0m Added PATH to ${rcFile}`);
+        console.log(`    Run: source ${rcFile}`);
+      } else {
+        console.log(`  \x1b[32m✓\x1b[0m PATH already configured in ${rcFile}`);
+      }
 
       console.log('');
       console.log('  \x1b[32m✓ Installation complete!\x1b[0m');
       console.log('');
-      console.log('  Add AgenShield to your PATH by running:');
-      console.log('');
-      console.log(`    echo '${exportLine}' >> ${rcFile}`);
-      console.log(`    source ${rcFile}`);
-      console.log('');
-      console.log('  Then verify with:');
+      console.log('  Verify with:');
       console.log('');
       console.log('    agenshield --version');
       console.log('');
       console.log(`  Installation directory: ${AGENSHIELD_HOME}`);
-      console.log(`  CLI shim:              ${binDir}/agenshield`);
+      console.log(`  CLI shim:              ${getBinDir()}/agenshield`);
       console.log('');
     });
 

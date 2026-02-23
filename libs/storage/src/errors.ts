@@ -2,6 +2,8 @@
  * Storage error types
  */
 
+import * as path from 'node:path';
+
 export class StorageLockedError extends Error {
   constructor(message = 'Vault is locked. Provide passcode to unlock.') {
     super(message);
@@ -30,6 +32,18 @@ export class PasscodeError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'PasscodeError';
+  }
+}
+
+export class DatabasePermissionError extends Error {
+  public readonly code = 'DATABASE_PERMISSION';
+  public readonly dbPath: string;
+
+  constructor(dbPath: string, message?: string) {
+    super(message ?? `Cannot open database at ${dbPath}: file is owned by root. Run: sudo chown -R $(whoami) "${path.dirname(dbPath)}"`);
+    this.name = 'DatabasePermissionError';
+    this.dbPath = dbPath;
+    Error.captureStackTrace?.(this, this.constructor);
   }
 }
 

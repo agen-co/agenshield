@@ -11,6 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // Path constants
@@ -41,7 +42,7 @@ export function getShimPath(): string {
 
 /** Expected CLI entry point inside the extracted dist */
 export function getLocalCliEntry(): string {
-  return path.join(getDistDir(), 'dist', 'src', 'cli.js');
+  return path.join(getDistDir(), 'src', 'cli.js');
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +100,7 @@ export function generateShimContent(): string {
   return [
     '#!/bin/sh',
     '# AgenShield CLI shim — managed by `agenshield install`',
-    'exec node "$HOME/.agenshield/dist/dist/src/cli.js" "$@"',
+    'exec node "$HOME/.agenshield/dist/src/cli.js" "$@"',
     '',
   ].join('\n');
 }
@@ -208,4 +209,128 @@ export function downloadAndExtract(
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch { /* best effort */ }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Local (monorepo) install helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk up from the current script location looking for a package.json
+ * with a `workspaces` field — i.e. the monorepo root.
+ */
+export function findMonorepoRoot(): string | null {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 10; i++) {
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        if (pkg.workspaces) return dir;
+      } catch { /* ignore */ }
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+/**
+ * Install AgenShield from local monorepo build output instead of npm.
+ *
+ * Symlinks `~/.agenshield/dist` → `<repoRoot>/libs/cli/dist` so that
+ * Node.js resolves the real path and walks up to find `libs/cli/node_modules/`
+ * (where non-hoisted deps like `ink` live).
+ */
+export function installFromLocal(
+  repoRoot: string,
+  destDir?: string,
+): DownloadResult {
+  const dest = destDir ?? getDistDir();
+  const srcDir = path.join(repoRoot, 'libs', 'cli', 'dist');
+
+  if (!fs.existsSync(srcDir)) {
+    return {
+      success: false,
+      version: 'unknown',
+      error: `CLI build output not found at ${srcDir}. Run: npx nx build cli`,
+    };
+  }
+
+  try {
+    // Remove existing dest (file, dir, or symlink)
+    try {
+      const stat = fs.lstatSync(dest);
+      if (stat.isSymbolicLink() || stat.isFile()) {
+        fs.unlinkSync(dest);
+      } else if (stat.isDirectory()) {
+        fs.rmSync(dest, { recursive: true, force: true });
+      }
+    } catch { /* doesn't exist yet */ }
+
+    // Symlink entire dist dir so Node resolves modules from monorepo
+    fs.symlinkSync(srcDir, dest, 'dir');
+
+    // Read version from source package.json
+    const pkgPath = path.join(srcDir, 'package.json');
+    let version = 'unknown';
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        if (pkg.version) version = pkg.version;
+      } catch { /* ignore */ }
+    }
+
+    return { success: true, version };
+  } catch (err) {
+    return {
+      success: false,
+      version: 'unknown',
+      error: (err as Error).message,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shell rc PATH management
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure the AgenShield bin directory is on PATH by appending an export line
+ * to the user's shell rc file (if not already present).
+ *
+ * Returns which file was modified (or would be modified) and whether
+ * the line was actually appended.
+ */
+export function ensurePathInShellRc(): { added: boolean; rcFile: string } {
+  const shell = process.env['SHELL'] || '';
+  let rcFile: string;
+  const exportLine = 'export PATH="$HOME/.agenshield/bin:$PATH"';
+
+  if (shell.endsWith('/zsh')) {
+    rcFile = path.join(os.homedir(), '.zshrc');
+  } else if (shell.endsWith('/bash')) {
+    const bashProfile = path.join(os.homedir(), '.bash_profile');
+    rcFile = fs.existsSync(bashProfile)
+      ? bashProfile
+      : path.join(os.homedir(), '.bashrc');
+  } else if (shell.endsWith('/fish')) {
+    // fish uses different syntax — skip auto-add, just return
+    return { added: false, rcFile: '~/.config/fish/config.fish' };
+  } else {
+    rcFile = path.join(os.homedir(), '.profile');
+  }
+
+  // Check if already present
+  try {
+    const content = fs.readFileSync(rcFile, 'utf-8');
+    if (content.includes('.agenshield/bin')) {
+      return { added: false, rcFile };
+    }
+  } catch { /* file doesn't exist yet, will create */ }
+
+  // Append
+  fs.appendFileSync(rcFile, `\n# AgenShield CLI\n${exportLine}\n`);
+  return { added: true, rcFile };
 }

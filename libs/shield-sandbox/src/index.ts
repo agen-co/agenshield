@@ -8,6 +8,15 @@
  * @packageDocumentation
  */
 
+// Errors
+export {
+  SandboxError,
+  InstallError,
+  HomebrewInstallError,
+  NvmInstallError,
+  TargetAppInstallError,
+} from './errors';
+
 // Types (primary type definitions)
 export type { SandboxUser, SandboxConfig, CreateUserResult, DirectoryStructure as SandboxDirectoryStructure } from './types';
 
@@ -178,6 +187,7 @@ export {
   formatPresetList,
   // Preset instances
   openclawPreset,
+  claudeCodePreset,
   devHarnessPreset,
   customPreset,
   PRESETS,
@@ -187,6 +197,8 @@ export {
   type MigrationContext,
   type MigrationDirectories,
   type PresetMigrationResult,
+  type InstallContext,
+  type InstallResult,
 } from './presets';
 
 // Discovery (binary + skill scanning)
