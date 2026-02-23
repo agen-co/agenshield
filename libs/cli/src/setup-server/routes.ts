@@ -152,7 +152,6 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
       if (await userExists(names.agentUser)) existingUsers.push(names.agentUser);
       if (await userExists(names.brokerUser)) existingUsers.push(names.brokerUser);
       if (await groupExists(names.socketGroup)) existingGroups.push(names.socketGroup);
-      if (await groupExists(names.workspaceGroup)) existingGroups.push(names.workspaceGroup);
 
       return {
         success: true,

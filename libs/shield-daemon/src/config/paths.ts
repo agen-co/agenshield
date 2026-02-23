@@ -59,25 +59,27 @@ export function isDevMode(): boolean {
 /**
  * Get the system-level config directory.
  * In dev mode (AGENSHIELD_AGENT_HOME set), uses ~/.agenshield (user-writable).
- * In production, uses /opt/agenshield/config (root-owned).
+ * In production, uses {agentHome}/.agenshield/config (per-target).
  */
 export function getSystemConfigDir(): string {
-  if (isDevMode()) {
-    return getConfigDir();
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
+  if (agentHome) {
+    return `${agentHome}/.agenshield/config`;
   }
-  return '/opt/agenshield/config';
+  return getConfigDir();
 }
 
 /**
  * Get the quarantine directory for unapproved skills.
  * In dev mode, uses ~/.agenshield/quarantine/skills.
- * In production, uses /opt/agenshield/quarantine/skills.
+ * In production, uses {agentHome}/.agenshield/quarantine/skills (per-target).
  */
 export function getQuarantineDir(): string {
-  if (isDevMode()) {
-    return path.join(getConfigDir(), 'quarantine', 'skills');
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
+  if (agentHome) {
+    return `${agentHome}/.agenshield/quarantine/skills`;
   }
-  return '/opt/agenshield/quarantine/skills';
+  return path.join(getConfigDir(), 'quarantine', 'skills');
 }
 
 /**

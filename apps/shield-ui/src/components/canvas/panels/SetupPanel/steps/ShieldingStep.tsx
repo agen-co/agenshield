@@ -1,11 +1,25 @@
 /**
- * Shielding step — shows progress while a target is being shielded
- * Includes a collapsible log panel showing step-by-step history.
+ * Shielding step — shows progress while a target is being shielded.
+ *
+ * When granular steps are available (setup:shield_steps SSE events),
+ * renders a phase-grouped checklist with per-step logs.
+ * Falls back to legacy flat progress bar + log list when steps[] is empty.
  */
 
-import { useState, useEffect, useRef } from 'react';
-import { Shield, Loader, ChevronDown, ChevronUp, CheckCircle, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  Shield,
+  Loader,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle,
+  AlertCircle,
+  Circle,
+  MinusCircle,
+} from 'lucide-react';
+import { SHIELD_PHASE_LABELS, OPENCLAW_SHIELD_STEPS } from '@agenshield/ipc';
 import type { ShieldingStepProps } from '../SetupPanel.types';
+import type { ShieldStepEntry } from '../../../../../state/setup-panel';
 import {
   SectionTitle,
   ProgressBar,
@@ -13,7 +27,7 @@ import {
   ProgressLabel,
 } from '../SetupPanel.styles';
 
-/** Human-readable step names */
+/** Human-readable step names (legacy — used when granular steps aren't available) */
 const STEP_LABELS: Record<string, string> = {
   initializing: 'Preparing',
   cleanup_stale: 'Cleaning up stale installations',
@@ -39,7 +53,6 @@ const STEP_LABELS: Record<string, string> = {
   installing_daemon: 'Installing LaunchDaemon',
   creating_profile: 'Saving profile',
   seeding_policies: 'Applying security policies',
-  // Unshield steps
   stopping_processes: 'Stopping processes',
   removing_path: 'Removing PATH override',
   removing_daemons: 'Removing LaunchDaemons',
@@ -54,6 +67,183 @@ const STEP_LABELS: Record<string, string> = {
   complete: 'Complete',
 };
 
+/** Group steps by phase using static definitions. */
+function groupByPhase(steps: ShieldStepEntry[]): Map<number, ShieldStepEntry[]> {
+  const phaseMap = new Map<string, number>();
+  for (const def of OPENCLAW_SHIELD_STEPS) {
+    phaseMap.set(def.id, def.phase);
+  }
+  const groups = new Map<number, ShieldStepEntry[]>();
+  for (const step of steps) {
+    const phase = phaseMap.get(step.id) ?? -1;
+    if (!groups.has(phase)) groups.set(phase, []);
+    groups.get(phase)!.push(step);
+  }
+  return groups;
+}
+
+function StepIcon({ status }: { status: ShieldStepEntry['status'] }) {
+  switch (status) {
+    case 'completed':
+      return <CheckCircle size={12} color="#6CB685" />;
+    case 'running':
+      return <Loader size={12} style={{ animation: 'spin 2s linear infinite', color: '#6BAEF2' }} />;
+    case 'failed':
+      return <AlertCircle size={12} color="#E1583E" />;
+    case 'skipped':
+      return <MinusCircle size={12} style={{ opacity: 0.3 }} />;
+    default:
+      return <Circle size={12} style={{ opacity: 0.2 }} />;
+  }
+}
+
+function PhaseGroup({
+  phase,
+  steps,
+}: {
+  phase: number;
+  steps: ShieldStepEntry[];
+}) {
+  const allDone = steps.every((s) => s.status === 'completed' || s.status === 'skipped');
+  const hasRunning = steps.some((s) => s.status === 'running');
+  const hasFailed = steps.some((s) => s.status === 'failed');
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Auto-collapse completed phases
+  useEffect(() => {
+    if (allDone && !hasFailed) setCollapsed(true);
+  }, [allDone, hasFailed]);
+
+  // Auto-expand when a step starts running
+  useEffect(() => {
+    if (hasRunning) setCollapsed(false);
+  }, [hasRunning]);
+
+  const label = SHIELD_PHASE_LABELS[phase] ?? `Phase ${phase}`;
+
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          background: 'none',
+          border: 'none',
+          padding: '4px 0',
+          cursor: 'pointer',
+          fontSize: 10,
+          fontWeight: 600,
+          fontFamily: "'Manrope', sans-serif",
+          opacity: allDone && !hasFailed ? 0.5 : 0.85,
+          color: 'inherit',
+          width: '100%',
+          textAlign: 'left',
+        }}
+      >
+        {collapsed ? <ChevronDown size={10} /> : <ChevronUp size={10} />}
+        {label}
+        {allDone && !hasFailed && (
+          <CheckCircle size={10} color="#6CB685" style={{ marginLeft: 'auto' }} />
+        )}
+        {hasFailed && (
+          <AlertCircle size={10} color="#E1583E" style={{ marginLeft: 'auto' }} />
+        )}
+      </button>
+
+      {!collapsed && (
+        <div style={{ paddingLeft: 8 }}>
+          {steps.map((step) => (
+            <ShieldStepRow key={step.id} step={step} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShieldStepRow({ step }: { step: ShieldStepEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasLogs = step.logs.length > 0;
+  const hasError = step.status === 'failed';
+
+  // Auto-expand on error
+  useEffect(() => {
+    if (hasError) setExpanded(true);
+  }, [hasError]);
+
+  return (
+    <div style={{ padding: '2px 0' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          cursor: hasLogs || hasError ? 'pointer' : 'default',
+          opacity: step.status === 'skipped' ? 0.4 : step.status === 'pending' ? 0.5 : 1,
+        }}
+        onClick={() => {
+          if (hasLogs || hasError) setExpanded(!expanded);
+        }}
+      >
+        <StepIcon status={step.status} />
+        <span style={{
+          fontSize: 11,
+          fontFamily: "'Manrope', sans-serif",
+          flex: 1,
+          textDecoration: step.status === 'skipped' ? 'line-through' : 'none',
+        }}>
+          {step.name}
+        </span>
+        {step.durationMs != null && step.status !== 'pending' && (
+          <span style={{ fontSize: 9, opacity: 0.5, fontFamily: "'IBM Plex Mono', monospace" }}>
+            {step.durationMs < 1000 ? `${step.durationMs}ms` : `${(step.durationMs / 1000).toFixed(1)}s`}
+          </span>
+        )}
+      </div>
+
+      {expanded && hasError && step.error && (
+        <div style={{
+          marginLeft: 18,
+          marginTop: 2,
+          fontSize: 10,
+          fontFamily: "'IBM Plex Mono', monospace",
+          color: '#E1583E',
+          lineHeight: 1.4,
+          wordBreak: 'break-word',
+        }}>
+          {step.error}
+        </div>
+      )}
+
+      {expanded && hasLogs && (
+        <div style={{
+          marginLeft: 18,
+          marginTop: 2,
+          maxHeight: 100,
+          overflowY: 'auto',
+          borderRadius: 4,
+          padding: '4px 6px',
+          backgroundColor: 'rgba(0, 0, 0, 0.03)',
+        }}>
+          {step.logs.slice(-20).map((log, i) => (
+            <div key={i} style={{
+              fontSize: 9,
+              fontFamily: "'IBM Plex Mono', monospace",
+              lineHeight: 1.4,
+              opacity: 0.75,
+              padding: '1px 0',
+            }}>
+              {log.message}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ShieldingStep({ targetId, progress }: ShieldingStepProps) {
   const pct = progress?.progress ?? 0;
   const step = progress?.currentStep ?? 'initializing';
@@ -61,22 +251,32 @@ export function ShieldingStep({ targetId, progress }: ShieldingStepProps) {
   const isComplete = progress?.status === 'completed';
   const isError = progress?.status === 'error';
   const logs = progress?.logs ?? [];
+  const steps = progress?.steps ?? [];
+  const hasGranularSteps = steps.length > 0;
 
   const [logsExpanded, setLogsExpanded] = useState(false);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const stepListRef = useRef<HTMLDivElement>(null);
+
+  // Group steps by phase (memoized)
+  const phaseGroups = useMemo(() => groupByPhase(steps), [steps]);
+  const sortedPhases = useMemo(
+    () => [...phaseGroups.keys()].sort((a, b) => a - b),
+    [phaseGroups],
+  );
 
   // Only render the last 30 log entries to avoid DOM bloat
   const MAX_VISIBLE_LOGS = 30;
   const visibleLogs = logsExpanded ? logs.slice(-MAX_VISIBLE_LOGS) : [];
   const hiddenCount = logs.length > MAX_VISIBLE_LOGS ? logs.length - MAX_VISIBLE_LOGS : 0;
 
-  // Auto-expand on error
+  // Auto-expand on error (legacy view)
   useEffect(() => {
-    if (isError) setLogsExpanded(true);
-  }, [isError]);
+    if (isError && !hasGranularSteps) setLogsExpanded(true);
+  }, [isError, hasGranularSteps]);
 
-  // Debounced auto-scroll to bottom when new logs arrive (300ms)
+  // Debounced auto-scroll to bottom when new logs arrive (legacy view, 300ms)
   useEffect(() => {
     if (logsExpanded && logContainerRef.current) {
       clearTimeout(scrollTimerRef.current);
@@ -87,11 +287,21 @@ export function ShieldingStep({ targetId, progress }: ShieldingStepProps) {
     return () => clearTimeout(scrollTimerRef.current);
   }, [logs.length, logsExpanded]);
 
+  // Auto-scroll step list to show running step
+  useEffect(() => {
+    if (hasGranularSteps && stepListRef.current) {
+      const running = stepListRef.current.querySelector('[data-running="true"]');
+      if (running) {
+        running.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  }, [steps, hasGranularSteps]);
+
   const stepLabel = STEP_LABELS[step] || step;
 
   return (
-    <>
-      <div style={{ textAlign: 'center', padding: '24px 0 16px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ textAlign: 'center', padding: '24px 0 16px', flexShrink: 0 }}>
         <div style={{ marginBottom: 12 }}>
           {isComplete ? (
             <Shield size={32} color="#6CB685" />
@@ -109,93 +319,119 @@ export function ShieldingStep({ targetId, progress }: ShieldingStepProps) {
         </div>
       </div>
 
-      <ProgressBar>
+      <ProgressBar style={{ flexShrink: 0 }}>
         <ProgressFill $progress={pct} style={isError ? { backgroundColor: '#E1583E' } : undefined} />
       </ProgressBar>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
         <ProgressLabel>{message}</ProgressLabel>
-        <ProgressLabel style={{ fontWeight: 600 }}>{pct}%</ProgressLabel>
+        <ProgressLabel style={{ fontWeight: 600 }}>{Math.round(pct)}%</ProgressLabel>
       </div>
 
-      <div style={{ marginTop: 8, fontSize: 11, opacity: 0.5 }}>
-        Step: {stepLabel}
-      </div>
-
-      {/* Collapsible log panel */}
-      {logs.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <button
-            onClick={() => setLogsExpanded(!logsExpanded)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              cursor: 'pointer',
-              fontSize: 11,
-              fontFamily: "'Manrope', sans-serif",
-              fontWeight: 500,
-              opacity: 0.7,
-              color: 'inherit',
-            }}
-          >
-            {logsExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            {logsExpanded ? 'Hide details' : 'Show details'} ({logs.length})
-          </button>
-
-          {logsExpanded && (
-            <div
-              ref={logContainerRef}
-              style={{
-                marginTop: 8,
-                maxHeight: 200,
-                overflowY: 'auto',
-                borderRadius: 6,
-                padding: '8px 10px',
-                backgroundColor: 'rgba(0, 0, 0, 0.04)',
-              }}
-            >
-              {hiddenCount > 0 && (
-                <div style={{
-                  fontSize: 9,
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  opacity: 0.5,
-                  padding: '2px 0 4px',
-                }}>
-                  ...{hiddenCount} earlier entries hidden
-                </div>
-              )}
-              {visibleLogs.map((entry, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 6,
-                    padding: '3px 0',
-                    fontSize: 10,
-                    fontFamily: "'IBM Plex Mono', monospace",
-                    lineHeight: 1.4,
-                    opacity: 0.85,
-                  }}
-                >
-                  <span style={{ flexShrink: 0, marginTop: 1 }}>
-                    {isError && i === visibleLogs.length - 1 ? (
-                      <AlertCircle size={10} color="#E1583E" />
-                    ) : (
-                      <CheckCircle size={10} color="#6CB685" />
-                    )}
-                  </span>
-                  <span style={{ wordBreak: 'break-word' }}>{entry.message}</span>
-                </div>
-              ))}
-            </div>
-          )}
+      {/* Granular step checklist (new) */}
+      {hasGranularSteps && (
+        <div
+          ref={stepListRef}
+          style={{
+            marginTop: 12,
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            borderRadius: 6,
+            padding: '8px 10px',
+            backgroundColor: 'rgba(0, 0, 0, 0.02)',
+          }}
+        >
+          {sortedPhases.map((phase) => (
+            <PhaseGroup key={phase} phase={phase} steps={phaseGroups.get(phase)!} />
+          ))}
         </div>
       )}
-    </>
+
+      {/* Legacy flat view (backward compat) */}
+      {!hasGranularSteps && (
+        <>
+          <div style={{ marginTop: 8, fontSize: 11, opacity: 0.5, flexShrink: 0 }}>
+            Step: {stepLabel}
+          </div>
+
+          {logs.length > 0 && (
+            <div style={{ marginTop: 12, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <button
+                onClick={() => setLogsExpanded(!logsExpanded)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontFamily: "'Manrope', sans-serif",
+                  fontWeight: 500,
+                  opacity: 0.7,
+                  color: 'inherit',
+                  flexShrink: 0,
+                }}
+              >
+                {logsExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                {logsExpanded ? 'Hide details' : 'Show details'} ({logs.length})
+              </button>
+
+              {logsExpanded && (
+                <div
+                  ref={logContainerRef}
+                  style={{
+                    marginTop: 8,
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    borderRadius: 6,
+                    padding: '8px 10px',
+                    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                  }}
+                >
+                  {hiddenCount > 0 && (
+                    <div style={{
+                      fontSize: 9,
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      opacity: 0.5,
+                      padding: '2px 0 4px',
+                    }}>
+                      ...{hiddenCount} earlier entries hidden
+                    </div>
+                  )}
+                  {visibleLogs.map((entry, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 6,
+                        padding: '3px 0',
+                        fontSize: 10,
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        lineHeight: 1.4,
+                        opacity: 0.85,
+                      }}
+                    >
+                      <span style={{ flexShrink: 0, marginTop: 1 }}>
+                        {isError && i === visibleLogs.length - 1 ? (
+                          <AlertCircle size={10} color="#E1583E" />
+                        ) : (
+                          <CheckCircle size={10} color="#6CB685" />
+                        )}
+                      </span>
+                      <span style={{ wordBreak: 'break-word' }}>{entry.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }

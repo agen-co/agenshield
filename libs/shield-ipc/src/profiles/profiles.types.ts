@@ -8,6 +8,8 @@
  * - 'target' profile: a managed AI agent runtime (e.g. 'openclaw', 'cloudcode')
  */
 
+import type { InstallManifest } from '../types/setup';
+
 export type ProfileType = 'global' | 'target';
 
 export interface Profile {
@@ -24,6 +26,8 @@ export interface Profile {
   brokerUid?: number;
   brokerHomeDir?: string;
   brokerToken?: string;
+  /** Manifest of steps executed during shield — used for manifest-driven unshield */
+  installManifest?: InstallManifest;
   createdAt: string;
   updatedAt: string;
 }

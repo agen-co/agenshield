@@ -18,6 +18,7 @@ export const ProfileSchema = z.object({
   brokerUid: z.number().int().nonnegative().optional(),
   brokerHomeDir: z.string().max(500).optional(),
   brokerToken: z.string().length(64).regex(/^[a-f0-9]+$/).optional(),
+  installManifest: z.any().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

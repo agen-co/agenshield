@@ -57,8 +57,17 @@ export const MARKETPLACE_DIR = 'marketplace';
 /** Skill backup subdirectory (under CONFIG_DIR) */
 export const SKILL_BACKUP_DIR = 'skills/backup';
 
-/** Path to migration state file (root-owned) */
+/**
+ * @deprecated Use migrationStatePath() instead.
+ * Retained for backward-compat reads of legacy installations.
+ */
 export const MIGRATION_STATE_PATH = '/etc/agenshield/migrations.json';
+
+/** Resolve migration state file path under the host user's ~/.agenshield/ */
+export function migrationStatePath(hostHome?: string): string {
+  const home = hostHome || process.env['HOME'] || '';
+  return `${home}/.agenshield/migrations.json`;
+}
 
 /** Default OAuth callback port */
 export const CALLBACK_PORT = 9876;

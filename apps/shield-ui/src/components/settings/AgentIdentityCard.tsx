@@ -12,7 +12,6 @@ export function AgentIdentityCard({ profileId }: { profileId?: string | null }) 
 
   // When we have a target profile, show its identity; otherwise fall back to global
   const agentUsername = profile?.agentUsername ?? status?.data?.agentUsername ?? 'ash_default_agent';
-  const workspaceGroup = !profile ? (status?.data?.workspaceGroup ?? 'ash_default_workspace') : undefined;
   const agentUid = profile?.agentUid;
   const agentHomeDir = profile?.agentHomeDir;
   const brokerUsername = profile?.brokerUsername;
@@ -26,11 +25,11 @@ export function AgentIdentityCard({ profileId }: { profileId?: string | null }) 
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
         {profile
           ? 'The agent and broker identity configured for this target.'
-          : 'The username and workspace group this agent is registered under.'}
+          : 'The username this agent is registered under.'}
       </Typography>
       <Box sx={{ mt: 3 }}>
         <Grid container spacing={3}>
-          {/* Row 1: Agent Username + Workspace Group (global) or Broker Username (target) */}
+          {/* Row 1: Agent Username + Broker Username */}
           <Grid size={{ xs: 12, sm: 6 }}>
             <TextField
               label="Agent Username"
@@ -41,17 +40,8 @@ export function AgentIdentityCard({ profileId }: { profileId?: string | null }) 
               sx={{ '& .MuiInputBase-root': { bgcolor: 'action.hover' } }}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            {workspaceGroup != null ? (
-              <TextField
-                label="Workspace Group"
-                value={workspaceGroup}
-                fullWidth
-                InputProps={{ readOnly: true }}
-                helperText="Group this agent belongs to"
-                sx={{ '& .MuiInputBase-root': { bgcolor: 'action.hover' } }}
-              />
-            ) : brokerUsername != null ? (
+          {brokerUsername != null && (
+            <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="Broker Username"
                 value={brokerUsername}
@@ -60,8 +50,8 @@ export function AgentIdentityCard({ profileId }: { profileId?: string | null }) 
                 helperText="Broker user for this target"
                 sx={{ '& .MuiInputBase-root': { bgcolor: 'action.hover' } }}
               />
-            ) : null}
-          </Grid>
+            </Grid>
+          )}
 
           {/* Row 2 (target only): Agent UID + Agent Home Dir */}
           {profile && (

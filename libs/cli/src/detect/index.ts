@@ -2,7 +2,7 @@
  * OpenClaw detection module
  *
  * Re-exports from @agenshield/sandbox for backwards compatibility.
- * The detection logic has been moved to shield-sandbox so it can
+ * The detection logic has been moved to sandbox so it can
  * be shared between the CLI and daemon.
  */
 

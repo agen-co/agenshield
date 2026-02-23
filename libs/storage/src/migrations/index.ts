@@ -10,6 +10,7 @@ import { SchemaMigration } from './001-schema';
 import { ProfileBrokerTokenMigration } from './011-profile-broker-token';
 import { SetupStateMigration } from './012-setup-state';
 import { PolicySetsMigration } from './013-policy-sets';
+import { ProfileInstallManifestMigration } from './014-profile-install-manifest';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -22,6 +23,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   new ProfileBrokerTokenMigration(),
   new SetupStateMigration(),
   new PolicySetsMigration(),
+  new ProfileInstallManifestMigration(),
 ];
 
 /**

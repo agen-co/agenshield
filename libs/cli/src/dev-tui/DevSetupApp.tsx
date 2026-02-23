@@ -81,7 +81,6 @@ async function checkConflicts(names: ComputedNames): Promise<{ users: string[]; 
   if (await userExists(names.agentUser)) existingUsers.push(names.agentUser);
   if (await userExists(names.brokerUser)) existingUsers.push(names.brokerUser);
   if (await groupExists(names.socketGroup)) existingGroups.push(names.socketGroup);
-  if (await groupExists(names.workspaceGroup)) existingGroups.push(names.workspaceGroup);
 
   return { users: existingUsers, groups: existingGroups };
 }
@@ -107,7 +106,6 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
     agentUser: config.agentUser.username,
     brokerUser: config.brokerUser.username,
     socketGroup: config.groups.socket.name,
-    workspaceGroup: config.groups.workspace.name,
   };
 
   // Phase: detecting — check prerequisites and detect target
@@ -397,7 +395,6 @@ export function DevSetupApp({ options, onComplete, onWebUI }: DevSetupAppProps) 
           agentUsername: cfg.agentUser.username,
           brokerUsername: cfg.brokerUser.username,
           socketGroupName: cfg.groups.socket.name,
-          workspaceGroupName: cfg.groups.workspace.name,
           baseUid,
           baseGid,
           testHarnessPath: migrationResult?.newPaths?.binaryPath || harnessDestPath,

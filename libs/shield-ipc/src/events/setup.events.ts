@@ -50,6 +50,19 @@ export interface SetupLogPayload {
   stepId?: string;
 }
 
+export interface SetupShieldStepsPayload {
+  targetId: string;
+  steps: import('../types/setup').ShieldStepState[];
+  overallProgress: number;
+}
+
+export interface SetupStepLogPayload {
+  targetId: string;
+  stepId: string;
+  message: string;
+  level?: 'info' | 'warn' | 'error';
+}
+
 declare module '@agenshield/ipc' {
   interface EventRegistry {
     'setup:detection': SetupDetectionPayload;
@@ -60,6 +73,8 @@ declare module '@agenshield/ipc' {
     'setup:state_change': SetupStateChangePayload;
     'setup:scan_complete': SetupScanCompletePayload;
     'setup:log': SetupLogPayload;
+    'setup:shield_steps': SetupShieldStepsPayload;
+    'setup:step_log': SetupStepLogPayload;
   }
 }
 
@@ -72,6 +87,8 @@ export const SETUP_EVENT_TYPES = [
   'setup:state_change',
   'setup:scan_complete',
   'setup:log',
+  'setup:shield_steps',
+  'setup:step_log',
 ] as const;
 
 registerEventTypes(SETUP_EVENT_TYPES);

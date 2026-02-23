@@ -16,15 +16,12 @@ export interface AdvancedConfigValues {
   brokerSuffix: string;
   /** Suffix for socket group (will become ash_{suffix}) */
   socketGroupSuffix: string;
-  /** Suffix for workspace group (will become ash_{suffix}_workspace) */
-  workspaceGroupSuffix: string;
 }
 
 export interface ComputedNames {
   agentUser: string;
   brokerUser: string;
   socketGroup: string;
-  workspaceGroup: string;
 }
 
 interface AdvancedConfigProps {
@@ -50,7 +47,6 @@ export function computeNames(baseName: string): ComputedNames {
     agentUser: `${REQUIRED_PREFIX}${base}_agent`,
     brokerUser: `${REQUIRED_PREFIX}${base}_broker`,
     socketGroup: `${REQUIRED_PREFIX}${base}`,
-    workspaceGroup: `${REQUIRED_PREFIX}${base}_workspace`,
   };
 }
 
@@ -117,7 +113,6 @@ export function AdvancedConfig({ existingConflicts, onConfirm, onCancel, onCheck
           agentSuffix: baseName,
           brokerSuffix: baseName,
           socketGroupSuffix: baseName,
-          workspaceGroupSuffix: baseName,
         });
         return;
       }
@@ -168,10 +163,6 @@ export function AdvancedConfig({ existingConflicts, onConfirm, onCancel, onCheck
             <Text color={conflicts.groups.includes(computedNames.socketGroup) ? 'red' : 'green'}>
               Socket group:   {computedNames.socketGroup}
               {conflicts.groups.includes(computedNames.socketGroup) && ' (EXISTS!)'}
-            </Text>
-            <Text color={conflicts.groups.includes(computedNames.workspaceGroup) ? 'red' : 'green'}>
-              Workspace group: {computedNames.workspaceGroup}
-              {conflicts.groups.includes(computedNames.workspaceGroup) && ' (EXISTS!)'}
             </Text>
           </Box>
         </Box>

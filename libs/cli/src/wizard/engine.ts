@@ -801,16 +801,13 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     // Skip in dry-run mode
     if (context.options?.dryRun) {
       logVerbose(`[dry-run] Would create group: ${context.userConfig.groups.socket.name} (gid=${context.userConfig.groups.socket.gid})`, context);
-      logVerbose(`[dry-run] Would create group: ${context.userConfig.groups.workspace.name} (gid=${context.userConfig.groups.workspace.gid})`, context);
       context.groupsCreated = {
         socket: context.userConfig.groups.socket,
-        workspace: context.userConfig.groups.workspace,
       };
       return { success: true };
     }
 
     logVerbose(`Creating group: ${context.userConfig.groups.socket.name} (gid=${context.userConfig.groups.socket.gid})`, context);
-    logVerbose(`Creating group: ${context.userConfig.groups.workspace.name} (gid=${context.userConfig.groups.workspace.gid})`, context);
 
     const results = await createGroups(context.userConfig, { verbose: context.options?.verbose });
     const failed = results.filter((r) => !r.success);
@@ -824,7 +821,6 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
     context.groupsCreated = {
       socket: context.userConfig.groups.socket,
-      workspace: context.userConfig.groups.workspace,
     };
 
     return { success: true };
@@ -970,7 +966,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     logVerbose(`Creating directory: ${directories.configDir}`, context);
     logVerbose(`Creating directory: ${directories.socketDir}`, context);
     logVerbose(`Creating directory: ${directories.logDir}`, context);
-    logVerbose(`Creating directory: ${agentUser.home}/workspace (mode=2775, group=${context.userConfig.groups.workspace.name})`, context);
+    logVerbose(`Creating directory: ${agentUser.home}/workspace (mode=2775, group=${context.userConfig.groups.socket.name})`, context);
 
     const results = await createAllDirectories(context.userConfig, { verbose: context.options?.verbose });
     const failed = results.filter((r) => !r.success);
@@ -1396,7 +1392,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       execSync(`sudo chown ${brokerUsername}:${socketGroupName} /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log`, { encoding: 'utf-8', stdio: 'pipe' });
 
       // Bootout any stale broker daemon entry from a previous install.
-      // Without this, `launchctl load` may no-op if the old entry is cached.
+      // Without this, `launchctl bootstrap` may fail if the old entry is cached.
       logVerbose('Removing stale launchd entry if present', context);
       logVerbose('Running: sudo launchctl bootout system/com.agenshield.broker', context);
       try {
@@ -1417,9 +1413,9 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
         return { success: false, error: result.message };
       }
 
-      // Force-start the broker immediately. launchctl load + RunAtLoad may not
-      // start the process if launchd throttles it (e.g. ThrottleInterval from a
-      // prior crashed run). kickstart bypasses throttling.
+      // Force-start the broker immediately. launchctl bootstrap + RunAtLoad may
+      // not start the process if launchd throttles it (e.g. ThrottleInterval
+      // from a prior crashed run). kickstart bypasses throttling.
       logVerbose('Kickstarting broker daemon', context);
       logVerbose('Running: sudo launchctl kickstart system/com.agenshield.broker', context);
       try {

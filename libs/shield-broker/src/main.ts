@@ -27,7 +27,7 @@ const TOKEN_FILENAME = '.agenshield-token';
 
 /**
  * Commands that get wrapper shims in the agent's bin directory.
- * Must stay in sync with PROXIED_COMMANDS in shield-sandbox/shield-exec.ts.
+ * Must stay in sync with PROXIED_COMMANDS in sandbox/shell/shield-exec.ts.
  */
 const PROXIED_COMMANDS = [
   'bash', 'curl', 'wget', 'git', 'ssh', 'scp', 'rsync',
@@ -39,8 +39,11 @@ const PROXIED_COMMANDS = [
  * Load configuration from environment and config file
  */
 function loadConfig(): BrokerConfig {
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '';
+
   const configPath =
-    process.env['AGENSHIELD_CONFIG'] || '/opt/agenshield/config/shield.json';
+    process.env['AGENSHIELD_CONFIG'] ||
+    (agentHome ? `${agentHome}/.agenshield/config/shield.json` : '/opt/agenshield/config/shield.json');
 
   let fileConfig: Partial<BrokerConfig> = {};
   if (fs.existsSync(configPath)) {
@@ -56,7 +59,7 @@ function loadConfig(): BrokerConfig {
     socketPath:
       process.env['AGENSHIELD_SOCKET'] ||
       fileConfig.socketPath ||
-      '/var/run/agenshield/agenshield.sock',
+      (agentHome ? `${agentHome}/.agenshield/run/agenshield.sock` : '/var/run/agenshield/agenshield.sock'),
     httpEnabled:
       process.env['AGENSHIELD_HTTP_ENABLED'] !== 'false' &&
       (fileConfig.httpEnabled ?? true),
@@ -70,11 +73,11 @@ function loadConfig(): BrokerConfig {
     policiesPath:
       process.env['AGENSHIELD_POLICIES'] ||
       fileConfig.policiesPath ||
-      '/opt/agenshield/policies',
+      (agentHome ? `${agentHome}/.agenshield/policies` : '/opt/agenshield/policies'),
     auditLogPath:
       process.env['AGENSHIELD_AUDIT_LOG'] ||
       fileConfig.auditLogPath ||
-      '/var/log/agenshield/audit.log',
+      (agentHome ? `${agentHome}/.agenshield/logs/audit.log` : '/var/log/agenshield/audit.log'),
     logLevel:
       (process.env['AGENSHIELD_LOG_LEVEL'] as BrokerConfig['logLevel']) ||
       fileConfig.logLevel ||
@@ -177,7 +180,11 @@ function ensureProxiedCommandWrappers(binDir: string): void {
     }
   }
 
-  const shieldExecPath = '/opt/agenshield/bin/shield-exec';
+  // Resolve shared binary dir: AGENSHIELD_HOST_HOME > /opt/agenshield (legacy)
+  const hostHome = process.env['AGENSHIELD_HOST_HOME'] || '';
+  const sharedBinDir = hostHome ? `${hostHome}/.agenshield/bin` : '/opt/agenshield/bin';
+  const shieldExecPath = `${sharedBinDir}/shield-exec`;
+  const shieldClientPath = `${sharedBinDir}/shield-client`;
   const hasShieldExec = fs.existsSync(shieldExecPath);
   let installed = 0;
 
@@ -201,7 +208,7 @@ function ensureProxiedCommandWrappers(binDir: string): void {
         '#!/bin/bash',
         `# ${cmd} - AgenShield proxy (auto-generated)`,
         'if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi',
-        `exec /opt/agenshield/bin/shield-client exec ${cmd} "$@"`,
+        `exec "${shieldClientPath}" exec ${cmd} "$@"`,
         '',
       ].join('\n');
       fs.writeFileSync(wrapperPath, script, { mode: 0o755 });

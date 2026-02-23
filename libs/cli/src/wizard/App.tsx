@@ -79,9 +79,6 @@ async function checkConflicts(names: ComputedNames): Promise<{ users: string[]; 
   if (await groupExists(names.socketGroup)) {
     existingGroups.push(names.socketGroup);
   }
-  if (await groupExists(names.workspaceGroup)) {
-    existingGroups.push(names.workspaceGroup);
-  }
 
   return { users: existingUsers, groups: existingGroups };
 }

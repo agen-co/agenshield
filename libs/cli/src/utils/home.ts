@@ -97,10 +97,11 @@ export function isLocalInstall(): boolean {
  * Uses $HOME so it works correctly under sudo.
  */
 export function generateShimContent(): string {
+  const nodePath = process.execPath;
   return [
     '#!/bin/sh',
     '# AgenShield CLI shim — managed by `agenshield install`',
-    'exec node "$HOME/.agenshield/dist/src/cli.js" "$@"',
+    `exec "${nodePath}" "$HOME/.agenshield/dist/src/cli.js" "$@"`,
     '',
   ].join('\n');
 }

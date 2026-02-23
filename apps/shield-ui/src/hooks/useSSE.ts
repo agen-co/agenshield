@@ -12,7 +12,7 @@ import { api } from '../api/client';
 import { queryKeys } from '../api/hooks';
 import type { DaemonStatus } from '@agenshield/ipc';
 import { handleSkillSSEEvent, fetchInstalledSkills } from '../stores/skills';
-import { updateShieldProgress, markShieldComplete, appendShieldLog } from '../state/setup-panel';
+import { updateShieldProgress, markShieldComplete, appendShieldLog, updateShieldSteps, appendStepLog } from '../state/setup-panel';
 import { updateStore } from '../state/update';
 
 /** Skill SSE events that change installed skills or their env var requirements */
@@ -68,6 +68,18 @@ export function useSSE(enabled = true, token?: string | null) {
         // Route setup events to the setup panel store
         // These high-frequency events are skipped from the activity feed to avoid
         // triggering animation subscriptions and DOM bloat during shielding.
+        if (type === 'setup:shield_steps') {
+          const { targetId, steps, overallProgress } = data as { targetId: string; steps: import('@agenshield/ipc').ShieldStepState[]; overallProgress: number };
+          updateShieldSteps(targetId, steps, overallProgress);
+          return;
+        }
+        if (type === 'setup:step_log') {
+          const { targetId: stTargetId, stepId: stStepId, message: stMsg } = data as { targetId: string; stepId: string; message: string };
+          if (stTargetId && stStepId && stMsg) {
+            appendStepLog(stTargetId, stStepId, stMsg);
+          }
+          return;
+        }
         if (type === 'setup:shield_progress') {
           const { targetId, step, progress, message } = data as { targetId: string; step: string; progress: number; message?: string };
           updateShieldProgress(targetId, step, progress, message);

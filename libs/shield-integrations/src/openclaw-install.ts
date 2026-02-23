@@ -4,6 +4,10 @@
  * Handles installing OpenClaw via npm in the agent's sandboxed environment,
  * copying and sanitizing the host user's .openclaw config, and stopping
  * the host user's OpenClaw processes.
+ *
+ * @deprecated Superseded by step pipeline in @agenshield/sandbox/presets/actions/.
+ * Retained for the CLI wizard (libs/cli/src/wizard/engine.ts) which still uses it.
+ * Will be removed once the CLI wizard is migrated to the step pipeline.
  */
 
 import * as fs from 'node:fs';

@@ -36,6 +36,8 @@ import {
   drilldownStore,
   clearDrilldown,
   setZoomPhase,
+  setSkipEntryAnimation,
+  consumeInitialPageLoad,
   COMPONENT_ROUTE_MAP,
   PAGE_ZOOM_TARGETS,
 } from '../../state/canvas-drilldown';
@@ -288,6 +290,8 @@ function CanvasInner({
     hasInitialFitRef.current = true;
     prevDimsRef.current = { w: containerWidth, h: containerHeight };
 
+    const isInitial = consumeInitialPageLoad();
+
     if (page) {
       // Deep-link: zoom straight to the target node (fill screen)
       let targetNodeId: string;
@@ -298,15 +302,25 @@ function CanvasInner({
         const zoomId = PAGE_ZOOM_TARGETS[page];
         targetNodeId = zoomTarget ?? (zoomId?.includes('-') ? zoomId : `comp-${zoomId}`);
       }
-      setZoomPhase('zooming-in');
-      fitViewContent({
-        nodes: [{ id: targetNodeId }],
-        maxZoom: 20,
-        duration: 600,
-      });
-      const tid2 = setTimeout(() => setZoomPhase('zoomed'), 600);
+
+      if (isInitial) {
+        // Page refresh on a deep-link: skip animation entirely
+        fitViewContent({ nodes: [{ id: targetNodeId }], maxZoom: 20 });
+        setSkipEntryAnimation(true);
+        setZoomPhase('zoomed');
+      } else {
+        setZoomPhase('zooming-in');
+        fitViewContent({
+          nodes: [{ id: targetNodeId }],
+          maxZoom: 20,
+          duration: 600,
+        });
+        const tid2 = setTimeout(() => setZoomPhase('zoomed'), 600);
+        prevPageRef.current = page;
+        return () => clearTimeout(tid2);
+      }
       prevPageRef.current = page;
-      return () => clearTimeout(tid2);
+      return;
     }
 
     fitViewContent({ padding: OVERVIEW_PADDING, maxZoom: 1.5 });
@@ -516,7 +530,7 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
     closeSetupPanel();
   }, []);
 
-  const { zoomPhase } = useSnapshot(drilldownStore);
+  const { zoomPhase, skipEntryAnimation } = useSnapshot(drilldownStore);
 
   const handlePaneClick = useCallback(() => {
     if (drilldownStore.zoomPhase === 'zoomed') {
@@ -625,8 +639,8 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
       {/* Fixed overlay: Page overlay — route-driven drilldown */}
       {(zoomPhase === 'zooming-in' || zoomPhase === 'zoomed') && canvasPage && (
         isTargetRoute && targetId
-          ? <TargetOverlay targetId={targetId} tab={targetTab} phase={zoomPhase} />
-          : <PageOverlay page={canvasPage} tab={canvasTab} phase={zoomPhase} />
+          ? <TargetOverlay targetId={targetId} tab={targetTab} phase={zoomPhase} skipAnimation={skipEntryAnimation} />
+          : <PageOverlay page={canvasPage} tab={canvasTab} phase={zoomPhase} skipAnimation={skipEntryAnimation} />
       )}
 
       {/* Fixed overlay: Drilldown — card detail panel */}

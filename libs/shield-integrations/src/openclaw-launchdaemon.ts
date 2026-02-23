@@ -6,6 +6,10 @@
  *
  * Both processes run as the agent user with NODE_OPTIONS set to load the
  * interceptor, ensuring all network and exec operations are monitored.
+ *
+ * @deprecated Legacy plist generation using hardcoded labels.
+ * New installations use per-target labels via step pipeline actions.
+ * Retained for broker lifecycle management (start/stop/status) and CLI wizard.
  */
 
 import * as fs from 'node:fs/promises';
@@ -18,10 +22,15 @@ const execAsync = promisify(exec);
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
+/** @deprecated Use per-target label: `com.agenshield.${profileBaseName}.daemon` */
 const OPENCLAW_DAEMON_LABEL = 'com.agenshield.openclaw.daemon';
+/** @deprecated Use per-target label: `com.agenshield.${profileBaseName}.gateway` */
 const OPENCLAW_GATEWAY_LABEL = 'com.agenshield.openclaw.gateway';
+/** @deprecated Use per-target path */
 const OPENCLAW_DAEMON_PLIST = '/Library/LaunchDaemons/com.agenshield.openclaw.daemon.plist';
+/** @deprecated Use per-target path */
 const OPENCLAW_GATEWAY_PLIST = '/Library/LaunchDaemons/com.agenshield.openclaw.gateway.plist';
+/** @deprecated Use per-target path under hostHome/.agenshield/bin/ */
 const OPENCLAW_LAUNCHER_PATH = '/opt/agenshield/bin/openclaw-launcher.sh';
 const BROKER_LABEL = 'com.agenshield.broker';
 const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShieldES';
@@ -390,8 +399,9 @@ PLISTEOF`);
     await execAsync(`sudo chown root:wheel "${OPENCLAW_GATEWAY_PLIST}"`);
     await execAsync(`sudo chmod 644 "${OPENCLAW_GATEWAY_PLIST}"`);
 
-    // 5. Load gateway plist (but don't start — RunAtLoad is false)
-    await execAsync(`sudo launchctl load -w "${OPENCLAW_GATEWAY_PLIST}"`);
+    // 5. Bootstrap gateway plist (but don't start — RunAtLoad is false)
+    await execAsync(`sudo launchctl bootout system/${OPENCLAW_GATEWAY_LABEL} 2>/dev/null; true`);
+    await execAsync(`sudo launchctl bootstrap system "${OPENCLAW_GATEWAY_PLIST}"`);
 
     return {
       success: true,

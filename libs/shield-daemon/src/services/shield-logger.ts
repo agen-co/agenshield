@@ -19,10 +19,10 @@ export class ShieldLogger {
 
   constructor(targetId: string) {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
-    const logDir = path.join(os.homedir(), '.agenshield', 'logs');
+    const logDir = path.join(os.homedir(), '.agenshield', 'logs', targetId);
     fs.mkdirSync(logDir, { recursive: true });
 
-    this.logPath = path.join(logDir, `shield-${targetId}-${ts}.log`);
+    this.logPath = path.join(logDir, `shield-${ts}.log`);
     this.fd = fs.openSync(this.logPath, 'a');
     this.startTime = Date.now();
 

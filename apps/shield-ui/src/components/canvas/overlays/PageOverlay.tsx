@@ -7,7 +7,7 @@
  * Escape key and back button navigate to / (zoom-out).
  */
 
-import { lazy, Suspense, useCallback, useEffect, memo } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, memo } from 'react';
 import { useTheme } from '@mui/material/styles';
 import { Tabs, Tab } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
@@ -17,6 +17,7 @@ import {
   Eye, Zap, KeyRound, BarChart3,
 } from 'lucide-react';
 import { CircularLoader } from '../../../elements';
+import { setSkipEntryAnimation } from '../../../state/canvas-drilldown';
 import {
   OverlayRoot,
   ContentPanel,
@@ -61,12 +62,22 @@ interface PageOverlayProps {
   page: string;       // 'skills' | 'policies' | 'secrets' | 'overview' | 'settings' | 'metrics'
   tab?: string;       // 'commands' | 'network' | 'filesystem' (policies) or 'cpu' | 'memory' | 'disk' | 'network' (metrics)
   phase?: string;     // 'zooming-in' | 'zoomed'
+  skipAnimation?: boolean;
 }
 
-export const PageOverlay = memo(({ page, tab }: PageOverlayProps) => {
+export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const navigate = useNavigate();
+
+  // Clear skip-animation flag after first paint so subsequent navigations animate normally
+  const skipClearedRef = useRef(false);
+  useEffect(() => {
+    if (skipAnimation && !skipClearedRef.current) {
+      skipClearedRef.current = true;
+      requestAnimationFrame(() => setSkipEntryAnimation(false));
+    }
+  }, [skipAnimation]);
 
   // Escape key closes overlay
   useEffect(() => {
@@ -100,7 +111,7 @@ export const PageOverlay = memo(({ page, tab }: PageOverlayProps) => {
 
   return (
     <OverlayRoot>
-      <ContentPanel $isDark={isDark}>
+      <ContentPanel $isDark={isDark} $skipAnimation={skipAnimation}>
         <OverlayHeader $isDark={isDark}>
           {/* Back button */}
           <button

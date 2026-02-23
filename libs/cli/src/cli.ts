@@ -38,6 +38,7 @@ import {
   createUpgradeCommand,
   createInstallCommand,
   createLogsCommand,
+  createExecCommand,
 } from './commands/index.js';
 
 // Package version - will be replaced during build
@@ -70,6 +71,7 @@ Examples:
   $ agenshield broker restart       Restart broker
   $ agenshield dev                  Dev mode with interactive TUI
   $ agenshield dev clean            Clean dev environment
+  $ agenshield exec <target>        Open guarded shell for an agent user
   $ agenshield dev shell            Open sandboxed agent shell
   $ agenshield install              Install locally to ~/.agenshield/
   $ agenshield update               Non-destructive update
@@ -91,6 +93,7 @@ Examples:
   program.addCommand(createInstallCommand());
   program.addCommand(createUpdateCommand());
   program.addCommand(createLogsCommand());
+  program.addCommand(createExecCommand());
 
   return program;
 }

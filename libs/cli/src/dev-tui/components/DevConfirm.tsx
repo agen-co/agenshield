@@ -9,7 +9,6 @@ interface UserNames {
   agentUser: string;
   brokerUser: string;
   socketGroup: string;
-  workspaceGroup: string;
 }
 
 interface DevConfirmProps {
@@ -76,7 +75,6 @@ export function DevConfirm({ userNames, detectedTarget, onConfirm, onCancel }: D
           <Text color="cyan">Agent user:      {userNames.agentUser}</Text>
           <Text color="cyan">Broker user:     {userNames.brokerUser}</Text>
           <Text color="cyan">Socket group:    {userNames.socketGroup}</Text>
-          <Text color="cyan">Workspace group: {userNames.workspaceGroup}</Text>
         </Box>
       </Box>
 

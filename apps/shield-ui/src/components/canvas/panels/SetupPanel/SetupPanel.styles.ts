@@ -57,7 +57,9 @@ export const PanelSubtitle = styled('div')(({ theme }) => ({
 
 export const PanelBody = styled('div')({
   flex: 1,
-  overflow: 'auto',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
   padding: '12px 16px',
 });
 

@@ -33,12 +33,16 @@ function isValidSlug(slug: string): boolean {
  * Routes through shield-client for policy-enforced execution.
  */
 function createWrapperContent(slug: string): string {
-  return `#!/bin/bash
-# ${slug} skill wrapper - policy-enforced execution
-# Ensure accessible working directory
-if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
-exec /opt/agenshield/bin/shield-client skill run "${slug}" "$@"
-`;
+  return [
+    '#!/bin/bash',
+    `# ${slug} skill wrapper - policy-enforced execution`,
+    '# Ensure accessible working directory',
+    'if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi',
+    'SHIELD_CLIENT="${AGENSHIELD_HOST_HOME:-${HOME}}/.agenshield/bin/shield-client"',
+    '[ ! -x "$SHIELD_CLIENT" ] && SHIELD_CLIENT="/opt/agenshield/bin/shield-client"',
+    `exec "$SHIELD_CLIENT" skill run "${slug}" "$@"`,
+    '',
+  ].join('\n');
 }
 
 /**

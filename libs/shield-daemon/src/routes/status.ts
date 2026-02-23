@@ -30,7 +30,6 @@ export function buildDaemonStatus(): DaemonStatus {
   const uptimeSeconds = Math.floor(uptimeMs / 1000);
 
   const agentUser = state.users.find((u) => u.type === 'agent');
-  const wsGroup = state.groups.find((g) => g.type === 'workspace');
 
   // Get OpenClaw status (sync to keep buildDaemonStatus synchronous)
   let openclaw: DaemonStatus['openclaw'] | undefined;
@@ -63,7 +62,6 @@ export function buildDaemonStatus(): DaemonStatus {
     port: config.daemon.port,
     startedAt: startedAt.toISOString(),
     agentUsername: agentUser?.username,
-    workspaceGroup: wsGroup?.name,
     ...(openclaw ? { openclaw } : {}),
   };
 }

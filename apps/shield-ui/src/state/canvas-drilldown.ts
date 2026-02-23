@@ -11,6 +11,19 @@
 import { proxy } from 'valtio';
 import type { SystemComponentType } from '../components/canvas/Canvas.types';
 
+/* ---- Initial page-load detection (one-shot per full refresh) ---- */
+
+let isInitialPageLoad = true;
+
+/** Returns `true` on the first call after a full page refresh, `false` thereafter. */
+export function consumeInitialPageLoad(): boolean {
+  if (isInitialPageLoad) {
+    isInitialPageLoad = false;
+    return true;
+  }
+  return false;
+}
+
 /* ---- Component → page route mapping ---- */
 
 export const COMPONENT_ROUTE_MAP: Record<SystemComponentType, {
@@ -48,6 +61,7 @@ export type ZoomPhase = 'idle' | 'zooming-in' | 'zoomed' | 'zooming-out';
 export const drilldownStore = proxy({
   activeCardId: null as string | null,
   zoomPhase: 'idle' as ZoomPhase,
+  skipEntryAnimation: false,
 });
 
 /* ---- Actions ---- */
@@ -61,6 +75,11 @@ export function openDrilldown(cardId: string) {
 /** Transition zoom phase (e.g. zooming-in → zoomed after animation completes) */
 export function setZoomPhase(phase: ZoomPhase) {
   drilldownStore.zoomPhase = phase;
+}
+
+/** Set or clear the skip-entry-animation flag (used to suppress overlay animation on deep-link refresh) */
+export function setSkipEntryAnimation(skip: boolean) {
+  drilldownStore.skipEntryAnimation = skip;
 }
 
 /** Start closing: trigger zoom-out animation (overlay disappears immediately) */

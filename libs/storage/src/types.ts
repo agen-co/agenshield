@@ -19,6 +19,7 @@ export interface DbProfileRow {
   broker_uid: number | null;
   broker_home_dir: string | null;
   broker_token: string | null;
+  install_manifest: string | null;
   created_at: string;
   updated_at: string;
 }

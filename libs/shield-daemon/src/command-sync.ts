@@ -2,7 +2,7 @@
  * Command Policy Sync
  *
  * Syncs daemon command policies to the broker's dynamic allowlist
- * (/opt/agenshield/config/allowed-commands.json) and ensures wrappers
+ * ({agentHome}/.agenshield/config/allowed-commands.json) and ensures wrappers
  * are installed in both user bin directories.
  *
  * Flow:
@@ -25,6 +25,18 @@ interface Logger {
 }
 
 const noop: Logger = { warn() { /* no-op */ }, info() { /* no-op */ } };
+
+/** Resolve path to shared shield-exec binary (hostHome/.agenshield/bin or /opt/agenshield/bin fallback) */
+function resolveShieldExecPath(): string {
+  const hostHome = process.env['AGENSHIELD_HOST_HOME'] || process.env['HOME'] || '';
+  return hostHome ? `${hostHome}/.agenshield/bin/shield-exec` : '/opt/agenshield/bin/shield-exec';
+}
+
+/** Resolve path to shared shield-client binary */
+function resolveShieldClientPath(): string {
+  const hostHome = process.env['AGENSHIELD_HOST_HOME'] || process.env['HOME'] || '';
+  return hostHome ? `${hostHome}/.agenshield/bin/shield-client` : '/opt/agenshield/bin/shield-client';
+}
 
 /** Broker's dynamic allowlist file (dev-aware) */
 function getAllowedCommandsPath(): string {
@@ -141,7 +153,7 @@ function extractPolicyCommandNames(policies: PolicyConfig[]): Set<string> {
  * Sync command policies to the broker's dynamic allowlist.
  *
  * Reads allowed command policies, resolves binary paths,
- * and writes /opt/agenshield/config/allowed-commands.json.
+ * and writes {agentHome}/.agenshield/config/allowed-commands.json.
  */
 export function syncCommandPolicies(
   policies: PolicyConfig[],
@@ -205,11 +217,12 @@ export function syncCommandPolicies(
  * Used as a fallback when shield-exec binary is not installed.
  */
 function generateFallbackWrapper(cmd: string): string {
+  const clientPath = resolveShieldClientPath();
   return [
     '#!/bin/bash',
     `# ${cmd} - AgenShield proxy (auto-generated)`,
     'if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi',
-    `exec /opt/agenshield/bin/shield-client exec ${cmd} "$@"`,
+    `exec ${clientPath} exec ${cmd} "$@"`,
     '',
   ].join('\n');
 }
@@ -220,7 +233,7 @@ function generateFallbackWrapper(cmd: string): string {
  * scripts that route through shield-client.
  */
 function installWrappersInDir(binDir: string, log: Logger, policyCommands?: Set<string>): void {
-  const shieldExecPath = '/opt/agenshield/bin/shield-exec';
+  const shieldExecPath = resolveShieldExecPath();
 
   if (!fs.existsSync(binDir)) {
     try {
@@ -304,7 +317,7 @@ function installWrappersInDir(binDir: string, log: Logger, policyCommands?: Set<
  * shield-exec, or bash script with auto-generated marker).
  */
 function cleanupStaleWrappers(binDir: string, policyCommands: Set<string>, log: Logger): void {
-  const shieldExecPath = '/opt/agenshield/bin/shield-exec';
+  const shieldExecPath = resolveShieldExecPath();
 
   let entries: string[];
   try {

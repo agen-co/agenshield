@@ -10,7 +10,6 @@ interface UserNames {
   agentUser: string;
   brokerUser: string;
   socketGroup: string;
-  workspaceGroup: string;
 }
 
 interface ConfirmProps {
@@ -79,7 +78,6 @@ export function Confirm({ installation, presetName, userNames, onConfirm, onCanc
             <Text color="cyan">Agent user:      {userNames.agentUser}</Text>
             <Text color="cyan">Broker user:     {userNames.brokerUser}</Text>
             <Text color="cyan">Socket group:    {userNames.socketGroup}</Text>
-            <Text color="cyan">Workspace group: {userNames.workspaceGroup}</Text>
           </Box>
         </Box>
       )}

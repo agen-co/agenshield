@@ -43,7 +43,7 @@ export interface GroupState {
   /** Group ID */
   gid: number;
   /** Group type */
-  type: 'socket' | 'workspace';
+  type: 'socket';
 }
 
 /**

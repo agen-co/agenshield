@@ -30,8 +30,6 @@ export interface DaemonStatus {
   startedAt?: string;
   /** Agent username from state (type='agent') */
   agentUsername?: string;
-  /** Workspace group name from state (type='workspace') */
-  workspaceGroup?: string;
   /** OpenClaw service status (daemon + gateway) */
   openclaw?: OpenClawServiceStatus;
 }

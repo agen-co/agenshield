@@ -183,8 +183,17 @@ function main(): void {
           return { id: req.id, error: { code: -1, message: 'Missing command or user parameter' } };
         }
         const timeout = req.params?.timeout ?? 300_000;
+        // Strip host-user-specific vars that could mislead installers running
+        // under the agent user (e.g. NVM installer detecting host ZDOTDIR/NVM_DIR
+        // and writing to the host's .zshrc instead of the agent's).
+        const cleanEnv = { ...process.env };
+        delete cleanEnv['NVM_DIR'];
+        delete cleanEnv['NVM_BIN'];
+        delete cleanEnv['NVM_INC'];
+        delete cleanEnv['NVM_CD_FLAGS'];
+        delete cleanEnv['ZDOTDIR'];
         const wrappedCmd = `sudo -H -u ${user} /bin/bash -c ${JSON.stringify(command)}`;
-        const { code, stdout, stderr } = await spawnCommand(wrappedCmd, timeout, process.env);
+        const { code, stdout, stderr } = await spawnCommand(wrappedCmd, timeout, cleanEnv);
         if (code === 0) {
           return { id: req.id, result: { success: true, output: truncateOutput(stdout.trim()) } };
         }

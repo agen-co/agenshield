@@ -47,8 +47,6 @@ export interface UserConfig {
   groups: {
     /** Socket access group (ash_default) */
     socket: GroupDefinition;
-    /** Workspace access group (clawworkspace) */
-    workspace: GroupDefinition;
   };
   /** Optional prefix for all names (e.g., 'test1' → 'test1_agenshield_agent') */
   prefix: string;

@@ -108,12 +108,16 @@ export async function createSkillWrapper(name: string, binDir: string): Promise<
   await sudoMkdir(binDir, agentUsername);
 
   const wrapperPath = path.join(binDir, name);
-  const wrapperContent = `#!/bin/bash
-# ${name} skill wrapper - policy-enforced execution
-# Ensure accessible working directory
-if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
-exec /opt/agenshield/bin/shield-client skill run "${name}" "$@"
-`;
+  const wrapperContent = [
+    '#!/bin/bash',
+    `# ${name} skill wrapper - policy-enforced execution`,
+    '# Ensure accessible working directory',
+    'if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi',
+    'SHIELD_CLIENT="${AGENSHIELD_HOST_HOME:-${HOME}}/.agenshield/bin/shield-client"',
+    '[ ! -x "$SHIELD_CLIENT" ] && SHIELD_CLIENT="/opt/agenshield/bin/shield-client"',
+    `exec "$SHIELD_CLIENT" skill run "${name}" "$@"`,
+    '',
+  ].join('\n');
 
   await sudoWriteFile(wrapperPath, wrapperContent, agentUsername, 0o755);
 

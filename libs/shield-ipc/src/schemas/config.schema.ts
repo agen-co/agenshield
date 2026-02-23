@@ -34,7 +34,6 @@ export const UserConfigSchema = z.object({
   brokerUser: UserDefinitionSchema,
   groups: z.object({
     socket: GroupDefinitionSchema,
-    workspace: GroupDefinitionSchema,
   }),
   prefix: z.string().max(20).default(''),
   baseName: z.string().min(1).max(20).regex(/^[a-z][a-z0-9_]*$/).default('agenshield'),
@@ -46,13 +45,16 @@ export const UserConfigSchema = z.object({
  * Paths configuration schema
  */
 export const PathsConfigSchema = z.object({
-  socketPath: z.string().default('/var/run/agenshield/agenshield.sock'),
+  // NOTE: socketPath, seatbeltDir, logDir, socketDir are now derived from agentHome
+  // at runtime via createPathsConfig(). Defaults are empty — callers should use
+  // createPathsConfig() which resolves paths from UserConfig.
+  socketPath: z.string().default(''),
   configDir: z.string().default('/opt/agenshield/config'),
   policiesDir: z.string().default('/opt/agenshield/policies'),
-  seatbeltDir: z.string().default('/etc/agenshield/seatbelt'),
-  logDir: z.string().default('/var/log/agenshield'),
-  agentHomeDir: z.string().default('/Users/agenshield_agent'),
-  socketDir: z.string().default('/var/run/agenshield'),
+  seatbeltDir: z.string().default(''),
+  logDir: z.string().default(''),
+  agentHomeDir: z.string().default(''),
+  socketDir: z.string().default(''),
 });
 
 /**

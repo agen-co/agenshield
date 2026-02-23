@@ -6,12 +6,22 @@
  */
 
 import { proxy } from 'valtio';
-import type { DetectedTarget, OldInstallation } from '@agenshield/ipc';
+import type { DetectedTarget, OldInstallation, ShieldStepState } from '@agenshield/ipc';
 
 export interface ShieldLogEntry {
   message: string;
   stepId?: string;
   timestamp: number;
+}
+
+export interface ShieldStepEntry {
+  id: string;
+  name: string;
+  description: string;
+  status: ShieldStepState['status'];
+  durationMs?: number;
+  error?: string;
+  logs: ShieldLogEntry[];
 }
 
 export interface ShieldProgressEntry {
@@ -21,6 +31,8 @@ export interface ShieldProgressEntry {
   message?: string;
   profileId?: string;
   logs: ShieldLogEntry[];
+  /** Granular step states (populated by setup:shield_steps events) */
+  steps: ShieldStepEntry[];
 }
 
 export interface SetupPanelState {
@@ -95,6 +107,7 @@ export function updateShieldProgress(
     progress,
     message,
     logs: existing?.logs ?? [],
+    steps: existing?.steps ?? [],
   };
 }
 
@@ -110,6 +123,7 @@ export function markShieldComplete(targetId: string, profileId: string): void {
     message: 'Shielding complete',
     profileId,
     logs: existing?.logs ?? [],
+    steps: existing?.steps ?? [],
   };
 }
 
@@ -131,6 +145,7 @@ export function appendShieldLog(targetId: string, message: string, stepId?: stri
       status: 'in_progress',
       progress: 0,
       logs: [{ message, stepId, timestamp: Date.now() }],
+      steps: [],
     };
   }
 }
@@ -138,6 +153,59 @@ export function appendShieldLog(targetId: string, message: string, stepId?: stri
 /**
  * Open the setup panel
  */
+/**
+ * Update granular shield steps (called from SSE handler for setup:shield_steps).
+ */
+export function updateShieldSteps(
+  targetId: string,
+  steps: ShieldStepState[],
+  overallProgress: number,
+): void {
+  const existing = setupPanelStore.shieldProgress[targetId];
+  const stepEntries: ShieldStepEntry[] = steps.map((s) => {
+    // Preserve existing per-step logs
+    const prev = existing?.steps.find((e) => e.id === s.id);
+    return {
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      status: s.status,
+      durationMs: s.durationMs,
+      error: s.error,
+      logs: prev?.logs ?? [],
+    };
+  });
+
+  setupPanelStore.shieldProgress[targetId] = {
+    status: overallProgress >= 100 ? 'completed' : 'in_progress',
+    currentStep: steps.find((s) => s.status === 'running')?.name,
+    progress: overallProgress,
+    message: steps.find((s) => s.status === 'running')?.description,
+    profileId: existing?.profileId,
+    logs: existing?.logs ?? [],
+    steps: stepEntries,
+  };
+}
+
+/**
+ * Append a log entry to a specific step (called from SSE handler for setup:step_log).
+ */
+export function appendStepLog(
+  targetId: string,
+  stepId: string,
+  message: string,
+): void {
+  const existing = setupPanelStore.shieldProgress[targetId];
+  if (!existing) return;
+  const step = existing.steps.find((s) => s.id === stepId);
+  if (step) {
+    step.logs.push({ message, stepId, timestamp: Date.now() });
+    if (step.logs.length > 50) {
+      step.logs.splice(0, step.logs.length - 50);
+    }
+  }
+}
+
 export function openSetupPanel(mode: 'initial-setup' | 'add-profile'): void {
   setupPanelStore.panelOpen = true;
   setupPanelStore.panelMode = mode;

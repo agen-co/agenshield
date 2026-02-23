@@ -69,15 +69,22 @@ export interface InstallationBackup {
 }
 
 /**
- * Backup file location and permissions
+ * @deprecated Use backupConfigPath() for the file path.
+ * Retained for backward-compat reads of legacy installations.
  */
 export const BACKUP_CONFIG = {
-  /** Directory for AgenShield configuration */
+  /** @deprecated */
   configDir: '/etc/agenshield',
-  /** Backup file path */
+  /** @deprecated Use backupConfigPath() */
   backupPath: '/etc/agenshield/backup.json',
   /** Directory permissions (readable by all, writable by root) */
   dirMode: 0o755,
   /** File permissions (root only) */
   fileMode: 0o600,
 } as const;
+
+/** Resolve backup file path under the host user's ~/.agenshield/ */
+export function backupConfigPath(hostHome?: string): string {
+  const home = hostHome || process.env['HOME'] || '';
+  return `${home}/.agenshield/backup.json`;
+}

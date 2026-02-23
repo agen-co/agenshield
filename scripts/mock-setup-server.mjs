@@ -189,7 +189,6 @@ const server = http.createServer(async (req, res) => {
       agentUser: `_agenshield_${baseName}`,
       brokerUser: `_agenshield_${baseName}_broker`,
       socketGroup: `_agenshield_${baseName}_sock`,
-      workspaceGroup: `_agenshield_${baseName}_ws`,
     };
     broadcast('setup:state_change', { state: wizardState, context, phase });
     return json(res, { success: true, data: { mode: body.mode, baseName, names } });
@@ -208,7 +207,6 @@ const server = http.createServer(async (req, res) => {
           agentUser: `_agenshield_${baseName}`,
           brokerUser: `_agenshield_${baseName}_broker`,
           socketGroup: `_agenshield_${baseName}_sock`,
-          workspaceGroup: `_agenshield_${baseName}_ws`,
         },
       },
     });

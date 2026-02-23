@@ -1,0 +1,16 @@
+export {
+  createDirectoryStructure,
+  createPathsConfig,
+  createDirectory,
+  createSystemDirectories,
+  createAgentDirectories,
+  createAllDirectories,
+  verifyDirectories,
+  seedConfigFiles,
+  setupSocketDirectory,
+  getDirectoryInfo,
+  removeAllDirectories,
+  type DirectoryDefinition,
+  type DirectoryStructure,
+  type DirectoryResult,
+} from './directories.js';

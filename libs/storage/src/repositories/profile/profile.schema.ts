@@ -24,6 +24,7 @@ export const UpdateProfileSchema = z.object({
   brokerUid: z.number().int().nonnegative().optional(),
   brokerHomeDir: z.string().max(500).optional(),
   brokerToken: z.string().length(64).regex(/^[a-f0-9]+$/).optional(),
+  installManifest: z.any().optional(),
 });
 export type UpdateProfileInput = z.input<typeof UpdateProfileSchema>;
 
@@ -45,6 +46,7 @@ export const UpdateProfileCodec = z.codec(
       broker_uid: data.brokerUid,
       broker_home_dir: data.brokerHomeDir,
       broker_token: data.brokerToken,
+      install_manifest: data.installManifest !== undefined ? JSON.stringify(data.installManifest) : undefined,
     }),
   },
 );

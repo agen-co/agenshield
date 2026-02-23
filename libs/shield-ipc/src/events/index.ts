@@ -88,6 +88,8 @@ export {
   type SetupStateChangePayload,
   type SetupScanCompletePayload,
   type SetupLogPayload,
+  type SetupShieldStepsPayload,
+  type SetupStepLogPayload,
   SETUP_EVENT_TYPES,
 } from './setup.events';
 

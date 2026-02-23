@@ -123,7 +123,6 @@ export interface WizardContext {
   /** Groups created */
   groupsCreated?: {
     socket: { name: string; gid: number };
-    workspace: { name: string; gid: number };
   };
 
   /** Directory structure created */

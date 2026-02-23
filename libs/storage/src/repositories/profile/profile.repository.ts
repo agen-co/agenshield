@@ -3,7 +3,7 @@
  */
 
 import * as crypto from 'node:crypto';
-import type { Profile, ProfileType } from '@agenshield/ipc';
+import type { Profile, ProfileType, InstallManifest } from '@agenshield/ipc';
 import type { DbProfileRow } from '../../types';
 import { BaseRepository } from '../base.repository';
 import { CreateProfileSchema, ProfileSchema, UpdateProfileSchema, UpdateProfileCodec } from './profile.schema';
@@ -34,6 +34,7 @@ export class ProfileRepository extends BaseRepository {
       brokerUsername: full.brokerUsername ?? null, brokerUid: full.brokerUid ?? null,
       brokerHomeDir: full.brokerHomeDir ?? null,
       brokerToken: full.brokerToken ?? null,
+      installManifest: null,
       createdAt: full.createdAt, updatedAt: full.updatedAt,
     });
     return full;
@@ -89,6 +90,21 @@ export class ProfileRepository extends BaseRepository {
     if (!this.getById(id)) return null;
     const encoded = UpdateProfileCodec.encode(data);
     this.buildDynamicUpdate(encoded, 'profiles', 'id = @id', { id });
+    return this.getById(id);
+  }
+
+  /**
+   * Persist the install manifest for a profile.
+   * Returns the updated profile or null if not found.
+   */
+  updateManifest(id: string, manifest: InstallManifest): Profile | null {
+    if (!this.getById(id)) return null;
+    this.buildDynamicUpdate(
+      { install_manifest: JSON.stringify(manifest) },
+      'profiles',
+      'id = @id',
+      { id },
+    );
     return this.getById(id);
   }
 

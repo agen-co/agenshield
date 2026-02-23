@@ -2,13 +2,13 @@
  * Migration registry
  *
  * Exports ALL_MIGRATIONS sorted by semver, plus state read/write utilities.
- * Migration state is stored at /etc/agenshield/migrations.json.
+ * Migration state is stored at ~/.agenshield/migrations.json.
  */
 
 import { execSync } from 'node:child_process';
 import type { Migration, MigrationState } from './types.js';
 import { migration as v020 } from './v0-2-0.js';
-import { MIGRATION_STATE_PATH } from '@agenshield/ipc';
+import { MIGRATION_STATE_PATH, migrationStatePath } from '@agenshield/ipc';
 
 export type { Migration, MigrationState, MigrationRecord, MigrationStep, MigrationStepResult, UpdateContext, DiscoveredUser } from './types.js';
 
@@ -43,11 +43,24 @@ export function getPendingMigrations(fromVersion: string, toVersion: string): Mi
 }
 
 /**
- * Load migration state from /etc/agenshield/migrations.json.
+ * Load migration state from ~/.agenshield/migrations.json.
  * Uses sudo cat since the file is root-owned.
- * Returns null if file doesn't exist.
+ * Falls back to legacy /etc/agenshield/migrations.json for existing installs.
  */
 export function loadMigrationState(): MigrationState | null {
+  // Try new path first
+  const newPath = migrationStatePath();
+  try {
+    const content = execSync(`sudo cat "${newPath}" 2>/dev/null`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    });
+    return JSON.parse(content.trim());
+  } catch {
+    // Fall through to legacy path
+  }
+  // Fallback to legacy path
   try {
     const content = execSync(`sudo cat "${MIGRATION_STATE_PATH}" 2>/dev/null`, {
       encoding: 'utf-8',
@@ -61,10 +74,11 @@ export function loadMigrationState(): MigrationState | null {
 }
 
 /**
- * Save migration state to /etc/agenshield/migrations.json.
+ * Save migration state to ~/.agenshield/migrations.json.
  * Uses sudo tee + mv pattern for atomic writes.
  */
 export function saveMigrationState(state: MigrationState): void {
+  const statePath = migrationStatePath();
   const content = JSON.stringify(state, null, 2);
   const tmpPath = '/tmp/agenshield-migrations.json';
 
@@ -75,17 +89,17 @@ export function saveMigrationState(state: MigrationState): void {
   });
 
   // Ensure parent directory exists
-  execSync(`sudo mkdir -p "$(dirname "${MIGRATION_STATE_PATH}")"`, {
+  execSync(`sudo mkdir -p "$(dirname "${statePath}")"`, {
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  execSync(`sudo mv "${tmpPath}" "${MIGRATION_STATE_PATH}"`, {
+  execSync(`sudo mv "${tmpPath}" "${statePath}"`, {
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  execSync(`sudo chmod 644 "${MIGRATION_STATE_PATH}"`, {
+  execSync(`sudo chmod 644 "${statePath}"`, {
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
   });

@@ -6,6 +6,7 @@
  */
 
 import type { DetectedTarget, OldInstallation } from '@agenshield/ipc';
+import type { ShieldStepEntry } from '../../../../state/setup-panel';
 
 export type SetupPanelMode = 'initial-setup' | 'add-profile';
 
@@ -30,6 +31,7 @@ export interface ShieldProgressEntry {
   message?: string;
   profileId?: string;
   logs: ShieldLogEntry[];
+  steps: ShieldStepEntry[];
 }
 
 export interface DetectionStepProps {

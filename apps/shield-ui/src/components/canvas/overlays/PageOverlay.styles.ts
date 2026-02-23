@@ -22,14 +22,14 @@ export const OverlayRoot = styled('div')({
   display: 'flex',
 });
 
-export const ContentPanel = styled('div')<{ $isDark: boolean }>(({ $isDark }) => ({
+export const ContentPanel = styled('div')<{ $isDark: boolean; $skipAnimation?: boolean }>(({ $isDark, $skipAnimation }) => ({
   position: 'relative',
   width: '100%',
   height: '100%',
   display: 'flex',
   flexDirection: 'column',
   backgroundColor: $isDark ? '#0f1114' : '#f8f8f6',
-  animation: `${overlayEnter} 600ms cubic-bezier(0.16, 1, 0.3, 1) both`,
+  animation: $skipAnimation ? 'none' : `${overlayEnter} 600ms cubic-bezier(0.16, 1, 0.3, 1) both`,
   overflow: 'hidden',
 }));
 
