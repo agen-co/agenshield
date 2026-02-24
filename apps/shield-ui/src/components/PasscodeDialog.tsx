@@ -111,7 +111,7 @@ export function PasscodeDialog({ open, onClose, mode: initialMode, fullScreen }:
         </Box>
       </DialogTitle>
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} autoComplete="off">
         <DialogContent>
           {mode === 'setup' ? (
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -148,7 +148,7 @@ export function PasscodeDialog({ open, onClose, mode: initialMode, fullScreen }:
             autoFocus
             disabled={isLocked || loading}
             sx={{ mb: mode === 'setup' ? 2 : 0 }}
-            inputProps={{ minLength: 4 }}
+            inputProps={{ minLength: 4, autoComplete: 'off' }}
           />
 
           {mode === 'setup' && (
@@ -159,7 +159,7 @@ export function PasscodeDialog({ open, onClose, mode: initialMode, fullScreen }:
               onChange={(e) => setConfirmPasscode(e.target.value)}
               fullWidth
               disabled={loading}
-              inputProps={{ minLength: 4 }}
+              inputProps={{ minLength: 4, autoComplete: 'off' }}
             />
           )}
         </DialogContent>

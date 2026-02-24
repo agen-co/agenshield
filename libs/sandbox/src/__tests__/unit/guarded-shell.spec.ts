@@ -93,11 +93,18 @@ describe('zdotZshenvContent', () => {
     expect(content).toContain('$HOME/bin');
   });
 
-  it('contains NVM initialization', () => {
-    const content = zdotZshenvContent('/Users/ash_test_agent');
+  it('contains NVM initialization when nvm feature enabled', () => {
+    const content = zdotZshenvContent('/Users/ash_test_agent', { nvm: true });
 
     expect(content).toContain('NVM_DIR');
     expect(content).toContain('nvm.sh');
+  });
+
+  it('omits NVM initialization by default', () => {
+    const content = zdotZshenvContent('/Users/ash_test_agent');
+
+    expect(content).not.toContain('NVM_DIR');
+    expect(content).not.toContain('nvm.sh');
   });
 
   it('contains NO_GLOBAL_RCS to skip system rc files', () => {

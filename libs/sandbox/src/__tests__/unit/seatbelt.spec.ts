@@ -77,13 +77,22 @@ describe('generateAgentProfile', () => {
   });
 
   it('contains deny rules for agent-owned directories', () => {
-    const profile = generateAgentProfile(defaultOptions);
+    const profile = generateAgentProfile({
+      ...defaultOptions,
+      denyWritePaths: ['.openclaw'],
+    });
 
     expect(profile).toContain(
       `(deny file-write* (subpath "${defaultOptions.agentHome}/bin"))`,
     );
     expect(profile).toContain(
       `(deny file-write* (subpath "${defaultOptions.agentHome}/.openclaw"))`,
+    );
+    expect(profile).toContain(
+      `(deny file-write* (subpath "${defaultOptions.agentHome}/.zdot"))`,
+    );
+    expect(profile).toContain(
+      `(deny file-write* (subpath "${defaultOptions.agentHome}/.agenshield"))`,
     );
   });
 

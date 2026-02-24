@@ -25,6 +25,7 @@ export const UpdateProfileSchema = z.object({
   brokerHomeDir: z.string().max(500).optional(),
   brokerToken: z.string().length(64).regex(/^[a-f0-9]+$/).optional(),
   installManifest: z.any().optional(),
+  gatewayPort: z.number().int().min(1024).max(65535).optional(),
 });
 export type UpdateProfileInput = z.input<typeof UpdateProfileSchema>;
 
@@ -47,6 +48,7 @@ export const UpdateProfileCodec = z.codec(
       broker_home_dir: data.brokerHomeDir,
       broker_token: data.brokerToken,
       install_manifest: data.installManifest !== undefined ? JSON.stringify(data.installManifest) : undefined,
+      gateway_port: data.gatewayPort,
     }),
   },
 );

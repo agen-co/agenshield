@@ -161,7 +161,6 @@ export async function buildSandboxConfig(
   const agentHome = deps.agentHome;
   sandbox.allowedWritePaths.push(agentHome);
   sandbox.allowedBinaries.push(
-    '/opt/agenshield/bin/',
     `${agentHome}/homebrew/`,
     `${agentHome}/.nvm/`,
     `${agentHome}/bin/`,

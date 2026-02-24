@@ -81,7 +81,7 @@ export function UnlockDialog({ open, description, actionLabel, onSuccess, onClos
         </Box>
       </DialogTitle>
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} autoComplete="off">
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {description}
@@ -111,7 +111,7 @@ export function UnlockDialog({ open, description, actionLabel, onSuccess, onClos
             autoFocus
             inputRef={(input: HTMLInputElement | null) => { if (input) setTimeout(() => input.focus(), 50); }}
             disabled={isLocked || loading}
-            inputProps={{ minLength: 4 }}
+            inputProps={{ minLength: 4, autoComplete: 'off' }}
           />
         </DialogContent>
 

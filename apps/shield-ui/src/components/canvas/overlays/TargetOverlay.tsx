@@ -28,7 +28,7 @@ import { setScope, clearScope } from '../../../state/scope';
 import { setupPanelStore } from '../../../state/setup-panel';
 import { useProfiles } from '../../../api/hooks';
 import { useTargets } from '../../../api/targets';
-import { useIsShielding } from '../../../hooks/useIsShielding';
+
 
 /* ---- Tab config ---- */
 
@@ -62,18 +62,26 @@ export const TargetOverlay = memo(({ targetId, tab, skipAnimation }: TargetOverl
   const isDark = theme.palette.mode === 'dark';
   const navigate = useNavigate();
   const location = useLocation();
-  const shielding = useIsShielding();
-
-  // Resolve target info from lifecycle API — disable polling during shielding
-  const { data: targetsData } = useTargets(!shielding);
-  const targetInfo = useMemo(() => {
-    const targets = targetsData?.data;
-    return targets?.find(t => t.id === targetId);
-  }, [targetsData, targetId]);
-
-  // Resolve profile ID for scope management
+  // Resolve target info from lifecycle API (SSE-driven)
+  const { data: targetsData } = useTargets();
   const { data: profilesData } = useProfiles();
   const shieldProgressSnap = useSnapshot(setupPanelStore).shieldProgress;
+
+  const targetInfo = useMemo(() => {
+    const targets = targetsData?.data;
+    if (!targets) return undefined;
+    // Exact match first
+    const exact = targets.find(t => t.id === targetId);
+    if (exact) return exact;
+    // Fallback: resolve via shieldProgress profileId (handles pre-shield ID navigation)
+    const progress = shieldProgressSnap[targetId];
+    if (progress?.profileId) {
+      return targets.find(t => t.id === progress.profileId);
+    }
+    return undefined;
+  }, [targetsData, targetId, shieldProgressSnap]);
+
+  // Resolve profile ID for scope management
 
   const profileId = useMemo(() => {
     // 1. Check shield progress (set during shield operation)

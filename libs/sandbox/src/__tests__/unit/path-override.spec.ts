@@ -66,10 +66,10 @@ describe('generateRouterWrapper', () => {
     expect(content).toContain('$HOME/.agenshield/path-registry.json');
   });
 
-  it('falls back to legacy registry path', () => {
+  it('does not reference legacy /etc/agenshield path', () => {
     const content = generateRouterWrapper('openclaw');
 
-    expect(content).toContain('/etc/agenshield/path-registry.json');
+    expect(content).not.toContain('/etc/agenshield/path-registry.json');
   });
 
   it('handles single instance routing', () => {

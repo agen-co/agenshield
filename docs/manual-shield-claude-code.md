@@ -47,21 +47,18 @@ The agent user's login shell is the **guarded shell**, which blocks most command
 > **Do NOT use `sudo su ash_claudecode_agent`** — it enters the guarded shell and
 > commands like `ls`, `curl`, `bash`, etc. will be denied.
 
-Instead, run commands as the agent user from a **root shell** with:
+Instead, run commands as the agent user via the **guarded-shell** with `-c`:
 
 ```bash
-cd / && sudo -H -u ash_claudecode_agent bash -c '<command>'
+sudo -u ash_claudecode_agent $GUARDED_SHELL_PATH -c '<command>'
 ```
 
-The `cd /` is required because `sudo -H -u` inherits the calling shell's working
-directory. In a root shell the CWD is typically `/var/root` — a directory the
-agent user cannot access, causing `getcwd: cannot access parent directories:
-Permission denied`. Changing to `/` first avoids this. This mirrors the daemon's
-privilege helper which spawns with `cwd: '/'`.
+The guarded-shell sets `ZDOTDIR` → zsh reads `.zshenv` (which sets `HOME`,
+`PATH`, `SHELL`). No explicit env injection needed — the shell environment is
+fully configured by the ZDOTDIR files.
 
-This invokes `bash` directly, bypassing the guarded login shell entirely. This is
-the same mechanism the daemon's `execAsUser` uses internally (via the root
-privilege helper).
+This is the same mechanism the daemon's `execAsUser` uses internally (via the
+root privilege helper).
 
 All "Runs as: ash_claudecode_agent" steps below are already formatted this way so
 you can copy-paste them directly from a root shell. For root commands, just run
@@ -239,6 +236,32 @@ chown ash_claudecode_broker:ash_claudecode "/Users/ash_claudecode_agent/.agenshi
 chmod 2770 "/Users/ash_claudecode_agent/.agenshield/run"
 ```
 
+### 3.3b Set macOS ACLs on host directories
+
+The broker and agent users need traversal access to the host's `~/.agenshield/`
+directory tree (for plist binary paths and command wrappers).
+
+```bash
+# Runs as: root | Timeout: 15s
+# Broker user ACLs
+chmod -a "$BROKER_USER allow search" "$HOST_HOME" 2>/dev/null; true
+chmod +a "$BROKER_USER allow search" "$HOST_HOME"
+chmod -a "$BROKER_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield" 2>/dev/null; true
+chmod +a "$BROKER_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield"
+chmod -a "$BROKER_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/bin" 2>/dev/null; true
+chmod +a "$BROKER_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/bin"
+# Agent user ACLs (wrappers exec shield-client from host .agenshield/bin)
+chmod -a "$AGENT_USER allow search" "$HOST_HOME" 2>/dev/null; true
+chmod +a "$AGENT_USER allow search" "$HOST_HOME"
+chmod -a "$AGENT_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield" 2>/dev/null; true
+chmod +a "$AGENT_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield"
+chmod -a "$AGENT_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/bin" 2>/dev/null; true
+chmod +a "$AGENT_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/bin"
+```
+
+> Each `chmod -a` (remove) before `chmod +a` (add) is intentional — it ensures
+> idempotency by removing any stale ACE before re-adding it.
+
 ### 3.4 Write .agenshield/meta.json
 
 ```bash
@@ -288,12 +311,8 @@ _ASH_HOME="$(dscl . -read /Users/$(id -un) NFSHomeDirectory 2>/dev/null | awk '{
 [ -z "$_ASH_HOME" ] && _ASH_HOME="/Users/$(id -un)"
 unset HOME
 
-# Per-target ZDOTDIR under agent home; fall back to shared /etc/agenshield/zdot
-if [ -d "${_ASH_HOME}/.zdot" ]; then
-  export ZDOTDIR="${_ASH_HOME}/.zdot"
-else
-  export ZDOTDIR="/etc/agenshield/zdot"
-fi
+# Per-target ZDOTDIR under agent home
+export ZDOTDIR="${_ASH_HOME}/.zdot"
 
 # Start zsh — it will read ZDOTDIR/.zshenv then ZDOTDIR/.zshrc
 exec /bin/zsh "$@"
@@ -396,17 +415,17 @@ is_allowed_cmd() {
   # Deny path execution outright
   [[ "$cmd" == */* ]] && return 1
 
-  # Resolve command path
-  local resolved
-  resolved="$(whence -p -- "$cmd" 2>/dev/null)" || return 1
-
-  # Must live under HOME/bin
-  [[ "$resolved" == "$HOME/bin/"* ]] && return 0
+  # Allow if command exists in any allowed directory (handles symlinks correctly)
+  # -x checks file existence + execute permission at the symlink path, not the target
+  [[ -x "$HOME/bin/$cmd" ]] && return 0
   return 1
 }
 
 # ---- Block dangerous builtins ----
-disable -r builtin command exec eval hash nohup setopt source unfunction functions alias unalias 2>/dev/null || true
+# Disable as reserved words (command, exec, builtin ARE reserved words in zsh)
+disable -r command exec builtin 2>/dev/null || true
+# Disable as builtins (eval, source, hash, etc.)
+disable eval hash nohup source unfunction functions alias unalias 2>/dev/null || true
 
 # ---- Intercept every interactive command before execution ----
 preexec() {
@@ -464,28 +483,159 @@ ls -la "$AGENT_HOME/.agenshield/bin/guarded-shell"
 
 ---
 
-## Phase 5 — Install Command Wrappers
+## Phase 5 — Deploy Binaries & Install Command Wrappers
 
-> Handled by `installPresetBinaries()`. Installs wrappers for the required and
-> optional binaries defined by the `claudecode` preset.
->
-> **Required:** `node`, `npm`, `git`, `bash`
-> **Optional:** `npx`, `curl`, `python3`, `pip`, `brew`, `ssh`
->
-> Each wrapper is a small script in `$AGENT_HOME/bin/` that delegates
-> to the real binary via the interceptor.
+> Handled by `installPresetBinaries()` in `wrappers.ts`. This phase deploys
+> shared binaries to `$HOST_HOME/.agenshield/` and installs per-target wrappers
+> into `$AGENT_HOME/bin/`.
 
-This step is code-driven (no single shell command to paste). The result is
-wrapper scripts at `/Users/ash_claudecode_agent/bin/{node,npm,git,bash,...}`.
+### 5.1 Deploy interceptor (conditional)
+
+Copy the interceptor CJS bundle so that node/npm wrappers can use `--require`
+to load it. This step only runs if any wrapper in the preset sets
+`usesInterceptor: true` — check the `WRAPPER_DEFINITIONS` in `wrappers.ts`.
+
+```bash
+# Runs as: root | Timeout: 30s
+# Build the interceptor first (from repo root)
+npx nx build shield-interceptor
+
+# Deploy to shared lib
+mkdir -p "$SHARED_LIB/interceptor"
+INTERCEPTOR_SRC="$(pwd)/libs/shield-interceptor/dist/register.cjs"
+cp "$INTERCEPTOR_SRC" "$SHARED_LIB/interceptor/register.cjs" && \
+chown root:$GROUP "$SHARED_LIB/interceptor/register.cjs" && \
+chmod 644 "$SHARED_LIB/interceptor/register.cjs"
+```
+
+### 5.2 Deploy broker binary
+
+Copy the broker to `$SHARED_BIN/agenshield-broker`. The LaunchDaemon plist
+(Phase 10) references this path.
+
+```bash
+# Runs as: your user (from repo root) | Timeout: 120s
+npx nx build shield-broker
+```
+
+```bash
+# Runs as: root | Timeout: 15s
+BROKER_SRC="$(pwd)/libs/shield-broker/dist/main.js"
+mkdir -p "$SHARED_BIN" && \
+cp "$BROKER_SRC" "$SHARED_BIN/agenshield-broker" && \
+chmod 755 "$SHARED_BIN/agenshield-broker" && \
+chown root:$GROUP "$SHARED_BIN/agenshield-broker"
+```
+
+### 5.3 Create ESM package.json
+
+The broker binary is built with esbuild `format:"esm"` and uses `import`
+statements. Without this `package.json`, Node defaults to CJS and crashes.
+
+```bash
+# Runs as: root | Timeout: 5s
+cat > "$HOST_HOME/.agenshield/package.json" << 'EOF'
+{"type":"module"}
+EOF
+chown root:wheel "$HOST_HOME/.agenshield/package.json"
+```
+
+### 5.4 Deploy shield-client
+
+Copy shield-client to `$SHARED_BIN/shield-client`. The shebang is rewritten
+from `#!/usr/bin/env node` to `#!$AGENT_HOME/bin/node-bin` so it runs
+**without** the interceptor (avoids infinite recursion: interceptor → wrapper
+→ shield-client → node+interceptor → …).
+
+```bash
+# Runs as: your user (from repo root) | Timeout: 60s
+npx nx build shield-broker   # shield-client is built as part of the broker package
+```
+
+```bash
+# Runs as: root | Timeout: 15s
+CLIENT_SRC="$(pwd)/libs/shield-broker/dist/client/shield-client.js"
+# Rewrite shebang to use agent's node-bin
+sed "1s|#!/usr/bin/env node|#!$AGENT_HOME/bin/node-bin|" "$CLIENT_SRC" > /tmp/shield-client-install && \
+mkdir -p "$SHARED_BIN" && \
+mv /tmp/shield-client-install "$SHARED_BIN/shield-client" && \
+chmod 755 "$SHARED_BIN/shield-client" && \
+chown root:$GROUP "$SHARED_BIN/shield-client"
+```
+
+### 5.4b Bootstrap node-bin
+
+Copy the host's Node.js binary to `$AGENT_HOME/bin/node-bin` so the
+shield-client shebang works before Phase 7 (Claude Code install). This is a
+bootstrap copy — Phase 7 may overwrite it with a newer version.
+
+```bash
+# Runs as: root | Timeout: 15s
+cp "$(which node)" "$AGENT_HOME/bin/node-bin" && \
+chown root:$GROUP "$AGENT_HOME/bin/node-bin" && \
+chmod 755 "$AGENT_HOME/bin/node-bin"
+```
+
+### 5.5 Install wrapper scripts
+
+Generates wrapper scripts in `$AGENT_HOME/bin/` for the required and optional
+binaries defined by the `claudecode` preset.
+
+**Required:** `node`, `npm`, `git`, `bash`
+**Optional:** `npx`, `curl`, `python3`, `pip`, `brew`, `ssh`
+
+Each wrapper is a small shell script that delegates to the real binary via the
+interceptor. This step is code-driven (`installSpecificWrappers()` in
+`wrappers.ts`).
 
 ```bash
 # Verify wrappers were created:
-ls -la /Users/ash_claudecode_agent/bin/
+ls -la $AGENT_HOME/bin/
+```
+
+### 5.6 Install basic command symlinks
+
+Symlink basic system commands (`ls`, `cat`, `grep`, etc.) into
+`$AGENT_HOME/bin/` so the guarded shell can use them. These are plain
+symlinks — no interception.
+
+```bash
+# Runs as: root | Timeout: 30s
+for cmd in ls cat head tail less more grep find mkdir rmdir rm cp mv pwd \
+  basename dirname wc sort uniq tr cut sed awk date touch chmod file which \
+  env echo printf test true false id whoami hostname uname tee xargs diff \
+  tar gzip gunzip; do
+  for loc in /bin/$cmd /usr/bin/$cmd; do
+    if [ -x "$loc" ]; then
+      ln -sf "$loc" "$AGENT_HOME/bin/$cmd"
+      break
+    fi
+  done
+done
+```
+
+### 5.7 Lock down permissions
+
+Set root ownership on all wrapper files and symlinks, then restore the bin
+directory itself to broker-owned with setgid so skills can be installed later.
+
+```bash
+# Runs as: root | Timeout: 15s
+chown -R root:$GROUP "$AGENT_HOME/bin" && \
+chmod -R 755 "$AGENT_HOME/bin" && \
+# Restore bin dir to broker-owned, setgid + group-writable
+chown $BROKER_USER:$GROUP "$AGENT_HOME/bin" && \
+chmod 2775 "$AGENT_HOME/bin"
 ```
 
 ---
 
 ## Phase 6 — PATH Router Override
+
+> **Design note:** The path registry is a plain JSON file (not in the SQLite DB)
+> because the router wrapper at `/usr/local/bin/<command>` is a bash script that
+> reads it at runtime via `awk`. A shell script cannot query SQLite. The registry
+> must also be readable without the daemon running.
 
 ### 6.1 Create host-level registry directory
 
@@ -509,7 +659,8 @@ cat > "$HOST_HOME/.agenshield/path-registry.json" << 'REGISTRY_EOF'
         "name": "Claude Code",
         "agentBinPath": "/Users/ash_claudecode_agent/bin/claude",
         "baseName": "claude",
-        "agentUsername": "ash_claudecode_agent"
+        "agentUsername": "ash_claudecode_agent",
+        "agentHome": "/Users/ash_claudecode_agent"
       }
     ]
   }
@@ -537,39 +688,52 @@ cat > "/usr/local/bin/claude" << 'AGENSHIELD_WRAPPER_EOF'
 # Router for: claude
 
 REGISTRY="$HOME/.agenshield/path-registry.json"
-
 if [ ! -f "$REGISTRY" ]; then
   echo "AgenShield: No registry found. No shielded instances configured." >&2
   exit 1
 fi
 
-# Read instances from registry
-RESULT=$(python3 -c "
-import sys, json
-try:
-    d = json.load(open('$REGISTRY'))
-except:
-    print('ERROR')
-    sys.exit(0)
-entry = d.get('claude', {})
-instances = entry.get('instances', [])
-orig = entry.get('originalBinary', '')
-if len(instances) == 0:
-    if orig:
-        print('ORIG:' + orig)
-    else:
-        print('NONE')
-elif len(instances) == 1:
-    u = instances[0].get('agentUsername', '')
-    print('EXEC:' + u + ':' + instances[0]['agentBinPath'])
-else:
-    for i, inst in enumerate(instances):
-        u = inst.get('agentUsername', '')
-        print(str(i+1) + ') ' + inst['name'] + ' [' + inst['baseName'] + ']|' + u + ':' + inst['agentBinPath'])
-    print('CHOOSE')
-" 2>/dev/null)
+# Helper: exec as agent user with NVM-aware PATH
+_agenshield_exec() {
+  local AGENT_USER="$1" BIN="$2" AGENT_HOME="$3"
+  shift 3
+  if [ -z "$AGENT_USER" ]; then
+    exec "$BIN" "$@"
+  fi
+  if [ -n "$AGENT_HOME" ]; then
+    exec sudo -H -u "$AGENT_USER" /bin/bash -c '
+      export HOME="'"$AGENT_HOME"'"
+      export NVM_DIR="$HOME/.nvm"
+      [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+      export PATH="$HOME/bin:$PATH"
+      exec "'"$BIN"'" "$@"
+    ' -- "$@"
+  else
+    exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
+  fi
+}
 
-if [[ "$RESULT" == "ERROR" ]]; then
+# Parse registry with awk (no python3 dependency)
+RESULT=$(awk -v bn="claude" '
+BEGIN { ib=0; ii=0; ic=0; orig="" }
+$0 ~ "\"" bn "\"[[:space:]]*:" { ib=1; next }
+ib && /"originalBinary"/ { gsub(/.*: "/, ""); gsub(/".*/, ""); orig=$0 }
+ib && /"instances"/ { ii=1; next }
+ii && /\{/ { ic++ }
+ii && /"agentUsername"/ { gsub(/.*: "/, ""); gsub(/".*/, ""); u[ic]=$0 }
+ii && /"agentBinPath"/ { gsub(/.*: "/, ""); gsub(/".*/, ""); b[ic]=$0 }
+ii && /"agentHome"/ { gsub(/.*: "/, ""); gsub(/".*/, ""); h[ic]=$0 }
+ii && /"name"[[:space:]]*:/ { gsub(/.*: "/, ""); gsub(/".*/, ""); n[ic]=$0 }
+ii && /"baseName"/ { gsub(/.*: "/, ""); gsub(/".*/, ""); bn2[ic]=$0 }
+ii && /\]/ { ii=0 }
+ib && !ii && /\}/ { ib=0 }
+END {
+  if (ic==0) { if (orig!="") print "ORIG:" orig; else print "NONE" }
+  else if (ic==1) print "EXEC:" u[1] ":" b[1] ":" h[1]
+  else { for(i=1;i<=ic;i++) print i") " n[i] " [" bn2[i] "]|" u[i] ":" b[i] ":" h[i]; print "CHOOSE" }
+}' "$REGISTRY" 2>/dev/null)
+
+if [[ -z "$RESULT" ]]; then
   echo "AgenShield: Failed to read registry." >&2
   exit 1
 elif [[ "$RESULT" == ORIG:* ]]; then
@@ -578,12 +742,10 @@ elif [[ "$RESULT" == ORIG:* ]]; then
 elif [[ "$RESULT" == EXEC:* ]]; then
   PAYLOAD="${RESULT#EXEC:}"
   AGENT_USER="${PAYLOAD%%:*}"
-  BIN="${PAYLOAD#*:}"
-  if [ -n "$AGENT_USER" ]; then
-    exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
-  else
-    exec "$BIN" "$@"
-  fi
+  REST="${PAYLOAD#*:}"
+  BIN="${REST%%:*}"
+  AGENT_HOME="${REST#*:}"
+  _agenshield_exec "$AGENT_USER" "$BIN" "$AGENT_HOME" "$@"
 elif [[ "$RESULT" == "NONE" ]]; then
   echo "AgenShield: No shielded instances configured." >&2
   exit 1
@@ -592,23 +754,14 @@ elif [[ "$RESULT" == *"CHOOSE" ]]; then
   echo "$RESULT" | grep -v CHOOSE | sed 's/|.*//' >&2
   printf "Select instance (number): " >&2
   read -r CHOICE
-  SELECTED=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('$REGISTRY'))
-    instances = d.get('claude', {}).get('instances', [])
-    idx = int('$CHOICE') - 1
-    if 0 <= idx < len(instances):
-        u = instances[idx].get('agentUsername', '')
-        print(u + ':' + instances[idx]['agentBinPath'])
-except:
-    pass
-" 2>/dev/null)
+  SELECTED=$(echo "$RESULT" | grep "^${CHOICE}) " | sed 's/.*|//')
   if [ -n "$SELECTED" ]; then
     AGENT_USER="${SELECTED%%:*}"
-    BIN="${SELECTED#*:}"
+    REST="${SELECTED#*:}"
+    BIN="${REST%%:*}"
+    AGENT_HOME="${REST#*:}"
     if [ -n "$AGENT_USER" ] && [ -n "$BIN" ]; then
-      exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
+      _agenshield_exec "$AGENT_USER" "$BIN" "$AGENT_HOME" "$@"
     fi
   fi
   echo "Invalid selection." >&2
@@ -629,14 +782,14 @@ that downloads the binary. No Homebrew, NVM, or Node.js installation needed.
 
 ```bash
 # Runs as: ash_claudecode_agent | Timeout: 180s
-cd / && sudo -H -u ash_claudecode_agent bash -c 'export HOME="/Users/ash_claudecode_agent" && curl -fsSL https://claude.ai/install.sh | bash'
+sudo -u ash_claudecode_agent $GUARDED_SHELL_PATH -c 'curl -fsSL https://claude.ai/install.sh | bash'
 ```
 
 ### 7.2 Verify Claude Code binary
 
 ```bash
 # Runs as: ash_claudecode_agent | Timeout: 15s
-cd / && sudo -H -u ash_claudecode_agent bash -c 'export HOME="/Users/ash_claudecode_agent" && export PATH="/Users/ash_claudecode_agent/.claude/local/bin:$PATH" && claude --version'
+sudo -u ash_claudecode_agent $GUARDED_SHELL_PATH -c 'claude --version'
 ```
 
 ### 7.3 Stop host Claude Code processes
@@ -668,7 +821,7 @@ fi
 
 ```bash
 # Runs as: ash_claudecode_agent | Timeout: 15s
-cd / && sudo -H -u ash_claudecode_agent bash -c 'export HOME="/Users/ash_claudecode_agent" && export PATH="/Users/ash_claudecode_agent/.claude/local/bin:$PATH" && claude --version 2>/dev/null; true'
+sudo -u ash_claudecode_agent $GUARDED_SHELL_PATH -c 'claude --version 2>/dev/null; true'
 ```
 
 ---
@@ -708,11 +861,6 @@ cat > "/Users/ash_claudecode_agent/.agenshield/seatbelt/agent.sb" << 'SEATBELT_E
   (literal "/bin/bash")
   (literal "/usr/bin/env"))
 
-;; AgenShield config (ZDOTDIR, path-registry, seatbelt profiles)
-(allow file-read*
-  (subpath "/etc/agenshield")
-  (subpath "/private/etc/agenshield"))
-
 ;; Per-target .agenshield directory (seatbelt profiles, socket, logs)
 (allow file-read* (subpath "/Users/ash_claudecode_agent/.agenshield"))
 
@@ -743,8 +891,6 @@ cat > "/Users/ash_claudecode_agent/.agenshield/seatbelt/agent.sb" << 'SEATBELT_E
 (deny file-write* (subpath "/Users/ash_claudecode_agent/.claude"))
 (deny file-write* (subpath "/Users/ash_claudecode_agent/.zdot"))
 (deny file-write* (subpath "/Users/ash_claudecode_agent/.agenshield"))
-(deny file-write* (subpath "/opt/agenshield"))
-(deny file-write* (subpath "/etc/agenshield"))
 
 ;; ========================================
 ;; System Libraries & Frameworks (Read-only)
@@ -805,7 +951,7 @@ cat > "/Users/ash_claudecode_agent/.agenshield/seatbelt/agent.sb" << 'SEATBELT_E
   (literal "/bin/bash")
   (literal "/usr/bin/env")
   (subpath "/Users/ash_claudecode_agent/bin")
-  (subpath "/opt/agenshield/bin")
+  (literal "/Users/ash_claudecode_agent/.agenshield/bin/guarded-shell")
   (subpath "/usr/local/bin")
   (subpath "/opt/homebrew/bin"))
 
@@ -866,42 +1012,6 @@ $HOST_USER ALL=(ash_claudecode_broker) NOPASSWD: ALL
 SUDOERS_EOF
 chmod 440 "/etc/sudoers.d/agenshield-claudecode" && \
 visudo -c -f "/etc/sudoers.d/agenshield-claudecode" 2>/dev/null || rm -f "/etc/sudoers.d/agenshield-claudecode"
-```
-
----
-
-## Phase 9b — Install Broker Binary
-
-The broker plist references `$SHARED_BIN/agenshield-broker`. The automated
-flow uses `copyBrokerBinary()` in `wrappers.ts`. For manual installs, build and
-copy it:
-
-### 9b.1 Build the broker
-
-```bash
-# Runs as: your user (from repo root) | Timeout: 120s
-npx nx build shield-broker
-```
-
-### 9b.2 Copy broker binary to $SHARED_BIN
-
-```bash
-# Runs as: root | Timeout: 15s
-BROKER_SRC="$(pwd)/libs/shield-broker/dist/main.js"
-mkdir -p "$SHARED_BIN" && \
-cp "$BROKER_SRC" "$SHARED_BIN/agenshield-broker" && \
-chmod 755 "$SHARED_BIN/agenshield-broker" && \
-chown root:$GROUP "$SHARED_BIN/agenshield-broker"
-```
-
-### 9b.3 Create ESM package.json
-
-```bash
-# Runs as: root | Timeout: 5s
-cat > "$HOST_HOME/.agenshield/package.json" << 'EOF'
-{"type":"module"}
-EOF
-chown root:wheel "$HOST_HOME/.agenshield/package.json"
 ```
 
 ---
@@ -1043,7 +1153,7 @@ ls -la /Users/ash_claudecode_agent/.agenshield/seatbelt/agent.sb
 ls -la /Users/ash_claudecode_agent/.agenshield/logs/
 
 # Check Claude Code binary
-cd / && sudo -H -u ash_claudecode_agent bash -c 'export HOME="/Users/ash_claudecode_agent" && export PATH="/Users/ash_claudecode_agent/.claude/local/bin:$PATH" && claude --version'
+sudo -u ash_claudecode_agent $GUARDED_SHELL_PATH -c 'claude --version'
 
 # Check LaunchDaemons (no gateway for Claude Code)
 launchctl list | grep com.agenshield
@@ -1060,6 +1170,24 @@ grep -c guarded-shell /etc/shells
 
 # Check ZDOTDIR (per-target)
 ls -la /Users/ash_claudecode_agent/.zdot/
+
+# Check interceptor deployment
+test -f "$HOST_HOME/.agenshield/lib/interceptor/register.cjs" && echo "Interceptor OK" || echo "Interceptor MISSING"
+
+# Check broker binary
+test -x "$HOST_HOME/.agenshield/bin/agenshield-broker" && echo "Broker binary OK" || echo "Broker binary MISSING"
+
+# Check shield-client
+test -x "$HOST_HOME/.agenshield/bin/shield-client" && echo "Shield-client OK" || echo "Shield-client MISSING"
+
+# Check ESM package.json
+test -f "$HOST_HOME/.agenshield/package.json" && echo "ESM package.json OK" || echo "ESM package.json MISSING"
+
+# Check node-bin bootstrap
+test -x "$AGENT_HOME/bin/node-bin" && echo "node-bin OK" || echo "node-bin MISSING"
+
+# Check basic command symlinks
+ls -la "$AGENT_HOME/bin/ls" "$AGENT_HOME/bin/cat" "$AGENT_HOME/bin/grep"
 
 # Check PATH router
 head -3 /usr/local/bin/claude

@@ -28,6 +28,8 @@ export interface Profile {
   brokerToken?: string;
   /** Manifest of steps executed during shield — used for manifest-driven unshield */
   installManifest?: InstallManifest;
+  /** Per-target gateway port allocation (openclaw targets) */
+  gatewayPort?: number;
   createdAt: string;
   updatedAt: string;
 }

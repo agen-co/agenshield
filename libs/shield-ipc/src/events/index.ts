@@ -105,3 +105,15 @@ export {
   type ResourceLimitEnforcedPayload,
   RESOURCE_EVENT_TYPES,
 } from './resource.events';
+
+export {
+  type TargetMetricsEntry,
+  type MetricsSnapshotPayload,
+  METRICS_EVENT_TYPES,
+} from './metrics.events';
+
+export {
+  type TargetStatusInfo,
+  type TargetStatusPayload,
+  TARGET_EVENT_TYPES,
+} from './target.events';

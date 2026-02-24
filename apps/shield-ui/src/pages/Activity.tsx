@@ -39,6 +39,7 @@ import {
   getEventDisplay,
   resolveEventColor,
   getEventSummary,
+  resolveTargetNames,
   getEventColor,
   getEventStatus,
   getEventSeverity,
@@ -47,6 +48,7 @@ import {
   BLOCKED_EVENT_TYPES,
   SEVERITY_COLORS,
 } from '../utils/eventDisplay';
+import { useProfiles } from '../api/hooks';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { EventDetailPanel } from '../components/overview/EventDetailPanel';
 
@@ -81,6 +83,7 @@ const ROW_HEIGHT = 44;
 export interface ActivityProps {
   embedded?: boolean;
   sourceFilter?: string;
+  profileId?: string;
   selectedEventId?: string | null;
   onSelectEvent?: (event: SSEEvent | null) => void;
   fillHeight?: boolean;
@@ -115,6 +118,7 @@ function matchesTypeFilter(event: SSEEvent, filter: TypeFilter): boolean {
 export function Activity({
   embedded,
   sourceFilter,
+  profileId: profileIdFilter,
   selectedEventId,
   onSelectEvent,
   fillHeight,
@@ -122,6 +126,16 @@ export function Activity({
   const theme = useTheme();
   const guard = useGuardedAction();
   const { events } = useSnapshot(eventStore);
+  const { data: profilesData } = useProfiles();
+  const targetNameMap = useMemo(() => {
+    const profiles = profilesData?.data ?? [];
+    const map = new Map<string, string>();
+    for (const p of profiles as Array<{ id: string; name: string; targetName?: string }>) {
+      if (p.targetName) map.set(p.targetName, p.name);
+      map.set(p.id, p.name);
+    }
+    return map;
+  }, [profilesData]);
   const [search, setSearch] = useState('');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [typeFilters, setTypeFilters] = useState<TypeFilter[]>([]);
@@ -164,6 +178,10 @@ export function Activity({
       result = result.filter((e) => (e.source ?? 'daemon') === sourceFilter);
     }
 
+    if (profileIdFilter) {
+      result = result.filter((e) => e.profileId === profileIdFilter);
+    }
+
     if (hideNoise || embedded) {
       result = result.filter((e) => !isNoiseEvent(e));
     }
@@ -187,7 +205,7 @@ export function Activity({
     }
 
     return result;
-  }, [events, sourceFilter, hideNoise, embedded, timeFilter, typeFilters, search]);
+  }, [events, sourceFilter, profileIdFilter, hideNoise, embedded, timeFilter, typeFilters, search]);
 
   // Visible events: buffer new events when scrolled down
   const visibleEvents = useMemo(() => {
@@ -534,7 +552,7 @@ export function Activity({
                               color: 'text.secondary',
                             }}
                           >
-                            {getEventSummary(event)}
+                            {resolveTargetNames(getEventSummary(event), targetNameMap)}
                           </Typography>
 
                           {/* Severity */}

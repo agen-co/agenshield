@@ -1,6 +1,5 @@
-import { runPipeline } from '../../presets/actions/runner';
-import type { InstallStep, PipelineState, StepResult } from '../../presets/actions/types';
-import type { InstallContext } from '../../presets/types';
+import { runPipeline } from '../../presets/runner';
+import type { InstallStep, PipelineState, StepResult, InstallContext } from '../../presets/types';
 
 function createMockContext(overrides?: Partial<InstallContext>): InstallContext {
   return {

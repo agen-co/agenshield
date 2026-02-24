@@ -29,12 +29,12 @@
         "declaration": true,
         "declarationRootDir": "libs/shield-interceptor/src",
         "bundle": true,
-        "thirdParty": false,
+        "thirdParty": true,
         "platform": "node",
         "assets": ["libs/shield-interceptor/README.md", "LICENSE", "libs/shield-interceptor/package.json"],
         "esbuildOptions": {
           "outExtension": { ".js": ".js" },
-          "external": ["@agenshield/ipc", "@agenshield/seatbelt"]
+          "external": ["@agenshield/ipc"]
         }
       }
     },

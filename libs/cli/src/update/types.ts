@@ -64,6 +64,8 @@ export interface UpdateEngineOptions {
   verbose?: boolean;
   /** Force update even if already at latest version */
   force?: boolean;
+  /** Run full pipeline from local build, skipping sudo state management (dev testing) */
+  local?: boolean;
 }
 
 /**

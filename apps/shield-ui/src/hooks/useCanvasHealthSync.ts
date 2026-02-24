@@ -12,7 +12,6 @@
 import { useEffect } from 'react';
 import { useSkills, useSecrets, useSecurity, useConfig, useAlertsCount } from '../api/hooks';
 import { setComponentHealth, type ComponentHealth } from '../state/system-store';
-import { useIsShielding } from './useIsShielding';
 
 function deriveHealth(danger: number, warn: number): ComponentHealth {
   if (danger > 0) return 'danger';
@@ -21,12 +20,11 @@ function deriveHealth(danger: number, warn: number): ComponentHealth {
 }
 
 export function useCanvasHealthSync(): void {
-  const shielding = useIsShielding();
   const { data: skillsData } = useSkills();
   const { data: secretsData } = useSecrets();
   const { data: securityData } = useSecurity();
   const { data: configData } = useConfig();
-  const { data: alertsCountData } = useAlertsCount(shielding ? 60000 : undefined);
+  const { data: alertsCountData } = useAlertsCount();
 
   // --- Skills chip ---
   useEffect(() => {

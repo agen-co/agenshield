@@ -6,22 +6,41 @@
  */
 
 import type { TargetPreset, PresetDetectionResult } from './types.js';
-import { openclawPreset } from './openclaw.js';
-import { claudeCodePreset } from './claude-code.js';
-import { devHarnessPreset } from './dev-harness.js';
-import { customPreset } from './custom.js';
+import { openclawPreset } from './openclaw/preset.js';
+import { claudeCodePreset } from './claude-code/preset.js';
+import { devHarnessPreset } from './dev-harness/preset.js';
+import { customPreset } from './custom/preset.js';
 
-// Re-export types
+// Re-export types (includes both preset types and pipeline step types)
 export * from './types.js';
 
-// Re-export install pipeline
-export * from './actions/index.js';
+// Re-export pipeline runner
+export { runPipeline } from './runner.js';
+
+// Re-export rollback registry
+export {
+  registerRollback,
+  getRollbackHandler,
+  getRegisteredRollbackSteps,
+  type RollbackContext,
+  type RollbackHandler,
+} from './rollback-registry.js';
+
+// Re-export rollback handlers (side-effect: registers all handlers on import)
+export { ROLLBACK_HANDLERS_REGISTERED } from './rollbacks/index.js';
+
+// Re-export shared steps
+export * from './shared/index.js';
+
+// Re-export preset pipelines
+export { getOpenclawPipeline } from './openclaw/index.js';
+export { getClaudeCodePipeline } from './claude-code/index.js';
 
 // Re-export individual presets
-export { openclawPreset } from './openclaw.js';
-export { claudeCodePreset } from './claude-code.js';
-export { devHarnessPreset } from './dev-harness.js';
-export { customPreset } from './custom.js';
+export { openclawPreset } from './openclaw/preset.js';
+export { claudeCodePreset } from './claude-code/preset.js';
+export { devHarnessPreset } from './dev-harness/preset.js';
+export { customPreset } from './custom/preset.js';
 
 /**
  * All available presets

@@ -32,14 +32,23 @@ export interface MetricsSnapshot {
   netDown: number;
 }
 
+export interface TargetMetricsSnapshot {
+  timestamp: number;
+  cpuPercent: number;
+  memPercent: number;
+}
+
 const MAX_HISTORY = 150; // 150 * 2s = 5 min
 
 export interface SystemStoreState {
   metrics: SystemMetrics;
   metricsLoaded: boolean;
   metricsHistory: MetricsSnapshot[];
+  targetMetricsHistory: Record<string, TargetMetricsSnapshot[]>;
   components: Record<SystemComponentType, ComponentStatus>;
   wingsForceOpen: boolean;
+  focusShieldPasscode: boolean;
+  panToShield: boolean;
   systemInfo: {
     hostname: string;
     activeUser: string;
@@ -64,7 +73,10 @@ export const systemStore = proxy<SystemStoreState>({
   },
   metricsLoaded: false,
   metricsHistory: [] as MetricsSnapshot[],
+  targetMetricsHistory: {} as Record<string, TargetMetricsSnapshot[]>,
   wingsForceOpen: false,
+  focusShieldPasscode: false,
+  panToShield: false,
   systemInfo: null,
   components: {
     cpu:        { exposed: false, active: true, health: 'ok', okCount: 0, warnCount: 0, dangerCount: 0 },
@@ -125,6 +137,16 @@ export function setWingsForceOpen(open: boolean): void {
   systemStore.wingsForceOpen = open;
 }
 
+/** Request focus on the shield passcode input */
+export function setFocusShieldPasscode(focus: boolean): void {
+  systemStore.focusShieldPasscode = focus;
+}
+
+/** Request panning to the shield node */
+export function setPanToShield(pan: boolean): void {
+  systemStore.panToShield = pan;
+}
+
 /** Update system info from daemon metrics response */
 export function setSystemInfo(info: NonNullable<SystemStoreState['systemInfo']>): void {
   systemStore.systemInfo = info;
@@ -135,6 +157,67 @@ export function pushMetricsSnapshot(snap: MetricsSnapshot): void {
   const h = systemStore.metricsHistory;
   h.push(snap);
   if (h.length > MAX_HISTORY) h.splice(0, h.length - MAX_HISTORY);
+}
+
+/**
+ * Handle a metrics:snapshot SSE event — update live metrics, push to history,
+ * and populate system info. This replaces the polling bridge in useSetupCanvasData.
+ */
+/** Push a per-target metrics snapshot into the rolling history buffer */
+export function pushTargetMetricsSnapshot(targetId: string, snap: TargetMetricsSnapshot): void {
+  if (!systemStore.targetMetricsHistory[targetId]) {
+    systemStore.targetMetricsHistory[targetId] = [];
+  }
+  const h = systemStore.targetMetricsHistory[targetId];
+  h.push(snap);
+  if (h.length > MAX_HISTORY) h.splice(0, h.length - MAX_HISTORY);
+}
+
+export function handleMetricsSnapshot(m: {
+  cpuPercent: number; memPercent: number; diskPercent: number;
+  netUp: number; netDown: number;
+  hostname?: string; activeUser?: string; uptime?: number;
+  platform?: string; arch?: string; cpuModel?: string;
+  totalMemory?: number; nodeVersion?: string;
+  targets?: Array<{ targetId: string; targetName: string; cpuPercent: number; memPercent: number }>;
+}): void {
+  systemStore.metrics.cpuPercent = m.cpuPercent ?? 0;
+  systemStore.metrics.memPercent = m.memPercent ?? 0;
+  systemStore.metrics.diskPercent = m.diskPercent ?? 0;
+  systemStore.metrics.netUp = m.netUp ?? 0;
+  systemStore.metrics.netDown = m.netDown ?? 0;
+  if (!systemStore.metricsLoaded) markMetricsLoaded();
+  const now = Date.now();
+  pushMetricsSnapshot({
+    timestamp: now,
+    cpuPercent: m.cpuPercent ?? 0,
+    memPercent: m.memPercent ?? 0,
+    diskPercent: m.diskPercent ?? 0,
+    netUp: m.netUp ?? 0,
+    netDown: m.netDown ?? 0,
+  });
+  // Process per-target metrics from SSE
+  if (m.targets) {
+    for (const t of m.targets) {
+      pushTargetMetricsSnapshot(t.targetId, {
+        timestamp: now,
+        cpuPercent: t.cpuPercent,
+        memPercent: t.memPercent,
+      });
+    }
+  }
+  if (m.hostname) {
+    setSystemInfo({
+      hostname: m.hostname,
+      activeUser: m.activeUser ?? 'unknown',
+      uptime: m.uptime ?? 0,
+      platform: m.platform ?? 'unknown',
+      arch: m.arch ?? 'unknown',
+      cpuModel: m.cpuModel ?? 'unknown',
+      totalMemory: m.totalMemory ?? 0,
+      nodeVersion: m.nodeVersion ?? 'unknown',
+    });
+  }
 }
 
 /* ---- Simulation (random walk) ---- */

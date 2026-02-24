@@ -50,7 +50,7 @@ export function AuthenticateStep({ onNext }: AuthenticateStepProps) {
         Enter your AgenShield passcode to authorize the update.
       </Typography>
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} autoComplete="off">
         {(authError || authenticate.isError) && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {authError || authenticate.error?.message || 'Invalid passcode'}
@@ -66,6 +66,7 @@ export function AuthenticateStep({ onNext }: AuthenticateStepProps) {
           autoFocus
           InputLabelProps={{ shrink: true }}
           sx={{ mb: 3 }}
+          inputProps={{ autoComplete: 'off' }}
         />
 
         <Button

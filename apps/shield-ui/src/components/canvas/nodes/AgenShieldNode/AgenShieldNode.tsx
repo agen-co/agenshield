@@ -6,8 +6,10 @@
  * lines between them. Status determines seam color; daemonRunning
  * determines fill brightness, breathing animation, and wing state.
  *
- * When daemon is OFF: dimmed (opacity 0.35), wings folded closed, below edges (z-index 0).
- * When daemon is ON: bright, wings spread open, on top of wires (z-index 10).
+ * Wings open only when daemon is running AND the user is authenticated
+ * (passcodeSet + authenticated), or when wingsForceOpen is set during setup.
+ *
+ * When unauthenticated, a passcode input appears below the shield SVG.
  *
  * Handle zones (dynamic arrays):
  *   - topHandles: core component connections (5)
@@ -16,10 +18,13 @@
  *   - rightHandles: right auxiliary connections (2+)
  */
 
-import { memo, useState } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useTheme } from '@mui/material/styles';
+import { useSnapshot } from 'valtio';
 import type { AgenShieldData } from '../../Canvas.types';
+import { useAuth } from '../../../../context/AuthContext';
+import { systemStore, setFocusShieldPasscode } from '../../../../state/system-store';
 
 /* ---- Shield piece paths (from favicon.svg, viewBox 0 0 200 200) ---- */
 const SHIELD_PIECES = {
@@ -80,6 +85,49 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
 
+  // Auth state
+  const { passcodeSet, authenticated, unlock } = useAuth();
+  const { wingsForceOpen, focusShieldPasscode } = useSnapshot(systemStore);
+
+  // Wings open when daemon running AND (authenticated OR force-open during setup)
+  const wingsOpen = daemonRunning && ((passcodeSet && authenticated) || wingsForceOpen);
+
+  // Passcode input state (unlock only)
+  const [passcode, setPasscode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Watch focusShieldPasscode flag → focus input + reset flag
+  useEffect(() => {
+    if (focusShieldPasscode && inputRef.current) {
+      inputRef.current.focus();
+      setFocusShieldPasscode(false);
+    }
+  }, [focusShieldPasscode]);
+
+  // Only show for unlock (passcode already set, but not authenticated)
+  const showPasscodeInput = daemonRunning && passcodeSet && !authenticated;
+
+  const handlePasscodeSubmit = async () => {
+    if (loading || !passcode) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await unlock(passcode);
+      if (result.success) {
+        setPasscode('');
+        setError(null);
+      } else {
+        setError(result.error ?? 'Invalid passcode');
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fillColor = daemonRunning
     ? (isDark ? '#EDEDED' : '#171717')
     : (isDark ? '#333' : '#BBB');
@@ -102,6 +150,32 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
       ? 'NOT INSTALLED'
       : 'OFFLINE';
 
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '6px 8px',
+    fontSize: 12,
+    fontFamily: "'IBM Plex Mono', monospace",
+    background: isDark ? '#1C1C20' : '#F5F5F5',
+    border: `1px solid ${isDark ? '#333' : '#CCC'}`,
+    borderRadius: 4,
+    color: theme.palette.text.primary,
+    outline: 'none',
+    boxSizing: 'border-box' as const,
+  };
+
+  const buttonStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '5px 8px',
+    fontSize: 11,
+    fontWeight: 600,
+    fontFamily: "'Manrope', sans-serif",
+    background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+    border: `1px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'}`,
+    borderRadius: 4,
+    color: theme.palette.text.primary,
+    cursor: 'pointer',
+  };
+
   return (
     <div
       style={{
@@ -110,6 +184,7 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
         transition: 'filter 0.2s ease, opacity 0.6s ease-in-out',
         filter: hovered ? 'brightness(1.05)' : 'none',
         opacity: shieldOpacity,
+        overflow: 'visible',
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -151,17 +226,17 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
           <path d={SHIELD_PIECES.centerBody} fill={fillColor} />
           <path d={SHIELD_PIECES.horizontalBar} fill={fillColor} />
 
-          {/* Left wing — slides right+up when daemon is off */}
+          {/* Left wing — slides right+up when closed */}
           <g style={{
-            transform: daemonRunning ? WING_OPEN : WING_CLOSED_LEFT,
+            transform: wingsOpen ? WING_OPEN : WING_CLOSED_LEFT,
             transition: WING_TRANSITION,
           }}>
             <path d={SHIELD_PIECES.leftWing} fill={fillColor} />
           </g>
 
-          {/* Right wing — slides left+up when daemon is off */}
+          {/* Right wing — slides left+up when closed */}
           <g style={{
-            transform: daemonRunning ? WING_OPEN : WING_CLOSED_RIGHT,
+            transform: wingsOpen ? WING_OPEN : WING_CLOSED_RIGHT,
             transition: WING_TRANSITION,
           }}>
             <path d={SHIELD_PIECES.rightWing} fill={fillColor} />
@@ -251,6 +326,58 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
           </g>
         )}
       </svg>
+
+      {/* === Passcode input below the shield === */}
+      {showPasscodeInput && (
+        <div
+          className="nopan noinput nodrag nowheel"
+          style={{
+            position: 'absolute',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            bottom: -70,
+            width: 200,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+          }}
+        >
+          <input
+            ref={inputRef}
+            type="password"
+            value={passcode}
+            onChange={(e) => setPasscode(e.target.value)}
+            placeholder="Enter passcode"
+            style={inputStyle}
+            autoComplete="off"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handlePasscodeSubmit();
+            }}
+          />
+
+          {error && (
+            <div style={{
+              fontSize: 10,
+              color: '#E1583E',
+              fontFamily: "'IBM Plex Mono', monospace",
+              textAlign: 'center',
+            }}>
+              {error}
+            </div>
+          )}
+
+          <button
+            onClick={handlePasscodeSubmit}
+            disabled={loading}
+            style={{
+              ...buttonStyle,
+              opacity: loading ? 0.6 : 1,
+            }}
+          >
+            {loading ? 'Verifying...' : 'Unlock'}
+          </button>
+        </div>
+      )}
     </div>
   );
 });

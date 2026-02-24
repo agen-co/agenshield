@@ -31,8 +31,10 @@ export {
   guardedShellPath,
   zdotDir,
   zdotZshenvContent,
+  zdotZshrcContent,
   GUARDED_SHELL_CONTENT,
   ZDOT_ZSHRC_CONTENT,
+  type ShellFeatures,
 } from './shell/guarded-shell.js';
 
 // Shell (shield-exec)
@@ -224,7 +226,7 @@ export {
   ROLLBACK_HANDLERS_REGISTERED,
   type RollbackContext,
   type RollbackHandler,
-} from './presets/actions/index.js';
+} from './presets/index.js';
 
 // Discovery (binary + skill scanning)
 export {

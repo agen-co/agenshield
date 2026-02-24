@@ -110,6 +110,7 @@ export function PasscodeStep({ onComplete, onTyping }: PasscodeStepProps) {
           placeholder="Min. 4 characters"
           style={inputStyle}
           autoFocus
+          autoComplete="off"
         />
       </div>
 
@@ -136,6 +137,7 @@ export function PasscodeStep({ onComplete, onTyping }: PasscodeStepProps) {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && isValid) handleSubmit();
           }}
+          autoComplete="off"
         />
         {showMismatch && (
           <div style={{ fontSize: 10, marginTop: 3, color: '#E1583E' }}>

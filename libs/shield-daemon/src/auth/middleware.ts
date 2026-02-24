@@ -135,6 +135,7 @@ export const PROTECTED_ROUTES = [
   { method: 'GET', path: '/api/config/openclaw' },
   { method: 'GET', path: '/api/config/openclaw/diff' },
   { method: 'GET', path: '/api/config/policies/instructions' },
+  { method: 'GET', path: '/api/logs/stream' },
 ];
 
 /**

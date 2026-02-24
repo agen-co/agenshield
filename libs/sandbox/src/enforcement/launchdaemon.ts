@@ -31,10 +31,10 @@ export function generateBrokerPlist(
   }
 ): string {
   const resolvedHostHome = options?.hostHome || process.env['HOME'] || '';
-  const sharedBinDir = resolvedHostHome ? `${resolvedHostHome}/.agenshield/bin` : '/opt/agenshield/bin';
-  const nodeBinary = options?.nodeBinPath || `${sharedBinDir}/node-bin`;
-  const brokerBinary = options?.brokerPath || `${sharedBinDir}/agenshield-broker`;
   const agentHome = config.agentUser.home;
+  const sharedBinDir = resolvedHostHome ? `${resolvedHostHome}/.agenshield/bin` : '/opt/agenshield/bin';
+  const nodeBinary = options?.nodeBinPath || `${agentHome}/bin/node-bin`;
+  const brokerBinary = options?.brokerPath || `${sharedBinDir}/agenshield-broker`;
   const configPath = options?.configPath || `${agentHome}/.agenshield/config/shield.json`;
   const socketPath = options?.socketPath || `${agentHome}/.agenshield/run/agenshield.sock`;
   const brokerUsername = config.brokerUser.username;
@@ -74,6 +74,9 @@ export function generateBrokerPlist(
     <true/>
 
     <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>ExitTimeOut</key>
     <integer>10</integer>
 
     <key>StandardOutPath</key>

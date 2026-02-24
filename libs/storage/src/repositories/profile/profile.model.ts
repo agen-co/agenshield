@@ -21,6 +21,7 @@ export function mapProfile(row: DbProfileRow): Profile {
     brokerHomeDir: row.broker_home_dir ?? undefined,
     brokerToken: row.broker_token ?? undefined,
     installManifest: row.install_manifest ? JSON.parse(row.install_manifest) : undefined,
+    gatewayPort: row.gateway_port ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

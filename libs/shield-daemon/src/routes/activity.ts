@@ -9,13 +9,14 @@ import { isAuthenticated, isVaultUnlocked } from '../auth/middleware';
 export async function activityRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/activity',
-    async (request: FastifyRequest<{ Querystring: { limit?: string } }>) => {
+    async (request: FastifyRequest<{ Querystring: { limit?: string; profileId?: string } }>) => {
       const authenticated = isAuthenticated(request);
       const vaultOpen = isVaultUnlocked();
       const raw = Number(request.query.limit) || 500;
       const limit = Math.min(Math.max(raw, 1), 10000);
+      const profileId = request.query.profileId || undefined;
 
-      const events = getStorage().activities.getAll({ limit });
+      const events = getStorage().activities.getAll({ limit, profileId });
 
       // Authenticated AND vault unlocked → full data
       if (authenticated && vaultOpen) {

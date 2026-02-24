@@ -28,7 +28,7 @@ import { CompleteStep } from './steps/CompleteStep';
 import { StateOverviewStep } from './steps/StateOverviewStep';
 import { PasscodeStep } from './steps/PasscodeStep';
 import { ScanResultsStep } from './steps/ScanResultsStep';
-import { setupPanelStore, resetSetupPanel, markShieldComplete } from '../../../../state/setup-panel';
+import { setupPanelStore, resetSetupPanel, markShieldComplete, mergeDetectedTargets } from '../../../../state/setup-panel';
 import { useTargets } from '../../../../api/targets';
 import { useIsShielding } from '../../../../hooks/useIsShielding';
 import { useAuth } from '../../../../context/AuthContext';
@@ -53,8 +53,8 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [shieldError, setShieldError] = useState<string | null>(null);
 
-  // For auto-refreshing target list — disable polling during shielding
-  const { refetch: refetchTargets } = useTargets(!shielding);
+  // Target list is now SSE-driven — refetch used for explicit refresh after operations
+  const { refetch: refetchTargets } = useTargets();
 
   // Reset state when panel opens; check for pre-selected target or passcode setup
   useEffect(() => {
@@ -62,7 +62,15 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
       const preSelected = setupPanelStore.preSelectedTargetId;
       if (preSelected) {
         setSelectedTargetId(preSelected);
-        setCurrentStep('configure');
+        // Check shielding status: show progress if in-progress, complete if done
+        const entry = setupPanelStore.shieldProgress[preSelected];
+        if (entry?.status === 'in_progress') {
+          setCurrentStep('shielding');
+        } else if (entry?.status === 'completed') {
+          setCurrentStep('complete');
+        } else {
+          setCurrentStep('configure');
+        }
         setupPanelStore.preSelectedTargetId = null;
       } else if (!passcodeSet && mode === 'initial-setup') {
         // First-run: start with passcode setup
@@ -91,7 +99,14 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
 
   const handleSelectTarget = useCallback((targetId: string) => {
     setSelectedTargetId(targetId);
-    setCurrentStep('configure');
+    const entry = setupPanelStore.shieldProgress[targetId];
+    if (entry?.status === 'in_progress') {
+      setCurrentStep('shielding');
+    } else if (entry?.status === 'completed') {
+      setCurrentStep('complete');
+    } else {
+      setCurrentStep('configure');
+    }
   }, []);
 
   const handleShield = useCallback(async (baseName?: string, version?: string) => {
@@ -143,7 +158,7 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
       const res = await fetch('/api/targets/lifecycle/detect', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setupPanelStore.detectedTargets = data.data;
+        mergeDetectedTargets(data.data);
       }
     } catch (err) {
       console.error('[SetupPanel] Detection failed:', err);

@@ -102,6 +102,10 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
 
   // Interceptor
   'interceptor:event': { icon: Crosshair, label: 'Interceptor Event', color: 'info' },
+
+  // Setup
+  'setup:shield_progress': { icon: ShieldAlert, label: 'Shield Progress', color: 'info' },
+  'setup:shield_steps': { icon: ShieldAlert, label: 'Shield Steps', color: 'info' },
 };
 
 const FALLBACK_DISPLAY: EventDisplayMeta = { icon: Globe, label: 'Unknown', color: 'primary' };
@@ -300,6 +304,12 @@ export function getEventSummary(event: SSEEvent): string {
     return `${name} — files restored`;
   }
 
+  if (event.type === 'setup:shield_progress' || event.type === 'setup:shield_steps') {
+    const targetId = String(d.targetId ?? '');
+    const step = String(d.step ?? d.message ?? '');
+    return step ? `${targetId}: ${step}` : `Shielding ${targetId}`;
+  }
+
   if (event.type.startsWith('process:')) {
     const process = String(d.process ?? '').replace(/^\w/, (c) => c.toUpperCase());
     const action = String(d.action ?? '');
@@ -314,6 +324,23 @@ export function getEventSummary(event: SSEEvent): string {
     (d.name as string) ??
     (d.integration as string) ??
     JSON.stringify(d).slice(0, 120);
+}
+
+/**
+ * Replace raw targetId references in a summary string with human-readable profile names.
+ */
+export function resolveTargetNames(
+  summary: string,
+  targetNameMap: Map<string, string>,
+): string {
+  if (targetNameMap.size === 0) return summary;
+  let result = summary;
+  for (const [id, name] of targetNameMap) {
+    if (result.includes(id)) {
+      result = result.replaceAll(id, name);
+    }
+  }
+  return result;
 }
 
 /** Semantic color key for an event — 'error' for deny, 'success' for allow, else the display default */

@@ -54,21 +54,6 @@ export interface SetupPanelState {
   preSelectedTargetId: string | null;
 }
 
-const DISMISSED_KEY = 'agenshield:dismissed-cards';
-
-function loadDismissedIds(): string[] {
-  try {
-    const raw = localStorage.getItem(DISMISSED_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function persistDismissedIds(ids: string[]): void {
-  localStorage.setItem(DISMISSED_KEY, JSON.stringify(ids));
-}
-
 export const setupPanelStore = proxy<SetupPanelState>({
   detectedTargets: [],
   oldInstallations: [],
@@ -76,9 +61,66 @@ export const setupPanelStore = proxy<SetupPanelState>({
   shieldProgress: {},
   panelOpen: false,
   panelMode: null,
-  dismissedCardIds: loadDismissedIds(),
+  dismissedCardIds: [],
   preSelectedTargetId: null,
 });
+
+/**
+ * Load dismissed target IDs from the daemon (SQLite-backed).
+ * Called once on app init when the daemon is healthy.
+ */
+export async function loadDismissedTargets(): Promise<void> {
+  try {
+    const res = await fetch('/api/targets/lifecycle/dismissed');
+    const data = await res.json();
+    if (data.success && Array.isArray(data.data)) {
+      setupPanelStore.dismissedCardIds = data.data;
+    }
+  } catch {
+    // Non-fatal — dismissed list will be empty until daemon responds
+  }
+}
+
+/**
+ * Merge incoming detection results into the existing detectedTargets array.
+ * Updates existing entries in-place, adds new ones, removes stale ones.
+ * This prevents the canvas from "jumping" by preserving valtio proxy references
+ * for targets that haven't changed.
+ */
+export function mergeDetectedTargets(incoming: DetectedTarget[]): void {
+  const existing = setupPanelStore.detectedTargets;
+  const incomingMap = new Map(incoming.map((t) => [t.id, t]));
+  const existingIds = new Set(existing.map((t) => t.id));
+
+  // Update existing targets in-place (preserves proxy references)
+  for (const target of existing) {
+    const updated = incomingMap.get(target.id);
+    if (updated) {
+      target.name = updated.name;
+      target.type = updated.type;
+      target.version = updated.version;
+      target.binaryPath = updated.binaryPath;
+      target.method = updated.method;
+      target.shielded = updated.shielded;
+      target.isRunning = updated.isRunning;
+      target.runAsRoot = updated.runAsRoot;
+    }
+  }
+
+  // Remove targets no longer detected
+  for (let i = existing.length - 1; i >= 0; i--) {
+    if (!incomingMap.has(existing[i].id)) {
+      existing.splice(i, 1);
+    }
+  }
+
+  // Add new targets
+  for (const [id, target] of incomingMap) {
+    if (!existingIds.has(id)) {
+      existing.push(target);
+    }
+  }
+}
 
 /**
  * Reset the setup panel state (e.g. when reopening)
@@ -112,6 +154,23 @@ export function updateShieldProgress(
 }
 
 /**
+ * Mark a target shielding as failed (called from SSE handler for setup:error).
+ * Updates the progress entry status to 'error' and records the error message.
+ * Preserves existing logs and steps for debugging.
+ */
+export function markShieldError(targetId: string, error: string, step?: string): void {
+  const existing = setupPanelStore.shieldProgress[targetId];
+  setupPanelStore.shieldProgress[targetId] = {
+    status: 'error',
+    currentStep: step ?? existing?.currentStep,
+    progress: existing?.progress ?? 0,
+    message: error,
+    logs: existing?.logs ?? [],
+    steps: existing?.steps ?? [],
+  };
+}
+
+/**
  * Mark a target as fully shielded (called from SSE handler).
  * Preserves existing logs array.
  */
@@ -125,6 +184,12 @@ export function markShieldComplete(targetId: string, profileId: string): void {
     logs: existing?.logs ?? [],
     steps: existing?.steps ?? [],
   };
+  // Mark target as shielded in the detection store so canvas reflects it immediately
+  const target = setupPanelStore.detectedTargets.find(t => t.id === targetId);
+  if (target) {
+    target.shielded = true;
+    target.id = profileId; // Update ID to profile-based ID for navigation
+  }
 }
 
 const MAX_SHIELD_LOGS = 200;
@@ -229,22 +294,30 @@ export const KNOWN_PRESETS = [
 
 /**
  * Dismiss (hide) a card from the canvas.
+ * Persists to daemon SQLite via API.
  */
 export function dismissCard(id: string): void {
   if (!setupPanelStore.dismissedCardIds.includes(id)) {
     setupPanelStore.dismissedCardIds.push(id);
-    persistDismissedIds([...setupPanelStore.dismissedCardIds]);
+    fetch('/api/targets/lifecycle/dismissed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetId: id }),
+    }).catch(() => { /* best-effort persist */ });
   }
 }
 
 /**
  * Restore a previously dismissed card.
+ * Removes from daemon SQLite via API.
  */
 export function restoreCard(id: string): void {
   const idx = setupPanelStore.dismissedCardIds.indexOf(id);
   if (idx !== -1) {
     setupPanelStore.dismissedCardIds.splice(idx, 1);
-    persistDismissedIds([...setupPanelStore.dismissedCardIds]);
+    fetch(`/api/targets/lifecycle/dismissed/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }).catch(() => { /* best-effort persist */ });
   }
 }
 
@@ -253,8 +326,6 @@ export function restoreCard(id: string): void {
  */
 export function openSetupPanelForTarget(targetId: string): void {
   setupPanelStore.preSelectedTargetId = targetId;
-  setupPanelStore.panelOpen = true;
-  setupPanelStore.panelMode = 'add-profile';
 }
 
 /**

@@ -48,21 +48,18 @@ the TRAPDEBUG enforcement hook.
 > **Do NOT use `sudo su ash_openclaw_agent`** — it enters the guarded shell and
 > commands like `ls`, `curl`, `bash`, etc. will be denied.
 
-Instead, run commands as the agent user from a **root shell** with:
+Instead, run commands as the agent user via the **guarded-shell** with `-c`:
 
 ```bash
-cd / && sudo -H -u ash_openclaw_agent bash -c '<command>'
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c '<command>'
 ```
 
-The `cd /` is required because `sudo -H -u` inherits the calling shell's working
-directory. In a root shell the CWD is typically `/var/root` — a directory the
-agent user cannot access, causing `getcwd: cannot access parent directories:
-Permission denied`. Changing to `/` first avoids this. This mirrors the daemon's
-privilege helper which spawns with `cwd: '/'`.
+The guarded-shell sets `ZDOTDIR` → zsh reads `.zshenv` (which sets `HOME`,
+`PATH`, `HOMEBREW_*`, NVM fast-PATH). No explicit env injection needed — the
+shell environment is fully configured by the ZDOTDIR files.
 
-This invokes `bash` directly, bypassing the guarded login shell entirely. This is
-the same mechanism the daemon's `execAsUser` uses internally (via the root
-privilege helper).
+This is the same mechanism the daemon's `execAsUser` uses internally (via the
+root privilege helper).
 
 All "Runs as: ash_openclaw_agent" steps below are already formatted this way so
 you can copy-paste them directly from a root shell. For root commands, just run
@@ -203,18 +200,56 @@ dseditgroup -o edit -a $BROKER_USER -t user $GROUP
 ```bash
 # Runs as: root | Timeout: 30s
 mkdir -p "/Users/ash_openclaw_agent" "/Users/ash_openclaw_agent/bin" "/Users/ash_openclaw_agent/.config" && \
-mkdir -p "$AGENT_HOME/.agenshield/config" && \
-mkdir -p "$SHARED_BIN" "$SHARED_LIB" && \
-mkdir -p "/Users/ash_openclaw_agent/.agenshield/seatbelt" "/Users/ash_openclaw_agent/.agenshield/bin" && \
+mkdir -p "$AGENT_HOME/.agenshield/config" "$SHARED_BIN" "$SHARED_LIB" && \
+mkdir -p "/Users/ash_openclaw_agent/.agenshield/seatbelt" "/Users/ash_openclaw_agent/.agenshield/seatbelt/ops" && \
+mkdir -p "/Users/ash_openclaw_agent/.agenshield/bin" && \
 mkdir -p "/Users/ash_openclaw_agent/.agenshield/run" "/Users/ash_openclaw_agent/.agenshield/logs" && \
+mkdir -p "$HOST_HOME/.agenshield" && \
 chown -R ash_openclaw_agent:ash_openclaw "/Users/ash_openclaw_agent" 2>/dev/null || true && \
 chmod 2775 "/Users/ash_openclaw_agent" && \
-chown root:wheel "/Users/ash_openclaw_agent/.agenshield/seatbelt" && \
-chown root:wheel "/Users/ash_openclaw_agent/.agenshield/bin" && \
-chown ash_openclaw_broker:ash_openclaw "/Users/ash_openclaw_agent/.agenshield/logs" && \
-chown ash_openclaw_broker:ash_openclaw "/Users/ash_openclaw_agent/.agenshield/run" && \
+# Root-owned directories (immutable to agent)
+chown root:wheel "/Users/ash_openclaw_agent/.agenshield" "/Users/ash_openclaw_agent/.agenshield/seatbelt" "/Users/ash_openclaw_agent/.agenshield/seatbelt/ops" "/Users/ash_openclaw_agent/.agenshield/bin" && \
+chmod 755 "/Users/ash_openclaw_agent/.agenshield" "/Users/ash_openclaw_agent/.agenshield/seatbelt" "/Users/ash_openclaw_agent/.agenshield/seatbelt/ops" "/Users/ash_openclaw_agent/.agenshield/bin" && \
+# Broker-owned directories
+chown ash_openclaw_broker:ash_openclaw "/Users/ash_openclaw_agent/.agenshield/logs" "/Users/ash_openclaw_agent/.agenshield/run" && \
+chmod 755 "/Users/ash_openclaw_agent/.agenshield/logs" && \
 chmod 2770 "/Users/ash_openclaw_agent/.agenshield/run"
 ```
+
+### 3.1b Create workspace directory
+
+```bash
+# Runs as: root | Timeout: 10s
+mkdir -p "/Users/ash_openclaw_agent/workspace" && \
+chown ash_openclaw_agent:ash_openclaw "/Users/ash_openclaw_agent/workspace" && \
+chmod 2775 "/Users/ash_openclaw_agent/workspace"
+```
+
+### 3.1c Set macOS ACLs on host directories
+
+The broker and agent users need traversal access to the host's `~/.agenshield/`
+directory tree (for plist binary paths and command wrappers).
+
+```bash
+# Runs as: root | Timeout: 15s
+# Broker user ACLs
+chmod -a "$BROKER_USER allow search" "$HOST_HOME" 2>/dev/null; true
+chmod +a "$BROKER_USER allow search" "$HOST_HOME"
+chmod -a "$BROKER_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield" 2>/dev/null; true
+chmod +a "$BROKER_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield"
+chmod -a "$BROKER_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/bin" 2>/dev/null; true
+chmod +a "$BROKER_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/bin"
+# Agent user ACLs (wrappers exec shield-client from host .agenshield/bin)
+chmod -a "$AGENT_USER allow search" "$HOST_HOME" 2>/dev/null; true
+chmod +a "$AGENT_USER allow search" "$HOST_HOME"
+chmod -a "$AGENT_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield" 2>/dev/null; true
+chmod +a "$AGENT_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield"
+chmod -a "$AGENT_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/bin" 2>/dev/null; true
+chmod +a "$AGENT_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/bin"
+```
+
+> Each `chmod -a` (remove) before `chmod +a` (add) is intentional — it ensures
+> idempotency by removing any stale ACE before re-adding it.
 
 ### 3.2 Write .agenshield/meta.json
 
@@ -237,7 +272,11 @@ AGSMETA
 chown root:wheel "/Users/ash_openclaw_agent/.agenshield" && \
 chmod 755 "/Users/ash_openclaw_agent/.agenshield" && \
 chown root:wheel "/Users/ash_openclaw_agent/.agenshield/meta.json" && \
-chmod 644 "/Users/ash_openclaw_agent/.agenshield/meta.json"
+chmod 644 "/Users/ash_openclaw_agent/.agenshield/meta.json" && \
+chown root:wheel "/Users/ash_openclaw_agent/.agenshield/seatbelt" && \
+chmod 755 "/Users/ash_openclaw_agent/.agenshield/seatbelt" && \
+chown root:wheel "/Users/ash_openclaw_agent/.agenshield/seatbelt/ops" && \
+chmod 755 "/Users/ash_openclaw_agent/.agenshield/seatbelt/ops"
 ```
 
 ---
@@ -264,12 +303,8 @@ _ASH_HOME="$(dscl . -read /Users/$(id -un) NFSHomeDirectory 2>/dev/null | awk '{
 [ -z "$_ASH_HOME" ] && _ASH_HOME="/Users/$(id -un)"
 unset HOME
 
-# Per-target ZDOTDIR under agent home; fall back to shared /etc/agenshield/zdot
-if [ -d "${_ASH_HOME}/.zdot" ]; then
-  export ZDOTDIR="${_ASH_HOME}/.zdot"
-else
-  export ZDOTDIR="/etc/agenshield/zdot"
-fi
+# Per-target ZDOTDIR under agent home
+export ZDOTDIR="${_ASH_HOME}/.zdot"
 
 # Start zsh — it will read ZDOTDIR/.zshenv then ZDOTDIR/.zshrc
 exec /bin/zsh "$@"
@@ -315,9 +350,14 @@ export HOMEBREW_PREFIX="$HOME/homebrew"
 export HOMEBREW_CELLAR="$HOME/homebrew/Cellar"
 export HOMEBREW_REPOSITORY="$HOME/homebrew"
 
-# NVM initialization
+# NVM fast-PATH (resolve default version onto PATH without sourcing nvm.sh)
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+_NVM_ALIAS=$(cat "$NVM_DIR/alias/default" 2>/dev/null)
+_NVM_VER=$(ls -1d "$NVM_DIR/versions/node/v"${_NVM_ALIAS}* 2>/dev/null | tail -1)
+if [ -n "$_NVM_VER" ] && [ -d "$_NVM_VER/bin" ]; then
+  export PATH="$_NVM_VER/bin:$PATH"
+fi
+unset _NVM_ALIAS _NVM_VER
 
 # Clear any leftover env tricks
 unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_INSERT_LIBRARIES
@@ -352,9 +392,14 @@ export HOMEBREW_PREFIX="$HOME/homebrew"
 export HOMEBREW_CELLAR="$HOME/homebrew/Cellar"
 export HOMEBREW_REPOSITORY="$HOME/homebrew"
 
-# NVM re-source for interactive shell
+# NVM fast-PATH (no full sourcing — just resolve default version)
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+_NVM_ALIAS=$(cat "$NVM_DIR/alias/default" 2>/dev/null)
+_NVM_VER=$(ls -1d "$NVM_DIR/versions/node/v"${_NVM_ALIAS}* 2>/dev/null | tail -1)
+if [ -n "$_NVM_VER" ] && [ -d "$_NVM_VER/bin" ]; then
+  PATH="$_NVM_VER/bin:$PATH"
+fi
+unset _NVM_ALIAS _NVM_VER
 
 # ---- Shell options ----
 # Note: NOT using setopt RESTRICTED as it disables cd entirely.
@@ -387,19 +432,23 @@ is_allowed_cmd() {
   # Deny path execution outright
   [[ "$cmd" == */* ]] && return 1
 
-  # Resolve command path
+  # Allow if command exists in any allowed directory (handles symlinks correctly)
+  # -x checks file existence + execute permission at the symlink path, not the target
+  [[ -x "$HOME/bin/$cmd" ]] && return 0
+  [[ -x "$HOME/homebrew/bin/$cmd" ]] && return 0
+
+  # NVM: check via whence (nvm commands are real binaries, not symlinks)
   local resolved
   resolved="$(whence -p -- "$cmd" 2>/dev/null)" || return 1
-
-  # Must live under HOME/bin, HOME/homebrew/bin, or HOME/.nvm
-  [[ "$resolved" == "$HOME/bin/"* ]] && return 0
-  [[ "$resolved" == "$HOME/homebrew/bin/"* ]] && return 0
   [[ "$resolved" == "$HOME/.nvm/"* ]] && return 0
   return 1
 }
 
 # ---- Block dangerous builtins ----
-disable -r builtin command exec eval hash nohup setopt source unfunction functions alias unalias 2>/dev/null || true
+# Disable as reserved words (command, exec, builtin ARE reserved words in zsh)
+disable -r command exec builtin 2>/dev/null || true
+# Disable as builtins (eval, source, hash, etc.)
+disable eval hash nohup source unfunction functions alias unalias 2>/dev/null || true
 
 # ---- Intercept every interactive command before execution ----
 preexec() {
@@ -457,19 +506,157 @@ ls -la "$AGENT_HOME/.agenshield/bin/guarded-shell"
 
 ---
 
-## Phase 5 — Install Command Wrappers
+## Phase 5 — Deploy Binaries & Install Command Wrappers
 
-> Handled by `installPresetBinaries()`. Installs wrappers for:
-> `node`, `npm`, `npx`, `git`, `curl`, `bash`, `shieldctl`
-> Each wrapper is a small script in `$AGENT_HOME/bin/` that delegates
-> to the real binary via the interceptor.
+> Handled by `installPresetBinaries()` in `wrappers.ts`. This phase deploys
+> shared binaries to `$HOST_HOME/.agenshield/` and installs per-target wrappers
+> into `$AGENT_HOME/bin/`.
 
-This step is code-driven (no single shell command to paste). The result is
-wrapper scripts at `/Users/ash_openclaw_agent/bin/{node,npm,npx,git,curl,bash,shieldctl}`.
+### 5.1 Deploy interceptor
+
+Copy the interceptor CJS bundle so that node/npm wrappers can use `--require`
+to load it. OpenClaw's `node` and `npm` wrappers set `usesInterceptor: true`,
+so this step is required.
+
+```bash
+# Runs as: root | Timeout: 30s
+# Build the interceptor first (from repo root)
+npx nx build shield-interceptor
+
+# Deploy to shared lib
+mkdir -p "$SHARED_LIB/interceptor"
+INTERCEPTOR_SRC="$(pwd)/libs/shield-interceptor/dist/register.cjs"
+cp "$INTERCEPTOR_SRC" "$SHARED_LIB/interceptor/register.cjs" && \
+chown root:$GROUP "$SHARED_LIB/interceptor/register.cjs" && \
+chmod 644 "$SHARED_LIB/interceptor/register.cjs"
+```
+
+### 5.2 Deploy broker binary
+
+Copy the broker to `$SHARED_BIN/agenshield-broker`. The LaunchDaemon plist
+(Phase 10) references this path.
+
+```bash
+# Runs as: your user (from repo root) | Timeout: 120s
+npx nx build shield-broker
+```
+
+```bash
+# Runs as: root | Timeout: 15s
+BROKER_SRC="$(pwd)/libs/shield-broker/dist/main.js"
+mkdir -p "$SHARED_BIN" && \
+cp "$BROKER_SRC" "$SHARED_BIN/agenshield-broker" && \
+chmod 755 "$SHARED_BIN/agenshield-broker" && \
+chown root:$GROUP "$SHARED_BIN/agenshield-broker"
+```
+
+### 5.3 Create ESM package.json
+
+The broker binary is built with esbuild `format:"esm"` and uses `import`
+statements. Without this `package.json`, Node defaults to CJS and crashes.
+
+```bash
+# Runs as: root | Timeout: 5s
+cat > "$HOST_HOME/.agenshield/package.json" << 'EOF'
+{"type":"module"}
+EOF
+chown root:wheel "$HOST_HOME/.agenshield/package.json"
+```
+
+### 5.4 Deploy shield-client
+
+Copy shield-client to `$SHARED_BIN/shield-client`. The shebang is rewritten
+from `#!/usr/bin/env node` to `#!$AGENT_HOME/bin/node-bin` so it runs
+**without** the interceptor (avoids infinite recursion: interceptor → wrapper
+→ shield-client → node+interceptor → …).
+
+```bash
+# Runs as: your user (from repo root) | Timeout: 60s
+npx nx build shield-broker   # shield-client is built as part of the broker package
+```
+
+```bash
+# Runs as: root | Timeout: 15s
+CLIENT_SRC="$(pwd)/libs/shield-broker/dist/client/shield-client.js"
+# Rewrite shebang to use agent's node-bin
+sed "1s|#!/usr/bin/env node|#!$AGENT_HOME/bin/node-bin|" "$CLIENT_SRC" > /tmp/shield-client-install && \
+mkdir -p "$SHARED_BIN" && \
+mv /tmp/shield-client-install "$SHARED_BIN/shield-client" && \
+chmod 755 "$SHARED_BIN/shield-client" && \
+chown root:$GROUP "$SHARED_BIN/shield-client"
+```
+
+### 5.4b Bootstrap node-bin
+
+Copy the host's Node.js binary to `$AGENT_HOME/bin/node-bin` so the
+shield-client shebang works before Phase 7 (NVM install). This is a
+bootstrap copy — Phase 7 may overwrite it with the NVM-installed version.
+
+```bash
+# Runs as: root | Timeout: 15s
+cp "$(which node)" "$AGENT_HOME/bin/node-bin" && \
+chown root:$GROUP "$AGENT_HOME/bin/node-bin" && \
+chmod 755 "$AGENT_HOME/bin/node-bin"
+```
+
+### 5.5 Install wrapper scripts
+
+Generates wrapper scripts in `$AGENT_HOME/bin/` for the required and optional
+binaries defined by the `openclaw` preset: `node`, `npm`, `npx`, `git`,
+`curl`, `bash`, `shieldctl`.
+
+Each wrapper is a small shell script that delegates to the real binary via the
+interceptor. This step is code-driven (`installSpecificWrappers()` in
+`wrappers.ts`).
+
+```bash
+# Verify wrappers were created:
+ls -la $AGENT_HOME/bin/
+```
+
+### 5.6 Install basic command symlinks
+
+Symlink basic system commands (`ls`, `cat`, `grep`, etc.) into
+`$AGENT_HOME/bin/` so the guarded shell can use them. These are plain
+symlinks — no interception.
+
+```bash
+# Runs as: root | Timeout: 30s
+for cmd in ls cat head tail less more grep find mkdir rmdir rm cp mv pwd \
+  basename dirname wc sort uniq tr cut sed awk date touch chmod file which \
+  env echo printf test true false id whoami hostname uname tee xargs diff \
+  tar gzip gunzip; do
+  for loc in /bin/$cmd /usr/bin/$cmd; do
+    if [ -x "$loc" ]; then
+      ln -sf "$loc" "$AGENT_HOME/bin/$cmd"
+      break
+    fi
+  done
+done
+```
+
+### 5.7 Lock down permissions
+
+Set root ownership on all wrapper files and symlinks, then restore the bin
+directory itself to broker-owned with setgid so skills can be installed later.
+
+```bash
+# Runs as: root | Timeout: 15s
+chown -R root:$GROUP "$AGENT_HOME/bin" && \
+chmod -R 755 "$AGENT_HOME/bin" && \
+# Restore bin dir to broker-owned, setgid + group-writable
+chown $BROKER_USER:$GROUP "$AGENT_HOME/bin" && \
+chmod 2775 "$AGENT_HOME/bin"
+```
 
 ---
 
 ## Phase 6 — PATH Router Override
+
+> **Design note:** The path registry is a plain JSON file (not in the SQLite DB)
+> because the router wrapper at `/usr/local/bin/<command>` is a bash script that
+> reads it at runtime via `awk`. A shell script cannot query SQLite. The registry
+> must also be readable without the daemon running.
 
 ### 6.1 Create host-level registry directory
 
@@ -493,7 +680,8 @@ cat > "$HOST_HOME/.agenshield/path-registry.json" << 'REGISTRY_EOF'
         "name": "OpenClaw",
         "agentBinPath": "/Users/ash_openclaw_agent/bin/openclaw",
         "baseName": "openclaw",
-        "agentUsername": "ash_openclaw_agent"
+        "agentUsername": "ash_openclaw_agent",
+        "agentHome": "/Users/ash_openclaw_agent"
       }
     ]
   }
@@ -521,39 +709,52 @@ cat > "/usr/local/bin/openclaw" << 'AGENSHIELD_WRAPPER_EOF'
 # Router for: openclaw
 
 REGISTRY="$HOME/.agenshield/path-registry.json"
-
 if [ ! -f "$REGISTRY" ]; then
   echo "AgenShield: No registry found. No shielded instances configured." >&2
   exit 1
 fi
 
-# Read instances from registry
-RESULT=$(python3 -c "
-import sys, json
-try:
-    d = json.load(open('$REGISTRY'))
-except:
-    print('ERROR')
-    sys.exit(0)
-entry = d.get('openclaw', {})
-instances = entry.get('instances', [])
-orig = entry.get('originalBinary', '')
-if len(instances) == 0:
-    if orig:
-        print('ORIG:' + orig)
-    else:
-        print('NONE')
-elif len(instances) == 1:
-    u = instances[0].get('agentUsername', '')
-    print('EXEC:' + u + ':' + instances[0]['agentBinPath'])
-else:
-    for i, inst in enumerate(instances):
-        u = inst.get('agentUsername', '')
-        print(str(i+1) + ') ' + inst['name'] + ' [' + inst['baseName'] + ']|' + u + ':' + inst['agentBinPath'])
-    print('CHOOSE')
-" 2>/dev/null)
+# Helper: exec as agent user with NVM-aware PATH
+_agenshield_exec() {
+  local AGENT_USER="$1" BIN="$2" AGENT_HOME="$3"
+  shift 3
+  if [ -z "$AGENT_USER" ]; then
+    exec "$BIN" "$@"
+  fi
+  if [ -n "$AGENT_HOME" ]; then
+    exec sudo -H -u "$AGENT_USER" /bin/bash -c '
+      export HOME="'"$AGENT_HOME"'"
+      export NVM_DIR="$HOME/.nvm"
+      [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+      export PATH="$HOME/bin:$PATH"
+      exec "'"$BIN"'" "$@"
+    ' -- "$@"
+  else
+    exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
+  fi
+}
 
-if [[ "$RESULT" == "ERROR" ]]; then
+# Parse registry with awk (no python3 dependency)
+RESULT=$(awk -v bn="openclaw" '
+BEGIN { ib=0; ii=0; ic=0; orig="" }
+$0 ~ "\"" bn "\"[[:space:]]*:" { ib=1; next }
+ib && /"originalBinary"/ { gsub(/.*: "/, ""); gsub(/".*/, ""); orig=$0 }
+ib && /"instances"/ { ii=1; next }
+ii && /\{/ { ic++ }
+ii && /"agentUsername"/ { gsub(/.*: "/, ""); gsub(/".*/, ""); u[ic]=$0 }
+ii && /"agentBinPath"/ { gsub(/.*: "/, ""); gsub(/".*/, ""); b[ic]=$0 }
+ii && /"agentHome"/ { gsub(/.*: "/, ""); gsub(/".*/, ""); h[ic]=$0 }
+ii && /"name"[[:space:]]*:/ { gsub(/.*: "/, ""); gsub(/".*/, ""); n[ic]=$0 }
+ii && /"baseName"/ { gsub(/.*: "/, ""); gsub(/".*/, ""); bn2[ic]=$0 }
+ii && /\]/ { ii=0 }
+ib && !ii && /\}/ { ib=0 }
+END {
+  if (ic==0) { if (orig!="") print "ORIG:" orig; else print "NONE" }
+  else if (ic==1) print "EXEC:" u[1] ":" b[1] ":" h[1]
+  else { for(i=1;i<=ic;i++) print i") " n[i] " [" bn2[i] "]|" u[i] ":" b[i] ":" h[i]; print "CHOOSE" }
+}' "$REGISTRY" 2>/dev/null)
+
+if [[ -z "$RESULT" ]]; then
   echo "AgenShield: Failed to read registry." >&2
   exit 1
 elif [[ "$RESULT" == ORIG:* ]]; then
@@ -562,12 +763,10 @@ elif [[ "$RESULT" == ORIG:* ]]; then
 elif [[ "$RESULT" == EXEC:* ]]; then
   PAYLOAD="${RESULT#EXEC:}"
   AGENT_USER="${PAYLOAD%%:*}"
-  BIN="${PAYLOAD#*:}"
-  if [ -n "$AGENT_USER" ]; then
-    exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
-  else
-    exec "$BIN" "$@"
-  fi
+  REST="${PAYLOAD#*:}"
+  BIN="${REST%%:*}"
+  AGENT_HOME="${REST#*:}"
+  _agenshield_exec "$AGENT_USER" "$BIN" "$AGENT_HOME" "$@"
 elif [[ "$RESULT" == "NONE" ]]; then
   echo "AgenShield: No shielded instances configured." >&2
   exit 1
@@ -576,23 +775,14 @@ elif [[ "$RESULT" == *"CHOOSE" ]]; then
   echo "$RESULT" | grep -v CHOOSE | sed 's/|.*//' >&2
   printf "Select instance (number): " >&2
   read -r CHOICE
-  SELECTED=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('$REGISTRY'))
-    instances = d.get('openclaw', {}).get('instances', [])
-    idx = int('$CHOICE') - 1
-    if 0 <= idx < len(instances):
-        u = instances[idx].get('agentUsername', '')
-        print(u + ':' + instances[idx]['agentBinPath'])
-except:
-    pass
-" 2>/dev/null)
+  SELECTED=$(echo "$RESULT" | grep "^${CHOICE}) " | sed 's/.*|//')
   if [ -n "$SELECTED" ]; then
     AGENT_USER="${SELECTED%%:*}"
-    BIN="${SELECTED#*:}"
+    REST="${SELECTED#*:}"
+    BIN="${REST%%:*}"
+    AGENT_HOME="${REST#*:}"
     if [ -n "$AGENT_USER" ] && [ -n "$BIN" ]; then
-      exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
+      _agenshield_exec "$AGENT_USER" "$BIN" "$AGENT_HOME" "$@"
     fi
   fi
   echo "Invalid selection." >&2
@@ -618,44 +808,56 @@ chown ash_openclaw_agent:ash_openclaw "/Users/ash_openclaw_agent/homebrew"
 
 ```bash
 # Runs as: ash_openclaw_agent | Timeout: 120s
-cd / && sudo -H -u ash_openclaw_agent bash -c 'cd "/Users/ash_openclaw_agent/homebrew" && curl -fsSL https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1'
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'cd "$HOME/homebrew" && curl -fsSL https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1'
 ```
 
 ### 7.3 Install Homebrew — verify
 
 ```bash
 # Runs as: ash_openclaw_agent | Timeout: 15s
-cd / && sudo -H -u ash_openclaw_agent bash -c '"/Users/ash_openclaw_agent/homebrew/bin/brew" --version'
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c '"$HOME/homebrew/bin/brew" --version'
+```
+
+### 7.3b Save host shell config (before NVM install)
+
+External installers (NVM, OpenClaw curl|bash) may modify the host user's
+`.zshrc` / `.bashrc`. Save a snapshot so we can restore them afterwards.
+
+```bash
+# Runs as: root | Timeout: 5s
+# Save the current content for later comparison
+cat "/Users/$HOST_USER/.zshrc" 2>/dev/null > /tmp/agenshield-zshrc-backup || true
+cat "/Users/$HOST_USER/.bashrc" 2>/dev/null > /tmp/agenshield-bashrc-backup || true
 ```
 
 ### 7.4 Install NVM
 
 ```bash
 # Runs as: ash_openclaw_agent | Timeout: 60s
-cd / && sudo -H -u ash_openclaw_agent bash -c 'export HOME="/Users/ash_openclaw_agent" && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash'
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash'
 ```
 
 ### 7.5 Install Node.js v24 via NVM
 
 ```bash
 # Runs as: ash_openclaw_agent | Timeout: 120s
-cd / && sudo -H -u ash_openclaw_agent bash -c 'export HOME="/Users/ash_openclaw_agent" && export HOMEBREW_PREFIX="/Users/ash_openclaw_agent/homebrew" && export HOMEBREW_CELLAR="/Users/ash_openclaw_agent/homebrew/Cellar" && export HOMEBREW_REPOSITORY="/Users/ash_openclaw_agent/homebrew" && export PATH="/Users/ash_openclaw_agent/homebrew/bin:/Users/ash_openclaw_agent/homebrew/sbin:$PATH" && export NVM_DIR="/Users/ash_openclaw_agent/.nvm" && source "/Users/ash_openclaw_agent/.nvm/nvm.sh" && nvm install 24 && nvm alias default 24'
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'source "$HOME/.nvm/nvm.sh" && nvm install 24 && nvm alias default 24'
 ```
 
 ### 7.6 Verify Node.js
 
 ```bash
 # Runs as: ash_openclaw_agent | Timeout: 15s
-cd / && sudo -H -u ash_openclaw_agent bash -c 'export HOME="/Users/ash_openclaw_agent" && export HOMEBREW_PREFIX="/Users/ash_openclaw_agent/homebrew" && export HOMEBREW_CELLAR="/Users/ash_openclaw_agent/homebrew/Cellar" && export HOMEBREW_REPOSITORY="/Users/ash_openclaw_agent/homebrew" && export PATH="/Users/ash_openclaw_agent/homebrew/bin:/Users/ash_openclaw_agent/homebrew/sbin:$PATH" && export NVM_DIR="/Users/ash_openclaw_agent/.nvm" && source "/Users/ash_openclaw_agent/.nvm/nvm.sh" && node --version'
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'node --version'
 ```
 
-### 7.7 Copy node binary to shared bin + per-target
+### 7.7 Copy node binary to per-target bin
 
 ```bash
 # Runs as: root | Timeout: 30s
-NODE_PATH=$(cd / && sudo -H -u ash_openclaw_agent bash -c 'export HOME="/Users/ash_openclaw_agent" && export HOMEBREW_PREFIX="/Users/ash_openclaw_agent/homebrew" && export HOMEBREW_CELLAR="/Users/ash_openclaw_agent/homebrew/Cellar" && export HOMEBREW_REPOSITORY="/Users/ash_openclaw_agent/homebrew" && export PATH="/Users/ash_openclaw_agent/homebrew/bin:/Users/ash_openclaw_agent/homebrew/sbin:$PATH" && export NVM_DIR="/Users/ash_openclaw_agent/.nvm" && source "/Users/ash_openclaw_agent/.nvm/nvm.sh" && which node')
+NODE_PATH=$(sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'which node')
 echo "Resolved node: $NODE_PATH"
-# Per-target copy
+# Per-target copy (group = socket group, 750 = owner+group only)
 mkdir -p "$AGENT_HOME/bin" && \
 cp "$NODE_PATH" "$AGENT_HOME/bin/node-bin" && \
 chgrp $GROUP "$AGENT_HOME/bin/node-bin" && \
@@ -663,15 +865,15 @@ chmod 750 "$AGENT_HOME/bin/node-bin"
 # Shared host copy (broker uses this)
 mkdir -p "$SHARED_BIN" && \
 test -f "$SHARED_BIN/node-bin" || cp "$NODE_PATH" "$SHARED_BIN/node-bin" && \
-chgrp wheel "$SHARED_BIN/node-bin" && \
-chmod 755 "$SHARED_BIN/node-bin"
+chgrp $GROUP "$SHARED_BIN/node-bin" && \
+chmod 750 "$SHARED_BIN/node-bin"
 ```
 
 ### 7.8 Clean stale brew locks
 
 ```bash
 # Runs as: root | Timeout: 10s
-ps -u $(id -u ash_openclaw_agent) -o pid,command 2>/dev/null | grep '[b]rew' | awk '{print $1}' | xargs kill 2>/dev/null; \
+pkill -u $(id -u ash_openclaw_agent) -f 'brew' 2>/dev/null; \
 rm -rf "/Users/ash_openclaw_agent/homebrew/var/homebrew/locks" 2>/dev/null; \
 true
 ```
@@ -680,20 +882,63 @@ true
 
 ```bash
 # Runs as: ash_openclaw_agent | Timeout: 600s (10 minutes)
-cd / && sudo -H -u ash_openclaw_agent bash -c 'export HOME="/Users/ash_openclaw_agent" && export HOMEBREW_PREFIX="/Users/ash_openclaw_agent/homebrew" && export HOMEBREW_CELLAR="/Users/ash_openclaw_agent/homebrew/Cellar" && export HOMEBREW_REPOSITORY="/Users/ash_openclaw_agent/homebrew" && export PATH="/Users/ash_openclaw_agent/homebrew/bin:/Users/ash_openclaw_agent/homebrew/sbin:$PATH" && export NVM_DIR="/Users/ash_openclaw_agent/.nvm" && source "/Users/ash_openclaw_agent/.nvm/nvm.sh" && export BROWSER=none && curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard --no-prompt'
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'source "$HOME/.nvm/nvm.sh" && export BROWSER=none && curl -fsSL https://openclaw.ai/install.sh | bash -s -- --no-onboard --no-prompt'
 ```
 
 > To install a specific version, append `--version X.Y.Z` to the bash command.
 
+### 7.9b Onboard OpenClaw (non-interactive)
+
+Creates `openclaw.json` with a minimal quickstart config. Idempotent — skips if
+the config already exists.
+
+```bash
+# Runs as: ash_openclaw_agent | Timeout: 120s
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'source "$HOME/.nvm/nvm.sh" && \
+  if [ -f "$HOME/.openclaw/openclaw.json" ]; then echo "ONBOARD_SKIP"; else \
+  export BROWSER=none && \
+  openclaw onboard --non-interactive --accept-risk --flow quickstart --mode local \
+  --no-install-daemon --daemon-runtime node --skip-channels --skip-skills \
+  --skip-health --skip-ui --node-manager npm; fi'
+```
+
+### 7.9c Restore host shell config (after external installs)
+
+Check if NVM or OpenClaw's installer modified the host user's shell config files.
+If changed, restore the original content.
+
+```bash
+# Runs as: root | Timeout: 10s
+# Restore .zshrc if modified
+if [ -f /tmp/agenshield-zshrc-backup ]; then
+  CURRENT=$(cat "/Users/$HOST_USER/.zshrc" 2>/dev/null)
+  BACKUP=$(cat /tmp/agenshield-zshrc-backup)
+  if [ "$CURRENT" != "$BACKUP" ]; then
+    echo "Warning: Host .zshrc was modified by installer — restoring original"
+    cat /tmp/agenshield-zshrc-backup > "/Users/$HOST_USER/.zshrc"
+  fi
+fi
+# Restore .bashrc if modified
+if [ -f /tmp/agenshield-bashrc-backup ]; then
+  CURRENT=$(cat "/Users/$HOST_USER/.bashrc" 2>/dev/null)
+  BACKUP=$(cat /tmp/agenshield-bashrc-backup)
+  if [ "$CURRENT" != "$BACKUP" ]; then
+    echo "Warning: Host .bashrc was modified by installer — restoring original"
+    cat /tmp/agenshield-bashrc-backup > "/Users/$HOST_USER/.bashrc"
+  fi
+fi
+rm -f /tmp/agenshield-zshrc-backup /tmp/agenshield-bashrc-backup
+```
+
 ### 7.10 Stop host OpenClaw processes
 
 ```bash
-# Runs as: root | Timeout: 15s each
+# Runs as: root | Timeout: 30s
 # Try graceful stop via OpenClaw CLI first
-sudo -H -u "$HOST_USER" openclaw gateway stop 2>/dev/null || true
-sudo -H -u "$HOST_USER" openclaw daemon stop 2>/dev/null || true
-# Give processes time to exit, then targeted PID kill
-sleep 2; ps -u $(id -u "$HOST_USER") -o pid,command 2>/dev/null | grep '[o]penclaw' | awk '{print $1}' | xargs kill 2>/dev/null; true
+sudo -H -u "$HOST_USER" openclaw gateway stop 2>/dev/null || true; \
+sudo -H -u "$HOST_USER" openclaw daemon stop 2>/dev/null || true; \
+# Give processes time to exit, then targeted pkill
+sleep 2; pkill -u $(id -u "$HOST_USER") -f 'openclaw' 2>/dev/null; true
 ```
 
 ### 7.11 Copy host OpenClaw config
@@ -713,14 +958,14 @@ fi
 
 ```bash
 # Runs as: ash_openclaw_agent | Timeout: 30s
-cd / && sudo -H -u ash_openclaw_agent bash -c 'export HOME="/Users/ash_openclaw_agent" && export HOMEBREW_PREFIX="/Users/ash_openclaw_agent/homebrew" && export HOMEBREW_CELLAR="/Users/ash_openclaw_agent/homebrew/Cellar" && export HOMEBREW_REPOSITORY="/Users/ash_openclaw_agent/homebrew" && export PATH="/Users/ash_openclaw_agent/homebrew/bin:/Users/ash_openclaw_agent/homebrew/sbin:$PATH" && export NVM_DIR="/Users/ash_openclaw_agent/.nvm" && source "/Users/ash_openclaw_agent/.nvm/nvm.sh" && openclaw --version 2>/dev/null; true'
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'openclaw --version 2>/dev/null; true'
 ```
 
 ### 7.13 Patch NVM node — backup real binary
 
 ```bash
 # Runs as: root | Timeout: 30s
-NODE_BIN_PATH=$(cd / && sudo -H -u ash_openclaw_agent bash -c 'export HOME="/Users/ash_openclaw_agent" && export HOMEBREW_PREFIX="/Users/ash_openclaw_agent/homebrew" && export HOMEBREW_CELLAR="/Users/ash_openclaw_agent/homebrew/Cellar" && export HOMEBREW_REPOSITORY="/Users/ash_openclaw_agent/homebrew" && export PATH="/Users/ash_openclaw_agent/homebrew/bin:/Users/ash_openclaw_agent/homebrew/sbin:$PATH" && export NVM_DIR="/Users/ash_openclaw_agent/.nvm" && source "/Users/ash_openclaw_agent/.nvm/nvm.sh" && which node')
+NODE_BIN_PATH=$(sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'which node')
 echo "Patching: $NODE_BIN_PATH"
 cp "$NODE_BIN_PATH" "${NODE_BIN_PATH}.real" && \
 chown ash_openclaw_agent:ash_openclaw "${NODE_BIN_PATH}.real" && \
@@ -731,22 +976,24 @@ chmod 755 "${NODE_BIN_PATH}.real"
 
 ```bash
 # Runs as: root | Timeout: 15s
-NODE_BIN_PATH=$(cd / && sudo -H -u ash_openclaw_agent bash -c 'export HOME="/Users/ash_openclaw_agent" && export HOMEBREW_PREFIX="/Users/ash_openclaw_agent/homebrew" && export HOMEBREW_CELLAR="/Users/ash_openclaw_agent/homebrew/Cellar" && export HOMEBREW_REPOSITORY="/Users/ash_openclaw_agent/homebrew" && export PATH="/Users/ash_openclaw_agent/homebrew/bin:/Users/ash_openclaw_agent/homebrew/sbin:$PATH" && export NVM_DIR="/Users/ash_openclaw_agent/.nvm" && source "/Users/ash_openclaw_agent/.nvm/nvm.sh" && which node')
+NODE_BIN_PATH=$(sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'which node')
 cat > "$NODE_BIN_PATH" << NODEWRAPPER_EOF
 #!/bin/bash
 # AgenShield Node.js Interceptor Wrapper
+export AGENSHIELD_NODE_BIN="$AGENT_HOME/bin/node-bin"
 export NODE_OPTIONS="--require $HOST_HOME/.agenshield/lib/interceptor/register.cjs \${NODE_OPTIONS:-}"
 exec "${NODE_BIN_PATH}.real" "\$@"
 NODEWRAPPER_EOF
 ```
 
 > **Note:** The `exec` line in the wrapper uses the dynamically resolved path to `node.real`.
+> `AGENSHIELD_NODE_BIN` tells the interceptor where to find the unwrapped node binary.
 
 ### 7.15 Patch NVM node — set permissions
 
 ```bash
 # Runs as: root | Timeout: 15s
-NODE_BIN_PATH=$(cd / && sudo -H -u ash_openclaw_agent bash -c 'export HOME="/Users/ash_openclaw_agent" && export HOMEBREW_PREFIX="/Users/ash_openclaw_agent/homebrew" && export HOMEBREW_CELLAR="/Users/ash_openclaw_agent/homebrew/Cellar" && export HOMEBREW_REPOSITORY="/Users/ash_openclaw_agent/homebrew" && export PATH="/Users/ash_openclaw_agent/homebrew/bin:/Users/ash_openclaw_agent/homebrew/sbin:$PATH" && export NVM_DIR="/Users/ash_openclaw_agent/.nvm" && source "/Users/ash_openclaw_agent/.nvm/nvm.sh" && which node')
+NODE_BIN_PATH=$(sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'which node')
 chmod 755 "$NODE_BIN_PATH" && \
 chown ash_openclaw_agent:ash_openclaw "$NODE_BIN_PATH"
 ```
@@ -808,10 +1055,10 @@ if ! command -v openclaw >/dev/null 2>&1; then
 fi
 
 # -- Wait for broker socket ----------------------------------------------
-SOCKET_WAIT=30
+SOCKET_WAIT=90
 elapsed=0
 while [ ! -S "$SOCKET_PATH" ] && [ "$elapsed" -lt "$SOCKET_WAIT" ]; do
-  sleep 1
+  sleep 0.5
   elapsed=$(( elapsed + 1 ))
 done
 
@@ -883,9 +1130,9 @@ cat > "/Library/LaunchDaemons/com.agenshield.$PROFILE_BASE.gateway.plist" << 'GA
     <integer>4096</integer>
   </dict>
   <key>StandardOutPath</key>
-  <string>/Users/ash_openclaw_agent/.agenshield/logs/openclaw-gateway.log</string>
+  <string>/Users/ash_openclaw_agent/.agenshield/logs/gateway.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/ash_openclaw_agent/.agenshield/logs/openclaw-gateway.err</string>
+  <string>/Users/ash_openclaw_agent/.agenshield/logs/gateway.error.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
@@ -948,11 +1195,6 @@ cat > "/Users/ash_openclaw_agent/.agenshield/seatbelt/agent.sb" << 'SEATBELT_EOF
   (literal "/bin/bash")
   (literal "/usr/bin/env"))
 
-;; AgenShield config (ZDOTDIR, path-registry, seatbelt profiles)
-(allow file-read*
-  (subpath "/etc/agenshield")
-  (subpath "/private/etc/agenshield"))
-
 ;; .agenshield directory (read-only to agent)
 (allow file-read*
   (subpath "/Users/ash_openclaw_agent/.agenshield"))
@@ -983,9 +1225,9 @@ cat > "/Users/ash_openclaw_agent/.agenshield/seatbelt/agent.sb" << 'SEATBELT_EOF
 ;; its own bin directory, skills, or system config
 ;; ========================================
 (deny file-write* (subpath "/Users/ash_openclaw_agent/bin"))
+(deny file-write* (subpath "/Users/ash_openclaw_agent/.zdot"))
+(deny file-write* (subpath "/Users/ash_openclaw_agent/.agenshield"))
 (deny file-write* (subpath "/Users/ash_openclaw_agent/.openclaw"))
-(deny file-write* (subpath "/opt/agenshield"))
-(deny file-write* (subpath "/etc/agenshield"))
 
 ;; ========================================
 ;; System Libraries & Frameworks (Read-only)
@@ -1046,7 +1288,7 @@ cat > "/Users/ash_openclaw_agent/.agenshield/seatbelt/agent.sb" << 'SEATBELT_EOF
   (literal "/bin/bash")
   (literal "/usr/bin/env")
   (subpath "/Users/ash_openclaw_agent/bin")
-  (subpath "/opt/agenshield/bin")
+  (literal "/Users/ash_openclaw_agent/.agenshield/bin/guarded-shell")
   (subpath "/usr/local/bin")
   (subpath "/opt/homebrew/bin"))
 
@@ -1099,42 +1341,6 @@ $HOST_USER ALL=(ash_openclaw_broker) NOPASSWD: ALL
 SUDOERS_EOF
 chmod 440 "/etc/sudoers.d/agenshield-openclaw" && \
 visudo -c -f "/etc/sudoers.d/agenshield-openclaw" 2>/dev/null || rm -f "/etc/sudoers.d/agenshield-openclaw"
-```
-
----
-
-## Phase 9b — Install Broker Binary
-
-The broker plist references `$SHARED_BIN/agenshield-broker`. The automated
-flow uses `copyBrokerBinary()` in `wrappers.ts`. For manual installs, build and
-copy it:
-
-### 9b.1 Build the broker
-
-```bash
-# Runs as: your user (from repo root) | Timeout: 120s
-npx nx build shield-broker
-```
-
-### 9b.2 Copy broker binary to $SHARED_BIN
-
-```bash
-# Runs as: root | Timeout: 15s
-BROKER_SRC="$(pwd)/libs/shield-broker/dist/main.js"
-mkdir -p "$SHARED_BIN" && \
-cp "$BROKER_SRC" "$SHARED_BIN/agenshield-broker" && \
-chmod 755 "$SHARED_BIN/agenshield-broker" && \
-chown root:$GROUP "$SHARED_BIN/agenshield-broker"
-```
-
-### 9b.3 Create ESM package.json
-
-```bash
-# Runs as: root | Timeout: 5s
-cat > "$HOST_HOME/.agenshield/package.json" << 'EOF'
-{"type":"module"}
-EOF
-chown root:wheel "$HOST_HOME/.agenshield/package.json"
 ```
 
 ---
@@ -1253,8 +1459,8 @@ tail -20 /Users/ash_openclaw_agent/.agenshield/logs/broker.error.log 2>/dev/null
 NVM_SH="/Users/ash_openclaw_agent/.nvm/nvm.sh"
 LAUNCHER="/Users/ash_openclaw_agent/.agenshield/bin/gw-launcher.sh"
 
-sudo -H -u ash_openclaw_agent bash -c "source $NVM_SH 2>/dev/null && command -v openclaw" && echo OPENCLAW_OK || echo OPENCLAW_FAIL; \
-sudo -H -u ash_openclaw_agent bash -c "source $NVM_SH 2>/dev/null && command -v node" && echo NODE_OK || echo NODE_FAIL; \
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c "command -v openclaw" && echo OPENCLAW_OK || echo OPENCLAW_FAIL; \
+sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c "command -v node" && echo NODE_OK || echo NODE_FAIL; \
 test -s "$NVM_SH" && echo NVM_OK || echo NVM_FAIL; \
 test -x "$LAUNCHER" && echo LAUNCHER_OK || echo LAUNCHER_FAIL
 ```
@@ -1318,6 +1524,24 @@ grep -c guarded-shell /etc/shells
 
 # Check gateway launcher
 test -x /Users/ash_openclaw_agent/.agenshield/bin/gw-launcher.sh && echo "Launcher OK"
+
+# Check interceptor deployment
+test -f "$HOST_HOME/.agenshield/lib/interceptor/register.cjs" && echo "Interceptor OK" || echo "Interceptor MISSING"
+
+# Check broker binary
+test -x "$HOST_HOME/.agenshield/bin/agenshield-broker" && echo "Broker binary OK" || echo "Broker binary MISSING"
+
+# Check shield-client
+test -x "$HOST_HOME/.agenshield/bin/shield-client" && echo "Shield-client OK" || echo "Shield-client MISSING"
+
+# Check ESM package.json
+test -f "$HOST_HOME/.agenshield/package.json" && echo "ESM package.json OK" || echo "ESM package.json MISSING"
+
+# Check node-bin bootstrap
+test -x "$AGENT_HOME/bin/node-bin" && echo "node-bin OK" || echo "node-bin MISSING"
+
+# Check basic command symlinks
+ls -la "$AGENT_HOME/bin/ls" "$AGENT_HOME/bin/cat" "$AGENT_HOME/bin/grep"
 
 # Check PATH router
 head -3 /usr/local/bin/openclaw

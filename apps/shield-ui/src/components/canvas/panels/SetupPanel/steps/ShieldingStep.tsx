@@ -109,16 +109,6 @@ function PhaseGroup({
   const hasFailed = steps.some((s) => s.status === 'failed');
   const [collapsed, setCollapsed] = useState(false);
 
-  // Auto-collapse completed phases
-  useEffect(() => {
-    if (allDone && !hasFailed) setCollapsed(true);
-  }, [allDone, hasFailed]);
-
-  // Auto-expand when a step starts running
-  useEffect(() => {
-    if (hasRunning) setCollapsed(false);
-  }, [hasRunning]);
-
   const label = SHIELD_PHASE_LABELS[phase] ?? `Phase ${phase}`;
 
   return (
@@ -153,7 +143,7 @@ function PhaseGroup({
       </button>
 
       {!collapsed && (
-        <div style={{ paddingLeft: 8 }}>
+        <div style={{ paddingLeft: 8, opacity: allDone && !hasFailed ? 0.5 : 1 }}>
           {steps.map((step) => (
             <ShieldStepRow key={step.id} step={step} />
           ))}

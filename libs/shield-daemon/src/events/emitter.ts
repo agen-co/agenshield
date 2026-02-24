@@ -24,6 +24,8 @@ import {
   type ProcessEventPayload,
   type ResourceWarningPayload,
   type ResourceLimitEnforcedPayload,
+  type MetricsSnapshotPayload,
+  type TargetStatusInfo,
 } from '@agenshield/ipc';
 
 // Re-export for internal daemon consumers that import from this file
@@ -83,10 +85,12 @@ export const daemonEvents = DaemonEventEmitter.getInstance();
  */
 function deriveSource(type: string, data: unknown): string {
   const d = data as Record<string, unknown> | undefined;
-  if (type.startsWith('interceptor:')) return (d?.target as string) ?? 'system';
+  if (type.startsWith('interceptor:')) return 'interceptor';
   if (type.startsWith('setup:')) return (d?.targetId as string) ?? 'daemon';
   if (type.startsWith('process:broker')) return (d?.process as string) ?? 'system';
   if (type.startsWith('resource:')) return 'system';
+  if (type.startsWith('metrics:')) return 'system';
+  if (type.startsWith('targets:')) return 'daemon';
   if (type.startsWith('daemon:') || type.startsWith('config:') || type.startsWith('security:')) return 'daemon';
   if (type.startsWith('skills:')) return (d?.target as string) ?? 'daemon';
   if (type.startsWith('api:')) return 'daemon';
@@ -274,4 +278,16 @@ export function emitProcessRestarted(processName: ProcessName, data: { pid?: num
     ...data,
   };
   broadcast(`process:${processName}_restarted` as EventType, payload, profileId);
+}
+
+// ===== Metrics event helpers =====
+
+export function emitMetricsSnapshot(data: MetricsSnapshotPayload): void {
+  broadcast('metrics:snapshot', data);
+}
+
+// ===== Target lifecycle event helpers =====
+
+export function emitTargetStatus(targets: TargetStatusInfo[]): void {
+  broadcast('targets:status', { targets });
 }

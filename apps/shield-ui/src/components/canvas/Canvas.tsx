@@ -30,8 +30,10 @@ import { useCanvasAnimations } from './hooks/useCanvasAnimations';
 import { useDotAnimations } from './hooks/useDotAnimations';
 import { DotOverlay } from './overlays/DotOverlay';
 import { PcbBackground } from './backgrounds/PcbBackground';
-import { SetupPanel } from './panels/SetupPanel';
-import { setupPanelStore, openSetupPanel, closeSetupPanel, openSetupPanelForTarget } from '../../state/setup-panel';
+import { SystemPanel } from './panels/SystemPanel';
+import { PANEL_WIDTH } from './panels/SystemPanel/SystemPanel.styles';
+import { setupPanelStore } from '../../state/setup-panel';
+import { systemStore, setFocusShieldPasscode, setPanToShield, setWingsForceOpen } from '../../state/system-store';
 import {
   drilldownStore,
   clearDrilldown,
@@ -46,6 +48,7 @@ import { DrilldownOverlay } from './overlays/DrilldownOverlay';
 import { PageOverlay } from './overlays/PageOverlay';
 import { TargetOverlay } from './overlays/TargetOverlay';
 import { useCanvasHealthSync } from '../../hooks/useCanvasHealthSync';
+import { useAuth } from '../../context/AuthContext';
 
 // Node components
 import { CloudNode } from './nodes/CloudNode';
@@ -115,8 +118,9 @@ function CanvasInner({
   panelWidth: number;
   nodeCount: number;
 }) {
-  const { fitView, getNodes, setViewport: setRFViewport } = useReactFlow();
+  const { fitView, getNodes, setViewport: setRFViewport, setCenter } = useReactFlow();
   const { activeCardId, zoomPhase } = useSnapshot(drilldownStore);
+  const { panToShield } = useSnapshot(systemStore);
   const location = useLocation();
 
   // Custom "nodes ready" check — polls DOM until enough content nodes exist.
@@ -451,6 +455,19 @@ function CanvasInner({
     }, [containerWidth, containerHeight]),
   });
 
+  // Pan-to-shield effect: when panToShield is set, animate to the shield node
+  useEffect(() => {
+    if (panToShield) {
+      const shield = rfRef.current.getNodes().find(n => n.id === 'agenshield');
+      if (shield) {
+        const cx = shield.position.x + (shield.width ?? 200) / 2;
+        const cy = shield.position.y + (shield.height ?? 200) / 2;
+        setCenter(cx, cy, { zoom: 1, duration: 500 });
+      }
+      setPanToShield(false);
+    }
+  }, [panToShield, setCenter]);
+
   useCanvasAnimations();
   useDotAnimations();
 
@@ -470,10 +487,18 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
 
+  // Auth state
+  const { passcodeSet, authenticated } = useAuth();
+
   // Sync live API data into per-component health counts
   useCanvasHealthSync();
 
-  const { panelOpen, panelMode, detectedTargets, isDetecting } = useSnapshot(setupPanelStore);
+  // Auth expiration handler — close wings when auth expires
+  useEffect(() => {
+    const handle = () => setWingsForceOpen(false);
+    window.addEventListener('agenshield:auth-expired', handle);
+    return () => window.removeEventListener('agenshield:auth-expired', handle);
+  }, []);
 
   // Parse sub-path from route (canvas is now at /)
   const canvasSubPath = location.pathname.replace(/^\//, '');
@@ -483,8 +508,6 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
   const targetId = isTargetRoute ? pathParts[1] : undefined;
   const targetTab = isTargetRoute ? (pathParts[2] || 'overview') : undefined;
   const canvasTab = isTargetRoute ? undefined : (pathParts[1] || undefined);
-
-  const autoOpenedRef = useRef(false);
 
   // Track container dimensions with debounced ResizeObserver
   const handleResize = useCallback(() => {
@@ -509,26 +532,13 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
 
   // Data aggregation + layout computation
   const setupData = useSetupCanvasData();
-  const setupLayout = useSetupCanvasLayout(setupData, viewport);
+  const setupLayout = useSetupCanvasLayout(setupData, viewport, { authenticated, passcodeSet });
   const { nodes, edges } = setupLayout;
-
-  // Auto-open panel once initial detection finishes (not immediately on mount)
-  const detectionDone = detectedTargets.length > 0 || (!isDetecting && setupData.daemonRunning);
-  useEffect(() => {
-    if (detectionDone && !autoOpenedRef.current && !panelOpen) {
-      autoOpenedRef.current = true;
-      openSetupPanel('initial-setup');
-    }
-  }, [detectionDone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Memoize types to avoid re-renders
   const nodeTypes = useMemo(() => canvasNodeTypes, []);
   const edgeTypes = useMemo(() => canvasEdgeTypes, []);
 
-
-  const handleClosePanel = useCallback(() => {
-    closeSetupPanel();
-  }, []);
 
   const { zoomPhase, skipEntryAnimation } = useSnapshot(drilldownStore);
 
@@ -539,6 +549,13 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
   }, [navigate]);
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: { id: string; type?: string; data?: Record<string, unknown> }) => {
+    // Gate: unauthenticated clicks on non-shield nodes → pan to shield + focus passcode
+    if (node.type !== 'canvas-agenshield' && passcodeSet && !authenticated) {
+      setPanToShield(true);
+      setTimeout(() => setFocusShieldPasscode(true), 550);
+      return;
+    }
+
     if (node.type === 'canvas-system-component') {
       const compData = node.data as unknown as SystemComponentData;
       if (compData?.componentType) {
@@ -551,29 +568,29 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
         }
       }
     } else if (node.type === 'canvas-agenshield') {
-      const shieldData = node.data as unknown as { daemonRunning?: boolean; shieldedCount?: number };
-      if (!shieldData.daemonRunning || (shieldData.shieldedCount ?? 0) === 0) {
-        openSetupPanel('initial-setup');
-      } else {
-        navigate('/overview', {
-          state: { zoomTarget: node.id },
-        });
-      }
+      // When passcode not set, left panel already shows passcode setup — do nothing
+      if (!passcodeSet) return;
+      // passcodeSet && !authenticated is caught by the gate above (pan-to-shield)
+      // passcodeSet && authenticated → navigate to overview
+      navigate('/overview', { state: { zoomTarget: node.id } });
     } else if (node.type === 'canvas-metrics-cluster') {
       navigate('/metrics', {
         state: { zoomTarget: node.id },
       });
     } else if (node.type === 'canvas-broker-card') {
       const brokerData = node.data as Record<string, unknown>;
-      if (brokerData.status !== 'shielded') {
-        openSetupPanelForTarget(brokerData.id as string);
+      const brokerId = brokerData.id as string;
+      // If shielding is in progress or not yet shielded, trigger setup mode via preSelectedTargetId
+      const progress = setupPanelStore.shieldProgress[brokerId];
+      if (progress?.status === 'in_progress' || brokerData.status !== 'shielded') {
+        setupPanelStore.preSelectedTargetId = brokerId;
       } else {
-        navigate(`/target/${brokerData.id}/overview`, {
+        navigate(`/target/${brokerId}/overview`, {
           state: { zoomTarget: node.id },
         });
       }
     }
-  }, [navigate]);
+  }, [navigate, passcodeSet, authenticated]);
 
   return (
     <CanvasContainer ref={containerRef}>
@@ -624,17 +641,13 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
             onNodeClick={handleNodeClick}
             proOptions={{ hideAttribution: true }}
           >
-            <CanvasInner containerWidth={viewport.width} containerHeight={viewport.height} panelWidth={panelOpen ? 260 : 0} nodeCount={nodes.length} />
+            <CanvasInner containerWidth={viewport.width} containerHeight={viewport.height} panelWidth={zoomPhase === 'idle' ? PANEL_WIDTH : 0} nodeCount={nodes.length} />
           </ReactFlow>
         </div>
       )}
 
-      {/* Fixed overlay: SetupPanel — left side */}
-      <SetupPanel
-        open={panelOpen}
-        onClose={handleClosePanel}
-        mode={panelMode ?? 'add-profile'}
-      />
+      {/* Fixed overlay: SystemPanel — left side (always visible in idle) */}
+      <SystemPanel open={zoomPhase === 'idle'} />
 
       {/* Fixed overlay: Page overlay — route-driven drilldown */}
       {(zoomPhase === 'zooming-in' || zoomPhase === 'zoomed') && canvasPage && (

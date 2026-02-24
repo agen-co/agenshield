@@ -9,10 +9,35 @@ import type { FastifyInstance } from 'fastify';
 import type { ApiResponse, DetectedTarget } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 import { emitEvent } from '../events/emitter';
+import { triggerTargetCheck, checkProcessesRunning } from '../watchers/targets';
 import { ShieldLogger } from '../services/shield-logger';
 import { ShieldStepTracker } from '../services/shield-step-tracker';
 import { ManifestBuilder } from '../services/manifest-builder';
 import { OPENCLAW_SHIELD_STEPS } from '@agenshield/ipc';
+import { registerShieldOperation, unregisterShieldOperation, getActiveShieldOperations } from '../services/shield-registry';
+
+// ── Gateway port allocation helper ────────────────────────────────
+
+const GATEWAY_BASE_PORT = 18789;
+
+function allocateGatewayPort(): number {
+  try {
+    const storage = getStorage();
+    const profiles = storage.profiles.getAll();
+    const usedPorts = new Set(
+      profiles
+        .map((p: { gatewayPort?: number }) => p.gatewayPort)
+        .filter((port): port is number => port != null),
+    );
+    let port = GATEWAY_BASE_PORT;
+    while (usedPorts.has(port)) {
+      port++;
+    }
+    return port;
+  } catch {
+    return GATEWAY_BASE_PORT;
+  }
+}
 
 // ── UID allocation helper ────────────────────────────────────────
 
@@ -38,52 +63,73 @@ function allocateNextUidGid(): { baseUid: number; baseGid: number } {
 export async function detectTargets(): Promise<DetectedTarget[]> {
   const targets: DetectedTarget[] = [];
 
+  // Phase 1: Detect installed presets and cross-reference with profiles.
+  // Each profile for a detected preset becomes a separate entry so that
+  // multi-instance setups (e.g. two claude-code profiles) render as
+  // separate cards on the canvas.
+  const representedProfileIds = new Set<string>();
+
   try {
     const { listPresets } = await import('@agenshield/sandbox');
     const presets = listPresets();
+    let profiles: Array<{ id: string; name?: string; presetId?: string; type?: string }> = [];
+
+    try {
+      const storage = getStorage();
+      profiles = storage.profiles.getAll();
+    } catch {
+      // Storage not ready — proceed with empty profiles
+    }
 
     for (const preset of presets) {
       if (preset.id === 'custom') continue;
+      let detection: { version?: string; binaryPath?: string; method?: string } | null = null;
       try {
-        const detection = await preset.detect();
-        if (detection) {
+        detection = await preset.detect();
+      } catch {
+        // Detection failed for this preset — skip
+      }
+      if (!detection) continue;
+
+      // Find ALL profiles that belong to this preset
+      const matchingProfiles = profiles.filter(
+        (p) => p.presetId === preset.id,
+      );
+
+      if (matchingProfiles.length === 0) {
+        // Detected but unshielded — single entry with preset ID
+        targets.push({
+          id: preset.id,
+          name: preset.name,
+          type: preset.id,
+          version: detection.version,
+          binaryPath: detection.binaryPath,
+          method: detection.method ?? 'auto',
+          shielded: false,
+        });
+      } else {
+        // One entry per profile
+        for (const profile of matchingProfiles) {
+          representedProfileIds.add(profile.id);
           targets.push({
-            id: preset.id,
-            name: preset.name,
+            id: profile.id,
+            name: profile.name ?? preset.name,
             type: preset.id,
             version: detection.version,
             binaryPath: detection.binaryPath,
             method: detection.method ?? 'auto',
-            shielded: false,
+            shielded: true,
           });
         }
-      } catch {
-        // Detection failed for this preset — skip
-      }
-    }
-  } catch {
-    // Sandbox package not available — return empty
-  }
-
-  // Cross-reference with storage profiles to mark shielded targets
-  try {
-    const storage = getStorage();
-    const profiles = storage.profiles.getAll();
-    for (const target of targets) {
-      const profile = profiles.find(
-        (p: { presetId?: string }) => p.presetId === target.id,
-      );
-      if (profile) {
-        target.shielded = true;
       }
     }
 
-    // Append additional shielded profiles (multi-instance support)
+    // Phase 2: Append profiles whose preset was NOT detected (e.g. binary
+    // was uninstalled but profile still exists in storage).
     const { getPreset: getPresetFn } = await import('@agenshield/sandbox');
-    const representedPresetIds = new Set(targets.filter((t) => t.shielded).map((t) => t.id));
     for (const profile of profiles) {
       if ((profile as { type?: string }).type !== 'target' || !profile.presetId) continue;
-      if (representedPresetIds.has(profile.presetId)) continue; // First instance already shown
+      if (representedProfileIds.has(profile.id)) continue;
 
       const basePreset = getPresetFn(profile.presetId);
       targets.push({
@@ -93,9 +139,10 @@ export async function detectTargets(): Promise<DetectedTarget[]> {
         method: 'profile',
         shielded: true,
       });
+      representedProfileIds.add(profile.id);
     }
   } catch {
-    // Storage not ready — leave shielded as false
+    // Sandbox package not available — return empty
   }
 
   return targets;
@@ -180,6 +227,8 @@ interface TargetInfo {
   running: boolean;
   version?: string;
   binaryPath?: string;
+  gatewayPort?: number;
+  pid?: number;
 }
 
 // ── Route registration ──────────────────────────────────────────
@@ -197,35 +246,51 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
       const profiles = storage.profiles.getAll();
 
       const results: TargetInfo[] = detected.map((target) => {
-        const profile = profiles.find(
-          (p: { presetId?: string }) => p.presetId === target.id,
-        );
+        const matchedProfile = profiles.find((p: { id: string }) => p.id === target.id);
         return {
           id: target.id,
           name: target.name,
           type: target.type,
-          shielded: !!profile,
+          shielded: target.shielded,
           running: false, // Will be updated below
           version: target.version,
           binaryPath: target.binaryPath,
+          gatewayPort: matchedProfile?.gatewayPort,
         };
       });
 
-      // Check running status via launchctl
+      // Check running status: primary signal is ps -u <agentUsername>,
+      // secondary is launchctl for broker status.
       try {
         const { execSync } = await import('node:child_process');
         for (const target of results) {
           if (target.shielded) {
             try {
-              const matchedProfile = profiles.find((p: { id: string; presetId?: string }) =>
-                p.id === target.id || p.presetId === target.id,
+              const matchedProfile = profiles.find((p: { id: string }) =>
+                p.id === target.id,
               );
-              const runBaseName = matchedProfile?.agentUsername?.replace(/^ash_/, '').replace(/_agent$/, '') ?? target.id;
-              const output = execSync(
-                `launchctl list | grep com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
-                { encoding: 'utf-8', timeout: 5_000 },
-              );
-              target.running = output.trim().length > 0;
+              const agentUsername = matchedProfile?.agentUsername;
+
+              // Primary check: agent user has running processes
+              const processesRunning = agentUsername
+                ? checkProcessesRunning(agentUsername)
+                : false;
+
+              // Secondary check: launchctl broker status
+              const runBaseName = agentUsername?.replace(/^ash_/, '').replace(/_agent$/, '') ?? target.id;
+              let brokerRunning = false;
+              try {
+                const brokerOutput = execSync(
+                  `launchctl list | grep com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
+                  { encoding: 'utf-8', timeout: 5_000 },
+                );
+                brokerRunning = brokerOutput.trim().length > 0;
+              } catch {
+                // launchctl check failed — rely on process check
+              }
+
+              // Target is running if agent user has processes OR broker is registered in launchctl
+              target.running = processesRunning || brokerRunning;
             } catch {
               // Can't check — leave as false
             }
@@ -340,6 +405,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
       let currentStep = 'initializing';
       const shieldLog = new ShieldLogger(targetId);
       const tracker = new ShieldStepTracker(targetId, OPENCLAW_SHIELD_STEPS);
+      registerShieldOperation(targetId, targetId, tracker);
       let manifestBuilder: ManifestBuilder | undefined;
 
       try {
@@ -393,7 +459,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           resolvePresetId,
           createUserConfig,
           createPathsConfig,
-          installPresetBinaries,
           generateAgentProfile,
           generateBrokerPlist,
         } = await import('@agenshield/sandbox');
@@ -496,11 +561,30 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           // logs and run dirs owned by broker:socketgroup
           `chown ${brokerUser}:${groupName} "${agentHome}/.agenshield/logs" "${agentHome}/.agenshield/run"`,
           `chmod 755 "${agentHome}/.agenshield/logs"`,
-          `chmod 2770 "${agentHome}/.agenshield/run"`,
+          `chmod 2775 "${agentHome}/.agenshield/run"`,
         ].join(' && '), { timeout: 30_000 });
 
         tracker.completeStep('create_directories');
         manifestBuilder.recordInfra('create_directories', 3, { agentHome });
+
+        // 3a-acl. Grant broker + agent user traversal ACL on host home (for plist binary paths and wrappers)
+        await executor.execAsRoot([
+          // Broker user ACLs
+          `chmod -a "${brokerUser} allow search" "${hostHome}" 2>/dev/null; true`,
+          `chmod +a "${brokerUser} allow search" "${hostHome}"`,
+          `chmod -a "${brokerUser} allow search,list,readattr,readextattr" "${hostHome}/.agenshield" 2>/dev/null; true`,
+          `chmod +a "${brokerUser} allow search,list,readattr,readextattr" "${hostHome}/.agenshield"`,
+          `chmod -a "${brokerUser} allow search,list,readattr,readextattr,execute" "${hostHome}/.agenshield/bin" 2>/dev/null; true`,
+          `chmod +a "${brokerUser} allow search,list,readattr,readextattr,execute" "${hostHome}/.agenshield/bin"`,
+          // Agent user ACLs (wrappers exec shield-client from host .agenshield/bin)
+          `chmod -a "${agentUser} allow search" "${hostHome}" 2>/dev/null; true`,
+          `chmod +a "${agentUser} allow search" "${hostHome}"`,
+          `chmod -a "${agentUser} allow search,list,readattr,readextattr" "${hostHome}/.agenshield" 2>/dev/null; true`,
+          `chmod +a "${agentUser} allow search,list,readattr,readextattr" "${hostHome}/.agenshield"`,
+          `chmod -a "${agentUser} allow search,list,readattr,readextattr,execute" "${hostHome}/.agenshield/bin" 2>/dev/null; true`,
+          `chmod +a "${agentUser} allow search,list,readattr,readextattr,execute" "${hostHome}/.agenshield/bin"`,
+        ].join(' && '), { timeout: 15_000 });
+        shieldLog.info(`Broker + agent traversal ACL set on ${hostHome}`);
 
         // 3b. Create .agenshield marker (root-owned, for user identification)
         tracker.startStep('create_marker');
@@ -535,7 +619,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             GUARDED_SHELL_CONTENT,
             zdotDir,
             zdotZshenvContent,
-            ZDOT_ZSHRC_CONTENT,
+            zdotZshrcContent,
           } = await import('@agenshield/sandbox');
 
           // Per-target guarded-shell binary path
@@ -563,11 +647,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           tracker.startStep('install_zdotdir');
           await executor.execAsRoot(`mkdir -p "${targetZdotDir}"`, { timeout: 10_000 });
           await executor.execAsRoot(
-            `cat > "${targetZdotDir}/.zshenv" << 'ZSHENV_EOF'\n${zdotZshenvContent(agentHome)}\nZSHENV_EOF`,
+            `cat > "${targetZdotDir}/.zshenv" << 'ZSHENV_EOF'\n${zdotZshenvContent(agentHome, preset.shellFeatures)}\nZSHENV_EOF`,
             { timeout: 15_000 },
           );
           await executor.execAsRoot(
-            `cat > "${targetZdotDir}/.zshrc" << 'ZSHRC_EOF'\n${ZDOT_ZSHRC_CONTENT}\nZSHRC_EOF`,
+            `cat > "${targetZdotDir}/.zshrc" << 'ZSHRC_EOF'\n${zdotZshrcContent(preset.shellFeatures)}\nZSHRC_EOF`,
             { timeout: 15_000 },
           );
           await executor.execAsRoot([
@@ -607,24 +691,163 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           throw new Error(`Guarded shell installation failed: ${msg}`);
         }
 
-        // 4. Install wrappers
-        tracker.startStep('install_wrappers');
+        // 4. Install wrappers (5 granular sub-steps)
         currentStep = 'installing_wrappers';
         log('Installing command wrappers...', 'installing_wrappers');
         shieldLog.step('installing_wrappers', `Installing command wrappers (${preset.requiredBins.join(', ')})...`);
-        try {
-          await installPresetBinaries({
-            requiredBins: preset.requiredBins,
-            userConfig,
-            binDir: `${agentHome}/bin`,
-            socketGroupName: groupName,
-          });
-        } catch (err) {
-          request.log.warn({ targetId, err }, `Wrapper installation partial: ${(err as Error).message}`);
+        const binDir = `${agentHome}/bin`;
+
+        const {
+          deployInterceptor: deployInterceptorFn,
+          installSpecificWrappers: installSpecificWrappersFn,
+          installBasicCommands: installBasicCommandsFn,
+          getDefaultWrapperConfig: getDefaultWrapperConfigFn,
+          WRAPPER_DEFINITIONS: wrapperDefs,
+        } = await import('@agenshield/sandbox');
+
+        // 4a. Deploy interceptor (conditional — skip if no wrapper uses it)
+        tracker.startStep('deploy_interceptor');
+        const needsInterceptor = preset.requiredBins.some(
+          (name: string) => wrapperDefs[name]?.usesInterceptor,
+        );
+        if (needsInterceptor) {
+          log('Deploying interceptor...', 'installing_wrappers');
+          shieldLog.info('Deploying interceptor to shared lib dir');
+          try {
+            const intResult = await deployInterceptorFn(userConfig);
+            if (!intResult.success) {
+              request.log.warn({ targetId }, `Interceptor deploy partial: ${intResult.message}`);
+            }
+            tracker.completeStep('deploy_interceptor');
+            manifestBuilder.recordInfra('deploy_interceptor', 4, {});
+          } catch (err) {
+            request.log.warn({ targetId, err }, `Interceptor deploy failed: ${(err as Error).message}`);
+            tracker.completeStep('deploy_interceptor');
+            manifestBuilder.recordInfra('deploy_interceptor', 4, {});
+          }
+        } else {
+          tracker.skipStep('deploy_interceptor');
         }
 
-        tracker.completeStep('install_wrappers');
-        manifestBuilder.recordInfra('install_wrappers', 4, {});
+        // 4a1b. Deploy broker binary (agenshield-broker — executed by broker LaunchDaemon)
+        tracker.startStep('deploy_broker_binary');
+        log('Deploying broker binary...', 'installing_wrappers');
+        shieldLog.info('Deploying broker binary to shared bin dir');
+        try {
+          const { copyBrokerBinary } = await import('@agenshield/sandbox');
+          const brokerResult = await copyBrokerBinary(userConfig, hostHome);
+          if (!brokerResult.success) {
+            request.log.warn({ targetId }, `Broker binary deploy failed: ${brokerResult.message}`);
+          }
+          tracker.completeStep('deploy_broker_binary');
+          manifestBuilder.recordInfra('deploy_broker_binary', 4, {});
+        } catch (err) {
+          request.log.warn({ targetId, err }, `Broker binary deploy failed: ${(err as Error).message}`);
+          tracker.completeStep('deploy_broker_binary');
+          manifestBuilder.recordInfra('deploy_broker_binary', 4, {});
+        }
+
+        // 4a2. Deploy shield-client (used by curl/git wrappers to route through broker)
+        tracker.startStep('deploy_shield_client');
+        log('Deploying shield-client...', 'installing_wrappers');
+        shieldLog.info('Deploying shield-client binary for wrapper scripts');
+        try {
+          const { copyShieldClient: copyShieldClientFn } = await import('@agenshield/sandbox');
+          const clientResult = await copyShieldClientFn(userConfig, hostHome);
+          if (!clientResult.success) {
+            request.log.warn({ targetId }, `Shield-client deploy partial: ${clientResult.message}`);
+          }
+          // Bootstrap node-bin so shield-client's shebang works before Phase 7
+          const bootstrapNodeDest = `${agentHome}/bin/node-bin`;
+          await executor.execAsRoot(
+            `cp "${process.execPath}" "${bootstrapNodeDest}" && chown root:${groupName} "${bootstrapNodeDest}" && chmod 755 "${bootstrapNodeDest}"`,
+            { timeout: 10_000 },
+          );
+          shieldLog.info(`Bootstrap node-bin copied from ${process.execPath} to ${bootstrapNodeDest}`);
+          tracker.completeStep('deploy_shield_client');
+          manifestBuilder.recordInfra('deploy_shield_client', 4, {});
+        } catch (err) {
+          request.log.warn({ targetId, err }, `Shield-client deploy failed: ${(err as Error).message}`);
+          tracker.completeStep('deploy_shield_client');
+          manifestBuilder.recordInfra('deploy_shield_client', 4, {});
+        }
+
+        // 4b. Install wrapper scripts
+        tracker.startStep('install_wrapper_scripts');
+        log('Installing wrapper scripts...', 'installing_wrappers');
+        shieldLog.info(`Installing wrapper scripts: ${preset.requiredBins.join(', ')}`);
+        try {
+          const wrapperConfig = getDefaultWrapperConfigFn(userConfig);
+          const validNames = preset.requiredBins.filter((name: string) => wrapperDefs[name]);
+          await installSpecificWrappersFn(validNames, binDir, wrapperConfig);
+          tracker.completeStep('install_wrapper_scripts');
+          manifestBuilder.recordInfra('install_wrapper_scripts', 4, {});
+        } catch (err) {
+          request.log.warn({ targetId, err }, `Wrapper scripts partial: ${(err as Error).message}`);
+          tracker.completeStep('install_wrapper_scripts');
+          manifestBuilder.recordInfra('install_wrapper_scripts', 4, {});
+        }
+
+        // 4c. Install seatbelt profiles (conditional — skip if no wrapper uses it)
+        tracker.startStep('install_seatbelt');
+        const needsSeatbelt = preset.requiredBins.some(
+          (name: string) => wrapperDefs[name]?.usesSeatbelt,
+        );
+        if (needsSeatbelt) {
+          log('Installing seatbelt profiles...', 'installing_wrappers');
+          shieldLog.info('Generating and installing seatbelt profiles');
+          try {
+            const { installSeatbeltProfiles } = await import('@agenshield/sandbox');
+            const agentProfile = generateAgentProfile({
+              workspacePath: `${agentHome}/workspace`,
+              socketPath: `${agentHome}/.agenshield/run/agenshield.sock`,
+              agentHome,
+              denyWritePaths: preset.seatbeltDenyPaths,
+            });
+            await installSeatbeltProfiles(userConfig, { agentProfile });
+            tracker.completeStep('install_seatbelt');
+            manifestBuilder.recordInfra('install_seatbelt', 4, {});
+          } catch (err) {
+            request.log.warn({ targetId, err }, `Seatbelt install partial: ${(err as Error).message}`);
+            tracker.completeStep('install_seatbelt');
+            manifestBuilder.recordInfra('install_seatbelt', 4, {});
+          }
+        } else {
+          tracker.skipStep('install_seatbelt');
+        }
+
+        // 4d. Install basic system commands (ls, cat, grep, etc.)
+        tracker.startStep('install_basic_commands');
+        log('Installing basic commands...', 'installing_wrappers');
+        shieldLog.info('Installing basic system command symlinks');
+        try {
+          await installBasicCommandsFn(binDir);
+          tracker.completeStep('install_basic_commands');
+          manifestBuilder.recordInfra('install_basic_commands', 4, {});
+        } catch (err) {
+          request.log.warn({ targetId, err }, `Basic commands partial: ${(err as Error).message}`);
+          tracker.completeStep('install_basic_commands');
+          manifestBuilder.recordInfra('install_basic_commands', 4, {});
+        }
+
+        // 4e. Lock down permissions (root-owned 755, then restore bin dir to broker 2775)
+        tracker.startStep('lockdown_permissions');
+        log('Locking down permissions...', 'installing_wrappers');
+        shieldLog.info(`Locking down ${binDir}: root:${groupName} ownership`);
+        try {
+          await executor.execAsRoot([
+            `chown -R root:${groupName} "${binDir}"`,
+            `chmod -R 755 "${binDir}"`,
+            `chown ${brokerUser}:${groupName} "${binDir}"`,
+            `chmod 2775 "${binDir}"`,
+          ].join(' && '), { timeout: 15_000 });
+          tracker.completeStep('lockdown_permissions');
+          manifestBuilder.recordInfra('lockdown_permissions', 4, { binDir });
+        } catch (err) {
+          request.log.warn({ targetId, err }, `Lockdown partial: ${(err as Error).message}`);
+          tracker.completeStep('lockdown_permissions');
+          manifestBuilder.recordInfra('lockdown_permissions', 4, { binDir });
+        }
 
         // 4b. PATH router override
         tracker.startStep('install_path_registry');
@@ -703,13 +926,25 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             requestedVersion: body.openclawVersion,
             execAsRoot: (cmd, opts) => {
               shieldLog.command(cmd, { timeout: opts?.timeout });
-              const p = executor.execAsRoot(cmd, opts);
+              shieldLog.resetStream();
+              const onOutput = (stream: 'stdout' | 'stderr', data: string) => shieldLog.streamOutput(data, stream);
+              const p = executor.execAsRoot(cmd, { ...opts, onOutput });
               p.then(r => shieldLog.result(r.success, r.output, r.error), () => { /* logged by caller */ });
               return p;
             },
             execAsUser: (cmd, opts) => {
               shieldLog.command(cmd, { user: agentUser, timeout: opts?.timeout });
-              const p = executor.execAsUser(agentUser, cmd, opts);
+              shieldLog.resetStream();
+              const onOutput = (stream: 'stdout' | 'stderr', data: string) => shieldLog.streamOutput(data, stream);
+              const p = executor.execAsUser(agentUser, cmd, { ...opts, onOutput });
+              p.then(r => shieldLog.result(r.success, r.output, r.error), () => { /* logged by caller */ });
+              return p;
+            },
+            execAsUserDirect: (cmd, opts) => {
+              shieldLog.command(cmd, { user: agentUser, timeout: opts?.timeout, directShell: true });
+              shieldLog.resetStream();
+              const onOutput = (stream: 'stdout' | 'stderr', data: string) => shieldLog.streamOutput(data, stream);
+              const p = executor.execAsUserDirect(agentUser, cmd, { ...opts, onOutput });
               p.then(r => shieldLog.result(r.success, r.output, r.error), () => { /* logged by caller */ });
               return p;
             },
@@ -730,6 +965,9 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             onLog: (message) => {
               log(message, 'installing_target');
               shieldLog.info(message);
+            },
+            onStepLog: (stepId, message) => {
+              tracker.logStep(stepId, message);
             },
             profileBaseName: resolvedBaseName,
             freshInstall: body.freshInstall,
@@ -752,7 +990,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           shieldLog.info(`${preset.name} installation complete.`);
         } else {
           // No preset install — skip all preset-specific steps
-          const skipSteps = ['install_homebrew', 'install_nvm', 'copy_node_binary', 'install_openclaw', 'stop_host', 'copy_config', 'verify_openclaw', 'patch_node', 'write_gateway_plist'];
+          const skipSteps = ['install_homebrew', 'install_nvm', 'install_node', 'copy_node_binary', 'install_openclaw', 'stop_host', 'copy_config', 'verify_openclaw', 'patch_node', 'write_gateway_plist'];
           for (const stepId of skipSteps) {
             tracker.skipStep(stepId);
           }
@@ -768,6 +1006,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           workspacePath: `${agentHome}/workspace`,
           socketPath: pathsConfig.socketPath,
           agentHome,
+          denyWritePaths: preset.seatbeltDenyPaths,
         });
         const seatbeltPath = `${agentHome}/.agenshield/seatbelt/agent.sb`;
         shieldLog.fileContent('Seatbelt profile', seatbeltPath, seatbeltProfile);
@@ -804,6 +1043,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         const plistContent = generateBrokerPlist(userConfig, {
           baseName: resolvedBaseName,
           socketPath: pathsConfig.socketPath,
+          hostHome,
         });
         const brokerLabel = `com.agenshield.broker.${baseName}`;
         const plistPath = `/Library/LaunchDaemons/${brokerLabel}.plist`;
@@ -812,7 +1052,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         emitEvent('process:started', { process: 'broker', action: 'spawning', pid: undefined } as import('@agenshield/ipc').ProcessEventPayload);
         shieldLog.processEvent('spawning', brokerLabel, { user: brokerUser, plistPath });
         await executor.execAsRoot(
-          `cat > "${plistPath}" << 'PLIST_EOF'\n${plistContent}\nPLIST_EOF\nchmod 644 "${plistPath}"\nlaunchctl bootout system/${brokerLabel} 2>/dev/null; true\nlaunchctl bootstrap system "${plistPath}"`,
+          `cat > "${plistPath}" << 'PLIST_EOF'\n${plistContent}\nPLIST_EOF\nchmod 644 "${plistPath}"\nlaunchctl bootout system/${brokerLabel} 2>/dev/null; true\nlaunchctl bootstrap system "${plistPath}"\nlaunchctl kickstart system/${brokerLabel} 2>/dev/null; true`,
           { timeout: 15_000 },
         );
         shieldLog.processEvent('spawned', brokerLabel);
@@ -826,34 +1066,52 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           shieldLog.step('waiting_broker_socket', `Waiting for broker socket at ${pathsConfig.socketPath}...`);
           log('Waiting for broker socket...', 'waiting_broker_socket');
 
-          const SOCKET_WAIT_MS = 30_000;
+          const SOCKET_WAIT_MS = 45_000;
           let socketReady = false;
+
+          const fsNode = await import('node:fs');
+          const pathNode = await import('node:path');
+          const socketDir = pathNode.dirname(pathsConfig.socketPath);
+          const socketName = pathNode.basename(pathsConfig.socketPath);
+
+          // Ensure socket directory exists before watching (fs.watch fails otherwise)
+          try { fsNode.mkdirSync(socketDir, { recursive: true }); } catch { /* best effort */ }
 
           // Fast check — socket may already exist
           try {
-            const stat = await import('node:fs').then(f => f.statSync(pathsConfig.socketPath));
+            const stat = fsNode.statSync(pathsConfig.socketPath);
             if (stat.isSocket?.()) socketReady = true;
           } catch { /* not yet */ }
 
-          // If not ready, watch the directory for creation
-          if (!socketReady) {
-            const fsNode = await import('node:fs');
-            const pathNode = await import('node:path');
-            const socketDir = pathNode.dirname(pathsConfig.socketPath);
-            const socketName = pathNode.basename(pathsConfig.socketPath);
-
-            socketReady = await new Promise<boolean>((resolve) => {
-              const timeout = setTimeout(() => {
+          // Helper: poll for socket existence (backup for macOS fs.watch misses)
+          const pollForSocket = (sockPath: string, timeoutMs: number): Promise<boolean> => {
+            return new Promise<boolean>((resolve) => {
+              const deadline = setTimeout(() => {
+                clearInterval(poller);
                 watcher.close();
                 resolve(false);
-              }, SOCKET_WAIT_MS);
+              }, timeoutMs);
+
+              // Parallel polling at 500ms intervals — macOS fs.watch can miss socket events
+              const poller = setInterval(() => {
+                try {
+                  const s = fsNode.statSync(sockPath);
+                  if (s.isSocket?.()) {
+                    clearTimeout(deadline);
+                    clearInterval(poller);
+                    watcher.close();
+                    resolve(true);
+                  }
+                } catch { /* not yet */ }
+              }, 500);
 
               const watcher = fsNode.watch(socketDir, (_, filename) => {
                 if (filename === socketName) {
                   try {
-                    const s = fsNode.statSync(pathsConfig.socketPath);
+                    const s = fsNode.statSync(sockPath);
                     if (s.isSocket?.()) {
-                      clearTimeout(timeout);
+                      clearTimeout(deadline);
+                      clearInterval(poller);
                       watcher.close();
                       resolve(true);
                     }
@@ -861,13 +1119,29 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
                 }
               });
 
-              // Handle watcher errors (e.g. dir doesn't exist)
               watcher.on('error', () => {
-                clearTimeout(timeout);
-                watcher.close();
-                resolve(false);
+                // Watcher failed — polling continues as fallback
               });
             });
+          };
+
+          // If not ready, watch + poll for creation
+          if (!socketReady) {
+            socketReady = await pollForSocket(pathsConfig.socketPath, SOCKET_WAIT_MS);
+          }
+
+          // Retry with kickstart -k if first wait failed (helps under multi-target load)
+          if (!socketReady) {
+            shieldLog.info('Broker socket not ready — retrying with kickstart -k...');
+            try {
+              await executor.execAsRoot(
+                `launchctl kickstart -k system/${brokerLabel} 2>/dev/null; true`,
+                { timeout: 10_000 },
+              );
+            } catch (kickErr) {
+              shieldLog.info(`Kickstart retry failed: ${(kickErr as Error).message} — continuing to poll...`);
+            }
+            socketReady = await pollForSocket(pathsConfig.socketPath, 15_000);
           }
 
           if (socketReady) {
@@ -885,6 +1159,21 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             } catch { /* best-effort diagnostics */ }
             tracker.failStep('wait_broker_socket', 'Broker socket not ready — gateway start deferred');
             log('Broker socket not ready — gateway start deferred. Use /targets/lifecycle/:targetId/start to retry.', 'waiting_broker_socket');
+
+            // Rollback: restart host processes since shielded replacement failed
+            if (hostUsername && basePresetId === 'openclaw') {
+              shieldLog.info('Rolling back: restarting host OpenClaw processes...');
+              try {
+                await executor.execAsRoot(
+                  `sudo -H -u ${hostUsername} openclaw daemon start 2>/dev/null || true; sudo -H -u ${hostUsername} openclaw gateway start 2>/dev/null || true`,
+                  { timeout: 30_000 },
+                );
+                shieldLog.info('Host OpenClaw processes restarted.');
+              } catch {
+                shieldLog.error('Failed to restart host OpenClaw processes.');
+              }
+            }
+
             gatewayPlistPath = undefined;
           }
 
@@ -963,6 +1252,10 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         shieldLog.step('creating_profile', 'Creating profile in storage...');
         const storage = getStorage();
         const profileId = `${targetId}-${Date.now().toString(36)}`;
+
+        // Allocate gateway port for openclaw targets
+        const gatewayPort = basePresetId === 'openclaw' ? allocateGatewayPort() : undefined;
+
         const profile = storage.profiles.create({
           id: profileId,
           name: preset.name,
@@ -973,6 +1266,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           brokerUsername: brokerUser,
           brokerUid: userConfig.brokerUser.uid,
         });
+
+        // Persist gateway port if allocated
+        if (gatewayPort != null) {
+          storage.profiles.update(profileId, { gatewayPort });
+        }
 
         tracker.completeStep('create_profile');
 
@@ -999,16 +1297,38 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
 
         // 11. Finalize
         tracker.startStep('finalize');
+
+        // Check for critical infrastructure failures
+        const failedSteps = tracker.getSteps().filter(s => s.status === 'failed');
+        const criticalFailures = failedSteps.filter(s =>
+          ['wait_broker_socket', 'install_broker_daemon', 'gateway_preflight'].includes(s.id)
+        );
+        const brokerFailed = criticalFailures.length > 0;
+
         emitEvent('setup:shield_complete', { targetId, profileId: profile.id });
         log('Shielding complete.', 'complete');
         flushLog();
-        shieldLog.finish(true);
+        shieldLog.finish(!brokerFailed, brokerFailed ? 'Broker socket not ready' : undefined);
         tracker.completeStep('finalize');
         request.log.info({ targetId, logPath: shieldLog.logPath }, 'Shield log saved');
 
-        return { success: true, data: { targetId, profileId: profile.id, logPath: shieldLog.logPath } };
+        triggerTargetCheck();
+        unregisterShieldOperation(targetId);
+        return {
+          success: true,
+          data: {
+            targetId,
+            profileId: profile.id,
+            logPath: shieldLog.logPath,
+            ...(brokerFailed && {
+              warning: 'Broker did not start — gateway deferred',
+              failedSteps: criticalFailures.map(s => s.id),
+            }),
+          },
+        };
       } catch (err) {
         flushLog();
+        unregisterShieldOperation(targetId);
         const message = (err as Error).message;
         shieldLog.error(`Shield failed at step "${currentStep}": ${message}`);
         shieldLog.finish(false, message);
@@ -1017,6 +1337,48 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         if (runningStep) tracker.failStep(runningStep.id, message);
         request.log.error({ targetId, err, step: currentStep, logPath: shieldLog.logPath }, `Shield failed at step "${currentStep}": ${message}`);
         emitEvent('setup:error', { targetId, error: message, step: currentStep });
+
+        // ── Rollback completed steps so the target can be re-shielded ──
+        if (manifestBuilder) {
+          try {
+            const { getRollbackHandler } = await import('@agenshield/sandbox');
+            const manifest = manifestBuilder.build();
+            const entries = manifest.entries
+              .filter(e => e.status === 'completed' && e.changed)
+              .reverse();
+
+            if (entries.length > 0) {
+              shieldLog.info(`Rolling back ${entries.length} completed steps...`);
+              emitEvent('setup:shield_progress', { targetId, step: 'rollback', progress: 0, message: 'Rolling back failed shield...' });
+
+              const hostHome = hostUsername ? `/Users/${hostUsername}` : (process.env['HOME'] || '');
+              const rollbackCtx = {
+                execAsRoot: (cmd: string, opts?: { timeout?: number }) => executor.execAsRoot(cmd, opts),
+                onLog: (msg: string) => shieldLog.info(`  ${msg}`),
+                agentHome: manifest.entries.find(e => e.outputs['agentHome'])?.outputs['agentHome'] ?? '',
+                agentUsername: manifest.entries.find(e => e.outputs['agentUsername'])?.outputs['agentUsername'] ?? '',
+                profileBaseName: baseName,
+                hostHome,
+                hostUsername,
+              };
+
+              for (const entry of entries) {
+                const handler = getRollbackHandler(entry.stepId);
+                if (handler) {
+                  try {
+                    await handler(rollbackCtx, entry);
+                  } catch (rbErr) {
+                    shieldLog.info(`Rollback of ${entry.stepId} failed (best-effort): ${(rbErr as Error).message}`);
+                  }
+                }
+              }
+              shieldLog.info('Rollback complete.');
+            }
+          } catch (rollbackErr) {
+            shieldLog.error(`Rollback failed: ${(rollbackErr as Error).message}`);
+          }
+        }
+
         return reply.code(500).send({
           success: false,
           error: { code: 'SHIELD_ERROR', message, step: currentStep, logPath: shieldLog.logPath },
@@ -1024,6 +1386,14 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
       }
     },
   );
+
+  /**
+   * GET /targets/lifecycle/active-operations — List in-progress shield operations.
+   * Used by the frontend to recover progress state after page refresh.
+   */
+  app.get('/targets/lifecycle/active-operations', async () => {
+    return { success: true, data: getActiveShieldOperations() };
+  });
 
   /**
    * POST /targets/lifecycle/:targetId/unshield — Unshield a target.
@@ -1279,6 +1649,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         emitEvent('setup:shield_complete', { targetId, profileId: profile.id });
         log('Unshielding complete.', 'complete');
 
+        triggerTargetCheck();
         return { success: true, data: { targetId, unshielded: true } };
       } catch (err) {
         const message = (err as Error).message;
@@ -1319,17 +1690,65 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         const labels = [`com.agenshield.broker.${startBaseName}`, 'com.agenshield.broker'];
         let lastError: Error | undefined;
         for (const label of labels) {
-          try {
-            await executor.execAsRoot(`launchctl kickstart -k system/${label}`, { timeout: 15_000 });
+          const result = await executor.execAsRoot(`launchctl kickstart -k system/${label}`, { timeout: 15_000 });
+          if (result.success) {
             lastError = undefined;
             break;
-          } catch (err) {
-            lastError = err as Error;
           }
+          lastError = new Error(result.error || `Failed to start ${label}`);
         }
         if (lastError) throw lastError;
 
+        // Also start gateway for OpenClaw targets
+        const presetId = (profile as { presetId?: string })?.presetId;
+        if (presetId === 'openclaw') {
+          const agentUsername = profile?.agentUsername;
+          const agentHome = profile?.agentHomeDir;
+          const processManager = app.processManager;
+
+          if (processManager && agentUsername && agentHome) {
+            // Use ProcessManager for direct gateway lifecycle management
+            try {
+              // Read gateway config if available
+              const configPath = `${agentHome}/.agenshield/config/gateway.json`;
+              let gwCommand = 'openclaw gateway run';
+              let gwPort: number | undefined;
+              let gwEnv: Record<string, string> = {};
+              try {
+                const fs = await import('node:fs');
+                if (fs.existsSync(configPath)) {
+                  const gwConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+                  gwCommand = gwConfig.command ?? gwCommand;
+                  gwPort = gwConfig.port;
+                  gwEnv = gwConfig.env ?? {};
+                  if (gwPort) gwCommand += ` --port ${gwPort}`;
+                }
+              } catch { /* use defaults */ }
+
+              processManager.spawn({
+                targetId,
+                profileId: profile.id,
+                command: gwCommand,
+                runAsUser: agentUsername,
+                agentHome,
+                env: gwEnv,
+                gatewayPort: gwPort,
+              });
+            } catch (gwErr) {
+              request.log.warn({ err: gwErr }, 'Gateway spawn via ProcessManager failed');
+            }
+          } else {
+            // Fallback to launchctl if ProcessManager not available
+            const gwLabel = `com.agenshield.${startBaseName}.gateway`;
+            await executor.execAsRoot(
+              `launchctl enable system/${gwLabel} 2>/dev/null; true\nlaunchctl kickstart system/${gwLabel}`,
+              { timeout: 15_000 },
+            ).catch(() => { /* gateway start is best-effort */ });
+          }
+        }
+
         emitEvent('process:started', { process: targetId, action: 'start' });
+        triggerTargetCheck();
         return { success: true, data: { targetId, started: true } };
       } catch (err) {
         return reply.code(500).send({
@@ -1367,23 +1786,96 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         const labels = [`com.agenshield.broker.${stopBaseName}`, 'com.agenshield.broker'];
         let lastError: Error | undefined;
         for (const label of labels) {
-          try {
-            await executor.execAsRoot(`launchctl kill SIGTERM system/${label}`, { timeout: 15_000 });
+          const result = await executor.execAsRoot(`launchctl kill SIGTERM system/${label}`, { timeout: 15_000 });
+          if (result.success) {
             lastError = undefined;
             break;
-          } catch (err) {
-            lastError = err as Error;
           }
+          lastError = new Error(result.error || `Failed to stop ${label}`);
         }
         if (lastError) throw lastError;
 
+        // Also stop gateway for OpenClaw targets
+        const presetId = (profile as { presetId?: string })?.presetId;
+        if (presetId === 'openclaw') {
+          const processManager = app.processManager;
+
+          if (processManager) {
+            // Use ProcessManager for direct gateway lifecycle management
+            try {
+              await processManager.stop(targetId);
+            } catch (gwErr) {
+              request.log.warn({ err: gwErr }, 'Gateway stop via ProcessManager failed');
+            }
+          }
+
+          // Also try launchctl as fallback (for pre-existing plist-managed gateways)
+          const gwLabel = `com.agenshield.${stopBaseName}.gateway`;
+          await executor.execAsRoot(
+            `launchctl disable system/${gwLabel} 2>/dev/null; true\nlaunchctl kill SIGTERM system/${gwLabel}`,
+            { timeout: 15_000 },
+          ).catch(() => { /* gateway stop is best-effort */ });
+        }
+
         emitEvent('process:stopped', { process: targetId, action: 'stop' });
+        triggerTargetCheck();
         return { success: true, data: { targetId, stopped: true } };
       } catch (err) {
         return reply.code(500).send({
           success: false,
           error: { code: 'STOP_ERROR', message: (err as Error).message },
         });
+      }
+    },
+  );
+
+  // ── Dismissed targets ──────────────────────────────────────────
+
+  /**
+   * GET /targets/lifecycle/dismissed — List dismissed target IDs.
+   */
+  app.get('/targets/lifecycle/dismissed', async (): Promise<ApiResponse<string[]>> => {
+    try {
+      const storage = getStorage();
+      return { success: true, data: storage.getDismissedTargets() };
+    } catch (err) {
+      return { success: false, error: { code: 'DISMISSED_LIST_ERROR', message: (err as Error).message } };
+    }
+  });
+
+  /**
+   * POST /targets/lifecycle/dismissed — Dismiss a target.
+   */
+  app.post<{ Body: { targetId: string } }>(
+    '/targets/lifecycle/dismissed',
+    async (request): Promise<ApiResponse<{ targetId: string }>> => {
+      try {
+        const { targetId } = (request.body ?? {}) as { targetId: string };
+        if (!targetId) {
+          return { success: false, error: { code: 'INVALID_INPUT', message: 'targetId is required' } };
+        }
+        const storage = getStorage();
+        storage.dismissTarget(targetId);
+        return { success: true, data: { targetId } };
+      } catch (err) {
+        return { success: false, error: { code: 'DISMISS_ERROR', message: (err as Error).message } };
+      }
+    },
+  );
+
+  /**
+   * DELETE /targets/lifecycle/dismissed/:targetId — Restore a dismissed target.
+   */
+  app.delete<{ Params: { targetId: string } }>(
+    '/targets/lifecycle/dismissed/:targetId',
+    async (request): Promise<ApiResponse<{ targetId: string }>> => {
+      try {
+        const { targetId } = request.params;
+        const storage = getStorage();
+        storage.restoreTarget(targetId);
+        return { success: true, data: { targetId } };
+      } catch (err) {
+        return { success: false, error: { code: 'RESTORE_ERROR', message: (err as Error).message } };
       }
     },
   );

@@ -7,6 +7,9 @@ import { useSnapshot } from 'valtio';
 import type { UpdateConfigRequest, SimulateRequest } from '@agenshield/ipc';
 import { api, type CreateSecretRequest } from './client';
 import { daemonStatusStore } from '../state/daemon-status';
+import { securityStore, setSecurityStatus } from '../state/security';
+import { alertsStore, setAlerts, acknowledgeAlertInStore, acknowledgeAllAlertsInStore } from '../state/alerts';
+import { systemStore, handleMetricsSnapshot } from '../state/system-store';
 import { scopeStore } from '../state/scope';
 
 // Query keys
@@ -225,12 +228,25 @@ export function useUpdateSecret() {
 
 export function useSecurity() {
   const healthy = useHealthGate();
-  return useQuery({
+  const { status, loaded } = useSnapshot(securityStore);
+
+  // One-time REST fetch to seed store before first SSE event
+  useQuery({
     queryKey: queryKeys.security,
-    queryFn: api.getSecurity,
-    enabled: healthy,
-    refetchInterval: healthy ? 30000 : false,
+    queryFn: async () => {
+      const res = await api.getSecurity();
+      if (res.data) setSecurityStatus(res.data);
+      return res;
+    },
+    enabled: healthy && !loaded,
+    staleTime: Infinity,
   });
+
+  return {
+    // Cast away valtio's readonly wrapper — consumers expect mutable types
+    data: status ? { data: status as unknown as import('@agenshield/ipc').SecurityStatusPayload } : undefined,
+    isLoading: !loaded,
+  };
 }
 
 // --- AgenCo hooks ---
@@ -394,16 +410,23 @@ export function useBrowsePath(dirPath: string | null) {
 
 // --- System metrics hook ---
 
-export function useSystemMetrics(intervalOverride?: number | false) {
+export function useSystemMetrics() {
   const healthy = useHealthGate();
-  const interval = intervalOverride !== undefined ? intervalOverride : (healthy ? 2000 : false);
-  return useQuery({
-    queryKey: ['system-metrics'] as const,
-    queryFn: api.getMetrics,
-    enabled: healthy,
-    refetchInterval: interval,
-    staleTime: 1500,
+  const { metricsLoaded } = useSnapshot(systemStore);
+
+  // One-time REST fetch to seed store before first SSE event
+  useQuery({
+    queryKey: ['system-metrics-initial'] as const,
+    queryFn: async () => {
+      const res = await api.getMetrics();
+      if (res.data) handleMetricsSnapshot(res.data);
+      return res;
+    },
+    enabled: healthy && !metricsLoaded,
+    staleTime: Infinity,
   });
+
+  return { data: undefined, isLoading: !metricsLoaded };
 }
 
 /**
@@ -432,50 +455,82 @@ export function useMetricsHistory(limit = 150) {
   });
 }
 
-// --- Alerts hooks ---
-
-export function useAlerts(intervalOverride?: number | false) {
+/**
+ * Fetch per-target metrics history from the daemon.
+ * Only fetches when a targetId is selected and health gate is open.
+ */
+export function useTargetMetricsHistory(targetId: string | null) {
   const healthy = useHealthGate();
-  const interval = intervalOverride !== undefined ? intervalOverride : (healthy ? 15000 : false);
   return useQuery({
-    queryKey: queryKeys.alerts,
-    queryFn: () => api.alerts.getAll({ includeAcknowledged: true }),
-    enabled: healthy,
-    refetchInterval: interval,
+    queryKey: ['metrics-history', 'target', targetId] as const,
+    queryFn: async () => {
+      const res = await fetch(`/api/metrics/history?targetId=${encodeURIComponent(targetId!)}&limit=150`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return (json.data ?? []) as Array<{
+        timestamp: number;
+        cpuPercent: number;
+        memPercent: number;
+        diskPercent: number;
+        netUp: number;
+        netDown: number;
+        targetId?: string;
+      }>;
+    },
+    enabled: healthy && !!targetId,
+    staleTime: 60_000,
   });
 }
 
-export function useAlertsCount(intervalOverride?: number | false) {
+// --- Alerts hooks ---
+
+export function useAlerts() {
   const healthy = useHealthGate();
-  const interval = intervalOverride !== undefined ? intervalOverride : (healthy ? 10000 : false);
-  return useQuery({
-    queryKey: queryKeys.alertsCount,
-    queryFn: api.alerts.getCount,
-    enabled: healthy,
-    refetchInterval: interval,
+  const { alerts, loaded } = useSnapshot(alertsStore);
+
+  // One-time REST fetch to seed store before first SSE event
+  useQuery({
+    queryKey: queryKeys.alerts,
+    queryFn: async () => {
+      const res = await api.alerts.getAll({ includeAcknowledged: true });
+      if (res.data) setAlerts(res.data, res.meta?.unacknowledgedCount ?? 0);
+      return res;
+    },
+    enabled: healthy && !loaded,
+    staleTime: Infinity,
   });
+
+  return {
+    data: loaded ? { data: alerts as import('@agenshield/ipc').Alert[], meta: { unacknowledgedCount: alertsStore.unacknowledgedCount } } : undefined,
+    isLoading: !loaded,
+  };
+}
+
+export function useAlertsCount() {
+  const { unacknowledgedCount, loaded } = useSnapshot(alertsStore);
+
+  return {
+    data: loaded ? { data: { count: unacknowledgedCount } } : undefined,
+    isLoading: !loaded,
+  };
 }
 
 export function useAcknowledgeAlert() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: (id: number) => api.alerts.acknowledge(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.alerts });
-      queryClient.invalidateQueries({ queryKey: queryKeys.alertsCount });
+    onMutate: (id) => {
+      // Optimistic update
+      acknowledgeAlertInStore(id);
     },
   });
 }
 
 export function useAcknowledgeAllAlerts() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: () => api.alerts.acknowledgeAll(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.alerts });
-      queryClient.invalidateQueries({ queryKey: queryKeys.alertsCount });
+    onMutate: () => {
+      // Optimistic update
+      acknowledgeAllAlertsInStore();
     },
   });
 }

@@ -6,8 +6,8 @@
  * - OsascriptExecutor: macOS native dialog via privilege helper (no terminal needed)
  */
 
-import type { PrivilegeExecResult, PrivilegeExecutor } from '@agenshield/ipc';
+import type { PrivilegeExecResult, PrivilegeExecOptions, PrivilegeExecutor } from '@agenshield/ipc';
 
 /** @deprecated Use PrivilegeExecResult from @agenshield/ipc */
 export type ExecResult = PrivilegeExecResult;
-export type { PrivilegeExecutor };
+export type { PrivilegeExecOptions, PrivilegeExecutor };

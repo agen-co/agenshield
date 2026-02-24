@@ -16,6 +16,8 @@ export class ShieldLogger {
   private readonly fd: number;
   readonly logPath: string;
   private readonly startTime: number;
+  /** Tracks whether streamOutput() was called for the current command. */
+  private hasStreamedOutput = false;
 
   constructor(targetId: string) {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
@@ -65,10 +67,11 @@ export class ShieldLogger {
   }
 
   /** Log a command about to be executed. */
-  command(cmd: string, opts?: { user?: string; timeout?: number }): void {
+  command(cmd: string, opts?: { user?: string; timeout?: number; directShell?: boolean }): void {
     const userTag = opts?.user ? ` (as ${opts.user})` : ' (as root)';
     const timeoutTag = opts?.timeout ? ` [timeout ${opts.timeout}ms]` : '';
-    this.write(`  CMD${userTag}${timeoutTag}`);
+    const directTag = opts?.directShell ? ' [direct /bin/bash]' : '';
+    this.write(`  CMD${userTag}${timeoutTag}${directTag}`);
     // Truncate very long commands for readability
     const truncated = cmd.length > 2000 ? cmd.slice(0, 2000) + '... [truncated]' : cmd;
     for (const line of truncated.split('\n')) {
@@ -76,11 +79,39 @@ export class ShieldLogger {
     }
   }
 
+  /**
+   * Stream a chunk of real-time output from a running command.
+   * Splits into lines and writes each with a stdout:/stderr: prefix.
+   */
+  streamOutput(data: string, stream: 'stdout' | 'stderr'): void {
+    this.hasStreamedOutput = true;
+    const prefix = stream === 'stdout' ? 'stdout' : 'stderr';
+    // Split on newlines but preserve partial lines (last chunk may not end with \n)
+    const lines = data.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      // Skip empty trailing element from split (data ending with \n)
+      if (i === lines.length - 1 && line === '') continue;
+      this.write(`    ${prefix}: ${line}`);
+    }
+  }
+
+  /** Reset the streaming flag before a new command. */
+  resetStream(): void {
+    this.hasStreamedOutput = false;
+  }
+
   /** Log the result of a command execution. */
   result(success: boolean, output: string, error?: string, exitCode?: number): void {
     const status = success ? 'OK' : 'FAIL';
     const codeTag = exitCode !== undefined ? ` (exit ${exitCode})` : '';
     this.write(`  RESULT: ${status}${codeTag}`);
+
+    if (this.hasStreamedOutput) {
+      this.write(`    (output streamed above)`);
+      this.hasStreamedOutput = false;
+      return;
+    }
 
     if (output.trim()) {
       const lines = output.trim().split('\n');

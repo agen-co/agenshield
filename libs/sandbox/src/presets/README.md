@@ -89,7 +89,8 @@ Step-based install pipeline using an Ansible-inspired check-then-act pattern wit
 Reusable step factories shared across preset pipelines:
 
 - `installHomebrewStep` -- Install Homebrew in the agent user's home
-- `createInstallNvmAndNodeStep()` -- Install NVM and Node.js
+- `createInstallNvmStep()` -- Install NVM (Node Version Manager)
+- `createInstallNodeStep()` -- Install Node.js via NVM
 - `copyNodeBinaryStep` -- Copy node binary to shared bin
 - `patchNvmNodeStep` -- Patch NVM node with interceptor wrapper
 - `saveHostShellConfigStep` -- Save host shell config before modification

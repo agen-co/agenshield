@@ -539,6 +539,21 @@ export async function rpcRoutes(app: FastifyInstance): Promise<void> {
         if (headerProfileId) profileId = headerProfileId;
       }
 
+      // Extract inline identity from params (socket transport fallback).
+      // SyncClient embeds __profileId / __brokerToken in params when using
+      // socket transport that doesn't pass HTTP headers.
+      const cleanParams = { ...(params ?? {}) };
+      if (!profileId && cleanParams.__brokerToken) {
+        const inlineToken = String(cleanParams.__brokerToken);
+        const resolved = resolveProfileByToken(inlineToken, getStorage());
+        if (resolved) profileId = resolved;
+      }
+      if (!profileId && cleanParams.__profileId) {
+        profileId = String(cleanParams.__profileId);
+      }
+      delete cleanParams.__profileId;
+      delete cleanParams.__brokerToken;
+
       const handler = rpcHandlers[method];
       if (!handler) {
         return {
@@ -549,7 +564,7 @@ export async function rpcRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        const result = await handler(params ?? {}, profileId);
+        const result = await handler(cleanParams, profileId);
         return { jsonrpc: '2.0', id, result };
       } catch (error) {
         return {

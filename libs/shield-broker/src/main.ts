@@ -290,12 +290,7 @@ async function main(): Promise<void> {
   }
   console.log(`Broker Token: ${brokerAuth.token ? '***' : '(none)'}`);
 
-  // Ensure proxied command wrappers exist in agent's bin directory
-  if (config.agentHome) {
-    ensureProxiedCommandWrappers(path.join(config.agentHome, 'bin'));
-  }
-
-  // Start Unix socket server
+  // Start Unix socket server BEFORE writing wrappers — daemon waits for socket
   const socketServer = new UnixSocketServer({
     config,
     policyEnforcer,
@@ -308,6 +303,11 @@ async function main(): Promise<void> {
 
   await socketServer.start();
   console.log(`Unix socket server listening on ${config.socketPath}`);
+
+  // Deferred: wrappers only needed when gateway starts sending commands
+  if (config.agentHome) {
+    ensureProxiedCommandWrappers(path.join(config.agentHome, 'bin'));
+  }
 
   // Start HTTP fallback server if enabled
   let httpServer: HttpFallbackServer | null = null;

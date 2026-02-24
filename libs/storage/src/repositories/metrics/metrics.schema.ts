@@ -11,6 +11,7 @@ export const MetricsSnapshotSchema = z.object({
   diskPercent: z.number().min(0).max(100),
   netUp: z.number().min(0),
   netDown: z.number().min(0),
+  targetId: z.string().max(100).optional(),
 });
 
 export type MetricsSnapshotInput = z.input<typeof MetricsSnapshotSchema>;

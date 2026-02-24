@@ -246,8 +246,8 @@ export const MetricsClusterNode = memo((props: NodeProps) => {
             visibility: 'hidden',
             ...(h.offset != null
               ? h.position === Position.Top || h.position === Position.Bottom
-                ? { left: h.offset, top: h.position === Position.Top ? 0 : undefined, bottom: h.position === Position.Bottom ? 0 : undefined }
-                : { top: h.offset, left: h.position === Position.Left ? 0 : undefined, right: h.position === Position.Right ? 0 : undefined }
+                ? { left: h.offset, ...(h.position === Position.Top ? { top: 0 } : { bottom: 0 }) }
+                : { top: h.offset, ...(h.position === Position.Left ? { left: 0 } : { right: 0 }) }
               : {}),
           }}
         />

@@ -530,6 +530,7 @@ function verify(backup: InstallationBackup): RestoreProgress {
 
 /**
  * Perform full restore/uninstall process
+ * @deprecated Profile-based uninstall replaces backup.json-driven restore. Use manifest-driven rollback via storage profiles instead.
  */
 export function restoreInstallation(
   backup: InstallationBackup,
@@ -620,6 +621,7 @@ export function restoreInstallation(
 
 /**
  * Check if uninstall is possible
+ * @deprecated Profile-based uninstall replaces backup.json check. Use storage profiles instead.
  */
 export function canUninstall(): {
   canUninstall: boolean;

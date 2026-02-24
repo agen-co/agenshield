@@ -319,6 +319,24 @@ export class Storage {
     this.db.prepare(`DELETE FROM ${META} WHERE key = ?`).run(key);
   }
 
+  // ── Dismissed targets ────────────────────────────────────────
+
+  /** Get all dismissed target IDs. */
+  getDismissedTargets(): string[] {
+    const rows = this.db.prepare('SELECT target_id FROM dismissed_targets').all() as Array<{ target_id: string }>;
+    return rows.map((r) => r.target_id);
+  }
+
+  /** Dismiss a target (hide from canvas). */
+  dismissTarget(targetId: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO dismissed_targets (target_id) VALUES (@targetId)').run({ targetId });
+  }
+
+  /** Restore a dismissed target (show on canvas again). */
+  restoreTarget(targetId: string): void {
+    this.db.prepare('DELETE FROM dismissed_targets WHERE target_id = @targetId').run({ targetId });
+  }
+
   /**
    * Re-encrypt secrets table values with a new key (called during changePasscode).
    */

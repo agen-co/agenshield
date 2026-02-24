@@ -61,7 +61,7 @@ export interface WrapperConfig {
   nvmNodeDir: string;
   /** Path to shield-client binary (shared, under hostHome/.agenshield/bin/) */
   shieldClientPath: string;
-  /** Path to node-bin binary (shared, under hostHome/.agenshield/bin/) */
+  /** Path to node-bin binary (per-target, under agentHome/bin/) */
   nodeBinPath: string;
 }
 
@@ -89,9 +89,7 @@ export function getDefaultWrapperConfig(userConfig?: UserConfig, hostHome?: stri
     shieldClientPath: resolvedHostHome
       ? `${resolvedHostHome}/.agenshield/bin/shield-client`
       : '/opt/agenshield/bin/shield-client',
-    nodeBinPath: resolvedHostHome
-      ? `${resolvedHostHome}/.agenshield/bin/node-bin`
-      : '/opt/agenshield/bin/node-bin',
+    nodeBinPath: `${agentHome}/bin/node-bin`,
   };
 }
 
@@ -308,6 +306,7 @@ case "\${NODE_OPTIONS:-}" in
   *"register.cjs"*) ;;
   *) export NODE_OPTIONS="${config.interceptorFlag} ${config.interceptorPath} \${NODE_OPTIONS:-}" ;;
 esac
+export AGENSHIELD_NODE_BIN="${config.nodeBinPath}"
 export AGENSHIELD_SOCKET="${config.socketPath}"
 export AGENSHIELD_HTTP_PORT="${config.httpPort}"
 export AGENSHIELD_INTERCEPT_EXEC=true
@@ -316,7 +315,7 @@ export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_WS=true
 export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
 
-# Only use the NVM-installed node binary (copied to hostHome/.agenshield/bin/node-bin)
+# Only use the NVM-installed node binary (per-target)
 if [ -x "${config.nodeBinPath}" ]; then
   exec ${config.nodeBinPath} "$@"
 else
@@ -862,6 +861,7 @@ SHIELDEXECEOF`);
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
 export NODE_OPTIONS="${wrapperConfig.interceptorFlag} ${wrapperConfig.interceptorPath} \${NODE_OPTIONS:-}"
+export AGENSHIELD_NODE_BIN="${wrapperConfig.nodeBinPath}"
 export AGENSHIELD_SOCKET="${wrapperConfig.socketPath}"
 export AGENSHIELD_HTTP_PORT="${wrapperConfig.httpPort}"
 export AGENSHIELD_INTERCEPT_EXEC=true
@@ -870,7 +870,7 @@ export AGENSHIELD_INTERCEPT_FETCH=true
 export AGENSHIELD_INTERCEPT_WS=true
 export AGENSHIELD_CONTEXT_TYPE=\${AGENSHIELD_CONTEXT_TYPE:-agent}
 
-# Only use the NVM-installed node binary (copied to hostHome/.agenshield/bin/node-bin)
+# Only use the NVM-installed node binary (per-target)
 if [ -x "${wrapperConfig.nodeBinPath}" ]; then
   exec ${wrapperConfig.nodeBinPath} "$@"
 else
@@ -1157,7 +1157,7 @@ PKGJSONEOF`
  * operations through the broker.
  *
  * IMPORTANT: The shebang is rewritten from #!/usr/bin/env node to
- * #!{hostHome}/.agenshield/bin/node-bin so that shield-client runs WITHOUT the
+ * #!{agentHome}/bin/node-bin so that shield-client runs WITHOUT the
  * interceptor. Otherwise there's an infinite recursion:
  * interceptor → curl wrapper → shield-client → node+interceptor → …
  */
@@ -1183,11 +1183,12 @@ export async function copyShieldClient(
     // Verify source exists
     await fs.access(srcPath);
 
-    // Read and rewrite shebang to use node-bin directly (bypass interceptor)
+    // Read and rewrite shebang to use per-target node-bin (bypass interceptor)
+    const agentHome = userConfig?.agentUser?.home || '/Users/agenshield_agent';
     let content = await fs.readFile(srcPath, 'utf-8');
     content = content.replace(
       /^#!\/usr\/bin\/env node/,
-      `#!${baseDir}/bin/node-bin`
+      `#!${agentHome}/bin/node-bin`
     );
 
     // Write via temp file + sudo mv

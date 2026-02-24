@@ -25,7 +25,7 @@ async function runUpdateWebUI(engineOptions: UpdateEngineOptions): Promise<void>
   const engine = createUpdateEngine(engineOptions);
   const preflight = await engine.preflight();
 
-  if (!preflight.updateNeeded && !engineOptions.force) {
+  if (!preflight.updateNeeded && !engineOptions.force && !engineOptions.local) {
     console.log(`  Already at latest version (${preflight.currentVersion}).`);
     console.log('  Use --force to re-apply the update.');
     return;
@@ -35,8 +35,8 @@ async function runUpdateWebUI(engineOptions: UpdateEngineOptions): Promise<void>
   console.log(`  Pending migrations: ${preflight.pendingMigrationCount}`);
   console.log('');
 
-  // Acquire sudo credentials in the terminal
-  if (!engineOptions.dryRun) {
+  // Acquire sudo credentials in the terminal (skip in local mode)
+  if (!engineOptions.dryRun && !engineOptions.local) {
     const { ensureSudoAccess } = await import('../utils/privileges.js');
     ensureSudoAccess();
   }
@@ -109,7 +109,7 @@ async function runUpdateCLI(engineOptions: UpdateEngineOptions): Promise<void> {
   const engine = createUpdateEngine(engineOptions);
   const preflight = await engine.preflight();
 
-  if (!preflight.updateNeeded && !engineOptions.force) {
+  if (!preflight.updateNeeded && !engineOptions.force && !engineOptions.local) {
     console.log(`  Already at latest version (${preflight.currentVersion}).`);
     console.log('  Use --force to re-apply the update.');
     return;
@@ -175,11 +175,29 @@ async function runUpdateCLI(engineOptions: UpdateEngineOptions): Promise<void> {
     engine.setAuthenticated();
   }
 
-  // Acquire sudo
-  if (!engineOptions.dryRun) {
-    const { ensureSudoAccess, startSudoKeepalive } = await import('../utils/privileges.js');
-    ensureSudoAccess();
-    const keepalive = startSudoKeepalive();
+  if (engineOptions.dryRun) {
+    console.log('  [dry-run] Steps that would be executed:');
+    for (const step of engine.state.steps) {
+      console.log(`    - ${step.name}: ${step.description}`);
+    }
+
+    engine.onStateChange = (state) => {
+      const running = state.steps.find(s => s.status === 'running');
+      if (running) {
+        console.log(`  [dry-run] ${running.name}`);
+      }
+    };
+
+    await engine.execute();
+  } else {
+    // Acquire sudo (skip in local mode)
+    const keepalive = engineOptions.local
+      ? undefined
+      : await (async () => {
+          const { ensureSudoAccess, startSudoKeepalive } = await import('../utils/privileges.js');
+          ensureSudoAccess();
+          return startSudoKeepalive();
+        })();
 
     try {
       // Wire up terminal progress
@@ -189,7 +207,7 @@ async function runUpdateCLI(engineOptions: UpdateEngineOptions): Promise<void> {
           process.stdout.write(`\r  ⏳ ${running.name}...`);
         }
 
-        const justCompleted = state.steps.filter(s => s.status === 'completed');
+        const justCompleted = state.steps.filter(s => s.status === 'completed' || s.status === 'skipped');
         const justErrored = state.steps.filter(s => s.status === 'error');
         const total = state.steps.length;
         const done = justCompleted.length;
@@ -210,22 +228,8 @@ async function runUpdateCLI(engineOptions: UpdateEngineOptions): Promise<void> {
 
       await engine.execute();
     } finally {
-      clearInterval(keepalive);
+      if (keepalive) clearInterval(keepalive);
     }
-  } else {
-    console.log('  [dry-run] Steps that would be executed:');
-    for (const step of engine.state.steps) {
-      console.log(`    - ${step.name}: ${step.description}`);
-    }
-
-    engine.onStateChange = (state) => {
-      const running = state.steps.find(s => s.status === 'running');
-      if (running) {
-        console.log(`  [dry-run] ${running.name}`);
-      }
-    };
-
-    await engine.execute();
   }
 
   console.log('');
@@ -243,11 +247,13 @@ export async function runUpdate(options: {
   verbose?: boolean;
   force?: boolean;
   cli?: boolean;
+  local?: boolean;
 }): Promise<void> {
   const engineOptions: UpdateEngineOptions = {
     dryRun: options.dryRun ?? false,
     verbose: options.verbose ?? false,
     force: options.force ?? false,
+    local: options.local ?? false,
   };
 
   if (options.verbose) {
@@ -271,12 +277,14 @@ export function createUpdateCommand(): Command {
     .option('--dry-run', 'Show what would be done without making changes')
     .option('-v, --verbose', 'Show verbose output')
     .option('--force', 'Re-apply even if already at latest version')
+    .option('--local', 'Run full pipeline from local build (dev testing)')
     .action(async (options) => {
       await runUpdate({
         dryRun: options.dryRun,
         verbose: options.verbose,
         force: options.force,
         cli: options.cli,
+        local: options.local,
       });
     });
 

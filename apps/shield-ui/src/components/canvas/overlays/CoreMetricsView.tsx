@@ -5,7 +5,7 @@
  * an AreaChart from the rolling metricsHistory buffer in systemStore.
  */
 
-import { useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useSnapshot } from 'valtio';
 import {
   AreaChart,
@@ -17,8 +17,9 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useTheme } from '@mui/material/styles';
-import { systemStore, pushMetricsSnapshot, type MetricsSnapshot } from '../../../state/system-store';
-import { useMetricsHistory } from '../../../api/hooks';
+import { systemStore, pushMetricsSnapshot, pushTargetMetricsSnapshot, type MetricsSnapshot } from '../../../state/system-store';
+import { targetsStore } from '../../../state/targets';
+import { useMetricsHistory, useTargetMetricsHistory } from '../../../api/hooks';
 import { pcb } from '../styles/pcb-tokens';
 
 export type MetricsTab = 'cpu' | 'memory' | 'disk' | 'network';
@@ -75,22 +76,60 @@ function formatTime(ts: number): string {
   return `${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
 }
 
+/** Target-specific data keys added to merged chart data */
+const TARGET_DATA_KEYS = {
+  cpu: 'targetCpuPercent',
+  memory: 'targetMemPercent',
+} as const;
+
+const TARGET_OVERLAY_COLOR = '#FF6B6B';
+
 interface CoreMetricsViewProps {
   tab: MetricsTab;
   compact?: boolean;
+  syncId?: string;
+  targetId?: string | null;
+  targetName?: string;
 }
 
-export default function CoreMetricsView({ tab, compact }: CoreMetricsViewProps) {
+export default function CoreMetricsView({ tab, compact, syncId, targetId, targetName }: CoreMetricsViewProps) {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
-  const { metricsHistory } = useSnapshot(systemStore);
+  const { metricsHistory, targetMetricsHistory } = useSnapshot(systemStore);
 
   const config = TAB_CONFIG[tab];
+  const hasTargetOverlay = !!targetId && (tab === 'cpu' || tab === 'memory');
 
-  const chartData = useMemo(
-    () => metricsHistory.map((snap) => ({ ...snap })),
-    [metricsHistory],
-  );
+  const chartData = useMemo(() => {
+    const base = metricsHistory.map((snap) => ({ ...snap }));
+    if (!hasTargetOverlay || !targetId) return base;
+
+    // Merge target data by closest timestamp
+    const targetData = targetMetricsHistory[targetId] ?? [];
+    if (targetData.length === 0) return base;
+
+    const targetKey = tab === 'cpu' ? TARGET_DATA_KEYS.cpu : TARGET_DATA_KEYS.memory;
+    const targetField = tab === 'cpu' ? 'cpuPercent' : 'memPercent';
+    const targetMap = new Map(targetData.map((t) => [t.timestamp, t[targetField]]));
+
+    return base.map((point) => {
+      const exact = targetMap.get(point.timestamp);
+      if (exact !== undefined) {
+        return { ...point, [targetKey]: exact };
+      }
+      // Find closest target point within 3s
+      let closest: number | undefined;
+      let minDelta = Infinity;
+      for (const [ts, val] of targetMap) {
+        const delta = Math.abs(ts - point.timestamp);
+        if (delta < minDelta && delta < 3000) {
+          minDelta = delta;
+          closest = val;
+        }
+      }
+      return closest !== undefined ? { ...point, [targetKey]: closest } : point;
+    });
+  }, [metricsHistory, targetMetricsHistory, targetId, hasTargetOverlay, tab]);
 
   // Latest values for live indicator
   const latest = chartData.length > 0 ? chartData[chartData.length - 1] : null;
@@ -98,12 +137,15 @@ export default function CoreMetricsView({ tab, compact }: CoreMetricsViewProps) 
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
   const axisColor = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)';
 
+  const targetKey = tab === 'cpu' ? TARGET_DATA_KEYS.cpu : TARGET_DATA_KEYS.memory;
+  const targetLabel = targetName ? `${targetName} ${tab === 'cpu' ? 'CPU' : 'Mem'}` : `Target ${tab === 'cpu' ? 'CPU' : 'Mem'}`;
+
   return (
     <div style={{ padding: '16px 0' }}>
       {/* Chart */}
       <div style={{ width: '100%', height: compact ? 180 : 320 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+          <AreaChart data={chartData} syncId={syncId} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
             <XAxis
               dataKey="timestamp"
@@ -129,8 +171,12 @@ export default function CoreMetricsView({ tab, compact }: CoreMetricsViewProps) 
               }}
               labelFormatter={(v) => formatTime(v as number)}
               formatter={(value, name) => {
+                if (name === targetKey) {
+                  return [config.formatter(value as number), targetLabel];
+                }
                 const s = config.series.find((s) => s.dataKey === name);
-                return [config.formatter(value as number), s?.label ?? name];
+                const label = hasTargetOverlay ? `System ${s?.label ?? name}` : (s?.label ?? name);
+                return [config.formatter(value as number), label];
               }}
             />
             {config.series.map((s) => (
@@ -140,12 +186,25 @@ export default function CoreMetricsView({ tab, compact }: CoreMetricsViewProps) 
                 dataKey={s.dataKey}
                 stroke={s.color}
                 fill={s.color}
-                fillOpacity={0.12}
-                strokeWidth={2}
+                fillOpacity={hasTargetOverlay ? 0.06 : 0.12}
+                strokeWidth={hasTargetOverlay ? 1 : 2}
+                strokeOpacity={hasTargetOverlay ? 0.4 : 1}
                 dot={false}
                 isAnimationActive={false}
               />
             ))}
+            {hasTargetOverlay && (
+              <Area
+                type="monotone"
+                dataKey={targetKey}
+                stroke={TARGET_OVERLAY_COLOR}
+                fill="none"
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive={false}
+                connectNulls={false}
+              />
+            )}
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -158,6 +217,7 @@ export default function CoreMetricsView({ tab, compact }: CoreMetricsViewProps) 
           padding: '16px 16px 0',
           fontFamily: "'IBM Plex Mono', monospace",
           fontSize: 13,
+          flexWrap: 'wrap',
         }}>
           {config.series.map((s) => (
             <div key={s.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -167,13 +227,31 @@ export default function CoreMetricsView({ tab, compact }: CoreMetricsViewProps) 
                 borderRadius: '50%',
                 backgroundColor: s.color,
                 boxShadow: `0 0 6px ${s.color}`,
+                opacity: hasTargetOverlay ? 0.4 : 1,
               }} />
-              <span style={{ color: theme.palette.text.secondary }}>{s.label}</span>
+              <span style={{ color: theme.palette.text.secondary }}>
+                {hasTargetOverlay ? `System ${s.label}` : s.label}
+              </span>
               <span style={{ color: theme.palette.text.primary, fontWeight: 600 }}>
                 {config.formatter(latest[s.dataKey] as number)}
               </span>
             </div>
           ))}
+          {hasTargetOverlay && (latest as Record<string, number>)[targetKey] !== undefined && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                backgroundColor: TARGET_OVERLAY_COLOR,
+                boxShadow: `0 0 6px ${TARGET_OVERLAY_COLOR}`,
+              }} />
+              <span style={{ color: theme.palette.text.secondary }}>{targetLabel}</span>
+              <span style={{ color: theme.palette.text.primary, fontWeight: 600 }}>
+                {config.formatter((latest as Record<string, number>)[targetKey] ?? 0)}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -274,13 +352,29 @@ export function AllMetricsView() {
   const isDark = theme.palette.mode === 'dark';
   const snap = useSnapshot(systemStore);
   const sysInfo = snap.systemInfo;
-  const m = snap.metrics;
   const loaded = snap.metricsLoaded;
 
+  // Target selection state
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const { targets } = useSnapshot(targetsStore);
+  const activeTargets = useMemo(
+    () => targets.filter((t) => t.shielded && t.running),
+    [targets],
+  );
+  const selectedTarget = activeTargets.find((t) => t.id === selectedTargetId);
+
+  // Clear selection if target is no longer active
+  useEffect(() => {
+    if (selectedTargetId && !activeTargets.some((t) => t.id === selectedTargetId)) {
+      setSelectedTargetId(null);
+    }
+  }, [activeTargets, selectedTargetId]);
+
   // Self-sufficient backfill: fetch metrics history from daemon on mount.
-  // This ensures data is available even when navigating directly to /metrics
-  // (where the Canvas-level useSetupCanvasData hook may not have fired yet).
   const { data: historyData } = useMetricsHistory();
+
+  // Backfill target metrics history when a target is selected
+  const { data: targetHistoryData } = useTargetMetricsHistory(selectedTargetId);
 
   useEffect(() => {
     if (historyData && historyData.length > 0 && systemStore.metricsHistory.length === 0) {
@@ -291,6 +385,23 @@ export function AllMetricsView() {
       }
     }
   }, [historyData]);
+
+  // Backfill target metrics from REST into the valtio store
+  useEffect(() => {
+    if (!targetHistoryData || !selectedTargetId || targetHistoryData.length === 0) return;
+    const existing = systemStore.targetMetricsHistory[selectedTargetId] ?? [];
+    const existingTs = new Set(existing.map((s) => s.timestamp));
+    const newSnaps = targetHistoryData.filter((s) => !existingTs.has(s.timestamp));
+    if (newSnaps.length > 0) {
+      for (const s of newSnaps) {
+        pushTargetMetricsSnapshot(selectedTargetId, {
+          timestamp: s.timestamp,
+          cpuPercent: s.cpuPercent,
+          memPercent: s.memPercent,
+        });
+      }
+    }
+  }, [targetHistoryData, selectedTargetId]);
 
   return (
     <div style={{ padding: '8px 16px 16px' }}>
@@ -321,6 +432,44 @@ export function AllMetricsView() {
           isDark={isDark}
         />
       </div>
+
+      {/* Target filter row */}
+      {activeTargets.length > 0 && (
+        <div style={{
+          display: 'flex',
+          gap: 8,
+          marginBottom: 16,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+        }}>
+          <span style={{
+            fontSize: 10,
+            fontFamily: "'IBM Plex Mono', monospace",
+            color: isDark ? pcb.silk.dim : pcb.light.silkDim,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+            marginRight: 4,
+          }}>
+            Filter:
+          </span>
+          <TargetChip
+            label="System"
+            active={selectedTargetId === null}
+            isDark={isDark}
+            onClick={() => setSelectedTargetId(null)}
+          />
+          {activeTargets.map((t) => (
+            <TargetChip
+              key={t.id}
+              label={t.name}
+              active={selectedTargetId === t.id}
+              isDark={isDark}
+              accentColor={TARGET_OVERLAY_COLOR}
+              onClick={() => setSelectedTargetId(selectedTargetId === t.id ? null : t.id)}
+            />
+          ))}
+        </div>
+      )}
 
       {/* 2x2 charts grid */}
       <div style={{
@@ -386,11 +535,76 @@ export function AllMetricsView() {
               </div>
 
               {/* Chart body */}
-              <CoreMetricsView tab={tab} compact />
+              <CoreMetricsView
+                tab={tab}
+                compact
+                syncId="system-metrics"
+                targetId={selectedTargetId}
+                targetName={selectedTarget?.name}
+              />
             </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+/* ---- Target filter chip ---- */
+
+interface TargetChipProps {
+  label: string;
+  active: boolean;
+  isDark: boolean;
+  accentColor?: string;
+  onClick: () => void;
+}
+
+function TargetChip({ label, active, isDark, accentColor, onClick }: TargetChipProps) {
+  const bgActive = accentColor
+    ? `${accentColor}22`
+    : isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
+  const bgHover = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
+
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 10px',
+        borderRadius: 12,
+        border: `1px solid ${active
+          ? (accentColor ?? (isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)'))
+          : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)')}`,
+        background: active ? bgActive : 'transparent',
+        cursor: 'pointer',
+        fontSize: 11,
+        fontFamily: "'IBM Plex Mono', monospace",
+        fontWeight: active ? 600 : 400,
+        color: active
+          ? (accentColor ?? (isDark ? pcb.silk.primary : pcb.light.silk))
+          : (isDark ? pcb.silk.dim : pcb.light.silkDim),
+        transition: 'all 0.15s ease',
+      }}
+      onMouseEnter={(e) => {
+        if (!active) e.currentTarget.style.background = bgHover;
+      }}
+      onMouseLeave={(e) => {
+        if (!active) e.currentTarget.style.background = 'transparent';
+      }}
+    >
+      {accentColor && (
+        <div style={{
+          width: 6,
+          height: 6,
+          borderRadius: '50%',
+          background: accentColor,
+          opacity: active ? 1 : 0.4,
+        }} />
+      )}
+      {label}
+    </button>
   );
 }

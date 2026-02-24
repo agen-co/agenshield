@@ -2,10 +2,15 @@
  * Default configuration for AgenShield daemon
  */
 
+import { createRequire } from 'node:module';
+
 import { DEFAULT_PORT, DEFAULT_HOST, OPENCLAW_PRESET } from '@agenshield/ipc';
 import type { ShieldConfig } from '@agenshield/ipc';
 
-export const VERSION = '0.1.0';
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json') as { version: string };
+
+export const VERSION = pkg.version;
 
 /**
  * Get default configuration

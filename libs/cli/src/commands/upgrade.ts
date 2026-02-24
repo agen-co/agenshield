@@ -197,6 +197,7 @@ async function upgradeLegacy(options: {
   verbose?: boolean;
   force?: boolean;
   cli?: boolean;
+  local?: boolean;
 }): Promise<void> {
   const wasDaemonRunning = (await getDaemonStatus()).running;
 
@@ -218,6 +219,7 @@ async function upgradeLegacy(options: {
     verbose: options.verbose,
     force: options.force,
     cli: options.cli,
+    local: options.local,
   });
 
   // Restart daemon after upgrade (update engine may have already started it,
@@ -272,6 +274,7 @@ export function createUpgradeCommand(): Command {
           verbose: options.verbose,
           force: options.force,
           cli: options.cli,
+          local: options.local,
         });
       }
     });

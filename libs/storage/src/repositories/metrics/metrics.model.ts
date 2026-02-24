@@ -10,6 +10,7 @@ export interface DbMetricsRow {
   disk_percent: number;
   net_up: number;
   net_down: number;
+  target_id: string | null;
 }
 
 export interface MetricsSnapshot {
@@ -19,6 +20,7 @@ export interface MetricsSnapshot {
   diskPercent: number;
   netUp: number;
   netDown: number;
+  targetId?: string;
 }
 
 export function mapMetricsSnapshot(row: DbMetricsRow): MetricsSnapshot {
@@ -29,5 +31,6 @@ export function mapMetricsSnapshot(row: DbMetricsRow): MetricsSnapshot {
     diskPercent: row.disk_percent,
     netUp: row.net_up,
     netDown: row.net_down,
+    ...(row.target_id != null && { targetId: row.target_id }),
   };
 }

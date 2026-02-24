@@ -29,7 +29,7 @@ import {
   useStartTarget,
   useStopTarget,
 } from '../../../../../api/targets';
-import { useIsShielding } from '../../../../../hooks/useIsShielding';
+
 
 const presetIcons: Record<string, typeof Terminal> = {
   'claude-code': Terminal,
@@ -46,10 +46,8 @@ export function StateOverviewStep({
 }: StateOverviewStepProps) {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
-  const shielding = useIsShielding();
-
-  // Target lifecycle hooks — disable polling during shielding
-  const { data: lifecycleData } = useTargets(!shielding);
+  // Target lifecycle hooks (SSE-driven)
+  const { data: lifecycleData } = useTargets();
   const shieldTarget = useShieldTarget();
   const unshieldTarget = useUnshieldTarget();
   const startTarget = useStartTarget();

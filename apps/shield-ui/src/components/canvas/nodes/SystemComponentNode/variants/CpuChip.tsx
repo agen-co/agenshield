@@ -57,7 +57,7 @@ export const CpuChip = memo(({ label, sublabel, refDesignator, theme, layout }: 
   const gaugeH = 7;
   const gaugeX = dieCx - gaugeW / 2;
   const gaugeY = dieCy + dieH * 0.1;
-  const fillW = gaugeW * (cpuPercent / 100);
+  const fillW = gaugeW * ((cpuPercent ?? 0) / 100);
   const gColor = gaugeColor(cpuPercent);
 
   return (

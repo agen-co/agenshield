@@ -21,10 +21,24 @@ export function generateAgentProfile(options: {
   socketPath: string;
   agentHome?: string;
   additionalReadPaths?: string[];
+  /** Paths relative to agentHome to deny writes to (e.g., ['.openclaw', '.claude']). */
+  denyWritePaths?: string[];
 }): string {
   const additionalReads = (options.additionalReadPaths || [])
     .map((p) => `(allow file-read* (subpath "${p}"))`)
     .join('\n');
+
+  // Build deny-write rules for agent home subdirectories.
+  // Always deny writes to bin, .zdot, .agenshield. Caller passes target-specific paths.
+  const denyWriteLines: string[] = [];
+  if (options.agentHome) {
+    const alwaysDeny = ['bin', '.zdot', '.agenshield'];
+    const targetDeny = options.denyWritePaths ?? [];
+    const allDeny = [...new Set([...alwaysDeny, ...targetDeny])];
+    for (const rel of allDeny) {
+      denyWriteLines.push(`(deny file-write* (subpath "${options.agentHome}/${rel}"))`);
+    }
+  }
 
   return `;;
 ;; AgenShield Agent Sandbox Profile
@@ -57,11 +71,6 @@ export function generateAgentProfile(options: {
   (literal "/bin/bash")
   (literal "/usr/bin/env"))
 
-;; AgenShield config (ZDOTDIR, path-registry, seatbelt profiles)
-(allow file-read*
-  (subpath "/etc/agenshield")
-  (subpath "/private/etc/agenshield"))
-
 ;; Per-target .agenshield directory (seatbelt profiles, socket, logs)
 ${options.agentHome ? `(allow file-read* (subpath "${options.agentHome}/.agenshield"))` : ''}
 
@@ -86,14 +95,9 @@ ${options.agentHome ? `(allow file-read* (subpath "${options.agentHome}/.agenshi
 
 ;; ========================================
 ;; CRITICAL DENIALS - Prevent agent from modifying
-;; its own bin directory, skills, or system config
+;; its own bin directory, config, or system files
 ;; ========================================
-${options.agentHome ? `(deny file-write* (subpath "${options.agentHome}/bin"))
-(deny file-write* (subpath "${options.agentHome}/.openclaw"))
-(deny file-write* (subpath "${options.agentHome}/.zdot"))
-(deny file-write* (subpath "${options.agentHome}/.agenshield"))` : ''}
-(deny file-write* (subpath "/opt/agenshield"))
-(deny file-write* (subpath "/etc/agenshield"))
+${denyWriteLines.join('\n')}
 
 ;; ========================================
 ;; System Libraries & Frameworks (Read-only)
@@ -154,7 +158,6 @@ ${additionalReads}
   (literal "/bin/bash")
   (literal "/usr/bin/env")
   ${options.agentHome ? `(subpath "${options.agentHome}/bin")\n  (literal "${options.agentHome}/.agenshield/bin/guarded-shell")` : ''}
-  (subpath "/opt/agenshield/bin")
   (subpath "/usr/local/bin")
   (subpath "/opt/homebrew/bin"))
 

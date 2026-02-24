@@ -216,7 +216,6 @@ describe('ProfileManager', () => {
       expect(profile).toContain('(subpath "/usr/bin")');
       expect(profile).toContain('(subpath "/usr/sbin")');
       expect(profile).toContain('(subpath "/usr/local/bin")');
-      expect(profile).toContain('(subpath "/opt/agenshield/bin")');
     });
 
     it('includes HOME-based paths when HOME env is set', () => {

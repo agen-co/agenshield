@@ -383,19 +383,25 @@ export function createUpdateEngine(options: UpdateEngineOptions = {}) {
       const sandboxUsers = discoverSandboxUsers();
       log(`Found ${sandboxUsers.length} sandbox users: ${sandboxUsers.map((u) => u.username).join(', ') || 'none'}`);
 
-      // Load migration state
-      migrationState = loadMigrationState();
+      // Load migration state (skip sudo read when --local)
+      if (options.local) {
+        migrationState = null;
+        log('Local mode: skipping migration state load');
+      } else {
+        migrationState = loadMigrationState();
+      }
       const currentVersion = migrationState?.currentVersion ?? '0.1.0';
       log(`Current version: ${currentVersion}, CLI version: ${VERSION}`);
 
-      // Compute pending migrations
-      pendingMigrations = options.force
+      // Compute pending migrations (--local implies --force for migration selection)
+      const effectiveForce = options.force || options.local;
+      pendingMigrations = effectiveForce
         ? ALL_MIGRATIONS
         : getPendingMigrations(currentVersion, VERSION);
       log(`Pending migrations: ${pendingMigrations.length}`);
 
       // Check if update is needed
-      const updateNeeded = options.force || compareSemver(currentVersion, VERSION) < 0 || pendingMigrations.length > 0;
+      const updateNeeded = effectiveForce || compareSemver(currentVersion, VERSION) < 0 || pendingMigrations.length > 0;
 
       // Aggregate release notes
       const releaseNotes = pendingMigrations.length > 0
@@ -458,6 +464,13 @@ export function createUpdateEngine(options: UpdateEngineOptions = {}) {
       log(`Starting update: ${state.fromVersion} -> ${state.toVersion}`);
 
       for (const step of state.steps) {
+        // In local mode, skip save-migration-state (avoids sudo write)
+        if (options.local && step.id === 'save-migration-state') {
+          log('Local mode: skipping save-migration-state');
+          updateStep(step.id, { status: 'skipped' });
+          continue;
+        }
+
         if (step.isMigration) {
           // Find the migration step executor
           const [, version, stepId] = step.id.split(':');

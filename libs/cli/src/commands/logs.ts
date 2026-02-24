@@ -94,10 +94,13 @@ async function authenticate(passcode: string): Promise<string> {
       res.on('end', () => {
         try {
           const json = JSON.parse(body);
-          if (res.statusCode === 200 && json.data?.token) {
-            resolve(json.data.token as string);
+          if (res.statusCode === 200 && json.token) {
+            resolve(json.token as string);
           } else {
-            reject(new Error(json.error?.message ?? 'Authentication failed'));
+            const errMsg = typeof json.error === 'string'
+              ? json.error
+              : json.error?.message ?? 'Authentication failed';
+            reject(new Error(errMsg));
           }
         } catch {
           reject(new Error(`Invalid response (HTTP ${res.statusCode})`));

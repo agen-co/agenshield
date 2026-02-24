@@ -19,10 +19,18 @@ interface RpcResponse {
   error?: { code: number; message: string };
 }
 
+/** Notification message streamed mid-execution (no `id`, has `notify`). */
+interface RpcNotification {
+  notify: number;
+  stream: 'stdout' | 'stderr';
+  data: string;
+}
+
 interface PendingRequest {
   resolve: (value: RpcResponse) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  onOutput?: (stream: 'stdout' | 'stderr', data: string) => void;
 }
 
 export class OsascriptExecutor implements PrivilegeExecutor {
@@ -74,8 +82,16 @@ export class OsascriptExecutor implements PrivilegeExecutor {
 
     return new Promise<net.Socket>((resolve, reject) => {
       const socket = net.connect(handle.socketPath);
+      const CONNECT_TIMEOUT = 10_000;
+
+      const connectTimer = setTimeout(() => {
+        socket.destroy();
+        this.handle = null; // force re-launch on next call
+        reject(new Error(`Privilege helper connect timeout after ${CONNECT_TIMEOUT}ms`));
+      }, CONNECT_TIMEOUT);
 
       socket.on('connect', () => {
+        clearTimeout(connectTimer);
         this.connection = socket;
         this.buffer = '';
         resolve(socket);
@@ -86,16 +102,14 @@ export class OsascriptExecutor implements PrivilegeExecutor {
       });
 
       socket.on('error', (err) => {
+        clearTimeout(connectTimer);
         // If we're still connecting, reject the promise
         if (!this.connection || this.connection === socket) {
           this.rejectAll(new Error(`Privilege helper connection error: ${err.message}`));
           this.connection = null;
           this.handle = null; // force re-launch on next call
         }
-        // If this was the initial connect, reject
-        if (!socket.connecting && this.connection !== socket) {
-          reject(new Error(`Privilege helper connection error: ${err.message}`));
-        }
+        reject(new Error(`Privilege helper connection error: ${err.message}`));
       });
 
       socket.on('close', () => {
@@ -109,7 +123,8 @@ export class OsascriptExecutor implements PrivilegeExecutor {
   }
 
   /**
-   * Parse newline-delimited JSON responses and dispatch to pending requests.
+   * Parse newline-delimited JSON messages and dispatch to pending requests.
+   * Handles both final responses (`id` field) and mid-execution notifications (`notify` field).
    */
   private processBuffer(chunk: string): void {
     this.buffer += chunk;
@@ -122,7 +137,18 @@ export class OsascriptExecutor implements PrivilegeExecutor {
       if (!line.trim()) continue;
 
       try {
-        const response = JSON.parse(line) as RpcResponse;
+        const msg = JSON.parse(line);
+
+        // Notification — streamed output chunk (no `id`, has `notify`)
+        if ('notify' in msg) {
+          const notification = msg as RpcNotification;
+          const pending = this.pendingRequests.get(notification.notify);
+          pending?.onOutput?.(notification.stream, notification.data);
+          continue;
+        }
+
+        // Final response
+        const response = msg as RpcResponse;
         const pending = this.pendingRequests.get(response.id);
         if (pending) {
           clearTimeout(pending.timer);
@@ -130,7 +156,7 @@ export class OsascriptExecutor implements PrivilegeExecutor {
           pending.resolve(response);
         }
       } catch {
-        // Malformed response — skip
+        // Malformed message — skip
       }
     }
   }
@@ -149,10 +175,19 @@ export class OsascriptExecutor implements PrivilegeExecutor {
 
   /**
    * Send a JSON-RPC request over the persistent connection.
+   * When `onOutput` is provided, the helper is asked to stream notifications
+   * and the callback is invoked for each output chunk received.
    */
-  private async rpc(method: string, params?: Record<string, unknown>): Promise<RpcResponse> {
+  private async rpc(
+    method: string,
+    params?: Record<string, unknown>,
+    onOutput?: (stream: 'stdout' | 'stderr', data: string) => void,
+  ): Promise<RpcResponse> {
     const socket = await this.getConnection();
     const id = this.nextId++;
+
+    // Ask the helper to stream notifications when we have an output callback
+    const rpcParams = onOutput ? { ...params, stream: true } : params;
 
     return new Promise<RpcResponse>((resolve, reject) => {
       const timeout = (params?.timeout as number | undefined) ?? 300_000;
@@ -161,10 +196,10 @@ export class OsascriptExecutor implements PrivilegeExecutor {
         reject(new Error(`Privilege helper RPC timeout after ${timeout}ms`));
       }, timeout + 5000); // Extra 5s for RPC overhead
 
-      this.pendingRequests.set(id, { resolve, reject, timer });
+      this.pendingRequests.set(id, { resolve, reject, timer, onOutput });
 
       try {
-        socket.write(JSON.stringify({ id, method, params }) + '\n');
+        socket.write(JSON.stringify({ id, method, params: rpcParams }) + '\n');
       } catch (err) {
         clearTimeout(timer);
         this.pendingRequests.delete(id);
@@ -175,8 +210,8 @@ export class OsascriptExecutor implements PrivilegeExecutor {
     });
   }
 
-  async execAsRoot(command: string, options?: { timeout?: number }): Promise<ExecResult> {
-    const res = await this.rpc('exec', { command, timeout: options?.timeout });
+  async execAsRoot(command: string, options?: { timeout?: number; onOutput?: (stream: 'stdout' | 'stderr', data: string) => void }): Promise<ExecResult> {
+    const res = await this.rpc('exec', { command, timeout: options?.timeout }, options?.onOutput);
     if (res.error) {
       return { success: false, output: '', error: res.error.message };
     }
@@ -186,8 +221,19 @@ export class OsascriptExecutor implements PrivilegeExecutor {
     };
   }
 
-  async execAsUser(user: string, command: string, options?: { timeout?: number }): Promise<ExecResult> {
-    const res = await this.rpc('execAsUser', { user, command, timeout: options?.timeout });
+  async execAsUser(user: string, command: string, options?: { timeout?: number; onOutput?: (stream: 'stdout' | 'stderr', data: string) => void }): Promise<ExecResult> {
+    const res = await this.rpc('execAsUser', { user, command, timeout: options?.timeout }, options?.onOutput);
+    if (res.error) {
+      return { success: false, output: '', error: res.error.message };
+    }
+    return {
+      success: res.result?.success ?? true,
+      output: (res.result?.output as string) ?? '',
+    };
+  }
+
+  async execAsUserDirect(user: string, command: string, options?: { timeout?: number; onOutput?: (stream: 'stdout' | 'stderr', data: string) => void }): Promise<ExecResult> {
+    const res = await this.rpc('execAsUserDirect', { user, command, timeout: options?.timeout }, options?.onOutput);
     if (res.error) {
       return { success: false, output: '', error: res.error.message };
     }

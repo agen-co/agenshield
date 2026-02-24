@@ -109,10 +109,10 @@ describe('generateBrokerPlist', () => {
     expect(plist).toContain('com.frontegg.AgenShieldES');
   });
 
-  it('includes custom node binary path from hostHome', () => {
+  it('uses per-target node-bin and shared broker binary', () => {
     const plist = generateBrokerPlist(mockUserConfig, { hostHome: '/Users/testuser' });
 
-    expect(plist).toContain('/Users/testuser/.agenshield/bin/node-bin');
+    expect(plist).toContain('/Users/ash_test_agent/bin/node-bin');
     expect(plist).toContain('/Users/testuser/.agenshield/bin/agenshield-broker');
   });
 });

@@ -7,7 +7,7 @@
  * to select which one. Falls back to the original binary when no instances
  * are active.
  *
- * Registry stored at /etc/agenshield/path-registry.json.
+ * Registry stored at $HOME/.agenshield/path-registry.json.
  */
 
 import * as fs from 'node:fs';
@@ -188,7 +188,7 @@ export function isRouterWrapper(filePath: string): boolean {
  * - Falls back to original binary if no instances are active
  */
 export function generateRouterWrapper(binName: string): string {
-  // python3 is guaranteed on macOS for JSON parsing
+  // Pure awk JSON parser — no python3 dependency, fast startup.
   // Output format: EXEC:<username>:<binPath>:<agentHome> for sudo delegation
   // $HOME resolves to the invoking user's home at runtime.
   return `#!/bin/bash
@@ -196,10 +196,6 @@ export function generateRouterWrapper(binName: string): string {
 # Router for: ${binName}
 
 REGISTRY="$HOME/.agenshield/path-registry.json"
-# Fallback to legacy location for pre-migration installations
-if [ ! -f "$REGISTRY" ]; then
-  REGISTRY="/etc/agenshield/path-registry.json"
-fi
 if [ ! -f "$REGISTRY" ]; then
   echo "AgenShield: No registry found. No shielded instances configured." >&2
   exit 1
@@ -225,34 +221,27 @@ _agenshield_exec() {
   fi
 }
 
-# Read instances from registry
-RESULT=$(python3 -c "
-import sys, json
-try:
-    d = json.load(open('$REGISTRY'))
-except:
-    print('ERROR')
-    sys.exit(0)
-entry = d.get('${binName}', {})
-instances = entry.get('instances', [])
-orig = entry.get('originalBinary', '')
-if len(instances) == 0:
-    if orig:
-        print('ORIG:' + orig)
-    else:
-        print('NONE')
-elif len(instances) == 1:
-    u = instances[0].get('agentUsername', '')
-    h = instances[0].get('agentHome', '')
-    print('EXEC:' + u + ':' + instances[0]['agentBinPath'] + ':' + h)
-else:
-    for i, inst in enumerate(instances):
-        u = inst.get('agentUsername', '')
-        print(str(i+1) + ') ' + inst['name'] + ' [' + inst['baseName'] + ']|' + u + ':' + inst['agentBinPath'] + ':' + inst.get('agentHome', ''))
-    print('CHOOSE')
-" 2>/dev/null)
+# Parse registry with awk (no python3 dependency)
+RESULT=$(awk -v bn="${binName}" '
+BEGIN { ib=0; ii=0; ic=0; orig="" }
+$0 ~ "\\"" bn "\\"[[:space:]]*:" { ib=1; next }
+ib && /\\"originalBinary\\"/ { gsub(/.*: \\"/, ""); gsub(/\\".*/, ""); orig=$0 }
+ib && /\\"instances\\"/ { ii=1; next }
+ii && /\\{/ { ic++ }
+ii && /\\"agentUsername\\"/ { gsub(/.*: \\"/, ""); gsub(/\\".*/, ""); u[ic]=$0 }
+ii && /\\"agentBinPath\\"/ { gsub(/.*: \\"/, ""); gsub(/\\".*/, ""); b[ic]=$0 }
+ii && /\\"agentHome\\"/ { gsub(/.*: \\"/, ""); gsub(/\\".*/, ""); h[ic]=$0 }
+ii && /\\"name\\"[[:space:]]*:/ { gsub(/.*: \\"/, ""); gsub(/\\".*/, ""); n[ic]=$0 }
+ii && /\\"baseName\\"/ { gsub(/.*: \\"/, ""); gsub(/\\".*/, ""); bn2[ic]=$0 }
+ii && /\\]/ { ii=0 }
+ib && !ii && /\\}/ { ib=0 }
+END {
+  if (ic==0) { if (orig!="") print "ORIG:" orig; else print "NONE" }
+  else if (ic==1) print "EXEC:" u[1] ":" b[1] ":" h[1]
+  else { for(i=1;i<=ic;i++) print i") " n[i] " [" bn2[i] "]|" u[i] ":" b[i] ":" h[i]; print "CHOOSE" }
+}' "$REGISTRY" 2>/dev/null)
 
-if [[ "$RESULT" == "ERROR" ]]; then
+if [[ -z "$RESULT" ]]; then
   echo "AgenShield: Failed to read registry." >&2
   exit 1
 elif [[ "$RESULT" == ORIG:* ]]; then
@@ -273,19 +262,7 @@ elif [[ "$RESULT" == *"CHOOSE" ]]; then
   echo "$RESULT" | grep -v CHOOSE | sed 's/|.*//' >&2
   printf "Select instance (number): " >&2
   read -r CHOICE
-  SELECTED=$(python3 -c "
-import json, sys
-try:
-    d = json.load(open('$REGISTRY'))
-    instances = d.get('${binName}', {}).get('instances', [])
-    idx = int('$CHOICE') - 1
-    if 0 <= idx < len(instances):
-        u = instances[idx].get('agentUsername', '')
-        h = instances[idx].get('agentHome', '')
-        print(u + ':' + instances[idx]['agentBinPath'] + ':' + h)
-except:
-    pass
-" 2>/dev/null)
+  SELECTED=$(echo "$RESULT" | grep "^\${CHOICE}) " | sed 's/.*|//')
   if [ -n "$SELECTED" ]; then
     AGENT_USER="\${SELECTED%%:*}"
     REST="\${SELECTED#*:}"

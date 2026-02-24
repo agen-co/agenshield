@@ -123,10 +123,9 @@ export class ProfileManager {
     lines.push('  (subpath "/usr/bin")');
     lines.push('  (subpath "/usr/sbin")');
     lines.push('  (subpath "/usr/local/bin")');
-    lines.push('  (subpath "/opt/agenshield/bin")');
 
     // Resolve agent-specific paths from environment
-    const coveredSubpaths = ['/bin/', '/sbin/', '/usr/bin/', '/usr/sbin/', '/usr/local/bin/', '/opt/agenshield/bin/'];
+    const coveredSubpaths = ['/bin/', '/sbin/', '/usr/bin/', '/usr/sbin/', '/usr/local/bin/'];
     const home = process.env['HOME'];
     if (home) {
       lines.push(`  (subpath "${this.escapeSbpl(home)}/bin")`);

@@ -350,13 +350,12 @@ describe('buildSandboxConfig', () => {
     it('non-absolute target does NOT add to allowedBinaries directly', async () => {
       const result = await buildSandboxConfig(createDeps(), { target: 'node script.js' });
       // "node" is not absolute, so it shouldn't be in allowedBinaries
-      // but essential paths like /opt/agenshield/bin/ are still there
+      // essential paths like agentHome/homebrew/ are still there
       expect(result.allowedBinaries).not.toContain('node');
     });
 
     it('essential agent home paths always added', async () => {
       const result = await buildSandboxConfig(createDeps(), { target: 'echo hi' });
-      expect(result.allowedBinaries).toContain('/opt/agenshield/bin/');
       expect(result.allowedBinaries).toContain('/Users/test_agent/homebrew/');
       expect(result.allowedBinaries).toContain('/Users/test_agent/.nvm/');
       expect(result.allowedBinaries).toContain('/Users/test_agent/bin/');
@@ -369,9 +368,9 @@ describe('buildSandboxConfig', () => {
       expect(result.allowedWritePaths).toContain('/Users/test_agent');
     });
 
-    it('/opt/agenshield/bin/ in allowedBinaries', async () => {
+    it('no legacy /opt/agenshield/bin/ in allowedBinaries', async () => {
       const result = await buildSandboxConfig(createDeps(), {});
-      expect(result.allowedBinaries).toContain('/opt/agenshield/bin/');
+      expect(result.allowedBinaries).not.toContain('/opt/agenshield/bin/');
     });
 
     it('agentHome/.openclaw in deniedPaths', async () => {

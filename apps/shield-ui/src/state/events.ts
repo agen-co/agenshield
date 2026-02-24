@@ -13,6 +13,7 @@ export interface SSEEvent {
   data: Record<string, unknown>;
   timestamp: number;
   source?: string;  // 'daemon' | 'system' | targetId
+  profileId?: string;
 }
 
 export const eventStore = proxy({

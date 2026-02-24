@@ -185,6 +185,6 @@ if (process.argv[1]?.endsWith('shield-exec')) {
  */
 export function generateShieldExecContent(hostHome?: string): string {
   const home = hostHome || process.env['HOME'] || '';
-  const nodeBin = home ? `${home}/.agenshield/bin/node-bin` : '/opt/agenshield/bin/node-bin';
+  const nodeBin = home ? `${home}/.agenshield/bin/node-bin` : '/usr/local/bin/node';
   return SHIELD_EXEC_CONTENT.replace(/^#![^\n]+/, `#!${nodeBin}`);
 }

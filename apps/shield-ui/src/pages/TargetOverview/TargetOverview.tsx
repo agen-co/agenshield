@@ -5,7 +5,7 @@
  * app info, quick stats, and optional OpenClaw card.
  */
 
-import { lazy, Suspense, useCallback } from 'react';
+import { lazy, Suspense, useCallback, useState } from 'react';
 import {
   Box,
   Card,
@@ -31,6 +31,7 @@ import PrimaryButton from '../../elements/buttons/PrimaryButton';
 import DangerButton from '../../elements/buttons/DangerButton';
 import SecondaryButton from '../../elements/buttons/SecondaryButton';
 import { PageGrid, HeaderCard, InfoRow, StatRow } from './TargetOverview.styles';
+import { OpenClawTokenDialog } from '../../components/shared/OpenClawTokenDialog';
 import type { TargetOverviewProps } from './TargetOverview.types';
 
 const LazyActivity = lazy(() => import('../Activity').then(m => ({ default: m.Activity })));
@@ -45,6 +46,8 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
   const { data: configData } = useConfig();
   const { data: secretsData } = useSecrets();
   const { data: skillsData } = useSkills();
+
+  const [tokenDialog, setTokenDialog] = useState<{ url: string; token: string } | null>(null);
 
   const isOpenClaw = targetInfo?.type === 'openclaw';
   const isRunning = targetInfo?.running ?? false;
@@ -77,7 +80,12 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
     openClawDashboard.mutate(undefined, {
       onSuccess: (data) => {
         const url = data?.data?.url;
-        if (url) window.open(url, '_blank');
+        const token = data?.data?.token;
+        if (url && token) {
+          setTokenDialog({ url, token });
+        } else if (url) {
+          window.open(url, '_blank');
+        }
       },
     });
   }, [openClawDashboard]);
@@ -143,7 +151,7 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
           </Typography>
           <Box sx={{ height: 320, overflow: 'hidden' }}>
             <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularLoader /></Box>}>
-              <LazyActivity embedded sourceFilter={targetId} fillHeight />
+              <LazyActivity embedded sourceFilter={targetId} profileId={profileId ?? undefined} fillHeight />
             </Suspense>
           </Box>
         </Card>
@@ -302,6 +310,12 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
           </Card>
         )}
       </Box>
+      <OpenClawTokenDialog
+        open={!!tokenDialog}
+        url={tokenDialog?.url ?? ''}
+        token={tokenDialog?.token ?? ''}
+        onClose={() => setTokenDialog(null)}
+      />
     </PageGrid>
   );
 }

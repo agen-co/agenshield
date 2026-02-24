@@ -36,12 +36,16 @@ export class SyncClient {
   private timeout: number;
   private socketFailCount = 0;
   private socketSkipUntil = 0;
+  private profileId: string | undefined;
+  private brokerToken: string | undefined;
 
   constructor(options: SyncClientOptions) {
     this.socketPath = options.socketPath;
     this.httpHost = options.httpHost;
     this.httpPort = options.httpPort;
     this.timeout = options.timeout;
+    this.profileId = process.env['AGENSHIELD_PROFILE_ID'] || undefined;
+    this.brokerToken = process.env['AGENSHIELD_BROKER_TOKEN'] || undefined;
     this.cleanupStaleTmpFiles();
   }
 
@@ -111,11 +115,16 @@ export class SyncClient {
     params: Record<string, unknown>
   ): T {
     const id = randomUUID();
+    // Embed identity metadata inline in params for socket transport
+    // (sockets don't have HTTP headers; daemon extracts and strips these)
+    const enrichedParams = { ...params } as Record<string, unknown>;
+    if (this.profileId) enrichedParams.__profileId = this.profileId;
+    if (this.brokerToken) enrichedParams.__brokerToken = this.brokerToken;
     const request = JSON.stringify({
       jsonrpc: '2.0',
       id,
       method,
-      params,
+      params: enrichedParams,
     }) + '\n';
 
     // Create a temporary file for the response
@@ -168,7 +177,8 @@ export class SyncClient {
       // We must use the absolute path to node-bin to avoid the wrapper that
       // sets NODE_OPTIONS (which loads the interceptor → infinite recursion).
       debugLog(`syncClient.socketRequestSync _spawnSync START node-bin method=${method}`);
-      const spawnResult = _spawnSync('/opt/agenshield/bin/node-bin', ['-e', script], {
+      const nodeBin = process.env['AGENSHIELD_NODE_BIN'] || '/opt/agenshield/bin/node-bin';
+      const spawnResult = _spawnSync(nodeBin, ['-e', script], {
         timeout: this.timeout + 1000,
         stdio: 'ignore',
         env: { ...process.env, NODE_OPTIONS: '' },
@@ -225,8 +235,12 @@ export class SyncClient {
       // Use curl for synchronous HTTP request (use captured original to avoid interception).
       // Absolute path avoids the guarded shell's restricted PATH ($HOME/bin).
       debugLog(`syncClient.httpRequestSync curl START url=${url} method=${method}`);
+      // Build identity headers for broker→daemon attribution
+      let identityHeaders = '';
+      if (this.brokerToken) identityHeaders += ` -H "x-shield-broker-token: ${this.brokerToken}"`;
+      if (this.profileId) identityHeaders += ` -H "x-shield-profile-id: ${this.profileId}"`;
       const result = _execSync(
-        `/usr/bin/curl -s -X POST -H "Content-Type: application/json" -d '${request.replace(/'/g, "\\'")}' "${url}"`,
+        `/usr/bin/curl -s -X POST -H "Content-Type: application/json"${identityHeaders} -d '${request.replace(/'/g, "\\'")}' "${url}"`,
         {
           timeout: this.timeout,
           encoding: 'utf-8',

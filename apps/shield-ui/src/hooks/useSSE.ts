@@ -7,13 +7,20 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useSnapshot } from 'valtio';
 import { eventStore, addEvent, setConnected, setEvents, type SSEEvent } from '../state/events';
 import { setDaemonStatus } from '../state/daemon-status';
+import { setSecurityStatus } from '../state/security';
+import { setTargets } from '../state/targets';
+import { addAlert, acknowledgeAlertInStore, acknowledgeAllAlertsInStore, alertsStore } from '../state/alerts';
+import { handleMetricsSnapshot } from '../state/system-store';
 import { createSSEClient, type SSEClient } from '../api/sse';
 import { api } from '../api/client';
 import { queryKeys } from '../api/hooks';
-import type { DaemonStatus } from '@agenshield/ipc';
+import type { DaemonStatus, SecurityStatusPayload, MetricsSnapshotPayload, TargetStatusInfo, Alert } from '@agenshield/ipc';
 import { handleSkillSSEEvent, fetchInstalledSkills } from '../stores/skills';
-import { updateShieldProgress, markShieldComplete, appendShieldLog, updateShieldSteps, appendStepLog } from '../state/setup-panel';
+import { updateShieldProgress, markShieldComplete, markShieldError, appendShieldLog, updateShieldSteps, appendStepLog } from '../state/setup-panel';
 import { updateStore } from '../state/update';
+import { securityStore } from '../state/security';
+import { targetsStore } from '../state/targets';
+import { targetsApi } from '../api/targets';
 
 /** Skill SSE events that change installed skills or their env var requirements */
 const SKILL_ENV_EVENTS = new Set([
@@ -58,16 +65,43 @@ export function useSSE(enabled = true, token?: string | null) {
           return; // Don't add status events to the activity feed
         }
 
-        // Invalidate alerts queries on alert events
-        if (type === 'alerts:created' || type === 'alerts:acknowledged') {
-          queryClient.invalidateQueries({ queryKey: queryKeys.alerts });
-          queryClient.invalidateQueries({ queryKey: queryKeys.alertsCount });
+        // Update security status store from SSE push
+        if (type === 'security:status') {
+          setSecurityStatus(data as unknown as SecurityStatusPayload);
+          return; // Periodic status, not activity feed material
+        }
+
+        // Update metrics store from SSE push
+        if (type === 'metrics:snapshot') {
+          handleMetricsSnapshot(data as unknown as MetricsSnapshotPayload);
+          return; // High-frequency telemetry, never in activity feed
+        }
+
+        // Update targets store from SSE push
+        if (type === 'targets:status') {
+          setTargets((data as { targets: TargetStatusInfo[] }).targets);
+          return;
+        }
+
+        // Update alerts store from SSE push
+        if (type === 'alerts:created') {
+          addAlert((data as { alert: Alert }).alert);
+          return; // Don't add alert meta-events to the activity feed
+        }
+        if (type === 'alerts:acknowledged') {
+          const { alertId } = data as { alertId: number };
+          if (alertId === -1) {
+            acknowledgeAllAlertsInStore();
+          } else {
+            acknowledgeAlertInStore(alertId);
+          }
           return; // Don't add alert meta-events to the activity feed
         }
 
-        // Route setup events to the setup panel store
-        // These high-frequency events are skipped from the activity feed to avoid
-        // triggering animation subscriptions and DOM bloat during shielding.
+        // Route setup events to the setup panel store.
+        // High-frequency / noisy events (shield_steps, step_log, log) are filtered
+        // from the activity feed. Milestone events (shield_progress, shield_complete)
+        // fall through to addEvent() so they appear in the feed.
         if (type === 'setup:shield_steps') {
           const { targetId, steps, overallProgress } = data as { targetId: string; steps: import('@agenshield/ipc').ShieldStepState[]; overallProgress: number };
           updateShieldSteps(targetId, steps, overallProgress);
@@ -83,12 +117,20 @@ export function useSSE(enabled = true, token?: string | null) {
         if (type === 'setup:shield_progress') {
           const { targetId, step, progress, message } = data as { targetId: string; step: string; progress: number; message?: string };
           updateShieldProgress(targetId, step, progress, message);
-          return;
+          // Fall through to addEvent() — milestone event, ~15 per target
         }
         if (type === 'setup:shield_complete') {
           const { targetId, profileId } = data as { targetId: string; profileId: string };
           markShieldComplete(targetId, profileId);
-          return;
+          // Target watcher now handles SSE push — no query invalidation needed
+          // Fall through to addEvent() — one per target, critical milestone
+        }
+        if (type === 'setup:error') {
+          const { targetId: errorTargetId, error: errorMsg, step: errorStep } = data as { targetId?: string; error: string; step?: string };
+          if (errorTargetId) {
+            markShieldError(errorTargetId, errorMsg, errorStep);
+          }
+          // Fall through to addEvent() — error is a critical milestone event
         }
         if (type === 'setup:log') {
           const { targetId: logTargetId, message: logMsg, stepId: logStepId } = data as { targetId?: string; message?: string; stepId?: string };
@@ -142,9 +184,12 @@ export function useSSE(enabled = true, token?: string | null) {
           }
         }
 
-        // Extract source tag from the daemon event wrapper
+        // Extract source and profileId tags from the daemon event wrapper
         const source = rawData && typeof rawData === 'object' && 'source' in rawData
           ? (rawData.source as string)
+          : undefined;
+        const profileId = rawData && typeof rawData === 'object' && 'profileId' in rawData
+          ? (rawData.profileId as string)
           : undefined;
 
         const event: SSEEvent = {
@@ -153,6 +198,7 @@ export function useSSE(enabled = true, token?: string | null) {
           data,
           timestamp: serverTs,
           source,
+          profileId,
         };
         addEvent(event);
       },
@@ -161,6 +207,21 @@ export function useSSE(enabled = true, token?: string | null) {
         if (isConnected) {
           // Refresh skills on reconnect to catch any events missed during disconnect
           fetchInstalledSkills();
+
+          // Reset store loaded flags so one-shot REST fetches re-fire
+          securityStore.loaded = false;
+          alertsStore.loaded = false;
+          targetsStore.loaded = false;
+          // systemStore doesn't need reset — stale metrics are acceptable until next push (<=10s)
+
+          // Recover in-progress shield operations (survives page refresh)
+          targetsApi.activeOperations().then((res) => {
+            if (res.data?.length > 0) {
+              for (const op of res.data) {
+                updateShieldSteps(op.targetId, op.steps, op.progress);
+              }
+            }
+          }).catch(() => { /* non-fatal */ });
 
           // Load history once on first successful connection
           if (!historyLoaded.current) {
@@ -172,6 +233,7 @@ export function useSSE(enabled = true, token?: string | null) {
                 data: ((e.data ?? {}) as Record<string, unknown>),
                 timestamp: new Date(e.timestamp as string).getTime(),
                 source: e.source as string | undefined,
+                profileId: e.profileId as string | undefined,
               }));
               setEvents(historical);
             }).catch(() => {

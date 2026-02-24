@@ -45,6 +45,7 @@ function ensureBackupDir(): { success: boolean; error?: string } {
   return { success: true };
 }
 
+/** @deprecated Profile-based uninstall replaces backup.json. Use storage profiles instead. */
 export interface SaveBackupParams {
   originalInstallation: OriginalInstallation;
   sandboxUser: SandboxUserInfo;
@@ -53,6 +54,7 @@ export interface SaveBackupParams {
 
 /**
  * Save installation backup before migration
+ * @deprecated Profile-based uninstall replaces backup.json. Use storage profiles instead.
  */
 export function saveBackup(params: SaveBackupParams): { success: boolean; error?: string } {
   const { originalInstallation, sandboxUser, migratedPaths } = params;
@@ -113,6 +115,7 @@ export function saveBackup(params: SaveBackupParams): { success: boolean; error?
 /**
  * Load installation backup
  * Returns null if no backup exists or if read fails
+ * @deprecated Profile-based uninstall replaces backup.json. Use storage profiles instead.
  */
 export function loadBackup(): InstallationBackup | null {
   // Try new path first, then legacy path for backward compat
@@ -143,6 +146,7 @@ export function loadBackup(): InstallationBackup | null {
 
 /**
  * Check if a backup exists
+ * @deprecated Profile-based uninstall replaces backup.json. Use storage profiles instead.
  */
 export function backupExists(): boolean {
   const newPath = backupConfigPath();
@@ -155,6 +159,7 @@ export function backupExists(): boolean {
 
 /**
  * Delete the backup file (called after successful uninstall)
+ * @deprecated Profile-based uninstall replaces backup.json. Use storage profiles instead.
  */
 export function deleteBackup(): { success: boolean; error?: string } {
   // Remove from both new and legacy paths

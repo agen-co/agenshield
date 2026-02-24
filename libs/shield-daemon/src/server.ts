@@ -21,6 +21,7 @@ import { registerRoutes } from './routes/index';
 import { getUiAssetsPath } from './static';
 import { startSecurityWatcher, stopSecurityWatcher } from './watchers/security';
 import { startProcessHealthWatcher, stopProcessHealthWatcher } from './watchers/process-health';
+import { startTargetWatcher, stopTargetWatcher } from './watchers/targets';
 import { emitSkillUntrustedDetected, emitProcessStarted, emitProcessStopped, emitSecurityLocked, eventBus, daemonEvents } from './events/emitter';
 import { getVault, getInstallationKey } from './vault';
 import { activateMCP, deactivateMCP } from './mcp';
@@ -47,6 +48,7 @@ import { initPolicyManager } from './services/policy-manager';
 import { pushSecretsToBroker } from './services/broker-bridge';
 import { startMetricsCollector, stopMetricsCollector } from './services/metrics-collector';
 import { resolveTargetContext } from './services/target-context';
+import { ProcessManager } from './services/process-manager';
 
 /**
  * Create and configure the Fastify server
@@ -164,15 +166,19 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
 
   // Ensure skills directory exists with proper permissions
   if (!fs.existsSync(skillsDir)) {
-    if (devMode) {
-      fs.mkdirSync(skillsDir, { recursive: true });
-    } else {
-      fs.mkdirSync(skillsDir, { recursive: true, mode: 0o2775 });
-      try {
-        execSync(`chown -R root:${socketGroup} "${skillsDir}"`, { stdio: 'pipe' });
-      } catch { /* best-effort — may not be root */ }
+    try {
+      if (devMode) {
+        fs.mkdirSync(skillsDir, { recursive: true });
+      } else {
+        fs.mkdirSync(skillsDir, { recursive: true, mode: 0o2775 });
+        try {
+          execSync(`chown -R root:${socketGroup} "${skillsDir}"`, { stdio: 'pipe' });
+        } catch { /* best-effort — may not be root */ }
+      }
+      app.log.info(`Created skills directory: ${skillsDir}`);
+    } catch (err) {
+      app.log.warn({ err }, `Cannot create skills directory (${skillsDir}) — skills features will be limited until the directory is created by the shielding pipeline`);
     }
-    app.log.info(`Created skills directory: ${skillsDir}`);
   } else if (!devMode) {
     try {
       const stat = fs.statSync(skillsDir);
@@ -421,22 +427,36 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   // Start process health watcher for broker/gateway lifecycle events
   await startProcessHealthWatcher(10000);
 
+  // Start target status watcher (10s, emits on change only)
+  startTargetWatcher(10000);
+
   // Initialize privilege executor for root operations (lazy — prompts user on first use)
   const { OsascriptExecutor } = await import('./services/osascript-executor.js');
   const executor = new OsascriptExecutor();
   app.decorate('privilegeExecutor', executor);
+
+  // Initialize gateway process manager
+  const processManager = new ProcessManager();
+  app.decorate('processManager', processManager);
 
   // Stop watchers, proxy pool, and MCP on server close
   app.addHook('onClose', async () => {
     emitProcessStopped('daemon', { pid: process.pid });
     stopSecurityWatcher();
     stopMetricsCollector();
+    stopTargetWatcher();
     skillManager.stopWatcher();
     stopProcessHealthWatcher();
     activityWriter.stop();
     shutdownProxyPool();
     await profileSocketManager.stop();
     await deactivateMCP();
+    // Shut down the process manager (stop all managed gateway processes)
+    if (app.processManager) {
+      try {
+        await app.processManager.shutdown();
+      } catch { /* non-fatal */ }
+    }
     // Shut down the privilege executor if it's still running
     if (app.privilegeExecutor) {
       try {

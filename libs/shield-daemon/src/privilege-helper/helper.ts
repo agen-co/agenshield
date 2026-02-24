@@ -53,11 +53,15 @@ class RingBuffer {
  * Spawn a command in a shell and stream output. Returns a promise that
  * resolves with { code, stdout, stderr } once the child exits or the
  * timeout fires.
+ *
+ * When `onData` is provided, output chunks are forwarded in real-time
+ * alongside the ring-buffer capture (used for streaming notifications).
  */
 function spawnCommand(
   command: string,
   timeout: number,
   env?: NodeJS.ProcessEnv,
+  onData?: (stream: 'stdout' | 'stderr', data: string) => void,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn('/bin/bash', ['-c', command], {
@@ -77,8 +81,16 @@ function spawnCommand(
       resolve({ code, stdout: stdoutBuf.toString(), stderr: stderrBuf.toString() });
     };
 
-    child.stdout.on('data', (d: Buffer) => stdoutBuf.append(d.toString()));
-    child.stderr.on('data', (d: Buffer) => stderrBuf.append(d.toString()));
+    child.stdout.on('data', (d: Buffer) => {
+      const s = d.toString();
+      stdoutBuf.append(s);
+      onData?.('stdout', s);
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      const s = d.toString();
+      stderrBuf.append(s);
+      onData?.('stderr', s);
+    });
 
     child.on('close', (code) => finish(code ?? 1));
     child.on('error', (err) => {
@@ -104,11 +116,13 @@ function spawnCommand(
 
 interface RpcRequest {
   id: number;
-  method: 'exec' | 'execAsUser' | 'ping' | 'shutdown';
+  method: 'exec' | 'execAsUser' | 'execAsUserDirect' | 'ping' | 'shutdown';
   params?: {
     command?: string;
     user?: string;
     timeout?: number;
+    /** When true, the helper streams stdout/stderr notifications during execution. */
+    stream?: boolean;
   };
 }
 
@@ -150,8 +164,58 @@ function main(): void {
     } catch { /* ignore */ }
   }
 
-  async function handleRequest(req: RpcRequest): Promise<RpcResponse> {
+  /**
+   * Create a throttled notification writer that coalesces output chunks
+   * and flushes every NOTIFY_INTERVAL_MS or when >NOTIFY_SIZE_THRESHOLD accumulated.
+   * Returns a cleanup function that flushes remaining data.
+   */
+  function createNotifier(
+    socket: net.Socket,
+    requestId: number,
+  ): { onData: (stream: 'stdout' | 'stderr', data: string) => void; flush: () => void } {
+    const NOTIFY_INTERVAL_MS = 100;
+    const NOTIFY_SIZE_THRESHOLD = 1024;
+    const pending: { stdout: string; stderr: string } = { stdout: '', stderr: '' };
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    function send(): void {
+      timer = null;
+      for (const stream of ['stdout', 'stderr'] as const) {
+        if (pending[stream]) {
+          try {
+            socket.write(JSON.stringify({ notify: requestId, stream, data: pending[stream] }) + '\n');
+          } catch { /* socket may be gone */ }
+          pending[stream] = '';
+        }
+      }
+    }
+
+    function onData(stream: 'stdout' | 'stderr', data: string): void {
+      pending[stream] += data;
+      const totalPending = pending.stdout.length + pending.stderr.length;
+      if (totalPending >= NOTIFY_SIZE_THRESHOLD) {
+        if (timer) { clearTimeout(timer); timer = null; }
+        send();
+      } else if (!timer) {
+        timer = setTimeout(send, NOTIFY_INTERVAL_MS);
+      }
+    }
+
+    function flush(): void {
+      if (timer) { clearTimeout(timer); timer = null; }
+      send();
+    }
+
+    return { onData, flush };
+  }
+
+  async function handleRequest(req: RpcRequest, socket: net.Socket): Promise<RpcResponse> {
     resetIdleTimer();
+
+    /** Build an onData callback that streams notifications if the request opted in. */
+    const wantsStream = req.params?.stream === true;
+    const notifier = wantsStream ? createNotifier(socket, req.id) : null;
+    const onData = notifier?.onData;
 
     switch (req.method) {
       case 'ping':
@@ -163,7 +227,8 @@ function main(): void {
           return { id: req.id, error: { code: -1, message: 'Missing command parameter' } };
         }
         const timeout = req.params?.timeout ?? 300_000;
-        const { code, stdout, stderr } = await spawnCommand(command, timeout, process.env);
+        const { code, stdout, stderr } = await spawnCommand(command, timeout, process.env, onData);
+        notifier?.flush();
         if (code === 0) {
           return { id: req.id, result: { success: true, output: truncateOutput(stdout.trim()) } };
         }
@@ -192,8 +257,38 @@ function main(): void {
         delete cleanEnv['NVM_INC'];
         delete cleanEnv['NVM_CD_FLAGS'];
         delete cleanEnv['ZDOTDIR'];
+        const guardedShell = `/Users/${user}/.agenshield/bin/guarded-shell`;
+        const wrappedCmd = `sudo -H -u ${user} ${guardedShell} -c ${JSON.stringify(command)}`;
+        const { code, stdout, stderr } = await spawnCommand(wrappedCmd, timeout, cleanEnv, onData);
+        notifier?.flush();
+        if (code === 0) {
+          return { id: req.id, result: { success: true, output: truncateOutput(stdout.trim()) } };
+        }
+        return {
+          id: req.id,
+          error: {
+            code: code,
+            message: truncateOutput(stderr.trim() || `Command exited with code ${code}`),
+          },
+        };
+      }
+
+      case 'execAsUserDirect': {
+        const command = req.params?.command;
+        const user = req.params?.user;
+        if (!command || !user) {
+          return { id: req.id, error: { code: -1, message: 'Missing command or user parameter' } };
+        }
+        const timeout = req.params?.timeout ?? 300_000;
+        const cleanEnv = { ...process.env };
+        delete cleanEnv['NVM_DIR'];
+        delete cleanEnv['NVM_BIN'];
+        delete cleanEnv['NVM_INC'];
+        delete cleanEnv['NVM_CD_FLAGS'];
+        delete cleanEnv['ZDOTDIR'];
         const wrappedCmd = `sudo -H -u ${user} /bin/bash -c ${JSON.stringify(command)}`;
-        const { code, stdout, stderr } = await spawnCommand(wrappedCmd, timeout, cleanEnv);
+        const { code, stdout, stderr } = await spawnCommand(wrappedCmd, timeout, cleanEnv, onData);
+        notifier?.flush();
         if (code === 0) {
           return { id: req.id, result: { success: true, output: truncateOutput(stdout.trim()) } };
         }
@@ -235,7 +330,7 @@ function main(): void {
 
         try {
           const req = JSON.parse(line) as RpcRequest;
-          handleRequest(req).then((res) => {
+          handleRequest(req, socket).then((res) => {
             socket.write(JSON.stringify(res) + '\n');
           }).catch((err) => {
             socket.write(JSON.stringify({

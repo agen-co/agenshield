@@ -21,6 +21,7 @@ function getKnownTargets(): TargetProcessMapping[] | undefined {
       .map((p) => ({
         targetName: p.targetName ?? p.name,
         users: [p.agentUsername, p.brokerUsername].filter((u): u is string => Boolean(u)),
+        agentHomeDir: (p as unknown as Record<string, unknown>).agentHomeDir as string | undefined,
       }))
       .filter((t) => t.users.length > 0);
     return targets.length > 0 ? targets : undefined;
@@ -51,7 +52,7 @@ function hasStatusChanged(prev: SecurityStatus | null, current: SecurityStatus):
  */
 function checkAndEmit(): void {
   try {
-    const status = checkSecurityStatus({ knownTargets: getKnownTargets() });
+    const status = checkSecurityStatus({ knownTargets: getKnownTargets(), callerRole: 'daemon' });
 
     // Merge secret names detected in the calling user's environment
     const userSecrets = process.env['AGENSHIELD_USER_SECRETS'];

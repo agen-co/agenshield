@@ -11,6 +11,8 @@ import { ProfileBrokerTokenMigration } from './011-profile-broker-token';
 import { SetupStateMigration } from './012-setup-state';
 import { PolicySetsMigration } from './013-policy-sets';
 import { ProfileInstallManifestMigration } from './014-profile-install-manifest';
+import { DismissedTargetsMigration } from './015-dismissed-targets';
+import { ProfileGatewayPortMigration } from './016-profile-gateway-port';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -24,6 +26,8 @@ export const ALL_MIGRATIONS: Migration[] = [
   new SetupStateMigration(),
   new PolicySetsMigration(),
   new ProfileInstallManifestMigration(),
+  new DismissedTargetsMigration(),
+  new ProfileGatewayPortMigration(),
 ];
 
 /**

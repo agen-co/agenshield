@@ -37,7 +37,7 @@ export const MonitoringChip = memo(({ label, sublabel, refDesignator, theme, lay
     Math.min(1, netUp / NET_MAX),
     Math.min(1, netDown / NET_MAX),
     (cpuPercent + memPercent + diskPercent) / 300,
-  ].map((v) => Math.max(0.05, Math.min(1, v)));
+  ].map((v) => Math.max(0.05, Math.min(1, Number.isFinite(v) ? v : 0)));
 
   return (
     <g>

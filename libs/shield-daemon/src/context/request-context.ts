@@ -10,6 +10,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { SkillManager } from '@agentshield/skills';
 import type { ProfileSocketManager } from '../services/profile-sockets';
 import type { PrivilegeExecutor } from '../services/privilege-executor';
+import type { ProcessManager } from '../services/process-manager';
 import {
   type ShieldContext,
   type ShieldRequestSource,
@@ -26,6 +27,7 @@ declare module 'fastify' {
     skillManager: SkillManager;
     profileSocketManager?: ProfileSocketManager;
     privilegeExecutor?: PrivilegeExecutor;
+    processManager?: ProcessManager;
   }
 }
 

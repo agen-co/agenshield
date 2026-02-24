@@ -2,19 +2,23 @@
  * API client and React Query hooks for Target Lifecycle endpoints
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { useSnapshot } from 'valtio';
+import { targetsStore, setTargets } from '../state/targets';
+import { useHealthGate } from './hooks';
+import type { TargetStatusInfo, ShieldStepState } from '@agenshield/ipc';
+
+export interface ActiveOperationInfo {
+  targetId: string;
+  targetName: string;
+  startedAt: string;
+  status: 'in_progress';
+  progress: number;
+  currentStep?: string;
+  steps: ShieldStepState[];
+}
 
 const BASE_URL = '/api';
-
-interface TargetInfo {
-  id: string;
-  name: string;
-  type: string;
-  shielded: boolean;
-  running: boolean;
-  version?: string;
-  binaryPath?: string;
-}
 
 async function targetRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const headers: HeadersInit = {};
@@ -34,7 +38,7 @@ async function targetRequest<T>(endpoint: string, options?: RequestInit): Promis
 
 export const targetsApi = {
   list: () =>
-    targetRequest<{ success: boolean; data: TargetInfo[] }>('/targets/lifecycle'),
+    targetRequest<{ success: boolean; data: TargetStatusInfo[] }>('/targets/lifecycle'),
 
   detect: () =>
     targetRequest<{ success: boolean; data: unknown[] }>('/targets/lifecycle/detect', {
@@ -64,55 +68,64 @@ export const targetsApi = {
       `/targets/lifecycle/${targetId}/stop`,
       { method: 'POST' },
     ),
+
+  activeOperations: () =>
+    targetRequest<{ success: boolean; data: ActiveOperationInfo[] }>('/targets/lifecycle/active-operations'),
 };
 
 // --- React Query hooks ---
 
-export function useTargets(polling = true) {
-  return useQuery({
+export function useTargets() {
+  const healthy = useHealthGate();
+  const { targets, loaded } = useSnapshot(targetsStore);
+
+  // One-time REST fetch to seed store before first SSE event
+  const query = useQuery({
     queryKey: ['targets', 'lifecycle'],
-    queryFn: targetsApi.list,
-    refetchInterval: polling ? 5000 : false,
+    queryFn: async () => {
+      const res = await targetsApi.list();
+      if (res.data) setTargets(res.data);
+      return res;
+    },
+    enabled: healthy && !loaded,
+    staleTime: Infinity,
   });
+
+  return {
+    data: loaded ? { success: true, data: targets as TargetStatusInfo[] } : undefined,
+    isLoading: !loaded,
+    refetch: query.refetch,
+  };
 }
 
 export function useDetectTargets() {
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: () => targetsApi.detect(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['targets', 'lifecycle'] }),
   });
 }
 
 export function useShieldTarget() {
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ targetId, baseName, openclawVersion }: { targetId: string; baseName?: string; openclawVersion?: string }) =>
       targetsApi.shield(targetId, baseName, openclawVersion),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['targets', 'lifecycle'] }),
+    // Target watcher handles SSE push — no query invalidation needed
   });
 }
 
 export function useUnshieldTarget() {
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: (targetId: string) => targetsApi.unshield(targetId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['targets', 'lifecycle'] }),
   });
 }
 
 export function useStartTarget() {
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: (targetId: string) => targetsApi.start(targetId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['targets', 'lifecycle'] }),
   });
 }
 
 export function useStopTarget() {
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: (targetId: string) => targetsApi.stop(targetId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['targets', 'lifecycle'] }),
   });
 }

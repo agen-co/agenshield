@@ -168,14 +168,30 @@ function findProcessesByPatterns(
 }
 
 /**
- * Check if guarded shell is installed
+ * Check guarded shells — per-target when targets have agentHomeDir, legacy fallback otherwise.
  */
-function isGuardedShellInstalled(): boolean {
+function checkGuardedShells(
+  targets?: TargetProcessMapping[],
+): { installed: boolean; missing: string[] } {
+  if (targets && targets.length > 0) {
+    const missing: string[] = [];
+    for (const t of targets) {
+      if (!t.agentHomeDir) continue;
+      const shellPath = `${t.agentHomeDir}/.agenshield/bin/guarded-shell`;
+      try {
+        fs.accessSync(shellPath);
+      } catch {
+        missing.push(t.targetName);
+      }
+    }
+    return { installed: missing.length === 0, missing };
+  }
+  // Legacy fallback
   try {
     fs.accessSync(GUARDED_SHELL_PATH);
-    return true;
+    return { installed: true, missing: [] };
   } catch {
-    return false;
+    return { installed: false, missing: ['(legacy)'] };
   }
 }
 
@@ -189,6 +205,8 @@ export interface TargetProcessMapping {
   users: string[];
   /** Process name patterns to match (defaults to [targetName]) */
   processPatterns?: string[];
+  /** Agent home directory for per-target guarded shell check */
+  agentHomeDir?: string;
 }
 
 /**
@@ -201,6 +219,8 @@ export interface SecurityCheckOptions {
   knownSandboxUsers?: string[];
   /** Target-to-user mappings for per-target process validation. Supersedes knownSandboxUsers. */
   knownTargets?: TargetProcessMapping[];
+  /** If 'daemon', suppress the runningAsRoot critical message (daemon is expected to be root) */
+  callerRole?: 'daemon' | 'target';
 }
 
 /**
@@ -223,21 +243,28 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
 
   // Check sandbox user
   const sandboxUserExists = sandboxUsers.some((u) => userExists(u));
-  const guardedShellInstalled = isGuardedShellInstalled();
+  const guardedShellCheck = checkGuardedShells(knownTargets);
+  const guardedShellInstalled = guardedShellCheck.installed;
 
   // Check if target processes are running in sandbox
   const allPatterns = hasTargets
     ? [...new Set(knownTargets.flatMap((t) => t.processPatterns ?? [t.targetName]))]
     : DEFAULT_PROCESS_PATTERNS;
   const processes = findProcessesByPatterns(allPatterns);
-  const unIsolatedProcesses = processes.filter((p) => !sandboxUsers.includes(p.user));
+  // Filter out short-lived installer processes (npm install, node setup scripts) from unisolated list
+  const INSTALLER_PATTERNS = ['npm ', 'npm install', 'node setup', 'node install', 'brew '];
+  const unIsolatedProcesses = processes.filter(
+    (p) =>
+      !sandboxUsers.includes(p.user) &&
+      !INSTALLER_PATTERNS.some((pat) => p.command.includes(pat)),
+  );
   const isIsolated = sandboxUserExists && unIsolatedProcesses.length === 0;
 
   // Check exposed secrets
   const exposedSecrets = checkExposedSecrets(options?.env);
 
   // Build warnings and recommendations
-  if (runningAsRoot) {
+  if (runningAsRoot && options?.callerRole !== 'daemon') {
     critical.push('DANGER: Running as root! OpenClaw should never run as root.');
     recommendations.push('Run AgenShield setup to isolate OpenClaw in unprivileged sandbox');
   }
@@ -249,7 +276,7 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
 
   if (unIsolatedProcesses.length > 0) {
     for (const proc of unIsolatedProcesses) {
-      warnings.push(`OpenClaw process running as user "${proc.user}" (PID ${proc.pid})`);
+      warnings.push(`Target process running as user "${proc.user}" (PID ${proc.pid})`);
     }
     recommendations.push('Stop unisolated processes and restart via sandbox');
   }
@@ -260,28 +287,54 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
   }
 
   if (!guardedShellInstalled && sandboxUserExists) {
-    warnings.push('Guarded shell not installed - sandbox may not be fully restricted');
+    const missingHint =
+      guardedShellCheck.missing.length > 0
+        ? ` (${guardedShellCheck.missing.join(', ')})`
+        : '';
+    warnings.push(`Guarded shell not installed${missingHint} - sandbox may not be fully restricted`);
     recommendations.push('Re-run setup to install guarded shell');
   }
 
-  // Cross-target process validation: verify each target's processes run under its own users
+  // Cross-target process validation: verify each target's processes run under its own users.
+  // Group targets by their effective process patterns so that multiple profiles for the same
+  // preset (e.g., two "OpenClaw" installations) merge their user sets — we can't distinguish
+  // which process belongs to which profile of the same type.
   if (hasTargets) {
     const allTargetUsers = new Set(sandboxUsers);
     let hasCrossTargetIssue = false;
 
+    // Build merged pattern groups: each unique pattern key maps to the union of all users
+    // from targets sharing those patterns.
+    const patternGroupMap = new Map<string, { patterns: string[]; users: Set<string>; targetNames: string[] }>();
     for (const target of knownTargets) {
       const patterns = target.processPatterns ?? [target.targetName];
-      const targetProcesses = findProcessesByPatterns(patterns);
-      const targetUserSet = new Set(target.users);
+      const key = patterns.slice().sort().join('\0');
+      const existing = patternGroupMap.get(key);
+      if (existing) {
+        for (const u of target.users) existing.users.add(u);
+        if (!existing.targetNames.includes(target.targetName)) {
+          existing.targetNames.push(target.targetName);
+        }
+      } else {
+        patternGroupMap.set(key, {
+          patterns,
+          users: new Set(target.users),
+          targetNames: [target.targetName],
+        });
+      }
+    }
+
+    for (const group of patternGroupMap.values()) {
+      const targetProcesses = findProcessesByPatterns(group.patterns);
 
       for (const proc of targetProcesses) {
         // Skip processes under non-sandbox users — already caught by unIsolatedProcesses check above
         if (!allTargetUsers.has(proc.user)) continue;
-        // Flag processes running under a different target's sandbox user
-        if (!targetUserSet.has(proc.user)) {
+        // Flag processes running under a different target group's sandbox user
+        if (!group.users.has(proc.user)) {
           const ownerTarget = knownTargets.find((t) => t.users.includes(proc.user));
           warnings.push(
-            `Cross-target: "${target.targetName}" process (PID ${proc.pid}) running under ` +
+            `Cross-target: "${group.targetNames.join('/')}" process (PID ${proc.pid}) running under ` +
               `"${ownerTarget?.targetName ?? 'unknown'}" sandbox user "${proc.user}"`,
           );
           hasCrossTargetIssue = true;

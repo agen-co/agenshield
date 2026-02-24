@@ -163,7 +163,12 @@ ${execRule}
   /**
    * Profile for broker daemon (has network)
    */
-  brokerProfile(socketPath: string): string {
+  brokerProfile(socketPath: string, agentHome?: string): string {
+    const agenshieldDir = agentHome ? `${agentHome}/.agenshield` : '';
+    const agenshieldReadWrite = agentHome
+      ? `\n;; Allow per-target .agenshield access (config, logs, socket)\n(allow file-read* file-write*\n  (subpath "${agenshieldDir}"))`
+      : '';
+
     return `
 (version 1)
 (deny default)
@@ -174,14 +179,8 @@ ${execRule}
   (subpath "/usr/lib")
   (subpath "/usr/share")
   (subpath "/private/var/db")
-  (subpath "/Library/Preferences")
-  (subpath "/opt/agenshield"))
-
-;; Allow config and policy access
-(allow file-read* file-write*
-  (subpath "/opt/agenshield")
-  (subpath "/var/log/agenshield")
-  (subpath "/etc/agenshield"))
+  (subpath "/Library/Preferences"))
+${agenshieldReadWrite}
 
 ;; Allow socket operations
 (allow file-read* file-write*

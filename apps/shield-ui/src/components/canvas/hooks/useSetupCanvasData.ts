@@ -13,8 +13,8 @@ import { useEffect, useMemo } from 'react';
 import { useSnapshot } from 'valtio';
 import type { DetectedTarget } from '@agenshield/ipc';
 import { useHealthGate, useProfiles, useSecurity, useSystemMetrics, useMetricsHistory } from '../../../api/hooks';
-import { setupPanelStore, isShieldingActive } from '../../../state/setup-panel';
-import { startMetricsSimulation, systemStore, pushMetricsSnapshot, markMetricsLoaded, setSystemInfo } from '../../../state/system-store';
+import { setupPanelStore, mergeDetectedTargets, loadDismissedTargets } from '../../../state/setup-panel';
+import { startMetricsSimulation, systemStore } from '../../../state/system-store';
 import type { ApplicationCardData, SetupCanvasData } from '../Canvas.types';
 
 /** Map target type to a lucide icon name */
@@ -52,42 +52,8 @@ export function useSetupCanvasData(): SetupCanvasData {
     }
   }, [historyData]);
 
-  // Bridge real metrics from daemon API into valtio store
-  // Reduce polling from 2s to 15s during shielding to avoid memory pressure
-  const { data: metricsData } = useSystemMetrics(isShieldingActive() ? 15000 : undefined);
-
-  useEffect(() => {
-    if (metricsData?.data) {
-      const m = metricsData.data;
-      systemStore.metrics.cpuPercent = m.cpuPercent;
-      systemStore.metrics.memPercent = m.memPercent;
-      systemStore.metrics.diskPercent = m.diskPercent;
-      systemStore.metrics.netUp = m.netUp;
-      systemStore.metrics.netDown = m.netDown;
-      if (!systemStore.metricsLoaded) markMetricsLoaded();
-      pushMetricsSnapshot({
-        timestamp: Date.now(),
-        cpuPercent: m.cpuPercent,
-        memPercent: m.memPercent,
-        diskPercent: m.diskPercent,
-        netUp: m.netUp,
-        netDown: m.netDown,
-      });
-      // Update system info (only when available from expanded response)
-      if (m.hostname) {
-        setSystemInfo({
-          hostname: m.hostname,
-          activeUser: m.activeUser ?? 'unknown',
-          uptime: m.uptime ?? 0,
-          platform: m.platform ?? 'unknown',
-          arch: m.arch ?? 'unknown',
-          cpuModel: m.cpuModel ?? 'unknown',
-          totalMemory: m.totalMemory ?? 0,
-          nodeVersion: m.nodeVersion ?? 'unknown',
-        });
-      }
-    }
-  }, [metricsData]);
+  // Seed initial metrics from REST (SSE push takes over after first event)
+  useSystemMetrics();
 
   // Auto-detect targets on mount when daemon is healthy
   useEffect(() => {
@@ -95,13 +61,18 @@ export function useSetupCanvasData(): SetupCanvasData {
     if (setupPanelStore.detectedTargets.length > 0 || setupPanelStore.isDetecting) return;
 
     setupPanelStore.isDetecting = true;
-    fetch('/api/targets/lifecycle/detect', { method: 'POST' })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) {
-          setupPanelStore.detectedTargets = data.data;
-        }
-      })
+
+    // Load dismissed targets + detect in parallel
+    Promise.all([
+      loadDismissedTargets(),
+      fetch('/api/targets/lifecycle/detect', { method: 'POST' })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success) {
+            mergeDetectedTargets(data.data);
+          }
+        }),
+    ])
       .catch(() => {
         // Detection failed — non-fatal
       })
