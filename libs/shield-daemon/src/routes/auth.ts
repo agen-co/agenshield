@@ -1,77 +1,62 @@
 /**
  * Authentication routes
  *
- * Handles passcode setup, authentication, and session management.
+ * JWT-based authentication with sudo login and token refresh.
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
-  UnlockRequestSchema,
-  SetupPasscodeRequestSchema,
-  ChangePasscodeRequestSchema,
+  SudoLoginRequestSchema,
 } from '@agenshield/ipc';
 import type {
   AuthStatusResponse,
-  UnlockRequest,
-  UnlockResponse,
-  LockRequest,
-  LockResponse,
-  SetupPasscodeRequest,
-  SetupPasscodeResponse,
-  ChangePasscodeRequest,
-  ChangePasscodeResponse,
+  SudoLoginRequest,
+  SudoLoginResponse,
+  RefreshResponse,
 } from '@agenshield/ipc';
 import {
-  isPasscodeSet,
-  isProtectionEnabled,
-  setProtectionEnabled,
-  isAnonymousReadOnlyAllowed,
-  setAnonymousReadOnly,
-  isLockedOut,
-  checkPasscode,
-  setPasscode,
-  recordFailedAttempt,
-  clearFailedAttempts,
-  isRunningAsRoot,
-} from '../auth/passcode';
-import { getSessionManager } from '../auth/session';
+  signAdminToken,
+  verifyToken,
+  verifySudoPassword,
+  getAdminTtlSeconds,
+} from '@agenshield/auth';
 import { extractToken } from '../auth/middleware';
-import { getStorage } from '@agenshield/storage';
-import { syncSecrets } from '../secret-sync';
-import { clearBrokerSecrets } from '../services/broker-bridge';
-import { emitSecurityLocked } from '../events/emitter';
-import { loadConfig } from '../config/index';
+import { isRunningAsRoot } from '../auth/passcode';
 
 /**
  * Register authentication routes
  */
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   /**
-   * GET /auth/status - Check passcode protection status
+   * GET /auth/status - Check authentication status
    */
-  app.get('/auth/status', async (): Promise<AuthStatusResponse> => {
-    const passcodeSet = await isPasscodeSet();
-    const protectionEnabled = isProtectionEnabled();
-    const allowAnonymousReadOnly = isAnonymousReadOnlyAllowed();
-    const lockoutStatus = isLockedOut();
+  app.get('/auth/status', async (request: FastifyRequest): Promise<AuthStatusResponse> => {
+    const token = extractToken(request);
+    if (!token) {
+      return { authenticated: false };
+    }
+
+    const result = await verifyToken(token);
+    if (!result.valid || !result.payload) {
+      return { authenticated: false };
+    }
 
     return {
-      passcodeSet,
-      protectionEnabled,
-      allowAnonymousReadOnly,
-      lockedOut: lockoutStatus.locked,
-      lockedUntil: lockoutStatus.lockedUntil,
+      authenticated: true,
+      role: result.payload.role,
+      expiresAt: result.payload.role === 'admin'
+        ? (result.payload as { exp: number }).exp * 1000
+        : undefined,
     };
   });
 
   /**
-   * POST /auth/unlock - Authenticate with passcode
+   * POST /auth/sudo-login - Authenticate with macOS sudo credentials
    */
-  app.post<{ Body: UnlockRequest }>(
-    '/auth/unlock',
-    async (request: FastifyRequest<{ Body: UnlockRequest }>, reply: FastifyReply): Promise<UnlockResponse> => {
-      // Validate request body
-      const parseResult = UnlockRequestSchema.safeParse(request.body);
+  app.post<{ Body: SudoLoginRequest }>(
+    '/auth/sudo-login',
+    async (request: FastifyRequest<{ Body: SudoLoginRequest }>, reply: FastifyReply): Promise<SudoLoginResponse> => {
+      const parseResult = SudoLoginRequestSchema.safeParse(request.body);
       if (!parseResult.success) {
         reply.code(400);
         return {
@@ -80,340 +65,102 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         };
       }
 
-      const { passcode } = parseResult.data;
+      const { username, password } = parseResult.data;
 
-      // Check if locked out
-      const lockoutStatus = isLockedOut();
-      if (lockoutStatus.locked) {
-        reply.code(429);
-        return {
-          success: false,
-          error: 'Too many failed attempts. Try again later.',
-          remainingAttempts: 0,
-        };
-      }
-
-      // Check if passcode is set
-      const passcodeSet = await isPasscodeSet();
-      if (!passcodeSet) {
-        reply.code(400);
-        return {
-          success: false,
-          error: 'Passcode not configured. Use /auth/setup first.',
-        };
-      }
-
-      // Verify passcode
-      const valid = await checkPasscode(passcode);
-      if (!valid) {
-        const remainingAttempts = recordFailedAttempt();
-        reply.code(401);
-        return {
-          success: false,
-          error: 'Invalid passcode',
-          remainingAttempts,
-        };
-      }
-
-      // Clear failed attempts on success
-      clearFailedAttempts();
-
-      // Unlock storage-level encryption so secrets can be decrypted
-      const storage = getStorage();
-      if (storage.hasPasscode()) {
-        storage.unlock(passcode);
-      } else {
-        // First unlock after migration — initialize storage-level encryption
-        storage.setPasscode(passcode);
-      }
-
-      // Create session (also starts the idle auto-lock timer)
-      const sessionManager = getSessionManager();
-      const session = sessionManager.createSession();
-
-      // Push decrypted secrets to broker now that vault is accessible
-      syncSecrets(loadConfig().policies).catch(() => { /* non-fatal */ });
-
-      return {
-        success: true,
-        token: session.token,
-        expiresAt: session.expiresAt,
-      };
-    }
-  );
-
-  /**
-   * POST /auth/lock - Invalidate session
-   */
-  app.post<{ Body: LockRequest }>(
-    '/auth/lock',
-    async (request: FastifyRequest<{ Body: LockRequest }>, reply: FastifyReply): Promise<LockResponse> => {
-      // Get token from body or header
-      const token = (request.body as LockRequest)?.token || extractToken(request);
-
-      if (!token) {
-        reply.code(400);
-        return { success: false };
-      }
-
-      const sessionManager = getSessionManager();
-      const invalidated = sessionManager.invalidateSession(token);
-
-      // If no active sessions remain, lock storage and clear broker's in-memory secrets
-      if (invalidated && sessionManager.getActiveSessions().length === 0) {
-        getStorage().lock();
-        clearBrokerSecrets().catch(() => { /* non-fatal */ });
-        emitSecurityLocked('manual');
-      }
-
-      return { success: invalidated };
-    }
-  );
-
-  /**
-   * POST /auth/setup - Set initial passcode (only when none set)
-   */
-  app.post<{ Body: SetupPasscodeRequest }>(
-    '/auth/setup',
-    async (request: FastifyRequest<{ Body: SetupPasscodeRequest }>, reply: FastifyReply): Promise<SetupPasscodeResponse> => {
-      // Validate request body
-      const parseResult = SetupPasscodeRequestSchema.safeParse(request.body);
-      if (!parseResult.success) {
-        reply.code(400);
-        return {
-          success: false,
-          error: 'Invalid request: ' + parseResult.error.message,
-        };
-      }
-
-      const { passcode, enableProtection = true } = parseResult.data;
-
-      // Check if passcode already set
-      const alreadySet = await isPasscodeSet();
-      if (alreadySet) {
-        reply.code(409);
-        return {
-          success: false,
-          error: 'Passcode already configured. Use /auth/change to update.',
-        };
-      }
-
-      // Set passcode (daemon-level)
-      await setPasscode(passcode);
-
-      // Initialize storage-level encryption with same passcode
-      const storage = getStorage();
-      if (!storage.hasPasscode()) {
-        storage.setPasscode(passcode);
-      }
-
-      // Enable protection if requested
-      if (enableProtection) {
-        setProtectionEnabled(true);
-      }
-
-      return { success: true };
-    }
-  );
-
-  /**
-   * POST /auth/change - Change passcode (requires old passcode or root)
-   */
-  app.post<{ Body: ChangePasscodeRequest }>(
-    '/auth/change',
-    async (request: FastifyRequest<{ Body: ChangePasscodeRequest }>, reply: FastifyReply): Promise<ChangePasscodeResponse> => {
-      // Validate request body
-      const parseResult = ChangePasscodeRequestSchema.safeParse(request.body);
-      if (!parseResult.success) {
-        reply.code(400);
-        return {
-          success: false,
-          error: 'Invalid request: ' + parseResult.error.message,
-        };
-      }
-
-      const { oldPasscode, newPasscode } = parseResult.data;
-
-      // Check if passcode is set
-      const passcodeSet = await isPasscodeSet();
-      if (!passcodeSet) {
-        reply.code(400);
-        return {
-          success: false,
-          error: 'Passcode not configured. Use /auth/setup first.',
-        };
-      }
-
-      // Verify old passcode (unless running as root)
-      if (!isRunningAsRoot()) {
-        if (!oldPasscode) {
-          reply.code(400);
-          return {
-            success: false,
-            error: 'Old passcode required',
-          };
-        }
-
-        const valid = await checkPasscode(oldPasscode);
-        if (!valid) {
-          const remainingAttempts = recordFailedAttempt();
+      try {
+        const sudoResult = await verifySudoPassword(username, password);
+        if (!sudoResult.valid) {
           reply.code(401);
           return {
             success: false,
-            error: 'Invalid old passcode',
+            error: 'Invalid credentials',
           };
         }
 
-        // Clear failed attempts on success
-        clearFailedAttempts();
+        // Issue admin JWT
+        const token = await signAdminToken();
+        const expiresAt = Date.now() + getAdminTtlSeconds() * 1000;
+
+        return {
+          success: true,
+          token,
+          expiresAt,
+        };
+      } catch (err) {
+        const error = err as Error;
+        if (error.name === 'RateLimitError') {
+          reply.code(429);
+          return {
+            success: false,
+            error: error.message,
+          };
+        }
+        reply.code(500);
+        return {
+          success: false,
+          error: 'Authentication failed',
+        };
       }
-
-      // Set new passcode (daemon-level)
-      await setPasscode(newPasscode);
-
-      // Re-encrypt storage with the new passcode
-      const storage = getStorage();
-      if (storage.hasPasscode() && oldPasscode) {
-        storage.changePasscode(oldPasscode, newPasscode);
-      } else if (!storage.hasPasscode()) {
-        storage.setPasscode(newPasscode);
-      }
-
-      // Invalidate all existing sessions
-      const sessionManager = getSessionManager();
-      sessionManager.clearAllSessions();
-
-      return { success: true };
-    }
+    },
   );
 
   /**
-   * POST /auth/refresh - Refresh session token
+   * POST /auth/refresh - Refresh an admin JWT
    */
   app.post(
     '/auth/refresh',
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (request: FastifyRequest, reply: FastifyReply): Promise<RefreshResponse> => {
       const token = extractToken(request);
       if (!token) {
         reply.code(401);
-        return {
-          success: false,
-          error: 'No token provided',
-        };
+        return { success: false, error: 'No token provided' };
       }
 
-      const sessionManager = getSessionManager();
-      const refreshed = sessionManager.refreshSession(token);
-
-      if (!refreshed) {
+      const result = await verifyToken(token);
+      if (!result.valid || !result.payload) {
         reply.code(401);
-        return {
-          success: false,
-          error: 'Invalid or expired token',
-        };
+        return { success: false, error: 'Invalid or expired token' };
       }
+
+      if (result.payload.role !== 'admin') {
+        reply.code(403);
+        return { success: false, error: 'Only admin tokens can be refreshed' };
+      }
+
+      // Issue a new admin JWT
+      const newToken = await signAdminToken();
+      const expiresAt = Date.now() + getAdminTtlSeconds() * 1000;
 
       return {
         success: true,
-        token: refreshed.token,
-        expiresAt: refreshed.expiresAt,
+        token: newToken,
+        expiresAt,
       };
-    }
+    },
   );
 
   /**
-   * POST /auth/enable - Enable passcode protection
+   * POST /auth/admin-token - Generate admin JWT (root-only, used by CLI)
    */
   app.post(
-    '/auth/enable',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      // Check if passcode is set
-      const passcodeSet = await isPasscodeSet();
-      if (!passcodeSet) {
-        reply.code(400);
+    '/auth/admin-token',
+    async (_request: FastifyRequest, reply: FastifyReply): Promise<SudoLoginResponse> => {
+      if (!isRunningAsRoot()) {
+        reply.code(403);
         return {
           success: false,
-          error: 'Passcode not configured. Use /auth/setup first.',
+          error: 'This endpoint requires root access',
         };
       }
 
-      setProtectionEnabled(true);
-      return { success: true };
-    }
-  );
+      const token = await signAdminToken();
+      const expiresAt = Date.now() + getAdminTtlSeconds() * 1000;
 
-  /**
-   * POST /auth/disable - Disable passcode protection (requires auth or root)
-   */
-  app.post(
-    '/auth/disable',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      // Must be authenticated or root
-      if (!isRunningAsRoot()) {
-        const token = extractToken(request);
-        if (!token) {
-          reply.code(401);
-          return {
-            success: false,
-            error: 'Authentication required to disable protection',
-          };
-        }
-
-        const sessionManager = getSessionManager();
-        const session = sessionManager.validateSession(token);
-        if (!session) {
-          reply.code(401);
-          return {
-            success: false,
-            error: 'Invalid or expired token',
-          };
-        }
-      }
-
-      setProtectionEnabled(false);
-      return { success: true };
-    }
-  );
-
-  /**
-   * POST /auth/anonymous-readonly - Toggle anonymous read-only access (requires auth or root)
-   */
-  app.post<{ Body: { allowed: boolean } }>(
-    '/auth/anonymous-readonly',
-    async (request: FastifyRequest<{ Body: { allowed: boolean } }>, reply: FastifyReply) => {
-      // Must be authenticated or root
-      if (!isRunningAsRoot()) {
-        const token = extractToken(request);
-        if (!token) {
-          reply.code(401);
-          return {
-            success: false,
-            error: 'Authentication required to change anonymous access',
-          };
-        }
-
-        const sessionManager = getSessionManager();
-        const session = sessionManager.validateSession(token);
-        if (!session) {
-          reply.code(401);
-          return {
-            success: false,
-            error: 'Invalid or expired token',
-          };
-        }
-      }
-
-      const { allowed } = request.body;
-      if (typeof allowed !== 'boolean') {
-        reply.code(400);
-        return {
-          success: false,
-          error: 'Invalid request: "allowed" must be a boolean',
-        };
-      }
-
-      setAnonymousReadOnly(allowed);
-      return { success: true, allowAnonymousReadOnly: allowed };
-    }
+      return {
+        success: true,
+        token,
+        expiresAt,
+      };
+    },
   );
 }

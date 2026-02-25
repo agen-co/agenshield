@@ -11,7 +11,6 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { MarketplaceSkillFile, Skill, SkillVersion, SkillInstallation } from '@agenshield/ipc';
 import { parseSkillMd, stripEnvFromSkillMd } from '@agenshield/sandbox';
 import { isInstallInProgress } from './marketplace';
-import { requireAuth } from '../auth/middleware';
 import {
   getDownloadedSkillFiles,
   getDownloadedSkillMeta,
@@ -33,6 +32,13 @@ interface SkillAnalysisSummary {
   envVariables?: Array<{ name: string; required: boolean; sensitive: boolean; purpose?: string }>;
 }
 
+/** Per-target installation info */
+interface InstallationInfo {
+  id: string;
+  profileId?: string;
+  status: string;
+}
+
 /** Normalized skill summary for frontend consumption */
 interface SkillSummary {
   name: string;
@@ -46,6 +52,7 @@ interface SkillSummary {
   tags?: string[];
   trusted?: boolean;
   installationId?: string;
+  installations?: InstallationInfo[];
   analysis?: SkillAnalysisSummary;
 }
 
@@ -215,12 +222,19 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
     // Get all skills from DB
     const allSkills = repo.getAll();
     const allInstallations = repo.getInstallations();
-    const installByVersionId = new Map<string, SkillInstallation>();
+
+    // Collect ALL installations per version (for multi-tenancy)
+    const installsByVersionId = new Map<string, SkillInstallation[]>();
+    const bestInstallByVersionId = new Map<string, SkillInstallation>();
     for (const inst of allInstallations) {
+      const list = installsByVersionId.get(inst.skillVersionId) ?? [];
+      list.push(inst);
+      installsByVersionId.set(inst.skillVersionId, list);
+
       // Keep the "best" installation: active > disabled > quarantined
-      const existing = installByVersionId.get(inst.skillVersionId);
+      const existing = bestInstallByVersionId.get(inst.skillVersionId);
       if (!existing || (inst.status === 'active' && existing.status !== 'active')) {
-        installByVersionId.set(inst.skillVersionId, inst);
+        bestInstallByVersionId.set(inst.skillVersionId, inst);
       }
     }
 
@@ -230,8 +244,20 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
     for (const skill of allSkills) {
       knownSlugs.add(skill.slug);
       const version = repo.getLatestVersion(skill.id);
-      const installation = version ? installByVersionId.get(version.id) : undefined;
-      data.push(mapToSummary(skill, version ?? undefined, installation, skillsDir));
+      const installation = version ? bestInstallByVersionId.get(version.id) : undefined;
+      const summary = mapToSummary(skill, version ?? undefined, installation, skillsDir);
+
+      // Attach all installations for this skill
+      const allInsts = version ? installsByVersionId.get(version.id) : undefined;
+      if (allInsts && allInsts.length > 0) {
+        summary.installations = allInsts.map((i) => ({
+          id: i.id,
+          profileId: i.profileId ?? undefined,
+          status: i.status,
+        }));
+      }
+
+      data.push(summary);
     }
 
     // Also check for on-disk skills not yet in DB (workspace skills)
@@ -361,6 +387,13 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
           author: skill.author,
           tags: skill.tags,
           installationId: installation?.id,
+          installations: installations.length > 0
+            ? installations.map((i) => ({
+              id: i.id,
+              profileId: i.profileId ?? undefined,
+              status: i.status,
+            }))
+            : undefined,
           analysis: buildFullAnalysis(name, analysisJson) as SkillSummary['analysis'],
         };
       } else {
@@ -666,10 +699,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
   app.put(
     '/skills/:name/toggle',
     async (
-      request: FastifyRequest<{ Params: { name: string } }>,
+      request: FastifyRequest<{ Params: { name: string }; Querystring: { targetId?: string } }>,
       reply: FastifyReply,
     ) => {
       const { name } = request.params;
+      const targetId = request.query.targetId;
       const { shieldContext: ctx } = request;
 
       if (!name || typeof name !== 'string') {
@@ -690,7 +724,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         const result = await app.skillManager.toggleSkill(name, {
-          profileId: ctx.profileId ?? undefined,
+          profileId: targetId ?? ctx.profileId ?? undefined,
         });
 
         if (result.action === 'disabled') {
@@ -707,13 +741,12 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   /**
-   * POST /skills/install - Install a skill (analyze-first, passcode-protected)
+   * POST /skills/install - Install a skill (analyze-first, admin-only)
    */
   app.post<{
     Body: { name: string; files: MarketplaceSkillFile[]; publisher?: string };
   }>(
     '/skills/install',
-    { preHandler: [requireAuth] },
     async (request, reply) => {
       const { name, files, publisher } = request.body ?? {} as Partial<{ name: string; files: MarketplaceSkillFile[]; publisher?: string }>;
 
@@ -767,6 +800,48 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   /**
+   * POST /skills/:name/install - Install a downloaded skill to a specific target
+   * The skill must already exist in the DB (from a prior download/upload).
+   */
+  app.post(
+    '/skills/:name/install',
+    async (
+      request: FastifyRequest<{
+        Params: { name: string };
+        Body: { targetId?: string };
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const { name } = request.params;
+      const { targetId } = request.body ?? {};
+
+      if (!name || typeof name !== 'string') {
+        return reply.code(400).send({ error: 'Skill name is required' });
+      }
+
+      const manager = app.skillManager;
+      const repo = manager.getRepository();
+      const skill = repo.getBySlug(name);
+
+      if (!skill) {
+        return reply.code(404).send({ error: `Skill "${name}" not found. Download it first.` });
+      }
+
+      try {
+        const installation = await manager.approveSkill(name, {
+          profileId: targetId ?? request.shieldContext.profileId ?? undefined,
+        });
+
+        request.log.info({ skill: name, targetId, installationId: installation.id }, 'Installed skill to target');
+        return reply.send({ success: true, data: { name, installationId: installation.id } });
+      } catch (err) {
+        request.log.error({ skill: name, err: (err as Error).message }, 'Target install failed');
+        return reply.code(500).send({ error: `Installation failed: ${(err as Error).message}` });
+      }
+    },
+  );
+
+  /**
    * POST /skills/:name/unblock - Unblock a quarantined skill
    */
   app.post(
@@ -808,7 +883,6 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
     };
   }>(
     '/skills/upload',
-    { preHandler: [requireAuth] },
     async (request, reply) => {
       const { name, files, version, author, description, tags } = request.body ?? {} as Partial<{
         name: string;

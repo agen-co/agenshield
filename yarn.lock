@@ -6895,7 +6895,7 @@ jest@^30.2.0:
     import-local "^3.2.0"
     jest-cli "30.2.0"
 
-jose@^6.0.0, jose@^6.1.1, jose@^6.1.3:
+jose@^6.0.0, jose@^6.1.0, jose@^6.1.1, jose@^6.1.3:
   version "6.1.3"
   resolved "https://registry.yarnpkg.com/jose/-/jose-6.1.3.tgz#8453d7be88af7bb7d64a0481d6a35a0145ba3ea5"
   integrity sha512-0TpaTfihd4QMNwrz/ob2Bp7X04yuxJkjRGi4aKmOqwhov54i6u79oCv7T+C7lo70MKH6BesI3vscD1yb/yzKXQ==

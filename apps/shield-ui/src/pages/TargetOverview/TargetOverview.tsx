@@ -50,6 +50,7 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
   const [tokenDialog, setTokenDialog] = useState<{ url: string; token: string } | null>(null);
 
   const isOpenClaw = targetInfo?.type === 'openclaw';
+  const isClaudeCode = targetInfo?.type === 'claude-code';
   const isRunning = targetInfo?.running ?? false;
   const isShielded = targetInfo?.shielded ?? false;
   const brandIcon = targetInfo ? getBrandIcon(targetInfo.type) : null;
@@ -124,24 +125,26 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
               </Typography>
             )}
           </Box>
-          <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
-            <PrimaryButton
-              size="small"
-              startIcon={<Play size={14} />}
-              onClick={handleStart}
-              disabled={isRunning || startTarget.isPending}
-            >
-              Start
-            </PrimaryButton>
-            <DangerButton
-              size="small"
-              startIcon={<Square size={14} />}
-              onClick={handleStop}
-              disabled={!isRunning || stopTarget.isPending}
-            >
-              Stop
-            </DangerButton>
-          </Box>
+          {!isClaudeCode && (
+            <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+              <PrimaryButton
+                size="small"
+                startIcon={<Play size={14} />}
+                onClick={handleStart}
+                disabled={isRunning || startTarget.isPending}
+              >
+                Start
+              </PrimaryButton>
+              <DangerButton
+                size="small"
+                startIcon={<Square size={14} />}
+                onClick={handleStop}
+                disabled={!isRunning || stopTarget.isPending}
+              >
+                Stop
+              </DangerButton>
+            </Box>
+          )}
         </HeaderCard>
 
         {/* Recent Activity */}
@@ -151,7 +154,7 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
           </Typography>
           <Box sx={{ height: 320, overflow: 'hidden' }}>
             <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularLoader /></Box>}>
-              <LazyActivity embedded sourceFilter={targetId} profileId={profileId ?? undefined} fillHeight />
+              <LazyActivity embedded profileId={profileId ?? undefined} fillHeight />
             </Suspense>
           </Box>
         </Card>
@@ -307,6 +310,49 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
             >
               Open Dashboard
             </SecondaryButton>
+          </Card>
+        )}
+
+        {/* Active Sessions / Processes Card */}
+        {(isClaudeCode || isOpenClaw) && (
+          <Card>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Terminal size={16} />
+                <Typography variant="subtitle1" fontWeight={600}>
+                  {isClaudeCode ? 'Active Sessions' : 'Active Processes'}
+                </Typography>
+              </Box>
+              <Chip
+                label={targetInfo?.processes?.length
+                  ? `${targetInfo.processes.length} running`
+                  : 'None'}
+                size="small"
+                color={targetInfo?.processes?.length ? 'success' : 'default'}
+                variant="outlined"
+                sx={{ height: 22, fontSize: 11 }}
+              />
+            </Box>
+            {!targetInfo?.processes?.length ? (
+              <Typography variant="body2" color="text.secondary">
+                {isClaudeCode
+                  ? 'No active sessions. Launch claude from the terminal to start a session.'
+                  : 'No active processes. Start the gateway to see running processes.'}
+              </Typography>
+            ) : (
+              targetInfo.processes.map((proc) => (
+                <InfoRow key={proc.pid}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                    <Typography variant="body2" fontWeight={500} sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
+                      PID {proc.pid}
+                    </Typography>
+                  </Box>
+                  <Typography variant="caption" color="text.secondary">
+                    {proc.elapsed}
+                  </Typography>
+                </InfoRow>
+              ))
+            )}
           </Card>
         )}
       </Box>

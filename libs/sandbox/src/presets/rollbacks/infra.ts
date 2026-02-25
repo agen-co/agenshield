@@ -106,6 +106,32 @@ registerRollback('install_path_router', async (ctx, entry) => {
     `else rm -f "${routerPath}"; fi; true`,
     { timeout: 10_000 },
   );
+
+  // Also remove user-local router at ~/.agenshield/bin/<binName>
+  const hostHome = entry.outputs['hostHome'] || ctx.hostHome;
+  if (hostHome) {
+    const userLocalPath = `${hostHome}/.agenshield/bin/${binName}`;
+    await ctx.execAsRoot(`rm -f "${userLocalPath}" 2>/dev/null; true`, { timeout: 5_000 });
+  }
+});
+
+// ── PATH shell override ───────────────────────────────────────
+
+registerRollback('install_path_shell_override', async (ctx, entry) => {
+  const rcFile = entry.outputs['rcFile'];
+  const hostHome = entry.outputs['hostHome'] || ctx.hostHome;
+  if (!rcFile) return;
+  ctx.onLog(`Rollback: removing PATH override block from ${rcFile}`);
+  const startMarker = '# >>> AgenShield PATH override >>>';
+  const endMarker = '# <<< AgenShield PATH override <<<';
+  await ctx.execAsRoot(
+    `sed -i '' '/${startMarker.replace(/[/]/g, '\\/')}/,/${endMarker.replace(/[/]/g, '\\/')}/d' "${rcFile}" 2>/dev/null; true`,
+    { timeout: 10_000 },
+  );
+  // Restore ownership to host user
+  if (hostHome && ctx.hostUsername) {
+    await ctx.execAsRoot(`chown ${ctx.hostUsername}:staff "${rcFile}" 2>/dev/null; true`, { timeout: 5_000 });
+  }
 });
 
 // ── Seatbelt ─────────────────────────────────────────────────

@@ -93,7 +93,7 @@ export function useTargetStats(targetId: string): TargetStats {
     lastComputeRef.current = now;
 
     const filtered = snap.events.filter(
-      (e) => e.source === targetId,
+      (e) => e.profileId === targetId,
     ) as SSEEvent[];
 
     const commandCounts = new Map<string, number>();

@@ -10,7 +10,7 @@ import type { ShieldStepEntry } from '../../../../state/setup-panel';
 
 export type SetupPanelMode = 'initial-setup' | 'add-profile';
 
-export type SetupStep = 'passcode' | 'state-overview' | 'scan-results' | 'detection' | 'configure' | 'shielding' | 'complete';
+export type SetupStep = 'state-overview' | 'scan-results' | 'detection' | 'configure' | 'shielding' | 'complete';
 
 export interface SetupPanelProps {
   open: boolean;

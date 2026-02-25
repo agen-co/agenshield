@@ -1,14 +1,15 @@
 /**
  * Profile Token File Service
  *
- * Manages broker token files on disk and provides O(1) token→profileId lookup.
- * Each target profile writes its broker token to {brokerHomeDir}/.agenshield-token
+ * Manages broker JWT token files on disk and provides O(1) token→profileId lookup.
+ * Each target profile writes its broker JWT to {brokerHomeDir}/.agenshield-token
  * so the broker can read it on startup without network access.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Storage } from '@agenshield/storage';
+import { signBrokerToken, verifyToken } from '@agenshield/auth';
 
 const TOKEN_FILENAME = '.agenshield-token';
 
@@ -52,17 +53,21 @@ export function readTokenFile(brokerHomeDir: string): string | null {
 }
 
 /**
- * Reconcile token files at startup — re-write missing files for target profiles.
+ * Reconcile token files at startup — regenerate broker JWTs for all profiles.
  */
-export function reconcileTokenFiles(storage: Storage): void {
+export async function reconcileTokenFiles(storage: Storage): Promise<void> {
   const profiles = storage.profiles.getByType('target');
   for (const profile of profiles) {
-    if (!profile.brokerToken || !profile.brokerHomeDir) continue;
-    const existing = readTokenFile(profile.brokerHomeDir);
-    if (existing !== profile.brokerToken) {
-      writeTokenFile(profile.brokerHomeDir, profile.brokerToken);
-      console.log(`[ProfileToken] Reconciled token file for profile: ${profile.id}`);
-    }
+    if (!profile.brokerHomeDir) continue;
+
+    // Generate a new broker JWT for each profile
+    const brokerJwt = await signBrokerToken(profile.id, profile.id);
+
+    // Update the stored broker token
+    storage.profiles.update(profile.id, { brokerToken: brokerJwt });
+
+    // Write the JWT to the token file
+    writeTokenFile(profile.brokerHomeDir, brokerJwt);
   }
 }
 
@@ -81,14 +86,28 @@ function buildCache(storage: Storage): Map<string, string> {
 }
 
 /**
- * Resolve a broker token to a profileId using O(1) in-memory cache.
- * Returns null if token is not found.
+ * Resolve a broker token to a profileId.
+ * First tries O(1) cache lookup, then falls back to JWT verification.
+ * Returns null if token is not found or invalid.
  */
-export function resolveProfileByToken(token: string, storage: Storage): string | null {
+export async function resolveProfileByToken(token: string, storage: Storage): Promise<string | null> {
+  // Try cache first
   if (!tokenCache) {
     tokenCache = buildCache(storage);
   }
-  return tokenCache.get(token) ?? null;
+  const cached = tokenCache.get(token);
+  if (cached) return cached;
+
+  // Fall back to JWT verification
+  const result = await verifyToken(token);
+  if (result.valid && result.payload?.role === 'broker') {
+    const profileId = result.payload.sub;
+    // Warm the cache
+    tokenCache.set(token, profileId);
+    return profileId;
+  }
+
+  return null;
 }
 
 /**

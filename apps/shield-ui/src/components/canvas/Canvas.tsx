@@ -33,7 +33,7 @@ import { PcbBackground } from './backgrounds/PcbBackground';
 import { SystemPanel } from './panels/SystemPanel';
 import { PANEL_WIDTH } from './panels/SystemPanel/SystemPanel.styles';
 import { setupPanelStore } from '../../state/setup-panel';
-import { systemStore, setFocusShieldPasscode, setPanToShield, setWingsForceOpen } from '../../state/system-store';
+import { systemStore, setPanToShield, setWingsForceOpen } from '../../state/system-store';
 import {
   drilldownStore,
   clearDrilldown,
@@ -48,7 +48,6 @@ import { DrilldownOverlay } from './overlays/DrilldownOverlay';
 import { PageOverlay } from './overlays/PageOverlay';
 import { TargetOverlay } from './overlays/TargetOverlay';
 import { useCanvasHealthSync } from '../../hooks/useCanvasHealthSync';
-import { useAuth } from '../../context/AuthContext';
 
 // Node components
 import { CloudNode } from './nodes/CloudNode';
@@ -487,18 +486,8 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
 
-  // Auth state
-  const { passcodeSet, authenticated } = useAuth();
-
   // Sync live API data into per-component health counts
   useCanvasHealthSync();
-
-  // Auth expiration handler — close wings when auth expires
-  useEffect(() => {
-    const handle = () => setWingsForceOpen(false);
-    window.addEventListener('agenshield:auth-expired', handle);
-    return () => window.removeEventListener('agenshield:auth-expired', handle);
-  }, []);
 
   // Parse sub-path from route (canvas is now at /)
   const canvasSubPath = location.pathname.replace(/^\//, '');
@@ -532,7 +521,7 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
 
   // Data aggregation + layout computation
   const setupData = useSetupCanvasData();
-  const setupLayout = useSetupCanvasLayout(setupData, viewport, { authenticated, passcodeSet });
+  const setupLayout = useSetupCanvasLayout(setupData, viewport);
   const { nodes, edges } = setupLayout;
 
   // Memoize types to avoid re-renders
@@ -549,13 +538,6 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
   }, [navigate]);
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: { id: string; type?: string; data?: Record<string, unknown> }) => {
-    // Gate: unauthenticated clicks on non-shield nodes → pan to shield + focus passcode
-    if (node.type !== 'canvas-agenshield' && passcodeSet && !authenticated) {
-      setPanToShield(true);
-      setTimeout(() => setFocusShieldPasscode(true), 550);
-      return;
-    }
-
     if (node.type === 'canvas-system-component') {
       const compData = node.data as unknown as SystemComponentData;
       if (compData?.componentType) {
@@ -568,10 +550,6 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
         }
       }
     } else if (node.type === 'canvas-agenshield') {
-      // When passcode not set, left panel already shows passcode setup — do nothing
-      if (!passcodeSet) return;
-      // passcodeSet && !authenticated is caught by the gate above (pan-to-shield)
-      // passcodeSet && authenticated → navigate to overview
       navigate('/overview', { state: { zoomTarget: node.id } });
     } else if (node.type === 'canvas-metrics-cluster') {
       navigate('/metrics', {
@@ -590,7 +568,7 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
         });
       }
     }
-  }, [navigate, passcodeSet, authenticated]);
+  }, [navigate]);
 
   return (
     <CanvasContainer ref={containerRef}>

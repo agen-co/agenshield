@@ -522,7 +522,7 @@ export async function rpcRoutes(app: FastifyInstance): Promise<void> {
       let profileId: string | undefined;
       const token = request.headers[SHIELD_HEADERS.BROKER_TOKEN] as string | undefined;
       if (token) {
-        const resolved = resolveProfileByToken(token, getStorage());
+        const resolved = await resolveProfileByToken(token, getStorage());
         if (!resolved) {
           reply.code(401);
           return {
@@ -545,7 +545,7 @@ export async function rpcRoutes(app: FastifyInstance): Promise<void> {
       const cleanParams = { ...(params ?? {}) };
       if (!profileId && cleanParams.__brokerToken) {
         const inlineToken = String(cleanParams.__brokerToken);
-        const resolved = resolveProfileByToken(inlineToken, getStorage());
+        const resolved = await resolveProfileByToken(inlineToken, getStorage());
         if (resolved) profileId = resolved;
       }
       if (!profileId && cleanParams.__profileId) {

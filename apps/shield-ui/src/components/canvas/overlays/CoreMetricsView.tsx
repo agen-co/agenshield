@@ -17,9 +17,9 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useTheme } from '@mui/material/styles';
-import { systemStore, pushMetricsSnapshot, pushTargetMetricsSnapshot, type MetricsSnapshot } from '../../../state/system-store';
+import { systemStore, pushTargetMetricsSnapshot, type MetricsSnapshot } from '../../../state/system-store';
 import { targetsStore } from '../../../state/targets';
-import { useMetricsHistory, useTargetMetricsHistory } from '../../../api/hooks';
+import { useTargetMetricsHistory } from '../../../api/hooks';
 import { pcb } from '../styles/pcb-tokens';
 
 export type MetricsTab = 'cpu' | 'memory' | 'disk' | 'network';
@@ -370,21 +370,8 @@ export function AllMetricsView() {
     }
   }, [activeTargets, selectedTargetId]);
 
-  // Self-sufficient backfill: fetch metrics history from daemon on mount.
-  const { data: historyData } = useMetricsHistory();
-
   // Backfill target metrics history when a target is selected
   const { data: targetHistoryData } = useTargetMetricsHistory(selectedTargetId);
-
-  useEffect(() => {
-    if (historyData && historyData.length > 0 && systemStore.metricsHistory.length === 0) {
-      const existing = new Set(systemStore.metricsHistory.map((s) => s.timestamp));
-      const newSnapshots = historyData.filter((s) => !existing.has(s.timestamp));
-      if (newSnapshots.length > 0) {
-        systemStore.metricsHistory.unshift(...newSnapshots);
-      }
-    }
-  }, [historyData]);
 
   // Backfill target metrics from REST into the valtio store
   useEffect(() => {

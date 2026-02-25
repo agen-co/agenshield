@@ -7,7 +7,6 @@
  */
 
 import { Command } from 'commander';
-import readline from 'node:readline';
 import { createUpdateEngine } from '../update/engine.js';
 import type { UpdateEngineOptions } from '../update/types.js';
 
@@ -127,52 +126,6 @@ async function runUpdateCLI(engineOptions: UpdateEngineOptions): Promise<void> {
       console.log(`  ${line}`);
     }
     console.log('');
-  }
-
-  // Verify passcode if set
-  if (preflight.passcodeSet) {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const passcode = await new Promise<string>((resolve) => {
-      rl.question('  Enter passcode: ', (answer) => {
-        rl.close();
-        resolve(answer);
-      });
-    });
-
-    if (!passcode) {
-      console.log('  Update cancelled.');
-      process.exit(0);
-    }
-
-    // Verify passcode directly against vault
-    try {
-      const { verifyPasscode } = await import('@agenshield/daemon/auth');
-      const { getMachineId, deriveKey, decrypt } = await import('@agenshield/daemon/vault');
-      const fs = await import('node:fs');
-      const path = await import('node:path');
-      const os = await import('node:os');
-      const { VAULT_FILE } = await import('@agenshield/ipc');
-
-      const vaultPath = path.join(os.homedir(), '.agenshield', VAULT_FILE);
-      const encrypted = fs.readFileSync(vaultPath, 'utf-8');
-      const machineId = getMachineId();
-      const key = deriveKey(machineId);
-      const decrypted = decrypt(encrypted, key);
-      const contents = JSON.parse(decrypted);
-
-      if (contents.passcode?.hash) {
-        const valid = await verifyPasscode(passcode, contents.passcode.hash);
-        if (!valid) {
-          console.log('  Invalid passcode. Update cancelled.');
-          process.exit(1);
-        }
-      }
-    } catch (err) {
-      console.error(`  Passcode verification failed: ${(err as Error).message}`);
-      process.exit(1);
-    }
-
-    engine.setAuthenticated();
   }
 
   if (engineOptions.dryRun) {

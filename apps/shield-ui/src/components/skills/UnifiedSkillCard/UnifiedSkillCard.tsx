@@ -75,7 +75,7 @@ export function UnifiedSkillCard({ skill, selected = false, readOnly = false, on
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-          <ActionButton actionState={skill.actionState} vulnLevel={vulnLevel} onClick={handleAction} />
+          <ActionButton actionState={skill.actionState} origin={skill.origin} vulnLevel={vulnLevel} onClick={handleAction} />
           {isUntrusted && onDelete && (
             <Button
               size="small"
@@ -163,10 +163,12 @@ export function UnifiedSkillCard({ skill, selected = false, readOnly = false, on
 
 function ActionButton({
   actionState,
+  origin,
   vulnLevel,
   onClick,
 }: {
   actionState: string;
+  origin: string;
   vulnLevel?: string;
   onClick: (e: React.MouseEvent) => void;
 }) {
@@ -194,13 +196,14 @@ function ActionButton({
           Analyze
         </PrimaryButton>
       );
-    case 'analyzed':
+    case 'analyzed': {
       if (vulnLevel === 'critical') {
+        const label = origin === 'downloaded' ? 'Install' : 'Download';
         return (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
             <PrimaryButton size="small" disabled sx={sx}>
               <Download size={12} style={{ marginRight: 4 }} />
-              Install
+              {label}
             </PrimaryButton>
             <Alert severity="error" sx={{ py: 0, px: 0.5, '& .MuiAlert-message': { fontSize: '0.625rem', p: 0 }, '& .MuiAlert-icon': { fontSize: 14, mr: 0.25, p: 0 } }}>
               Critical
@@ -208,10 +211,27 @@ function ActionButton({
           </Box>
         );
       }
+      // Downloaded skills → "Install" button; search results → "Download" button
+      if (origin === 'downloaded') {
+        return (
+          <PrimaryButton size="small" onClick={onClick} sx={sx}>
+            <Download size={12} style={{ marginRight: 4 }} />
+            Install
+          </PrimaryButton>
+        );
+      }
       return (
         <PrimaryButton size="small" onClick={onClick} sx={sx}>
           <Download size={12} style={{ marginRight: 4 }} />
-          Install
+          Download
+        </PrimaryButton>
+      );
+    }
+    case 'downloading':
+      return (
+        <PrimaryButton size="small" disabled sx={sx}>
+          <CircularLoader size={12} sx={{ mr: 0.5 }} />
+          Downloading
         </PrimaryButton>
       );
     case 'installing':

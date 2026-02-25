@@ -36,6 +36,7 @@ import { MarkdownViewer } from '../../shared/MarkdownViewer';
 import {
   skillsStore,
   analyzeSkill,
+  downloadSkill,
   installSkill,
   uninstallSkill,
   unblockSkill,
@@ -93,7 +94,8 @@ export function SkillDetails() {
     if (isUntrustedAnalyzed) return 'Reinstall';
     switch (state) {
       case 'not_analyzed': case 'analysis_failed': return 'Analyze';
-      case 'analyzed': return 'Install';
+      case 'analyzed':
+        return skill.origin === 'downloaded' ? 'Install' : 'Download';
       case 'installed': return 'Uninstall';
       case 'blocked': return 'Unblock';
       default: return 'Manage';
@@ -117,7 +119,11 @@ export function SkillDetails() {
           await analyzeSkill(skill.slug);
           break;
         case 'analyzed':
-          await installSkill(skill.slug);
+          if (skill.origin === 'downloaded') {
+            await installSkill(skill.slug);
+          } else {
+            await downloadSkill(skill.slug);
+          }
           break;
         case 'blocked':
           await analyzeSkill(skill.slug);
@@ -168,7 +174,7 @@ export function SkillDetails() {
           )}
 
           {/* Action button */}
-          <ActionButton actionState={skill.actionState} vulnLevel={vulnLevel} onClick={handleAction} />
+          <ActionButton actionState={skill.actionState} origin={skill.origin} vulnLevel={vulnLevel} onClick={handleAction} />
 
           {/* Delete button for untrusted skills */}
           {skill.origin === 'untrusted' && (
@@ -255,6 +261,34 @@ export function SkillDetails() {
               </MetadataSection>
             ) : null;
           })()}
+
+          {/* Installations (multi-tenancy) */}
+          {skill.installations && skill.installations.length > 0 && (
+            <MetadataSection>
+              <Typography variant="subtitle2" fontWeight={600}>
+                <Download size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                Installations ({skill.installations.length})
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                {skill.installations.map((inst) => (
+                  <Box
+                    key={inst.id}
+                    sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}
+                  >
+                    <Chip
+                      label={inst.status}
+                      size="small"
+                      color={inst.status === 'active' ? 'success' : inst.status === 'disabled' ? 'default' : 'warning'}
+                      sx={{ height: 18, fontSize: '0.625rem' }}
+                    />
+                    <Typography variant="caption" color="text.secondary">
+                      {inst.profileId ?? 'Global'}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </MetadataSection>
+          )}
         </MetadataColumn>
 
         {/* RIGHT COLUMN: Analysis + Readme */}
@@ -368,10 +402,12 @@ export function SkillDetails() {
 
 function ActionButton({
   actionState,
+  origin,
   vulnLevel,
   onClick,
 }: {
   actionState: string;
+  origin: string;
   vulnLevel?: string;
   onClick: () => void;
 }) {
@@ -397,16 +433,17 @@ function ActionButton({
           Analyze
         </PrimaryButton>
       );
-    case 'analyzed':
+    case 'analyzed': {
+      const label = origin === 'downloaded' ? 'Install' : 'Download';
       if (vulnLevel === 'critical') {
         return (
           <Box>
             <PrimaryButton fullWidth disabled>
               <Download size={14} style={{ marginRight: 6 }} />
-              Install
+              {label}
             </PrimaryButton>
             <Alert severity="error" sx={{ mt: 1, py: 0 }}>
-              Critical vulnerability detected — installation blocked.
+              Critical vulnerability detected — {label.toLowerCase()} blocked.
             </Alert>
           </Box>
         );
@@ -414,7 +451,15 @@ function ActionButton({
       return (
         <PrimaryButton fullWidth onClick={onClick}>
           <Download size={14} style={{ marginRight: 6 }} />
-          Install
+          {label}
+        </PrimaryButton>
+      );
+    }
+    case 'downloading':
+      return (
+        <PrimaryButton fullWidth disabled>
+          <CircularLoader size={14} sx={{ mr: 1 }} />
+          Downloading...
         </PrimaryButton>
       );
     case 'installing':

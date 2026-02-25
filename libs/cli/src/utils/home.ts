@@ -335,3 +335,108 @@ export function ensurePathInShellRc(): { added: boolean; rcFile: string } {
   fs.appendFileSync(rcFile, `\n# AgenShield CLI\n${exportLine}\n`);
   return { added: true, rcFile };
 }
+
+// ---------------------------------------------------------------------------
+// Shell rc PATH override (post-NVM)
+// ---------------------------------------------------------------------------
+
+export const PATH_OVERRIDE_START_MARKER = '# >>> AgenShield PATH override >>>';
+export const PATH_OVERRIDE_END_MARKER = '# <<< AgenShield PATH override <<<';
+
+/**
+ * Resolve the shell rc file path for a given home/shell combination.
+ */
+function resolveShellRcPath(hostHome?: string, hostShell?: string): string {
+  const home = hostHome || os.homedir();
+  const shell = hostShell || process.env['SHELL'] || '';
+
+  if (shell.endsWith('/zsh')) {
+    return path.join(home, '.zshrc');
+  } else if (shell.endsWith('/bash')) {
+    const bashProfile = path.join(home, '.bash_profile');
+    return fs.existsSync(bashProfile) ? bashProfile : path.join(home, '.bashrc');
+  }
+  return path.join(home, '.profile');
+}
+
+/**
+ * Append a marked PATH override block at the END of the shell rc file.
+ * This ensures `~/.agenshield/bin` is prepended to PATH **after** NVM
+ * and Homebrew sourcing, so the AgenShield router takes priority.
+ *
+ * No-ops if the block is already present. Returns `{ added, rcFile }`.
+ */
+export function ensurePathOverrideInShellRc(
+  hostHome?: string,
+  hostShell?: string,
+): { added: boolean; rcFile: string } {
+  const rcFile = resolveShellRcPath(hostHome, hostShell);
+
+  // Check if already present
+  try {
+    const content = fs.readFileSync(rcFile, 'utf-8');
+    if (content.includes(PATH_OVERRIDE_START_MARKER)) {
+      return { added: false, rcFile };
+    }
+  } catch { /* file doesn't exist yet, will create */ }
+
+  const block = [
+    '',
+    PATH_OVERRIDE_START_MARKER,
+    '# DO NOT EDIT — managed by AgenShield. Remove with `agenshield uninstall`.',
+    'export PATH="$HOME/.agenshield/bin:$PATH"',
+    PATH_OVERRIDE_END_MARKER,
+    '',
+  ].join('\n');
+
+  fs.appendFileSync(rcFile, block);
+  return { added: true, rcFile };
+}
+
+/**
+ * Remove the marked PATH override block from the shell rc file.
+ * Uses line-by-line filtering to remove everything between (and including) the markers.
+ *
+ * Returns `{ removed, rcFile }`.
+ */
+export function removePathOverrideFromShellRc(
+  hostHome?: string,
+  hostShell?: string,
+): { removed: boolean; rcFile: string } {
+  const rcFile = resolveShellRcPath(hostHome, hostShell);
+
+  try {
+    const content = fs.readFileSync(rcFile, 'utf-8');
+    if (!content.includes(PATH_OVERRIDE_START_MARKER)) {
+      return { removed: false, rcFile };
+    }
+
+    const lines = content.split('\n');
+    const filtered: string[] = [];
+    let inBlock = false;
+
+    for (const line of lines) {
+      if (line.includes(PATH_OVERRIDE_START_MARKER)) {
+        inBlock = true;
+        continue;
+      }
+      if (line.includes(PATH_OVERRIDE_END_MARKER)) {
+        inBlock = false;
+        continue;
+      }
+      if (!inBlock) {
+        filtered.push(line);
+      }
+    }
+
+    // Remove trailing empty lines left by the block removal
+    while (filtered.length > 0 && filtered[filtered.length - 1] === '') {
+      filtered.pop();
+    }
+    // Ensure file ends with a newline
+    fs.writeFileSync(rcFile, filtered.join('\n') + '\n');
+    return { removed: true, rcFile };
+  } catch {
+    return { removed: false, rcFile };
+  }
+}

@@ -11,7 +11,6 @@ import { Summary } from './components/Summary.js';
 import { Confirm } from './components/Confirm.js';
 import { ModeSelect, type SetupMode } from './components/ModeSelect.js';
 import { AdvancedConfig, computeNames, REQUIRED_PREFIX, type ComputedNames } from './components/AdvancedConfig.js';
-import { PasscodeSetup } from './components/PasscodeSetup.js';
 import { createWizardEngine } from './engine.js';
 import { userExists, groupExists } from '@agenshield/sandbox';
 import type { WizardState, WizardContext, WizardOptions } from './types.js';
@@ -22,7 +21,6 @@ type WizardPhase =
   | 'advanced_config'
   | 'confirming'
   | 'running'
-  | 'passcode_setup'
   | 'finalizing'
   | 'complete';
 
@@ -162,42 +160,17 @@ export function WizardApp() {
 
     setPhase('running');
 
-    // Run setup steps (confirm through verify, excludes passcode and complete)
+    // Run setup steps (confirm through verify, excludes open-dashboard and complete)
     engine.runSetupPhase().then(() => {
       if (engine.state.hasError) {
         setPhase('complete');
       } else {
-        // Show passcode setup UI
-        setPhase('passcode_setup');
+        setPhase('finalizing');
+        // Run final steps (open-dashboard + complete)
+        engine.runFinalPhase().then(() => {
+          setPhase('complete');
+        });
       }
-    });
-  }, [engine]);
-
-  // Handle passcode set
-  const handleSetPasscode = useCallback((passcode: string) => {
-    if (!engine) return;
-
-    // Store passcode in context for the executor
-    engine.context.passcodeValue = passcode;
-    setPhase('finalizing');
-
-    // Run final steps (setup-passcode + complete)
-    engine.runFinalPhase().then(() => {
-      setPhase('complete');
-    });
-  }, [engine]);
-
-  // Handle passcode skip
-  const handleSkipPasscode = useCallback(() => {
-    if (!engine) return;
-
-    // Mark as skipped in context
-    engine.context.passcodeSetup = { configured: false, skipped: true };
-    setPhase('finalizing');
-
-    // Run final steps (setup-passcode + complete)
-    engine.runFinalPhase().then(() => {
-      setPhase('complete');
     });
   }, [engine]);
 
@@ -265,17 +238,6 @@ export function WizardApp() {
           onConfirm={handleConfirm}
           onCancel={handleCancel}
         />
-      )}
-
-      {/* Passcode setup after install steps complete */}
-      {phase === 'passcode_setup' && (
-        <>
-          <ProgressBar current={completedSteps} total={totalSteps} />
-          <PasscodeSetup
-            onSetPasscode={handleSetPasscode}
-            onSkip={handleSkipPasscode}
-          />
-        </>
       )}
 
       {/* Show summary after completion */}

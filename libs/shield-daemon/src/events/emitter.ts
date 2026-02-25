@@ -58,7 +58,7 @@ class DaemonEventEmitter extends EventEmitter {
    * Emit a typed event to all SSE subscribers
    */
   broadcast(type: EventType, data: unknown, profileId?: string, source?: string): void {
-    const resolvedSource = source ?? deriveSource(type, data);
+    const resolvedSource = source ?? deriveSource(type, data, profileId);
     const event: DaemonEvent = {
       type,
       timestamp: new Date().toISOString(),
@@ -81,11 +81,28 @@ class DaemonEventEmitter extends EventEmitter {
 export const daemonEvents = DaemonEventEmitter.getInstance();
 
 /**
+ * In-memory cache mapping profileId → presetId for source attribution.
+ * Populated via {@link registerProfilePreset} when targets are shielded/loaded.
+ */
+const profilePresetCache = new Map<string, string>();
+
+/**
+ * Register a profileId → presetId mapping so interceptor events can be
+ * attributed to the correct target source.
+ */
+export function registerProfilePreset(profileId: string, presetId: string): void {
+  profilePresetCache.set(profileId, presetId);
+}
+
+/**
  * Derive a source label from the event type and data when not explicitly provided.
  */
-function deriveSource(type: string, data: unknown): string {
+function deriveSource(type: string, data: unknown, profileId?: string): string {
   const d = data as Record<string, unknown> | undefined;
-  if (type.startsWith('interceptor:')) return 'interceptor';
+  if (type.startsWith('interceptor:')) {
+    if (profileId) return profilePresetCache.get(profileId) ?? profileId;
+    return 'interceptor';
+  }
   if (type.startsWith('setup:')) return (d?.targetId as string) ?? 'daemon';
   if (type.startsWith('process:broker')) return (d?.process as string) ?? 'system';
   if (type.startsWith('resource:')) return 'system';

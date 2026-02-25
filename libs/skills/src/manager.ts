@@ -24,6 +24,8 @@ import { RemoteSearchAdapter } from './catalog/adapters/remote.adapter';
 import type { SearchAdapter } from './catalog/types';
 import { InstallService } from './install/install.service';
 import type { InstallParams } from './install/types';
+import { DownloadService } from './download/download.service';
+import type { DownloadParams, DownloadResult } from './download/types';
 import { AnalyzeService } from './analyze/analyze.service';
 import { BasicAnalyzeAdapter } from './analyze/adapters/basic.adapter';
 import { UploadService } from './upload/upload.service';
@@ -66,6 +68,7 @@ export interface SkillManagerOptions {
 export class SkillManager extends EventEmitter {
   readonly catalog: CatalogService;
   readonly installer: InstallService;
+  readonly downloader: DownloadService;
   readonly analyzer: AnalyzeService;
   readonly uploader: UploadService;
   readonly updater: UpdateService;
@@ -105,8 +108,9 @@ export class SkillManager extends EventEmitter {
 
     // Construct services
     this.catalog = new CatalogService(skills, searchAdapters);
-    this.installer = new InstallService(skills, remote, this, this.deployer);
     this.analyzer = new AnalyzeService(skills, analyzerAdapters, this);
+    this.downloader = new DownloadService(skills, remote, this, this.backup, this.analyzer);
+    this.installer = new InstallService(skills, remote, this, this.deployer);
     this.uploader = new UploadService(skills, this, this.backup);
     this.updater = new UpdateService(skills, remote, this);
     this.sync = new SyncService(this, skills, options?.syncOptions);
@@ -125,6 +129,15 @@ export class SkillManager extends EventEmitter {
   private _bridgeToEventBus(bus: EventBus): void {
     this.on('skill-event', (event: SkillEvent) => {
       switch (event.type) {
+        case 'download:started':
+          bus.emit('skills:download_started', { name: event.skillSlug });
+          break;
+        case 'download:completed':
+          bus.emit('skills:downloaded', { name: event.skillSlug, slug: event.skillSlug });
+          break;
+        case 'download:error':
+          bus.emit('skills:download_failed', { name: event.skillSlug, error: event.error });
+          break;
         case 'install:started':
           bus.emit('skills:install_started', { name: event.skillSlug });
           break;
@@ -210,6 +223,30 @@ export class SkillManager extends EventEmitter {
     } finally {
       if (slug) this.watcher.unsuppressSlug(slug);
     }
+  }
+
+  /**
+   * Download a skill from the remote marketplace without installing it.
+   * Creates a Skill + SkillVersion record but no SkillInstallation.
+   */
+  async download(params: DownloadParams): Promise<DownloadResult> {
+    return this.downloader.download(params);
+  }
+
+  /**
+   * Install a downloaded skill to multiple targets.
+   * The skill must already exist in the DB (from a prior download).
+   */
+  async installToTargets(slug: string, targetIds: string[]): Promise<SkillInstallation[]> {
+    const skill = this.skills.getBySlug(slug);
+    if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
+
+    const results: SkillInstallation[] = [];
+    for (const targetId of targetIds) {
+      const inst = await this.install({ skillId: skill.id, profileId: targetId });
+      results.push(inst);
+    }
+    return results;
   }
 
   async uninstall(installationId: string): Promise<boolean> {

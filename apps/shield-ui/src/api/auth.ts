@@ -1,16 +1,15 @@
 /**
  * Auth API client for AgenShield daemon
+ *
+ * JWT-based authentication — tokens are issued by the daemon (via CLI start
+ * or sudo login) and refreshed automatically before expiry.
  */
 
 import type {
   AuthStatusResponse,
-  UnlockRequest,
-  UnlockResponse,
-  LockResponse,
-  SetupPasscodeRequest,
-  SetupPasscodeResponse,
-  ChangePasscodeRequest,
-  ChangePasscodeResponse,
+  SudoLoginRequest,
+  SudoLoginResponse,
+  RefreshResponse,
 } from '@agenshield/ipc';
 
 const BASE_URL = '/api';
@@ -40,95 +39,29 @@ async function authRequest<T>(endpoint: string, options?: RequestInit): Promise<
 
 export const authApi = {
   /**
-   * Check auth status (is passcode set, protection enabled, etc.)
+   * Check auth status (is the current request authenticated, role, expiry)
    */
   getStatus: () => authRequest<AuthStatusResponse>('/auth/status'),
 
   /**
-   * Authenticate with passcode
+   * Login with macOS sudo credentials
    */
-  unlock: (passcode: string) =>
-    authRequest<UnlockResponse>('/auth/unlock', {
+  sudoLogin: (username: string, password: string) =>
+    authRequest<SudoLoginResponse>('/auth/sudo-login', {
       method: 'POST',
-      body: JSON.stringify({ passcode } satisfies UnlockRequest),
+      body: JSON.stringify({ username, password } satisfies SudoLoginRequest),
     }),
 
   /**
-   * Invalidate session
-   */
-  lock: (token: string) =>
-    authRequest<LockResponse>('/auth/lock', {
-      method: 'POST',
-      body: JSON.stringify({ token }),
-    }),
-
-  /**
-   * Set initial passcode
-   */
-  setup: (passcode: string, enableProtection = true) =>
-    authRequest<SetupPasscodeResponse>('/auth/setup', {
-      method: 'POST',
-      body: JSON.stringify({ passcode, enableProtection } satisfies SetupPasscodeRequest),
-    }),
-
-  /**
-   * Change existing passcode
-   */
-  change: (oldPasscode: string, newPasscode: string) =>
-    authRequest<ChangePasscodeResponse>('/auth/change', {
-      method: 'POST',
-      body: JSON.stringify({ oldPasscode, newPasscode } satisfies ChangePasscodeRequest),
-    }),
-
-  /**
-   * Refresh session token
+   * Refresh JWT token
    */
   refresh: (token: string) =>
-    authRequest<{ success: boolean; token?: string; expiresAt?: number }>('/auth/refresh', {
+    authRequest<RefreshResponse>('/auth/refresh', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({}),
-    }),
-
-  /**
-   * Enable passcode protection
-   */
-  enableProtection: (token: string) =>
-    authRequest<{ success: boolean }>('/auth/enable', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({}),
-    }),
-
-  /**
-   * Disable passcode protection
-   */
-  disableProtection: (token: string) =>
-    authRequest<{ success: boolean }>('/auth/disable', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({}),
-    }),
-
-  /**
-   * Toggle anonymous read-only access
-   */
-  setAnonymousReadOnly: (token: string, allowed: boolean) =>
-    authRequest<{ success: boolean; allowAnonymousReadOnly: boolean }>('/auth/anonymous-readonly', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ allowed }),
     }),
 };

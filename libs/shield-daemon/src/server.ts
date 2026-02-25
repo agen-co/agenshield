@@ -21,12 +21,12 @@ import { registerRoutes } from './routes/index';
 import { getUiAssetsPath } from './static';
 import { startSecurityWatcher, stopSecurityWatcher } from './watchers/security';
 import { startProcessHealthWatcher, stopProcessHealthWatcher } from './watchers/process-health';
-import { startTargetWatcher, stopTargetWatcher } from './watchers/targets';
-import { emitSkillUntrustedDetected, emitProcessStarted, emitProcessStopped, emitSecurityLocked, eventBus, daemonEvents } from './events/emitter';
-import { getVault, getInstallationKey } from './vault';
+import { startTargetWatcher, stopTargetWatcher, setProcessManager } from './watchers/targets';
+import { emitSkillUntrustedDetected, emitProcessStarted, emitProcessStopped, eventBus, daemonEvents } from './events/emitter';
+import { getVault, getInstallationKey, loadOrCreateVaultKey } from './vault';
+import { loadOrCreateSecret, signAdminToken } from '@agenshield/auth';
 import { activateMCP, deactivateMCP } from './mcp';
 import { getActivityWriter } from './services/activity-writer';
-import { getSessionManager } from './auth/session';
 import { shutdownProxyPool } from './proxy/pool';
 import { getQuarantineDir, getSkillBackupDir, isDevMode } from './config/paths';
 import { verifyConfigIntegrity } from './config/loader';
@@ -202,8 +202,33 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
 
   // ─── Get storage (already initialized in main.ts) ────────
   const storage = getStorage();
-  const vaultState = storage.isUnlocked() ? 'unlocked' : 'locked (unlock via passcode to manage secrets)';
-  app.log.info(`Storage ready — vault state: ${vaultState}`);
+
+  // ─── Initialize vault encryption with raw key ────────────
+  const vaultKey = loadOrCreateVaultKey();
+  if (storage.hasPasscode()) {
+    storage.unlockWithKey(vaultKey);
+  } else {
+    storage.initEncryption(vaultKey);
+  }
+  app.log.info('Storage ready — vault unlocked via vault key');
+
+  // ─── Initialize JWT secret ──────────────────────────────
+  loadOrCreateSecret();
+  app.log.info('JWT secret ready');
+
+  // ─── Generate admin token file ──────────────────────────
+  try {
+    const adminToken = await signAdminToken();
+    const tokenPath = '/var/run/agenshield/.admin-token';
+    const tokenDir = '/var/run/agenshield';
+    if (!fs.existsSync(tokenDir)) {
+      fs.mkdirSync(tokenDir, { recursive: true, mode: 0o700 });
+    }
+    fs.writeFileSync(tokenPath, adminToken, { mode: 0o600 });
+    app.log.info('Admin token written to /var/run/agenshield/.admin-token');
+  } catch (err) {
+    app.log.warn({ err }, 'Failed to write admin token file');
+  }
 
   // Start background metrics collector (2s interval, stores to SQLite)
   startMetricsCollector();
@@ -233,7 +258,7 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   }
 
   // ─── Reconcile broker token files ──────────────────────────
-  reconcileTokenFiles(storage);
+  await reconcileTokenFiles(storage);
   app.log.info('Broker token files reconciled');
 
   // ─── Start per-profile daemon sockets ──────────────────────
@@ -245,16 +270,6 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   } catch (err) {
     app.log.warn({ err }, 'Failed to start profile sockets');
   }
-
-  // ─── Wire auto-lock handler for idle timeout ──────────────
-  getSessionManager().setAutoLockHandler(() => {
-    try { storage.lock(); } catch { /* already closed */ }
-    import('./services/broker-bridge.js')
-      .then(({ clearBrokerSecrets }) => clearBrokerSecrets())
-      .catch(() => { /* non-fatal */ });
-    emitSecurityLocked('idle_timeout');
-    app.log.info('Auto-locked vault after idle timeout');
-  });
 
   // ─── Verify config integrity (HMAC) ──────────────────
   try {
@@ -438,6 +453,7 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   // Initialize gateway process manager
   const processManager = new ProcessManager();
   app.decorate('processManager', processManager);
+  setProcessManager(processManager);
 
   // Stop watchers, proxy pool, and MCP on server close
   app.addHook('onClose', async () => {

@@ -28,7 +28,6 @@ import {
 } from 'lucide-react';
 import type { Alert, AlertSeverity } from '@agenshield/ipc';
 import { useAlerts, useAcknowledgeAlert, useAcknowledgeAllAlerts } from '../../../api/hooks';
-import { useAuth } from '../../../context/AuthContext';
 import { slideIn } from '../../../styles/animations';
 import type { AlertsBannerProps } from './AlertsBanner.types';
 import {
@@ -72,7 +71,6 @@ function useSeverityColor(severity: AlertSeverity) {
 export function AlertsBanner({ animationDelay = 50 }: AlertsBannerProps) {
   const navigate = useNavigate();
   const theme = useTheme();
-  const { isReadOnly } = useAuth();
   const { data } = useAlerts();
   const acknowledgeAlert = useAcknowledgeAlert();
   const acknowledgeAll = useAcknowledgeAllAlerts();
@@ -135,7 +133,7 @@ export function AlertsBanner({ animationDelay = 50 }: AlertsBannerProps) {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            {!isReadOnly && alerts.length > 1 && (
+            {alerts.length > 1 && (
               <Button
                 size="small"
                 variant="text"
@@ -161,7 +159,6 @@ export function AlertsBanner({ animationDelay = 50 }: AlertsBannerProps) {
               <AlertItemRow
                 key={alert.id}
                 alert={alert}
-                isReadOnly={isReadOnly}
                 onView={() => navigate(alert.navigationTarget)}
                 onDismiss={() => handleDismiss(alert.id)}
                 dismissing={acknowledgeAlert.isPending}
@@ -176,13 +173,11 @@ export function AlertsBanner({ animationDelay = 50 }: AlertsBannerProps) {
 
 function AlertItemRow({
   alert,
-  isReadOnly,
   onView,
   onDismiss,
   dismissing,
 }: {
   alert: Alert;
-  isReadOnly: boolean;
   onView: () => void;
   onDismiss: () => void;
   dismissing: boolean;
@@ -208,13 +203,11 @@ function AlertItemRow({
             <ExternalLink size={14} />
           </IconButton>
         </Tooltip>
-        {!isReadOnly && (
-          <Tooltip title="Dismiss">
-            <IconButton size="small" onClick={onDismiss} disabled={dismissing}>
-              <X size={14} />
-            </IconButton>
-          </Tooltip>
-        )}
+        <Tooltip title="Dismiss">
+          <IconButton size="small" onClick={onDismiss} disabled={dismissing}>
+            <X size={14} />
+          </IconButton>
+        </Tooltip>
       </AlertActions>
     </AlertItem>
   );

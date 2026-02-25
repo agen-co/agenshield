@@ -179,6 +179,7 @@ export const OPENCLAW_SHIELD_STEPS: ShieldStepDefinition[] = [
   // Phase 5: PATH Router
   { id: 'install_path_registry', phase: 5, name: 'Install PATH registry', description: 'Register instance in /etc/agenshield/path-registry.json' },
   { id: 'install_path_router', phase: 5, name: 'Install PATH router', description: 'Write router wrapper to /usr/local/bin' },
+  { id: 'install_path_shell_override', phase: 5, name: 'Install PATH shell override', description: 'Append PATH override to host shell rc (after NVM)' },
   // Phase 6: Homebrew
   { id: 'install_homebrew', phase: 6, name: 'Install Homebrew', description: 'Download and install Homebrew in agent home' },
   // Phase 7: NVM & Node.js

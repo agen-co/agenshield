@@ -116,7 +116,7 @@ function computeShieldTopY(_hasBrokers: boolean): number {
 export function useSetupCanvasLayout(
   data: SetupCanvasData,
   viewport: ViewportSize,
-  options?: { authenticated: boolean; passcodeSet: boolean },
+  _options?: Record<string, unknown>,
 ) {
   const { width: vw, height: vh } = viewport;
   const systemStoreSnap = useSnapshot(systemStore);
@@ -127,15 +127,14 @@ export function useSetupCanvasLayout(
     setAllExposed(hasAnyUnshielded);
   }, [hasAnyUnshielded]);
 
-  // Show auxiliary components when AgenShield is active (shielded card, forced open, or passcode set)
+  // Show auxiliary components when AgenShield is active (shielded card or forced open)
   const hasAnyShielded = data.anyShielded;
   const wingsForced = systemStoreSnap.wingsForceOpen;
-  const passcodeSet = !!options?.passcodeSet;
   useEffect(() => {
-    setExtendedComponentsActive(hasAnyShielded || wingsForced || passcodeSet);
-  }, [hasAnyShielded, wingsForced, passcodeSet]);
+    setExtendedComponentsActive(hasAnyShielded || wingsForced);
+  }, [hasAnyShielded, wingsForced]);
 
-  const isExtended = (data.anyShielded || wingsForced || passcodeSet) && (options?.authenticated !== false);
+  const isExtended = data.anyShielded || wingsForced;
 
   const topologyKey = useMemo(
     () =>

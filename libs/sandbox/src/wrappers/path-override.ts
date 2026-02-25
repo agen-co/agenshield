@@ -201,7 +201,7 @@ if [ ! -f "$REGISTRY" ]; then
   exit 1
 fi
 
-# Helper: exec as agent user with NVM-aware PATH
+# Helper: exec as agent user via guarded shell (enforces PATH/env restrictions)
 _agenshield_exec() {
   local AGENT_USER="$1" BIN="$2" AGENT_HOME="$3"
   shift 3
@@ -209,13 +209,13 @@ _agenshield_exec() {
     exec "$BIN" "$@"
   fi
   if [ -n "$AGENT_HOME" ]; then
-    exec sudo -H -u "$AGENT_USER" /bin/bash -c '
-      export HOME="'"$AGENT_HOME"'"
-      export NVM_DIR="$HOME/.nvm"
-      [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
-      export PATH="$HOME/bin:$PATH"
-      exec "'"$BIN"'" "$@"
-    ' -- "$@"
+    local GUARDED_SHELL="$AGENT_HOME/.agenshield/bin/guarded-shell"
+    if [ -x "$GUARDED_SHELL" ]; then
+      exec sudo -H -u "$AGENT_USER" "$GUARDED_SHELL" -c 'exec "'"$BIN"'" "$@"' -- "$@"
+    else
+      # Fallback if guarded shell not installed
+      exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
+    fi
   else
     exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
   fi
@@ -337,6 +337,43 @@ export function buildRemoveRouterCommands(binName: string): string {
   ];
 
   return commands.join('\n');
+}
+
+/**
+ * Build shell commands to install a router wrapper at ~/.agenshield/bin/<binName>.
+ * This user-local copy takes priority when $HOME/.agenshield/bin is on PATH
+ * (appended to shell rc after NVM sourcing).
+ */
+export function buildInstallUserLocalRouterCommands(
+  binName: string,
+  wrapperContent: string,
+  hostHome?: string,
+): string {
+  const home = hostHome || '$HOME';
+  const targetDir = `${home}/.agenshield/bin`;
+  const targetPath = `${targetDir}/${binName}`;
+
+  const commands = [
+    `mkdir -p "${targetDir}"`,
+    `cat > "${targetPath}" << 'AGENSHIELD_WRAPPER_EOF'\n${wrapperContent}\nAGENSHIELD_WRAPPER_EOF`,
+    `chmod 755 "${targetPath}"`,
+  ];
+
+  return commands.join('\n');
+}
+
+/**
+ * Build shell commands to remove the user-local router wrapper at ~/.agenshield/bin/<binName>.
+ * Only removes if it contains the AGENSHIELD_ROUTER marker.
+ */
+export function buildRemoveUserLocalRouterCommands(
+  binName: string,
+  hostHome?: string,
+): string {
+  const home = hostHome || '$HOME';
+  const targetPath = `${home}/.agenshield/bin/${binName}`;
+
+  return `if [ -f "${targetPath}" ] && grep -q "${ROUTER_MARKER}" "${targetPath}" 2>/dev/null; then rm -f "${targetPath}"; fi`;
 }
 
 /**

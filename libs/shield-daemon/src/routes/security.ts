@@ -56,7 +56,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
 
       return {
         success: true,
-        data: isAuthenticated(request) ? data : redactSecurityStatus(data),
+        data: (await isAuthenticated(request)) ? data : redactSecurityStatus(data),
       };
     } catch (error) {
       return {

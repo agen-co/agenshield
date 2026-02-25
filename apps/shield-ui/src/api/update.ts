@@ -53,10 +53,10 @@ export const updateApi = {
       };
     }>('/update/state'),
 
-  authenticate: (passcode: string) =>
+  authenticate: () =>
     updateRequest<{ success: boolean; data: { authenticated: boolean } }>(
       '/update/authenticate',
-      { method: 'POST', body: JSON.stringify({ passcode }) },
+      { method: 'POST', body: JSON.stringify({}) },
     ),
 
   getReleaseNotes: () =>
@@ -83,7 +83,7 @@ export function useUpdateState() {
 
 export function useAuthenticate() {
   return useMutation({
-    mutationFn: (passcode: string) => updateApi.authenticate(passcode),
+    mutationFn: () => updateApi.authenticate(),
   });
 }
 

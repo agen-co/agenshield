@@ -1,26 +1,17 @@
 /**
- * Convenience hook for guarded (unlock-on-click) actions.
+ * Convenience hook for guarded actions.
  *
- * Returns a function that either executes an action immediately (if authenticated)
- * or prompts for passcode unlock first (if in read-only mode).
+ * With JWT auth, if the user is authenticated they have full access.
+ * No more read-only / unlock-on-click gating — actions execute directly.
  */
 
 import { useCallback } from 'react';
-import { useAuth } from '../context/AuthContext';
-import { useUnlockAction } from '../context/UnlockContext';
 
 export function useGuardedAction() {
-  const { isReadOnly } = useAuth();
-  const { requestUnlock } = useUnlockAction();
-
   return useCallback(
-    (action: () => void, opts: { description: string; actionLabel: string }) => {
-      if (!isReadOnly) {
-        action();
-        return;
-      }
-      requestUnlock({ ...opts, onUnlocked: action });
+    (action: () => void, _opts?: { description: string; actionLabel: string }) => {
+      action();
     },
-    [isReadOnly, requestUnlock],
+    [],
   );
 }

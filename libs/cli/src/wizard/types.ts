@@ -39,7 +39,6 @@ export type WizardStepId =
   | 'verify'
   | 'install-es-extension'
   | 'start-openclaw'
-  | 'setup-passcode'
   | 'open-dashboard'
   | 'complete';
 
@@ -196,16 +195,6 @@ export interface WizardContext {
     networkBlocked: boolean;
   };
 
-  /** Passcode setup result */
-  passcodeSetup?: {
-    /** Whether passcode was set */
-    configured: boolean;
-    /** Whether user skipped passcode setup */
-    skipped: boolean;
-  };
-
-  /** Passcode value (temporary, only during wizard flow) */
-  passcodeValue?: string;
 
   /** Whether the target can be installed (e.g. via npm) */
   targetInstallable?: boolean;
@@ -525,18 +514,11 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
     dependsOn: ['install-es-extension'],
   },
   {
-    id: 'setup-passcode',
-    name: 'Setup Passcode',
-    description: 'Set a passcode to protect sensitive configuration',
-    phase: 'setup',
-    dependsOn: ['start-openclaw'],
-  },
-  {
     id: 'open-dashboard',
     name: 'Open Dashboard',
     description: 'Open AgenShield dashboard in browser',
     phase: 'setup',
-    dependsOn: ['setup-passcode'],
+    dependsOn: ['start-openclaw'],
   },
   {
     id: 'complete',

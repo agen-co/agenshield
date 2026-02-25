@@ -60,8 +60,16 @@ export const InstallationStateSchema = z.object({
 export const PasscodeProtectionStateSchema = z.object({
   enabled: z.boolean(),
   allowAnonymousReadOnly: z.boolean().optional(),
-  failedAttempts: z.number().int().nonnegative().optional(),
+  failedAttempts: z.number().int().min(0).optional(),
   lockedUntil: z.string().optional(),
+});
+
+/**
+ * Setup state schema
+ */
+export const SetupStateSchema = z.object({
+  completed: z.boolean(),
+  phase: z.string().optional(),
 });
 
 /**
@@ -76,6 +84,7 @@ export const SystemStateSchema = z.object({
   agenco: AgenCoStateSchema,
   installation: InstallationStateSchema,
   passcodeProtection: PasscodeProtectionStateSchema.optional(),
+  setup: SetupStateSchema.optional(),
 });
 
 // Inferred types from schemas
@@ -89,7 +98,5 @@ export type AgenCoStateInput = z.input<typeof AgenCoStateSchema>;
 export type AgenCoStateOutput = z.output<typeof AgenCoStateSchema>;
 export type InstallationStateInput = z.input<typeof InstallationStateSchema>;
 export type InstallationStateOutput = z.output<typeof InstallationStateSchema>;
-export type PasscodeProtectionStateInput = z.input<typeof PasscodeProtectionStateSchema>;
-export type PasscodeProtectionStateOutput = z.output<typeof PasscodeProtectionStateSchema>;
 export type SystemStateInput = z.input<typeof SystemStateSchema>;
 export type SystemStateOutput = z.output<typeof SystemStateSchema>;

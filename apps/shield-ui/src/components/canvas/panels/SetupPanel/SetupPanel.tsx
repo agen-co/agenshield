@@ -26,13 +26,10 @@ import { ConfigureStep } from './steps/ConfigureStep';
 import { ShieldingStep } from './steps/ShieldingStep';
 import { CompleteStep } from './steps/CompleteStep';
 import { StateOverviewStep } from './steps/StateOverviewStep';
-import { PasscodeStep } from './steps/PasscodeStep';
 import { ScanResultsStep } from './steps/ScanResultsStep';
 import { setupPanelStore, resetSetupPanel, markShieldComplete, mergeDetectedTargets } from '../../../../state/setup-panel';
 import { useTargets } from '../../../../api/targets';
 import { useIsShielding } from '../../../../hooks/useIsShielding';
-import { useAuth } from '../../../../context/AuthContext';
-import { setWingsForceOpen } from '../../../../state/system-store';
 
 const STEPS: { id: SetupStep; label: string }[] = [
   { id: 'scan-results', label: 'Targets' },
@@ -44,8 +41,6 @@ const STEPS: { id: SetupStep; label: string }[] = [
 export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
-  const { passcodeSet } = useAuth();
-
   const panelState = useSnapshot(setupPanelStore);
   const shielding = useIsShielding();
 
@@ -72,18 +67,13 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
           setCurrentStep('configure');
         }
         setupPanelStore.preSelectedTargetId = null;
-      } else if (!passcodeSet && mode === 'initial-setup') {
-        // First-run: start with passcode setup
-        setCurrentStep('passcode');
-        setSelectedTargetId(null);
-        resetSetupPanel();
       } else {
         setCurrentStep('state-overview');
         setSelectedTargetId(null);
         resetSetupPanel();
       }
     }
-  }, [open, passcodeSet, mode]);
+  }, [open, mode]);
 
   // Watch for shield completion via SSE events in the store
   useEffect(() => {
@@ -237,7 +227,7 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
       </PanelHeader>
 
       {/* Step indicator — hidden during passcode, scan-results, and state-overview steps */}
-      {currentStep !== 'state-overview' && currentStep !== 'passcode' && currentStep !== 'scan-results' && (
+      {currentStep !== 'state-overview' && currentStep !== 'scan-results' && (
         <StepIndicator>
           {STEPS.map((step, i) => (
             <div key={step.id} style={{ display: 'flex', alignItems: 'center' }}>
@@ -250,17 +240,6 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
 
       {/* Body */}
       <PanelBody>
-        {currentStep === 'passcode' && (
-          <PasscodeStep
-            onComplete={() => {
-              handleRefresh();
-              setCurrentStep('scan-results');
-            }}
-            onTyping={() => {
-              setWingsForceOpen(true);
-            }}
-          />
-        )}
         {currentStep === 'scan-results' && (
           <ScanResultsStep
             targets={panelState.detectedTargets as DetectedTarget[]}

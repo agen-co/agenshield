@@ -1,14 +1,15 @@
 /**
  * Start command
  *
- * Starts the AgenShield daemon and opens the browser UI.
- * If the daemon is already running, just opens the browser.
+ * Starts the AgenShield daemon and opens the browser UI with JWT auth.
+ * If the daemon is already running, fetches a fresh admin token and opens the browser.
  */
 
 import { Command } from 'commander';
 import {
   getDaemonStatus,
   startDaemon,
+  readAdminToken,
   DAEMON_CONFIG,
 } from '../utils/daemon.js';
 import { ensureSudoAccess, startSudoKeepalive } from '../utils/privileges.js';
@@ -26,6 +27,30 @@ async function openBrowser(url: string): Promise<void> {
 }
 
 /**
+ * Build the browser URL with optional JWT token in hash
+ */
+function buildBrowserUrl(token: string | null): string {
+  const base = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
+  if (token) {
+    return `${base}/#access_token=${token}`;
+  }
+  return base;
+}
+
+/**
+ * Wait for the admin token file to appear (daemon writes it at startup)
+ */
+async function waitForAdminToken(maxWaitMs = 5000): Promise<string | null> {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const token = readAdminToken();
+    if (token) return token;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return null;
+}
+
+/**
  * Create the start command
  */
 export function createStartCommand(): Command {
@@ -34,11 +59,14 @@ export function createStartCommand(): Command {
     .option('-f, --foreground', 'Run in foreground (blocking)')
     .option('--no-browser', 'Do not open the browser')
     .action(async (options) => {
-      const url = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
       const status = await getDaemonStatus();
 
       if (status.running) {
         console.log(`\x1b[32m✓ Daemon is already running (PID: ${status.pid ?? 'unknown'})\x1b[0m`);
+
+        // Read existing admin token or request a fresh one
+        const token = readAdminToken();
+        const url = buildBrowserUrl(token);
         console.log(`  URL: ${url}`);
 
         if (options.browser !== false) {
@@ -67,6 +95,10 @@ export function createStartCommand(): Command {
         if (result.pid) {
           console.log(`  PID: ${result.pid}`);
         }
+
+        // Wait for the daemon to write the admin token, then include it in the URL
+        const token = await waitForAdminToken();
+        const url = buildBrowserUrl(token);
         console.log(`  URL: ${url}`);
 
         if (!options.foreground && options.browser !== false) {

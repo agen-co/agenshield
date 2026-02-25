@@ -1,5 +1,9 @@
 /**
- * Full-page skill detail — unified view for all skill origins
+ * Full-page skill detail — unified view for all skill origins.
+ *
+ * Supports two modes:
+ * - **Standalone**: rendered at `/skills/:id` via react-router (reads `useParams`)
+ * - **Embedded**: rendered inside the Canvas PageOverlay via `skillId` + `embedded` props
  */
 
 import { useEffect } from 'react';
@@ -11,8 +15,16 @@ import { tokens } from '../styles/tokens';
 import { SkillDetails } from '../components/skills/SkillDetails';
 import { skillsStore, fetchSkillDetail } from '../stores/skills';
 
-export function SkillPage() {
-  const { id } = useParams<{ id: string }>();
+interface SkillPageProps {
+  /** Skill ID passed directly (Canvas overlay mode) */
+  skillId?: string;
+  /** When true, omits the outer maxWidth wrapper (Canvas already provides it) */
+  embedded?: boolean;
+}
+
+export function SkillPage({ skillId: propId, embedded }: SkillPageProps) {
+  const { id: routeId } = useParams<{ id: string }>();
+  const id = propId ?? routeId;
   const navigate = useNavigate();
   const snap = useSnapshot(skillsStore);
 
@@ -35,18 +47,20 @@ export function SkillPage() {
 
   if (!id) return null;
 
-  return (
-    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
-      <Button
-        size="small"
-        variant="text"
-        color="secondary"
-        startIcon={<ArrowLeft size={16} />}
-        onClick={() => navigate(-1)}
-        sx={{ mb: 2 }}
-      >
-        Back to Skills
-      </Button>
+  const content = (
+    <>
+      {!embedded && (
+        <Button
+          size="small"
+          variant="text"
+          color="secondary"
+          startIcon={<ArrowLeft size={16} />}
+          onClick={() => navigate('/skills')}
+          sx={{ mb: 2 }}
+        >
+          Back to Skills
+        </Button>
+      )}
 
       {snap.selectedLoading ? (
         <Box>
@@ -58,6 +72,14 @@ export function SkillPage() {
       ) : (
         <SkillDetails />
       )}
+    </>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <Box sx={{ maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+      {content}
     </Box>
   );
 }

@@ -83,6 +83,7 @@ export {
   AgenCoStateSchema,
   InstallationStateSchema,
   PasscodeProtectionStateSchema,
+  SetupStateSchema,
   SystemStateSchema,
 } from './schemas/state.schema';
 
@@ -95,15 +96,9 @@ export {
 export {
   // Auth schemas
   AuthStatusResponseSchema,
-  UnlockRequestSchema,
-  UnlockResponseSchema,
-  LockRequestSchema,
-  LockResponseSchema,
-  SetupPasscodeRequestSchema,
-  SetupPasscodeResponseSchema,
-  ChangePasscodeRequestSchema,
-  ChangePasscodeResponseSchema,
-  SessionSchema,
+  SudoLoginRequestSchema,
+  SudoLoginResponseSchema,
+  RefreshResponseSchema,
   AuthConfigSchema,
   PasscodeDataSchema,
 } from './schemas/auth.schema';

@@ -34,7 +34,7 @@ export interface ExecutableInfo {
  * Sanitize context for API response — strip non-serializable and sensitive data
  */
 function sanitizeContext(context: WizardContext): Record<string, unknown> {
-  const { preset, passcodeValue, ...rest } = context as Record<string, unknown>;
+  const { preset, ...rest } = context as Record<string, unknown>;
   return {
     ...rest,
     // Add serializable preset info
@@ -82,11 +82,8 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
 
     if (engine.state.isComplete || hasComplete?.status === 'completed') {
       phase = 'complete';
-    } else if (engine.state.steps.find(s => s.id === 'setup-passcode')?.status === 'running') {
-      phase = 'passcode';
     } else if (verifyStep?.status === 'completed') {
-      // Setup and verification done, waiting for passcode
-      phase = 'passcode';
+      phase = 'execution';
     } else if (hasConfirm?.status === 'completed') {
       phase = 'execution';
     } else if (engine.context.presetDetection?.found) {
@@ -265,20 +262,12 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
     return { success: true, data: { started: true } };
   });
 
-  // --- Passcode (triggers final phase) ---
+  // --- Finalize (triggers final phase: open-dashboard + complete) ---
   app.post<{ Body: { passcode?: string; skip?: boolean } }>(
     '/api/setup/passcode',
     async (request) => {
       if (isRunning) {
         return { success: false, error: { code: 'ALREADY_RUNNING', message: 'Final phase is already in progress' } };
-      }
-
-      const { passcode, skip } = request.body;
-
-      if (skip) {
-        engine.context.passcodeSetup = { configured: false, skipped: true };
-      } else if (passcode) {
-        engine.context.passcodeValue = passcode;
       }
 
       isRunning = true;
@@ -343,11 +332,11 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
             context: sanitizeContext(engine.context),
           });
         } else {
-          // Migration complete — broadcast state change so UI advances to passcode
+          // Setup complete — broadcast state change so UI advances to finalize
           broadcastSetupEvent('setup:state_change', {
             state: engine.state,
             context: sanitizeContext(engine.context),
-            phase: 'passcode',
+            phase: 'finalize',
           });
         }
       }).catch((err) => {

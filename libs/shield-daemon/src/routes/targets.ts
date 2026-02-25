@@ -4,6 +4,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { getStorage } from '@agenshield/storage';
+import { signBrokerToken } from '@agenshield/auth';
 import {
   writeTokenFile,
   removeTokenFile,
@@ -29,7 +30,17 @@ export async function profileRoutes(app: FastifyInstance): Promise<void> {
   // Create a profile
   app.post('/profiles', async (request) => {
     const storage = getStorage();
-    const profile = storage.profiles.create(request.body);
+    const body = request.body as Record<string, unknown>;
+
+    // Generate JWT broker token for target profiles
+    const type = (body.type as string) ?? 'target';
+    if (type === 'target') {
+      const id = body.id as string;
+      const brokerJwt = await signBrokerToken(id, id);
+      body.brokerToken = brokerJwt;
+    }
+
+    const profile = storage.profiles.create(body);
     invalidateTokenCache();
 
     // Auto-seed preset policies for this profile
@@ -62,18 +73,22 @@ export async function profileRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // Rotate broker token
+  // Rotate broker token (generate new JWT)
   app.post<{ Params: { id: string } }>(
     '/profiles/:id/rotate-token',
     async (request) => {
       const storage = getStorage();
-      const updated = storage.profiles.rotateToken(request.params.id);
-      if (!updated) return { success: false, error: 'Profile not found' };
+      const profile = storage.profiles.getById(request.params.id);
+      if (!profile) return { success: false, error: 'Profile not found' };
+
+      // Sign a new broker JWT
+      const newJwt = await signBrokerToken(profile.id, profile.id);
+      const updated = storage.profiles.update(profile.id, { brokerToken: newJwt });
       invalidateTokenCache();
 
       // Write new token file
-      if (updated.brokerToken && updated.brokerHomeDir) {
-        writeTokenFile(updated.brokerHomeDir, updated.brokerToken);
+      if (updated?.brokerHomeDir) {
+        writeTokenFile(updated.brokerHomeDir, newJwt);
       }
 
       return { data: updated };

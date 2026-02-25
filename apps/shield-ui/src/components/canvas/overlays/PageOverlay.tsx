@@ -40,6 +40,7 @@ const PAGE_META: Record<string, { title: string; icon: typeof Terminal }> = {
 /* ---- Lazy-loaded page components ---- */
 
 const LazySkills = lazy(() => import('../../../pages/Skills').then(m => ({ default: m.Skills })));
+const LazySkillPage = lazy(() => import('../../../pages/SkillPage').then(m => ({ default: m.SkillPage })));
 const LazyPolicies = lazy(() => import('../../../pages/Policies').then(m => ({ default: m.Policies })));
 const LazySecrets = lazy(() => import('../../../pages/Secrets').then(m => ({ default: m.Secrets })));
 const LazyOverview = lazy(() => import('../../../pages/Overview').then(m => ({ default: m.Overview })));
@@ -88,9 +89,15 @@ export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps)
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [navigate]);
 
+  const isSkillDetail = page === 'skills' && !!tab;
+
   const handleBack = useCallback(() => {
-    navigate('/');
-  }, [navigate]);
+    if (isSkillDetail) {
+      navigate('/skills');
+    } else {
+      navigate('/');
+    }
+  }, [navigate, isSkillDetail]);
 
   const handleTabChange = useCallback((_: React.SyntheticEvent, newIdx: number) => {
     navigate(`/policies/${POLICY_TABS[newIdx].slug}`, { replace: true });
@@ -142,7 +149,7 @@ export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps)
             fontFamily: "'Manrope', sans-serif",
             color: theme.palette.text.primary,
           }}>
-            {meta.title}
+            {isSkillDetail ? 'Skills / Detail' : meta.title}
           </span>
 
           {/* Policy tabs (inline in header) */}
@@ -186,7 +193,8 @@ export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps)
                 <CircularLoader />
               </div>
             }>
-              {page === 'skills' && <LazySkills embedded />}
+              {page === 'skills' && !tab && <LazySkills embedded />}
+              {page === 'skills' && tab && <LazySkillPage skillId={tab} embedded />}
               {page === 'policies' && (
                 <LazyPolicies
                   embedded

@@ -46,7 +46,7 @@ export async function alertsRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/alerts/:id/acknowledge',
     async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
-      if (!isAuthenticated(request)) {
+      if (!(await isAuthenticated(request))) {
         return reply.status(403).send({
           success: false,
           error: { message: 'Authentication required to acknowledge alerts', statusCode: 403 },
@@ -79,7 +79,7 @@ export async function alertsRoutes(app: FastifyInstance): Promise<void> {
    * POST /alerts/acknowledge-all — Acknowledge all unacknowledged alerts
    */
   app.post('/alerts/acknowledge-all', async (request, reply) => {
-    if (!isAuthenticated(request)) {
+    if (!(await isAuthenticated(request))) {
       return reply.status(403).send({
         success: false,
         error: { message: 'Authentication required to acknowledge alerts', statusCode: 403 },

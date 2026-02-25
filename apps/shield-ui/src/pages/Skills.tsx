@@ -20,6 +20,7 @@ import {
   searchSkills,
   clearSearch,
   analyzeSkill,
+  downloadSkill,
   installSkill,
   uninstallSkill,
   unblockSkill,
@@ -93,7 +94,8 @@ export function Skills({ embedded }: { embedded?: boolean } = {}) {
     if (skill.origin === 'untrusted' && skill.actionState === 'analyzed') return 'Reinstall';
     switch (skill.actionState) {
       case 'not_analyzed': case 'analysis_failed': return 'Analyze';
-      case 'analyzed': return 'Install';
+      case 'analyzed':
+        return skill.origin === 'downloaded' ? 'Install' : 'Download';
       case 'installed': return 'Uninstall';
       case 'blocked': return 'Unblock';
       default: return 'Manage';
@@ -114,7 +116,12 @@ export function Skills({ embedded }: { embedded?: boolean } = {}) {
             await analyzeSkill(skill.slug);
             break;
           case 'analyzed':
-            await installSkill(skill.slug);
+            // Downloaded skills → install; search results → download first
+            if (skill.origin === 'downloaded') {
+              await installSkill(skill.slug);
+            } else {
+              await downloadSkill(skill.slug);
+            }
             break;
           case 'installed':
             setConfirmUninstall({ name: skill.name });

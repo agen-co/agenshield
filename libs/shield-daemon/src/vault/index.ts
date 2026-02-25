@@ -165,3 +165,11 @@ export {
   hasValidInstallationTagSync,
   clearInstallationKeyCache,
 } from './installation-key';
+
+// Re-export vault key manager
+export {
+  loadOrCreateVaultKey,
+  getVaultKey,
+  getVaultKeyPath,
+  clearVaultKeyCache,
+} from './vault-key';

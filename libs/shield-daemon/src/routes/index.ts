@@ -30,7 +30,6 @@ import { targetLifecycleRoutes } from './target-lifecycle';
 import { logStreamRoutes } from './logs';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
-import { getSessionManager } from '../auth/session';
 import { registerShieldContext } from '../context';
 import { sanitizeLogUrl } from '../utils/log-sanitizer';
 
@@ -40,14 +39,6 @@ import { sanitizeLogUrl } from '../utils/log-sanitizer';
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   // Register context extraction before all routes
   registerShieldContext(app);
-
-  // Touch idle auto-lock timer on every non-SSE API request
-  app.addHook('onRequest', (request, _reply, done) => {
-    if (!request.url.startsWith('/sse')) {
-      getSessionManager().touchActivity();
-    }
-    done();
-  });
 
   // Register SSE routes at root level (not under /api)
   await app.register(sseRoutes);

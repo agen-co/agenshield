@@ -5,7 +5,6 @@
 import { useMemo } from 'react';
 import { useSnapshot } from 'valtio';
 import { useStatus, useHealth, useAgenCoStatus, useSecurity, useProfiles } from '../../../api/hooks';
-import { useAuth } from '../../../context/AuthContext';
 import { eventStore } from '../../../state/events';
 import { daemonStatusStore } from '../../../state/daemon-status';
 import { isNoiseEvent, BLOCKED_EVENT_TYPES } from '../../../utils/eventDisplay';
@@ -18,7 +17,6 @@ export function useCanvasData(): CanvasData {
   const { data: profilesData } = useProfiles();
   const { data: agencoData } = useAgenCoStatus();
   const { data: securityData } = useSecurity();
-  const { protectionEnabled } = useAuth();
   const { events, connected: sseConnected } = useSnapshot(eventStore);
   const { status: daemonStatus } = useSnapshot(daemonStatusStore);
 
@@ -106,7 +104,7 @@ export function useCanvasData(): CanvasData {
     activePolicyCount,
     cloudConnected,
     sseConnected,
-    authLocked: protectionEnabled,
+    authLocked: true, // JWT auth — always protected when viewing dashboard
     recentEvents,
     totalEvents: eventCounts.total,
     deniedEvents: eventCounts.denied,

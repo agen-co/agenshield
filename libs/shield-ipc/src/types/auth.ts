@@ -1,139 +1,73 @@
 /**
  * Authentication types
  *
- * Types for passcode authentication and session management
+ * Types for JWT-based authentication and session management
  */
 
 /**
- * Auth status response - check if passcode is set and protection enabled
+ * JWT auth status response
  */
 export interface AuthStatusResponse {
-  /** Whether a passcode has been set */
-  passcodeSet: boolean;
-  /** Whether passcode protection is enabled */
-  protectionEnabled: boolean;
-  /** Whether anonymous read-only access is allowed (default: true) */
-  allowAnonymousReadOnly: boolean;
-  /** Whether the account is currently locked out due to failed attempts */
-  lockedOut: boolean;
-  /** ISO timestamp when lockout expires (if locked) */
-  lockedUntil?: string;
+  /** Whether the request is authenticated */
+  authenticated: boolean;
+  /** Role of the authenticated user (admin or broker) */
+  role?: 'admin' | 'broker';
+  /** Token expiration timestamp in ms (admin tokens only) */
+  expiresAt?: number;
 }
 
 /**
- * Unlock request - authenticate with passcode
+ * Sudo login request — authenticate with macOS credentials
  */
-export interface UnlockRequest {
-  /** The passcode to verify */
-  passcode: string;
+export interface SudoLoginRequest {
+  /** macOS username */
+  username: string;
+  /** macOS password */
+  password: string;
 }
 
 /**
- * Unlock response - returns session token on success
+ * Sudo login response
  */
-export interface UnlockResponse {
+export interface SudoLoginResponse {
   /** Whether authentication succeeded */
   success: boolean;
-  /** Session token (only on success) */
+  /** JWT token (only on success) */
   token?: string;
   /** Token expiration timestamp in ms (only on success) */
   expiresAt?: number;
   /** Error message (only on failure) */
   error?: string;
-  /** Remaining attempts before lockout (only on failure) */
-  remainingAttempts?: number;
 }
 
 /**
- * Lock request - invalidate session
+ * Token refresh response
  */
-export interface LockRequest {
-  /** Session token to invalidate */
-  token: string;
-}
-
-/**
- * Lock response
- */
-export interface LockResponse {
-  /** Whether the session was invalidated */
+export interface RefreshResponse {
+  /** Whether refresh succeeded */
   success: boolean;
-}
-
-/**
- * Setup request - set initial passcode
- */
-export interface SetupPasscodeRequest {
-  /** The passcode to set */
-  passcode: string;
-  /** Whether to enable protection immediately */
-  enableProtection?: boolean;
-}
-
-/**
- * Setup response
- */
-export interface SetupPasscodeResponse {
-  /** Whether setup succeeded */
-  success: boolean;
+  /** New JWT token (only on success) */
+  token?: string;
+  /** New expiration timestamp in ms (only on success) */
+  expiresAt?: number;
   /** Error message (only on failure) */
   error?: string;
 }
 
 /**
- * Change passcode request
- */
-export interface ChangePasscodeRequest {
-  /** Current passcode (required unless running as root) */
-  oldPasscode?: string;
-  /** New passcode to set */
-  newPasscode: string;
-}
-
-/**
- * Change passcode response
- */
-export interface ChangePasscodeResponse {
-  /** Whether change succeeded */
-  success: boolean;
-  /** Error message (only on failure) */
-  error?: string;
-}
-
-/**
- * Session info (internal use)
- */
-export interface Session {
-  /** Session token */
-  token: string;
-  /** When session was created */
-  createdAt: number;
-  /** When session expires */
-  expiresAt: number;
-  /** Client identifier (optional) */
-  clientId?: string;
-}
-
-/**
- * Auth configuration
+ * Auth configuration (kept for rate limiting constants)
  */
 export interface AuthConfig {
-  /** Session TTL in milliseconds (default: 30 minutes) */
-  sessionTtlMs: number;
-  /** Maximum failed attempts before lockout */
+  /** Maximum failed sudo attempts before lockout */
   maxFailedAttempts: number;
   /** Lockout duration in milliseconds */
   lockoutDurationMs: number;
-  /** Idle timeout in milliseconds before auto-locking the vault (default: 5 minutes) */
-  autoLockTimeoutMs: number;
 }
 
 /**
  * Default auth configuration
  */
 export const DEFAULT_AUTH_CONFIG: AuthConfig = {
-  sessionTtlMs: 30 * 60 * 1000, // 30 minutes
   maxFailedAttempts: 5,
   lockoutDurationMs: 15 * 60 * 1000, // 15 minutes
-  autoLockTimeoutMs: 5 * 60 * 1000, // 5 minutes
 };

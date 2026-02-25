@@ -12,7 +12,7 @@
 import { useEffect, useMemo } from 'react';
 import { useSnapshot } from 'valtio';
 import type { DetectedTarget } from '@agenshield/ipc';
-import { useHealthGate, useProfiles, useSecurity, useSystemMetrics, useMetricsHistory } from '../../../api/hooks';
+import { useHealthGate, useProfiles, useSecurity, useSystemMetrics } from '../../../api/hooks';
 import { setupPanelStore, mergeDetectedTargets, loadDismissedTargets } from '../../../state/setup-panel';
 import { startMetricsSimulation, systemStore } from '../../../state/system-store';
 import type { ApplicationCardData, SetupCanvasData } from '../Canvas.types';
@@ -37,20 +37,6 @@ export function useSetupCanvasData(): SetupCanvasData {
     const stop = startMetricsSimulation();
     return stop;
   }, []);
-
-  // Backfill metrics history from daemon (persisted snapshots)
-  const { data: historyData } = useMetricsHistory();
-
-  useEffect(() => {
-    if (historyData && historyData.length > 0 && systemStore.metricsHistory.length === 0) {
-      // Prepend persisted history into the valtio store (dedup by checking existing timestamps)
-      const existing = new Set(systemStore.metricsHistory.map((s) => s.timestamp));
-      const newSnapshots = historyData.filter((s) => !existing.has(s.timestamp));
-      if (newSnapshots.length > 0) {
-        systemStore.metricsHistory.unshift(...newSnapshots);
-      }
-    }
-  }, [historyData]);
 
   // Seed initial metrics from REST (SSE push takes over after first event)
   useSystemMetrics();

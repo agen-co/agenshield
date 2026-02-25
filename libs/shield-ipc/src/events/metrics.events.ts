@@ -28,11 +28,20 @@ export interface MetricsSnapshotPayload {
   targets?: TargetMetricsEntry[];
 }
 
+export interface MetricsSpikePayload {
+  metric: 'cpu' | 'memory' | 'disk';
+  value: number;
+  threshold: number;
+  type: 'sustained' | 'sudden_jump';
+  message: string;
+}
+
 declare module '@agenshield/ipc' {
   interface EventRegistry {
     'metrics:snapshot': MetricsSnapshotPayload;
+    'metrics:spike': MetricsSpikePayload;
   }
 }
 
-export const METRICS_EVENT_TYPES = ['metrics:snapshot'] as const;
+export const METRICS_EVENT_TYPES = ['metrics:snapshot', 'metrics:spike'] as const;
 registerEventTypes(METRICS_EVENT_TYPES);

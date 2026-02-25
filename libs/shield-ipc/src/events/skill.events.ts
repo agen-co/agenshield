@@ -24,6 +24,17 @@ export interface SkillInstallProgressPayload {
   message: string;
 }
 
+export interface SkillDownloadedPayload {
+  name: string;
+  slug: string;
+  analysis?: unknown;
+}
+
+export interface SkillDownloadFailedPayload {
+  name: string;
+  error: string;
+}
+
 declare module '@agenshield/ipc' {
   interface EventRegistry {
     'skills:quarantined': SkillNameReasonPayload;
@@ -31,6 +42,9 @@ declare module '@agenshield/ipc' {
     'skills:approved': SkillNamePayload;
     'skills:analyzed': SkillAnalyzedPayload;
     'skills:analysis_failed': { name: string; error: string };
+    'skills:download_started': SkillNamePayload;
+    'skills:downloaded': SkillDownloadedPayload;
+    'skills:download_failed': SkillDownloadFailedPayload;
     'skills:install_started': SkillNamePayload;
     'skills:install_progress': SkillInstallProgressPayload;
     'skills:installed': SkillNamePayload;
@@ -49,6 +63,9 @@ export const SKILL_EVENT_TYPES = [
   'skills:approved',
   'skills:analyzed',
   'skills:analysis_failed',
+  'skills:download_started',
+  'skills:downloaded',
+  'skills:download_failed',
   'skills:install_started',
   'skills:install_progress',
   'skills:installed',

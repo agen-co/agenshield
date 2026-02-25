@@ -56,7 +56,7 @@ export async function metricsRoutes(app: FastifyInstance): Promise<void> {
   app.get<{
     Querystring: { limit?: string; since?: string; targetId?: string };
   }>('/metrics/history', async (request) => {
-    const limit = Math.min(Number(request.query.limit) || 150, 500);
+    const limit = Math.min(Number(request.query.limit) || 150, 1000);
     const since = Number(request.query.since) || 0;
     const targetId = request.query.targetId || undefined;
 

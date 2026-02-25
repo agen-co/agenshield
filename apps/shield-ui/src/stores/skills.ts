@@ -17,6 +17,8 @@ import {
   fetchDaemonSkillDetail,
   fetchMarketplaceSkillDetail,
   installSkillDaemon,
+  downloadSkillDaemon,
+  installSkillToTarget,
   uninstallSkillDaemon,
   unblockSkillDaemon,
   deleteSkillDaemon,
@@ -41,6 +43,7 @@ export type SkillActionState =
   | 'analyzing'
   | 'analysis_failed'
   | 'analyzed'
+  | 'downloading'
   | 'installing'
   | 'installed'
   | 'blocked';
@@ -69,6 +72,8 @@ export interface UnifiedSkill {
   registrySource?: 'clawhub' | 'openclaw' | 'local';
   /** Full registry path for openclaw skills (e.g. "openclaw/owner/skill") */
   registryPath?: string;
+  /** All installations (multi-tenancy) */
+  installations?: Array<{ id: string; profileId?: string; status: string }>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -185,6 +190,11 @@ function mapDaemonSkill(s: DaemonSkillSummary): UnifiedSkill {
     origin,
     actionState,
     installationId: s.installationId,
+    installations: s.installations?.map((i) => ({
+      id: i.id,
+      profileId: i.profileId,
+      status: i.status,
+    })),
     tags: s.tags ?? [],
     path: s.path,
     source: s.source,
@@ -468,10 +478,45 @@ export async function analyzeSkill(slugOrName: string): Promise<void> {
   }
 }
 
-export async function installSkill(slug: string): Promise<void> {
+/**
+ * Phase 1: Download a skill from the marketplace without installing.
+ * SSE event (skills:downloaded / skills:download_failed) will update the store.
+ */
+export async function downloadSkill(slug: string): Promise<void> {
+  updateSkill(slug, { actionState: 'downloading' });
+  try {
+    await downloadSkillDaemon(slug);
+    // SSE events will update the store
+  } catch (err) {
+    const skill = findSkill(slug);
+    if (skill?.actionState === 'downloading') {
+      updateSkill(slug, { actionState: 'analyzed' });
+    }
+    notify.error(err instanceof Error ? err.message : `Failed to download "${slug}"`);
+    throw err;
+  }
+}
+
+/**
+ * Install a skill. Uses the legacy monolithic pipeline (download+install) by default.
+ * If `targetId` is provided, uses the new two-phase install route
+ * (skill must already be downloaded).
+ */
+export async function installSkill(slug: string, targetId?: string): Promise<void> {
   updateSkill(slug, { actionState: 'installing' });
   try {
-    await installSkillDaemon(slug);
+    if (targetId !== undefined) {
+      await installSkillToTarget(slug, targetId);
+    } else {
+      // Check if skill is already downloaded — use target install route
+      const skill = findSkill(slug);
+      if (skill?.origin === 'downloaded') {
+        await installSkillToTarget(slug);
+      } else {
+        // Legacy: full lifecycle install
+        await installSkillDaemon(slug);
+      }
+    }
     // SSE events (skills:installed / skills:install_failed) will update the store and notify
   } catch (err) {
     // HTTP-level errors (400 validation, 409 conflict, network errors)
@@ -694,6 +739,26 @@ export function handleSkillSSEEvent(type: string, rawEvent: Record<string, unkno
   if (!name) return;
 
   switch (type) {
+    case 'skills:download_started': {
+      updateSkill(name, { actionState: 'downloading' });
+      break;
+    }
+    case 'skills:downloaded': {
+      updateSkill(name, { actionState: 'analyzed', origin: 'downloaded' });
+      notify.success(`Skill "${name}" downloaded`);
+      fetchInstalledSkills();
+      fetchSkillDetail(name).catch(() => {/* best-effort */});
+      break;
+    }
+    case 'skills:download_failed': {
+      const skill = findSkill(name);
+      if (skill?.actionState === 'downloading') {
+        updateSkill(name, { actionState: 'analyzed' });
+      }
+      const error = (payload.error as string) || 'Download failed';
+      notify.error(`Failed to download "${name}": ${error}`);
+      break;
+    }
     case 'skills:analyzed': {
       clearAnalysisTimeout(name);
       updateSkill(name, { actionState: 'analyzed', analysisStatus: 'complete' });

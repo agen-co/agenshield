@@ -308,9 +308,119 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
   );
 
   /**
+   * POST /marketplace/download
+   * Phase 1 of two-phase workflow: download + analyze without installing.
+   * Creates Skill + SkillVersion in DB but NO SkillInstallation.
+   */
+  app.post(
+    '/marketplace/download',
+    async (
+      request: FastifyRequest<{ Body: { slug: string } }>,
+      reply: FastifyReply
+    ) => {
+      const { slug } = request.body ?? {};
+
+      if (!slug) {
+        return reply.code(400).send({ error: 'Request must include slug' });
+      }
+
+      // Prevent duplicate downloads
+      if (installInProgress.has(slug)) {
+        return reply.code(409).send({ error: `Download already in progress for "${slug}"` });
+      }
+
+      installInProgress.add(slug);
+
+      const runDownload = async () => {
+        try {
+          daemonEvents.broadcast('skills:download_started', { name: slug });
+
+          // 1. Run analysis first
+          emitSkillInstallProgress(slug, 'analyze', 'Analyzing skill bundle');
+          const analyzeResponse = await analyzeSkillBySlug(slug);
+          const analysisResult = analyzeResponse.analysis;
+
+          // Cache analysis
+          try {
+            const a = analysisResult;
+            setCachedAnalysis(slug, {
+              status: a.status === 'complete' ? 'complete' : 'error',
+              analyzerId: 'agenshield',
+              commands: a.commands?.map(c => ({
+                name: c.name,
+                source: c.source as 'metadata' | 'analysis',
+                available: c.available,
+                required: c.required,
+              })) ?? [],
+              vulnerability: a.vulnerability,
+              envVariables: a.envVariables,
+              runtimeRequirements: a.runtimeRequirements,
+              installationSteps: a.installationSteps,
+              runCommands: a.runCommands,
+              securityFindings: a.securityFindings,
+              mcpSpecificRisks: a.mcpSpecificRisks,
+            });
+            updateDownloadedAnalysis(slug, analysisResult);
+          } catch { /* best-effort */ }
+
+          // 2. Download files
+          emitSkillInstallProgress(slug, 'download', 'Downloading skill files');
+          const skill = await getMarketplaceSkill(slug);
+          const files: MarketplaceSkillFile[] = skill.files ?? getDownloadedSkillFiles(slug);
+
+          // 3. Register in DB via SkillManager (upload files, but don't approve or deploy)
+          const manager = app.skillManager;
+          manager.uploadFiles({
+            name: skill.name ?? slug,
+            slug,
+            version: skill.version ?? '0.0.0',
+            author: skill.author,
+            description: skill.description,
+            tags: skill.tags,
+            source: 'marketplace',
+            files: files.map((f) => ({
+              relativePath: f.name,
+              content: Buffer.from(f.content, 'utf-8'),
+            })),
+          });
+
+          // 4. Store analysis in DB version
+          const repo = manager.getRepository();
+          const dbSkill = repo.getBySlug(slug);
+          if (dbSkill) {
+            const version = repo.getLatestVersion(dbSkill.id);
+            if (version) {
+              repo.updateAnalysis(version.id, {
+                status: analysisResult.status === 'complete' ? 'complete' : 'error',
+                json: analysisResult,
+                analyzedAt: new Date().toISOString(),
+              });
+            }
+          }
+
+          installInProgress.delete(slug);
+          daemonEvents.broadcast('skills:downloaded', { name: slug, slug, analysis: analysisResult });
+          return { success: true, name: slug, analysis: analysisResult };
+        } catch (err) {
+          installInProgress.delete(slug);
+          const errorMsg = (err as Error).message;
+          daemonEvents.broadcast('skills:download_failed', { name: slug, error: errorMsg });
+          console.error('[Marketplace] Download failed:', errorMsg);
+          return { success: false, name: slug, error: errorMsg };
+        }
+      };
+
+      // Fire-and-forget, return 202
+      setImmediate(() => { runDownload(); });
+      return reply.code(202).send({ data: { status: 'accepted', name: slug } });
+    }
+  );
+
+  /**
    * POST /marketplace/install
-   * Accepts { slug } and handles the full lifecycle:
+   * Accepts { slug, targetId? } and handles the full lifecycle:
    * download → analyze → install → approve → wrapper → policy
+   * If skill is already downloaded (exists in DB), skips download phase.
    */
   app.post(
     '/marketplace/install',

@@ -8,6 +8,7 @@ export interface TargetOverviewProps {
     running: boolean;
     version?: string;
     binaryPath?: string;
+    processes?: Array<{ pid: number; elapsed: string; command: string }>;
   };
   profileId?: string | null;
 }

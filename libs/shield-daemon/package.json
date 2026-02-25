@@ -38,6 +38,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@agenshield/integrations": "0.7.3",
+    "@agenshield/auth": "0.7.3",
     "@agenshield/ipc": "0.7.3",
     "@agenshield/broker": "0.7.3",
     "@agenshield/sandbox": "0.7.3",

@@ -69,6 +69,11 @@ export const ALERT_RULES: Record<string, AlertRule> = {
     title: 'Command Denied',
     descriptionTemplate: 'Command "{command}" was denied: {reason}.',
   },
+  'metrics:spike': {
+    severity: 'warning',
+    title: 'System Resource Spike',
+    descriptionTemplate: '{message}',
+  },
 };
 
 /**

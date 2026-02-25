@@ -1,13 +1,11 @@
 /**
- * Authenticate Step — passcode input for update authorization
+ * Authenticate Step — sudo login for update authorization
  */
 
 import { useState } from 'react';
 import { Box, Typography, TextField, Button, Alert } from '@mui/material';
 import { Lock, ArrowRight } from 'lucide-react';
-import { useSnapshot } from 'valtio';
-import { updateStore } from '../../state/update';
-import { useAuthenticate } from '../../api/update';
+import { useAuth } from '../../context/AuthContext';
 import { slideIn } from '../../styles/animations';
 
 interface AuthenticateStepProps {
@@ -15,27 +13,33 @@ interface AuthenticateStepProps {
 }
 
 export function AuthenticateStep({ onNext }: AuthenticateStepProps) {
-  const [passcode, setPasscode] = useState('');
-  const authenticate = useAuthenticate();
-  const { authError } = useSnapshot(updateStore);
+  const { loginWithSudo, authenticated } = useAuth();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // If already authenticated via JWT, skip to next step
+  if (authenticated) {
+    onNext();
+    return null;
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!passcode.trim()) return;
-
-    updateStore.authError = null;
-    authenticate.mutate(passcode, {
-      onSuccess: (data) => {
-        if (data.success) {
-          onNext();
-        } else {
-          updateStore.authError = 'Authentication failed';
-        }
-      },
-      onError: (err) => {
-        updateStore.authError = (err as Error).message || 'Invalid passcode';
-      },
-    });
+    if (!username.trim() || !password) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await loginWithSudo(username, password);
+      if (result.success) {
+        onNext();
+      } else {
+        setError(result.error || 'Authentication failed');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -47,23 +51,33 @@ export function AuthenticateStep({ onNext }: AuthenticateStepProps) {
         </Typography>
       </Box>
       <Typography variant="body1" color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
-        Enter your AgenShield passcode to authorize the update.
+        Enter your macOS credentials to authorize the update.
       </Typography>
 
       <form onSubmit={handleSubmit} autoComplete="off">
-        {(authError || authenticate.isError) && (
+        {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            {authError || authenticate.error?.message || 'Invalid passcode'}
+            {error}
           </Alert>
         )}
 
         <TextField
           fullWidth
-          type="password"
-          label="Passcode"
-          value={passcode}
-          onChange={(e) => setPasscode(e.target.value)}
+          label="Username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
           autoFocus
+          InputLabelProps={{ shrink: true }}
+          sx={{ mb: 2 }}
+          inputProps={{ autoComplete: 'off' }}
+        />
+
+        <TextField
+          fullWidth
+          type="password"
+          label="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
           InputLabelProps={{ shrink: true }}
           sx={{ mb: 3 }}
           inputProps={{ autoComplete: 'off' }}
@@ -73,11 +87,11 @@ export function AuthenticateStep({ onNext }: AuthenticateStepProps) {
           type="submit"
           variant="contained"
           size="large"
-          disabled={!passcode.trim() || authenticate.isPending}
+          disabled={!username.trim() || !password || loading}
           endIcon={<ArrowRight size={18} />}
           sx={{ textTransform: 'none', fontWeight: 600 }}
         >
-          {authenticate.isPending ? 'Verifying...' : 'Authenticate'}
+          {loading ? 'Verifying...' : 'Authenticate'}
         </Button>
       </form>
     </Box>

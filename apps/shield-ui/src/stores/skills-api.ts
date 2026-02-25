@@ -9,7 +9,7 @@ import type { AnalyzeSkillResponse, EnvVariableDetail } from '@agenshield/ipc';
 const VERCEL_BASE = 'https://skills.agentfront.dev/api';
 const DAEMON_BASE = '/api';
 
-const SESSION_TOKEN_KEY = 'agenshield_session_token';
+const SESSION_TOKEN_KEY = 'agenshield_jwt_token';
 
 function getAuthToken(): string | null {
   return sessionStorage.getItem(SESSION_TOKEN_KEY);
@@ -186,6 +186,12 @@ export async function analyzeSkillFilesVercel(
 /*  Daemon API (local, auth-gated)                                     */
 /* ------------------------------------------------------------------ */
 
+export interface DaemonInstallationInfo {
+  id: string;
+  profileId?: string;
+  status: string;
+}
+
 export interface DaemonSkillSummary {
   name: string;
   source: 'user' | 'workspace' | 'quarantine' | 'marketplace' | 'untrusted';
@@ -198,6 +204,7 @@ export interface DaemonSkillSummary {
   sha?: string;
   tags?: string[];
   installationId?: string;
+  installations?: DaemonInstallationInfo[];
   analysis?: {
     status?: 'pending' | 'analyzing' | 'complete' | 'error' | 'installing';
     vulnerabilityLevel?: string;
@@ -251,6 +258,24 @@ export async function installSkillDaemon(slug: string): Promise<{ status: string
   const res = await daemonRequest<{ data: { status: string; name: string } }>(
     '/marketplace/install',
     { method: 'POST', body: JSON.stringify({ slug }) },
+  );
+  return res.data;
+}
+
+/** Phase 1: Download skill without installing. Returns 202 (async). */
+export async function downloadSkillDaemon(slug: string): Promise<{ status: string; name: string }> {
+  const res = await daemonRequest<{ data: { status: string; name: string } }>(
+    '/marketplace/download',
+    { method: 'POST', body: JSON.stringify({ slug }) },
+  );
+  return res.data;
+}
+
+/** Phase 2: Install a downloaded skill to a specific target. */
+export async function installSkillToTarget(name: string, targetId?: string): Promise<{ name: string; installationId: string }> {
+  const res = await daemonRequest<{ data: { name: string; installationId: string } }>(
+    `/skills/${encodeURIComponent(name)}/install`,
+    { method: 'POST', body: JSON.stringify({ targetId }) },
   );
   return res.data;
 }

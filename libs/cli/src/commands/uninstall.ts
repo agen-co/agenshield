@@ -55,12 +55,13 @@ async function tryOpenStorage(dataDir: string) {
 
 /**
  * Create an execAsRoot wrapper for CLI context.
- * Since the CLI runs as root via ensureSudoAccess(), execSync is sufficient.
+ * ensureSudoAccess() caches sudo credentials but does NOT elevate the process
+ * to UID 0, so every command must be prefixed with `sudo`.
  */
 function makeExecAsRoot() {
   return async (cmd: string, opts?: { timeout?: number }): Promise<{ success: boolean; output: string; error?: string }> => {
     try {
-      const output = execSync(cmd, {
+      const output = execSync(`sudo ${cmd}`, {
         encoding: 'utf-8',
         timeout: opts?.timeout ?? 30_000,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -268,7 +269,7 @@ async function systemCleanup(dataDir: string): Promise<void> {
 
   // Remove router wrappers
   try {
-    const { scanForRouterWrappers, pathRegistryPath } = await import('@agenshield/sandbox');
+    const { scanForRouterWrappers, pathRegistryPath, ROUTER_MARKER } = await import('@agenshield/sandbox');
     const { hostHome } = resolveHostInfo();
     const wrappers = scanForRouterWrappers();
     for (const binName of wrappers) {
@@ -284,10 +285,46 @@ async function systemCleanup(dataDir: string): Promise<void> {
       console.log(`\x1b[32m✓\x1b[0m Removed ${wrappers.length} PATH router wrapper(s)`);
     }
 
+    // Remove user-local router wrappers from ~/.agenshield/bin/
+    const userLocalBinDir = path.join(hostHome, '.agenshield', 'bin');
+    try {
+      if (fs.existsSync(userLocalBinDir)) {
+        let removedCount = 0;
+        for (const file of fs.readdirSync(userLocalBinDir)) {
+          if (file === 'agenshield') continue; // Skip the CLI shim
+          const fullPath = path.join(userLocalBinDir, file);
+          try {
+            const content = fs.readFileSync(fullPath, 'utf-8');
+            if (content.includes(ROUTER_MARKER)) {
+              await execAsRoot(`rm -f "${fullPath}"`);
+              removedCount++;
+            }
+          } catch { /* skip unreadable files */ }
+        }
+        if (removedCount > 0) {
+          console.log(`\x1b[32m✓\x1b[0m Removed ${removedCount} user-local router wrapper(s)`);
+        }
+      }
+    } catch {
+      // Best effort
+    }
+
     // Delete path registry
     const registryPath = pathRegistryPath(hostHome);
     if (fs.existsSync(registryPath)) {
       await execAsRoot(`rm -f "${registryPath}"`);
+    }
+
+    // Remove shell rc PATH override block
+    try {
+      const { removePathOverrideFromShellRc } = await import('../utils/home.js');
+      const hostShell = process.env['SHELL'] || '';
+      const { removed, rcFile } = removePathOverrideFromShellRc(hostHome, hostShell);
+      if (removed) {
+        console.log(`\x1b[32m✓\x1b[0m Removed PATH override from ${rcFile}`);
+      }
+    } catch {
+      // Best effort
     }
   } catch {
     // Best effort
@@ -430,9 +467,17 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
 
   console.log('\nUninstalling...\n');
 
-  // Stop daemon first
+  // Stop daemon first — retry up to 3 times if port is still held
   console.log('Stopping daemon...');
-  const stopResult = await stopDaemon();
+  let stopResult: { success: boolean; message: string } = { success: false, message: '' };
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    stopResult = await stopDaemon();
+    if (stopResult.success) break;
+    if (attempt < 3) {
+      console.log(`  Attempt ${attempt} failed, retrying in 2s...`);
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
   const stopIcon = stopResult.success ? '\x1b[32m✓\x1b[0m' : '\x1b[33m!\x1b[0m';
   console.log(`${stopIcon} stop-daemon: ${stopResult.message}`);
   console.log('');

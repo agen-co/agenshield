@@ -11,7 +11,7 @@
  * - Clean shutdown with SIGTERM → SIGKILL escalation
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import { emitProcessStarted, emitProcessStopped, emitProcessRestarted } from '../events/emitter';
 import { getLogger } from '../logger';
@@ -27,6 +27,7 @@ export interface ManagedProcess {
   restartCount: number;
   env: Record<string, string>;
   gatewayPort?: number;
+  guardedShell?: string;
 }
 
 export interface SpawnConfig {
@@ -37,6 +38,8 @@ export interface SpawnConfig {
   agentHome: string;
   env?: Record<string, string>;
   gatewayPort?: number;
+  /** Path to the per-target guarded shell. When provided, used instead of /bin/bash. */
+  guardedShell?: string;
 }
 
 interface InternalProcess extends ManagedProcess {
@@ -93,6 +96,7 @@ export class ProcessManager {
       agentHome: proc.env['HOME'] ?? '',
       env: proc.env,
       gatewayPort: proc.gatewayPort,
+      guardedShell: proc.guardedShell,
     };
 
     if (proc.status === 'running' && proc.childProcess) {
@@ -130,30 +134,46 @@ export class ProcessManager {
   }
 
   private doSpawn(config: SpawnConfig, existingCrashTimestamps: number[]): InternalProcess {
-    const { targetId, profileId, command, runAsUser, agentHome, env = {}, gatewayPort } = config;
+    const { targetId, profileId, command, runAsUser, agentHome, env = {}, gatewayPort, guardedShell } = config;
 
-    // Build shell command that sources NVM and runs the gateway
-    const nvmSh = `${agentHome}/.nvm/nvm.sh`;
-    const shellCmd = [
-      `source "${nvmSh}" 2>/dev/null || true`,
-      command,
-    ].join(' && ');
+    let child: ChildProcess;
+
+    if (guardedShell) {
+      // Guarded shell mode — the shell's ZDOTDIR .zshenv handles NVM/PATH/HOME setup.
+      // Only pass gateway-specific env vars (AGENSHIELD_*, port overrides, etc.)
+      const envStr = Object.entries(env)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' ');
+
+      const shellCmd = envStr ? `${envStr} ${command}` : command;
+
+      child = spawn('sudo', ['-H', '-u', runAsUser, guardedShell, '-c', shellCmd], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: false,
+      });
+    } else {
+      // Legacy fallback — plain bash with NVM sourcing
+      const nvmSh = `${agentHome}/.nvm/nvm.sh`;
+      const shellCmd = [
+        `source "${nvmSh}" 2>/dev/null || true`,
+        command,
+      ].join(' && ');
+
+      const legacyEnvStr = Object.entries({ HOME: agentHome, NVM_DIR: `${agentHome}/.nvm`, ...env })
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' ');
+
+      child = spawn('sudo', ['-H', '-u', runAsUser, 'bash', '-c', `${legacyEnvStr} bash -c '${shellCmd.replace(/'/g, "'\\''")}'`], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: false,
+      });
+    }
 
     const fullEnv: Record<string, string> = {
       HOME: agentHome,
       NVM_DIR: `${agentHome}/.nvm`,
       ...env,
     };
-
-    // Build env string for sudo
-    const envStr = Object.entries(fullEnv)
-      .map(([k, v]) => `${k}=${v}`)
-      .join(' ');
-
-    const child = spawn('sudo', ['-u', runAsUser, 'bash', '-c', `${envStr} bash -c '${shellCmd.replace(/'/g, "'\\''")}'`], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
-    });
 
     const proc: InternalProcess = {
       targetId,
@@ -167,6 +187,7 @@ export class ProcessManager {
       restartCount: existingCrashTimestamps.length,
       env: fullEnv,
       gatewayPort,
+      guardedShell,
       crashTimestamps: existingCrashTimestamps,
     };
 
@@ -241,6 +262,7 @@ export class ProcessManager {
 
     proc.status = 'stopped';
     const child = proc.childProcess;
+    const rootPid = child.pid ?? null;
     proc.childProcess = null;
 
     return new Promise<void>((resolve) => {
@@ -249,32 +271,97 @@ export class ProcessManager {
       const cleanup = () => {
         if (resolved) return;
         resolved = true;
+        // Final sweep 1s after the root exits to catch straggler grandchildren
+        if (rootPid) {
+          setTimeout(() => {
+            this.killProcessTree(rootPid, 'SIGKILL');
+          }, 1_000);
+        }
         resolve();
       };
 
       child.on('exit', cleanup);
 
-      // Send SIGTERM
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        // Process may already be dead
-        cleanup();
-        return;
+      // Phase 1: SIGTERM the entire process tree
+      if (rootPid) {
+        this.killProcessTree(rootPid, 'SIGTERM');
+      } else {
+        try { child.kill('SIGTERM'); } catch { /* already dead */ }
       }
 
-      // Escalate to SIGKILL after timeout
+      // Phase 2: Escalate to SIGKILL after timeout
       setTimeout(() => {
         if (!resolved) {
-          try {
-            child.kill('SIGKILL');
-          } catch {
-            // Already dead
+          if (rootPid) {
+            this.killProcessTree(rootPid, 'SIGKILL');
           }
+          // Last-resort: kill by user + command pattern
+          this.killUserGatewayProcesses(proc.runAsUser, 'SIGKILL');
           cleanup();
         }
       }, SIGTERM_TIMEOUT_MS);
     });
+  }
+
+  /**
+   * Recursively collect all descendant PIDs of a given process via `pgrep -P`.
+   */
+  private collectDescendants(pid: number): number[] {
+    const descendants: number[] = [];
+    try {
+      const output = execSync(`pgrep -P ${pid} 2>/dev/null`, {
+        encoding: 'utf-8',
+        timeout: 5_000,
+      });
+      for (const line of output.trim().split('\n')) {
+        const childPid = parseInt(line.trim(), 10);
+        if (!isNaN(childPid) && childPid > 0) {
+          descendants.push(childPid);
+          // Recurse into grandchildren
+          descendants.push(...this.collectDescendants(childPid));
+        }
+      }
+    } catch {
+      // pgrep returns exit code 1 when no children found — expected
+    }
+    return descendants;
+  }
+
+  /**
+   * Kill a process and all its descendants. Sends signal to leaves first, then root.
+   */
+  private killProcessTree(pid: number, signal: NodeJS.Signals): void {
+    const descendants = this.collectDescendants(pid);
+    // Kill deepest-first (reverse order since collectDescendants is depth-first)
+    for (const childPid of descendants.reverse()) {
+      try {
+        process.kill(childPid, signal);
+      } catch {
+        // Process already dead
+      }
+    }
+    // Kill root
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // Process already dead
+    }
+  }
+
+  /**
+   * Last-resort fallback: kill all openclaw gateway processes owned by the agent user.
+   */
+  private killUserGatewayProcesses(runAsUser: string, signal: NodeJS.Signals): void {
+    if (!runAsUser) return;
+    const sigName = signal === 'SIGKILL' ? 'KILL' : 'TERM';
+    try {
+      execSync(
+        `pkill -${sigName} -u ${runAsUser} -f 'openclaw.*gateway' 2>/dev/null || true`,
+        { encoding: 'utf-8', timeout: 5_000 },
+      );
+    } catch {
+      // pkill failed — best effort
+    }
   }
 
   private toPublic(proc: InternalProcess): ManagedProcess {
@@ -289,6 +376,7 @@ export class ProcessManager {
       restartCount: proc.restartCount,
       env: proc.env,
       gatewayPort: proc.gatewayPort,
+      guardedShell: proc.guardedShell,
     };
   }
 }

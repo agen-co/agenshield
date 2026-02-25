@@ -9,7 +9,7 @@
  * Auth-gated actions: "Shield New Target" and target actions require authentication.
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useSnapshot } from 'valtio';
 import { useTheme } from '@mui/material/styles';
 import { Plus, ArrowLeft } from 'lucide-react';
@@ -19,7 +19,6 @@ import { useSecurity } from '../../../../api/hooks';
 import { useProfiles } from '../../../../api/hooks';
 import { eventStore } from '../../../../state/events';
 import { setupPanelStore, resetSetupPanel, markShieldComplete, mergeDetectedTargets } from '../../../../state/setup-panel';
-import { useAuth } from '../../../../context/AuthContext';
 import { useTargets } from '../../../../api/targets';
 import type { SystemPanelProps, SystemPanelMode } from './SystemPanel.types';
 import type { ShieldProgressEntry } from '../../../../state/setup-panel';
@@ -51,8 +50,6 @@ import { ScanResultsStep } from '../SetupPanel/steps/ScanResultsStep';
 import { ConfigureStep } from '../SetupPanel/steps/ConfigureStep';
 import { ShieldingStep } from '../SetupPanel/steps/ShieldingStep';
 import { CompleteStep } from '../SetupPanel/steps/CompleteStep';
-import { PasscodeStep } from '../SetupPanel/steps/PasscodeStep';
-import { setWingsForceOpen } from '../../../../state/system-store';
 
 type SetupStep = 'scan-results' | 'configure' | 'shielding' | 'complete';
 
@@ -89,10 +86,6 @@ export function SystemPanel({ open, onShieldComplete }: SystemPanelProps) {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
 
-  // Auth
-  const { authenticated, passcodeSet, loaded } = useAuth();
-  const prevAuthRef = useRef(authenticated);
-
   // Panel mode
   const [mode, setMode] = useState<SystemPanelMode>('status');
 
@@ -117,26 +110,6 @@ export function SystemPanel({ open, onShieldComplete }: SystemPanelProps) {
   const activeOps = Object.entries(panelState.shieldProgress)
     .filter(([, entry]) => entry.status === 'in_progress')
     .map(([targetId, entry]) => ({ targetId, ...entry }));
-
-  // Auth expiration: revert to status mode if auth drops
-  useEffect(() => {
-    if (prevAuthRef.current && !authenticated && (mode === 'setup' || mode === 'passcode')) {
-      setMode('status');
-      setCurrentStep('scan-results');
-      setSelectedTargetId(null);
-    }
-    prevAuthRef.current = authenticated;
-  }, [authenticated, mode]);
-
-  // When passcode not yet set, show passcode step (guard with `loaded` to avoid flash)
-  useEffect(() => {
-    if (!loaded) return;
-    if (!passcodeSet) {
-      setMode('passcode');
-    } else if (mode === 'passcode') {
-      setMode('status');
-    }
-  }, [passcodeSet, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Watch preSelectedTargetId to allow external code to trigger setup mode
   useEffect(() => {
@@ -271,20 +244,6 @@ export function SystemPanel({ open, onShieldComplete }: SystemPanelProps) {
     setCurrentStep('scan-results');
     setSelectedTargetId(null);
   }, []);
-
-  // Passcode mode render — first-time setup
-  if (mode === 'passcode') {
-    return (
-      <PanelRoot $open={open}>
-        <SetupBody>
-          <PasscodeStep
-            onComplete={() => setMode('status')}
-            onTyping={() => setWingsForceOpen(true)}
-          />
-        </SetupBody>
-      </PanelRoot>
-    );
-  }
 
   // Setup mode render
   if (mode === 'setup') {
@@ -483,8 +442,8 @@ export function SystemPanel({ open, onShieldComplete }: SystemPanelProps) {
         </MetricRow>
       </SectionCard>
 
-      {/* Shield New Target — auth-gated */}
-      <ShieldButton onClick={authenticated ? handleEnterSetup : undefined} disabled={!authenticated}>
+      {/* Shield New Target */}
+      <ShieldButton onClick={handleEnterSetup}>
         <Plus size={14} />
         Shield New Target
       </ShieldButton>

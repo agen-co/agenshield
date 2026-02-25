@@ -258,6 +258,8 @@ export {
   generateRouterWrapper,
   buildInstallRouterCommands,
   buildRemoveRouterCommands,
+  buildInstallUserLocalRouterCommands,
+  buildRemoveUserLocalRouterCommands,
   findOriginalBinary,
   isRouterWrapper,
   scanForRouterWrappers,

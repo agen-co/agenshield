@@ -8,8 +8,6 @@
 import * as crypto from 'node:crypto';
 import type { PasscodeData } from '@agenshield/ipc';
 import { getVault } from '../vault';
-import { loadState, updatePasscodeProtectionState } from '../state';
-import { DEFAULT_AUTH_CONFIG } from '@agenshield/ipc';
 
 // PBKDF2 configuration
 const ITERATIONS = 100000;
@@ -106,90 +104,6 @@ export async function checkPasscode(passcode: string): Promise<boolean> {
   }
 
   return verifyPasscode(passcode, passcodeData.hash);
-}
-
-/**
- * Check if protection is enabled.
- * Defaults to true (secure-by-default) when no state exists yet,
- * so the UI shows the passcode setup dialog on first launch.
- */
-export function isProtectionEnabled(): boolean {
-  const state = loadState();
-  return state.passcodeProtection?.enabled ?? true;
-}
-
-/**
- * Enable or disable passcode protection
- */
-export function setProtectionEnabled(enabled: boolean): void {
-  updatePasscodeProtectionState({ enabled });
-}
-
-/**
- * Check if anonymous read-only access is allowed
- * Returns true by default if not explicitly set
- */
-export function isAnonymousReadOnlyAllowed(): boolean {
-  const state = loadState();
-  return state.passcodeProtection?.allowAnonymousReadOnly ?? true;
-}
-
-/**
- * Set anonymous read-only access
- */
-export function setAnonymousReadOnly(allowed: boolean): void {
-  updatePasscodeProtectionState({ allowAnonymousReadOnly: allowed });
-}
-
-/**
- * Check if authentication is locked out
- */
-export function isLockedOut(): { locked: boolean; lockedUntil?: string } {
-  const state = loadState();
-  const protection = state.passcodeProtection;
-
-  if (!protection?.lockedUntil) {
-    return { locked: false };
-  }
-
-  const lockoutEnd = new Date(protection.lockedUntil).getTime();
-  if (Date.now() >= lockoutEnd) {
-    // Lockout has expired, clear it
-    updatePasscodeProtectionState({ lockedUntil: undefined, failedAttempts: 0 });
-    return { locked: false };
-  }
-
-  return { locked: true, lockedUntil: protection.lockedUntil };
-}
-
-/**
- * Record a failed authentication attempt
- * Returns the number of remaining attempts before lockout
- */
-export function recordFailedAttempt(): number {
-  const state = loadState();
-  const protection = state.passcodeProtection || { enabled: true };
-  const currentAttempts = (protection.failedAttempts || 0) + 1;
-
-  if (currentAttempts >= DEFAULT_AUTH_CONFIG.maxFailedAttempts) {
-    // Lock out the account
-    const lockedUntil = new Date(Date.now() + DEFAULT_AUTH_CONFIG.lockoutDurationMs).toISOString();
-    updatePasscodeProtectionState({
-      failedAttempts: currentAttempts,
-      lockedUntil,
-    });
-    return 0;
-  }
-
-  updatePasscodeProtectionState({ failedAttempts: currentAttempts });
-  return DEFAULT_AUTH_CONFIG.maxFailedAttempts - currentAttempts;
-}
-
-/**
- * Clear failed attempts on successful authentication
- */
-export function clearFailedAttempts(): void {
-  updatePasscodeProtectionState({ failedAttempts: 0, lockedUntil: undefined });
 }
 
 /**

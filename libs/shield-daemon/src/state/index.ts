@@ -5,7 +5,7 @@
  * Falls back to defaults when no state row exists yet.
  */
 
-import type { SystemState, AgenCoState, DaemonState, UserState, GroupState, InstallationState, PasscodeProtectionState, SetupState } from '@agenshield/ipc';
+import type { SystemState, AgenCoState, DaemonState, UserState, GroupState, InstallationState, SetupState } from '@agenshield/ipc';
 import { DEFAULT_PORT } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 
@@ -96,15 +96,6 @@ export function saveState(state: SystemState): void {
     seatbeltInstalled: state.installation.seatbeltInstalled,
   });
 
-  if (state.passcodeProtection) {
-    repo.updatePasscode({
-      enabled: state.passcodeProtection.enabled,
-      allowAnonymousReadOnly: state.passcodeProtection.allowAnonymousReadOnly,
-      failedAttempts: state.passcodeProtection.failedAttempts,
-      lockedUntil: state.passcodeProtection.lockedUntil ?? null,
-    });
-  }
-
   if (state.setup) {
     repo.updateSetup({
       completed: state.setup.completed,
@@ -155,9 +146,6 @@ export function updateState(updates: Partial<SystemState>): SystemState {
   if (updates.installation) {
     updated.installation = { ...current.installation, ...updates.installation };
   }
-  if (updates.passcodeProtection) {
-    updated.passcodeProtection = { ...current.passcodeProtection, ...updates.passcodeProtection };
-  }
   if (updates.setup) {
     updated.setup = { ...current.setup, ...updates.setup };
   }
@@ -200,26 +188,6 @@ export function updateInstallationState(updates: Partial<InstallationState>): Sy
     // Storage not initialized — no-op
   }
   return loadState();
-}
-
-/**
- * Update passcode protection state
- */
-export function updatePasscodeProtectionState(updates: Partial<PasscodeProtectionState>): SystemState {
-  try {
-    getStorage().state.updatePasscode(updates);
-  } catch {
-    // Storage not initialized — no-op
-  }
-  return loadState();
-}
-
-/**
- * Get passcode protection state
- */
-export function getPasscodeProtectionState(): PasscodeProtectionState | undefined {
-  const current = loadState();
-  return current.passcodeProtection;
 }
 
 /**

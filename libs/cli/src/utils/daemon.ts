@@ -705,12 +705,26 @@ export async function stopDaemon(): Promise<{
 
     cleanupAllPidFiles();
 
-    // Verify the port is actually free
+    // Verify the port is actually free — kill leftover if needed
     const leftover = findDaemonPidByPort(DAEMON_CONFIG.PORT);
     if (leftover) {
+      const killed = await killAndWait(leftover);
+      if (!killed) {
+        return {
+          success: false,
+          message: `Daemon stopped via launchd (PID ${status.pid}), but process ${leftover} is still using port ${DAEMON_CONFIG.PORT} and could not be killed`,
+        };
+      }
+      const stillHeld = findDaemonPidByPort(DAEMON_CONFIG.PORT);
+      if (stillHeld) {
+        return {
+          success: false,
+          message: `Port ${DAEMON_CONFIG.PORT} still in use by PID ${stillHeld} after killing ${leftover}`,
+        };
+      }
       return {
         success: true,
-        message: `Daemon stopped via launchd (PID ${status.pid}), but another process (PID ${leftover}) is still using port ${DAEMON_CONFIG.PORT}`,
+        message: `Daemon stopped via launchd (killed leftover PID ${leftover})`,
       };
     }
 
@@ -734,12 +748,26 @@ export async function stopDaemon(): Promise<{
         };
       }
 
-      // Verify the port is free
+      // Verify the port is free — kill leftover if needed
       const leftover = findDaemonPidByPort(DAEMON_CONFIG.PORT);
       if (leftover) {
+        const leftoverKilled = await killAndWait(leftover);
+        if (!leftoverKilled) {
+          return {
+            success: false,
+            message: `Daemon stopped (PID ${status.pid}), but process ${leftover} is still using port ${DAEMON_CONFIG.PORT} and could not be killed`,
+          };
+        }
+        const stillHeld = findDaemonPidByPort(DAEMON_CONFIG.PORT);
+        if (stillHeld) {
+          return {
+            success: false,
+            message: `Port ${DAEMON_CONFIG.PORT} still in use by PID ${stillHeld} after killing ${leftover}`,
+          };
+        }
         return {
           success: true,
-          message: `Daemon stopped (PID ${status.pid}), but another process (PID ${leftover}) is still using port ${DAEMON_CONFIG.PORT}`,
+          message: `Daemon stopped (PID ${status.pid}, killed leftover PID ${leftover})`,
         };
       }
 
@@ -780,6 +808,19 @@ export async function stopDaemon(): Promise<{
     success: false,
     message: 'Could not determine daemon PID. Try: pkill -f agenshield-daemon',
   };
+}
+
+/**
+ * Read the admin JWT token written by the daemon at startup.
+ * Returns null if the file doesn't exist or can't be read.
+ */
+export function readAdminToken(): string | null {
+  const tokenPath = '/var/run/agenshield/.admin-token';
+  try {
+    return fs.readFileSync(tokenPath, 'utf-8').trim();
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -4,6 +4,12 @@
 
 import { registerEventTypes } from './event-registry';
 
+export interface AgentProcessInfo {
+  pid: number;
+  elapsed: string;
+  command: string;
+}
+
 export interface TargetStatusInfo {
   id: string;
   name: string;
@@ -14,6 +20,7 @@ export interface TargetStatusInfo {
   binaryPath?: string;
   gatewayPort?: number;
   pid?: number;
+  processes?: AgentProcessInfo[];
 }
 
 export interface TargetStatusPayload {

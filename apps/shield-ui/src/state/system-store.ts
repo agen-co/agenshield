@@ -38,7 +38,7 @@ export interface TargetMetricsSnapshot {
   memPercent: number;
 }
 
-const MAX_HISTORY = 150; // 150 * 2s = 5 min
+const MAX_HISTORY = 900; // 900 * 2s = 30 min
 
 export interface SystemStoreState {
   metrics: SystemMetrics;
@@ -47,7 +47,6 @@ export interface SystemStoreState {
   targetMetricsHistory: Record<string, TargetMetricsSnapshot[]>;
   components: Record<SystemComponentType, ComponentStatus>;
   wingsForceOpen: boolean;
-  focusShieldPasscode: boolean;
   panToShield: boolean;
   systemInfo: {
     hostname: string;
@@ -75,7 +74,6 @@ export const systemStore = proxy<SystemStoreState>({
   metricsHistory: [] as MetricsSnapshot[],
   targetMetricsHistory: {} as Record<string, TargetMetricsSnapshot[]>,
   wingsForceOpen: false,
-  focusShieldPasscode: false,
   panToShield: false,
   systemInfo: null,
   components: {
@@ -132,14 +130,9 @@ export function markMetricsLoaded(): void {
   systemStore.metricsLoaded = true;
 }
 
-/** Force wings open (e.g. after passcode setup) */
+/** Force wings open (e.g. during setup) */
 export function setWingsForceOpen(open: boolean): void {
   systemStore.wingsForceOpen = open;
-}
-
-/** Request focus on the shield passcode input */
-export function setFocusShieldPasscode(focus: boolean): void {
-  systemStore.focusShieldPasscode = focus;
 }
 
 /** Request panning to the shield node */

@@ -1,90 +1,66 @@
 /**
  * Authentication middleware
  *
+ * JWT-based authentication using @agenshield/auth.
  * Protects routes that require authentication.
  */
 
 import type { FastifyRequest, FastifyReply, FastifyInstance } from 'fastify';
-import { getStorage } from '@agenshield/storage';
-import { getSessionManager } from './session';
-import { isProtectionEnabled, isRunningAsRoot } from './passcode';
+import {
+  createJwtAuthHook,
+  extractBearerToken,
+  verifyToken,
+  type JwtPayload,
+} from '@agenshield/auth';
 
 /**
- * Check if the vault is currently unlocked.
- * Returns false if storage is not yet initialized or vault is locked.
- */
-export function isVaultUnlocked(): boolean {
-  try {
-    return getStorage().isUnlocked();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Extract token from request
- * Checks Authorization header first, then query parameter
+ * Extract token from request (Bearer header or query param)
  */
 export function extractToken(request: FastifyRequest): string | undefined {
-  // Check Authorization header: "Bearer <token>"
-  const authHeader = request.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    return authHeader.slice(7);
-  }
-
-  // Check query parameter (for SSE connections)
-  const query = request.query as Record<string, string>;
-  if (query?.token) {
-    return query.token;
-  }
-
-  return undefined;
+  return extractBearerToken(request);
 }
 
 /**
- * Check if request is authenticated
- * Returns true if:
- * - Protection is disabled
- * - Running as root (bypass)
- * - Valid session token provided
+ * Check if request is authenticated via JWT.
+ * Returns true if a valid JWT is present on the request.
  */
-export function isAuthenticated(request: FastifyRequest): boolean {
-  // Root bypass
-  if (isRunningAsRoot()) {
-    return true;
-  }
-
-  // Protection disabled
-  if (!isProtectionEnabled()) {
-    return true;
-  }
-
-  // Check for valid session
+export async function isAuthenticated(request: FastifyRequest): Promise<boolean> {
   const token = extractToken(request);
-  if (!token) {
-    return false;
-  }
+  if (!token) return false;
 
-  const sessionManager = getSessionManager();
-  const session = sessionManager.validateSession(token);
-  return session !== undefined;
+  const result = await verifyToken(token);
+  return result.valid;
 }
 
 /**
- * Authentication preHandler hook
- * Use this on routes that require authentication
+ * Get the JWT payload from a request (must be called after auth hook)
+ */
+export function getJwtPayload(request: FastifyRequest): JwtPayload | undefined {
+  return request.jwtPayload;
+}
+
+/**
+ * Authentication preHandler hook.
+ * Wraps the JWT auth hook from @agenshield/auth.
+ */
+export function createAuthHook() {
+  return createJwtAuthHook();
+}
+
+/**
+ * Require authentication — preHandler hook that returns 401 if not authenticated
  */
 export async function requireAuth(
   request: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ): Promise<void> {
-  if (!isAuthenticated(request)) {
+  const authenticated = await isAuthenticated(request);
+  if (!authenticated) {
     reply.code(401).send({
       success: false,
       error: 'Authentication required',
       code: 'UNAUTHORIZED',
     });
-    return;
   }
 }
 
@@ -92,83 +68,8 @@ export async function requireAuth(
  * Decorate Fastify instance with auth utilities
  */
 export function decorateWithAuth(app: FastifyInstance): void {
-  // Add request decorator to check if authenticated
-  app.decorateRequest('isAuthenticated', false);
-
-  // Add hook to set isAuthenticated on each request
-  app.addHook('preHandler', async (request) => {
-    (request as FastifyRequest & { isAuthenticated: boolean }).isAuthenticated = isAuthenticated(request);
-  });
+  app.decorateRequest('jwtPayload', undefined);
 }
 
-/**
- * Routes that should always be public (no auth required)
- */
-export const PUBLIC_ROUTES = [
-  '/api/health',
-  '/api/status',
-  '/api/config', // GET is public, PUT is protected
-  '/api/security',
-  '/api/secrets', // GET is public (read-only), POST/DELETE are protected
-  '/api/auth/status',
-  '/api/auth/unlock',
-  '/api/auth/setup',
-  '/api/auth/change',
-];
-
-/**
- * Routes that require authentication when protection is enabled
- */
-export const PROTECTED_ROUTES = [
-  { method: 'PUT', path: '/api/config' },
-  { method: 'POST', path: '/api/wrappers' },
-  { method: 'PUT', path: '/api/wrappers' },
-  { method: 'DELETE', path: '/api/wrappers' },
-  { method: 'POST', path: '/api/agenco/tool/run' },
-  { method: 'POST', path: '/api/agenco/integrations/connect' },
-  { method: 'POST', path: '/api/secrets' },
-  { method: 'PATCH', path: '/api/secrets' },
-  { method: 'DELETE', path: '/api/secrets' },
-  { method: 'POST', path: '/api/config/factory-reset' },
-  { method: 'POST', path: '/api/skills/install' },
-  { method: 'GET', path: '/api/openclaw/dashboard-url' },
-  { method: 'GET', path: '/api/config/openclaw' },
-  { method: 'GET', path: '/api/config/openclaw/diff' },
-  { method: 'GET', path: '/api/config/policies/instructions' },
-  { method: 'GET', path: '/api/logs/stream' },
-];
-
-/**
- * Check if a request matches a protected route
- */
-export function isProtectedRoute(method: string, path: string): boolean {
-  return PROTECTED_ROUTES.some(
-    (route) => route.method === method && path.startsWith(route.path)
-  );
-}
-
-/**
- * Global auth hook for selective route protection
- * Applies auth check to protected routes only
- */
-export function createAuthHook() {
-  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    const method = request.method;
-    const path = request.url.split('?')[0]; // Remove query string
-
-    // Skip auth for non-protected routes
-    if (!isProtectedRoute(method, path)) {
-      return;
-    }
-
-    // Check authentication
-    if (!isAuthenticated(request)) {
-      reply.code(401).send({
-        success: false,
-        error: 'Authentication required',
-        code: 'UNAUTHORIZED',
-      });
-      return;
-    }
-  };
-}
+// Re-export for convenience
+export { extractBearerToken, verifyToken } from '@agenshield/auth';

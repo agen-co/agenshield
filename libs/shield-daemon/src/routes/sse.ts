@@ -4,7 +4,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { daemonEvents, emitDaemonStatus, type DaemonEvent } from '../events/emitter';
-import { isAuthenticated, isVaultUnlocked } from '../auth/middleware';
+import { isAuthenticated } from '../auth/middleware';
 import { buildDaemonStatus } from './status';
 
 /**
@@ -36,9 +36,8 @@ const ALWAYS_FULL_PREFIXES = ['skills:', 'exec:', 'interceptor:', 'security:', '
 /**
  * Determine whether to send full event data.
  *
- * The check is performed per-event (not per-connection) so that when
- * the vault auto-locks, even previously-authenticated SSE connections
- * immediately start receiving stripped data for sensitive events.
+ * Authenticated users always receive full data.
+ * Anonymous users receive full data only for non-sensitive event prefixes.
  */
 function shouldSendFull(event: DaemonEvent, authenticated: boolean): boolean {
   // Heartbeat and daemon status are always sent in full
@@ -46,16 +45,9 @@ function shouldSendFull(event: DaemonEvent, authenticated: boolean): boolean {
   // Lock event is always sent in full so UI can react
   if (event.type === 'security:locked') return true;
 
-  if (!authenticated) {
-    return ALWAYS_FULL_PREFIXES.some(p => event.type.startsWith(p));
-  }
+  if (authenticated) return true;
 
-  // Authenticated but vault locked → strip sensitive events (same as anonymous)
-  if (!isVaultUnlocked()) {
-    return ALWAYS_FULL_PREFIXES.some(p => event.type.startsWith(p));
-  }
-
-  return true;
+  return ALWAYS_FULL_PREFIXES.some(p => event.type.startsWith(p));
 }
 
 /**
@@ -94,9 +86,9 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
     reply.raw.write(formatSSE(statusEvent));
 
     // Subscribe to events — auth check is dynamic per event
-    const unsubscribe = daemonEvents.subscribe((event) => {
+    const unsubscribe = daemonEvents.subscribe(async (event) => {
       try {
-        const currentlyAuth = isAuthenticated(request);
+        const currentlyAuth = await isAuthenticated(request);
         if (shouldSendFull(event, currentlyAuth)) {
           reply.raw.write(formatSSE(event));
         } else {
@@ -161,11 +153,11 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
     reply.raw.write(formatSSE(connectEvent));
 
     // Subscribe to filtered events — auth check is dynamic per event
-    const unsubscribe = daemonEvents.subscribe((event) => {
+    const unsubscribe = daemonEvents.subscribe(async (event) => {
       // Filter events by prefix match
       if (event.type.startsWith(filter) || event.type === 'heartbeat' || event.type === 'daemon:status') {
         try {
-          const currentlyAuth = isAuthenticated(request);
+          const currentlyAuth = await isAuthenticated(request);
           if (shouldSendFull(event, currentlyAuth)) {
             reply.raw.write(formatSSE(event));
           } else {

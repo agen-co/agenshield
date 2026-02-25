@@ -103,24 +103,49 @@ export class DaemonDeployAdapter implements DeployAdapter {
           throw new Error('Broker failed to install skill files');
         }
       } else {
-        // Fallback: direct fs operations with sudo
-        await sudoMkdir(destDir, agentUsername);
-        for (const file of processedFiles) {
-          const filePath = path.join(destDir, file.relativePath);
-          await sudoMkdir(path.dirname(filePath), agentUsername);
-          await sudoWriteFile(filePath, file.content, agentUsername);
-        }
+        // Fallback: try sudo first, then direct filesystem writes
+        let deployed = false;
 
-        // Set ownership
+        // Attempt sudo-based deployment
         try {
-          execSync(`chown -R root:${this.socketGroup} "${destDir}"`, { stdio: 'pipe' });
-          execSync(`chmod -R a+rX,go-w "${destDir}"`, { stdio: 'pipe' });
+          await sudoMkdir(destDir, agentUsername);
+          for (const file of processedFiles) {
+            const filePath = path.join(destDir, file.relativePath);
+            await sudoMkdir(path.dirname(filePath), agentUsername);
+            await sudoWriteFile(filePath, file.content, agentUsername);
+          }
+          deployed = true;
+
+          // Set ownership
+          try {
+            execSync(`chown -R root:${this.socketGroup} "${destDir}"`, { stdio: 'pipe' });
+            execSync(`chmod -R a+rX,go-w "${destDir}"`, { stdio: 'pipe' });
+          } catch {
+            // May fail if not root — acceptable in development
+          }
+
+          await createSkillWrapper(skill.slug, this.binDir);
         } catch {
-          // May fail if not root — acceptable in development
+          // sudo not available or failed
         }
 
-        // Create wrapper
-        await createSkillWrapper(skill.slug, this.binDir);
+        // Last resort: direct filesystem writes (daemon process user permissions)
+        if (!deployed) {
+          try {
+            fs.mkdirSync(destDir, { recursive: true });
+            for (const file of processedFiles) {
+              const filePath = path.join(destDir, file.relativePath);
+              fs.mkdirSync(path.dirname(filePath), { recursive: true });
+              fs.writeFileSync(filePath, file.content, 'utf-8');
+            }
+            this.createDevWrapper(skill.slug);
+          } catch (err) {
+            throw new Error(
+              `Cannot deploy skill "${skill.slug}": broker socket not found, sudo failed, and no direct filesystem access to ${destDir}`,
+              { cause: err },
+            );
+          }
+        }
       }
     }
 

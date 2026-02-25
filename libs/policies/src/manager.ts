@@ -32,6 +32,9 @@ export class PolicyManager {
   /** The compiled engine — rebuilt on every policy change */
   private engine: CompiledPolicyEngine;
 
+  /** Cache of profile-scoped engines keyed by profileId */
+  private profileEngines = new Map<string, { engine: CompiledPolicyEngine; version: number }>();
+
   private readonly storage: Storage;
   private readonly options: PolicyManagerOptions;
 
@@ -57,7 +60,10 @@ export class PolicyManager {
    * which triggers a live graph evaluation against the vault.
    */
   evaluate(input: EvaluationInput & { resolveSecrets?: boolean }): EvaluationResult {
-    const result = this.engine.evaluate(input);
+    const engine = input.profileId
+      ? this.getProfileEngine(input.profileId)
+      : this.engine;
+    const result = engine.evaluate(input);
 
     // If caller wants full graph effects with secret injection, do live eval
     if (input.resolveSecrets && result.policyId) {
@@ -152,6 +158,7 @@ export class PolicyManager {
   /** Force recompile (e.g., after graph changes, hierarchy updates, or daemon restart) */
   recompile(): void {
     this.engine = this.compileEngine();
+    this.profileEngines.clear();
   }
 
   /** Get the current engine version (for cache invalidation / debugging) */
@@ -165,6 +172,20 @@ export class PolicyManager {
   }
 
   // ---- Internal ----
+
+  /**
+   * Get or compile a profile-scoped engine (includes both global and profile policies).
+   * Cached per profileId, invalidated on recompile().
+   */
+  private getProfileEngine(profileId: string): CompiledPolicyEngine {
+    const cached = this.profileEngines.get(profileId);
+    if (cached && cached.version === this.engine.version) {
+      return cached.engine;
+    }
+    const engine = this.compileEngine({ profileId });
+    this.profileEngines.set(profileId, { engine, version: this.engine.version });
+    return engine;
+  }
 
   private compileEngine(scope?: ScopeFilter): CompiledPolicyEngine {
     const scoped = scope ? this.storage.for(scope) : undefined;

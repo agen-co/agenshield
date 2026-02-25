@@ -3,7 +3,6 @@
  */
 
 import * as os from 'node:os';
-import * as crypto from 'node:crypto';
 import {
   checkPrerequisites,
   createUserConfig,
@@ -56,7 +55,7 @@ import {
   OPENCLAW_DAEMON_PLIST,
   OPENCLAW_GATEWAY_PLIST,
 } from '@agenshield/integrations';
-import type { OriginalInstallation, MigratedPaths, SandboxUserInfo, UserConfig, PasscodeData } from '@agenshield/ipc';
+import type { OriginalInstallation, MigratedPaths, SandboxUserInfo, UserConfig } from '@agenshield/ipc';
 import type {
   WizardStep,
   WizardState,
@@ -104,7 +103,7 @@ export interface WizardEngine {
   runSetupPhase(): Promise<void>;
   /** Run migration phase (select-items + migrate + verify) - called after user makes selection */
   runMigrationPhase(): Promise<void>;
-  /** Run final phase (setup-passcode and complete) - called after passcode UI */
+  /** Run final phase (open-dashboard and complete) */
   runFinalPhase(): Promise<void>;
 }
 
@@ -1734,75 +1733,6 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     return { success: true };
   },
 
-  'setup-passcode': async (context) => {
-    // Check if user chose to skip
-    if (context.passcodeSetup?.skipped) {
-      context.passcodeSetup = { configured: false, skipped: true };
-      return { success: true };
-    }
-
-    // Check if passcode value was provided by the UI
-    if (!context.passcodeValue) {
-      // No passcode provided - skip (user declined in UI)
-      context.passcodeSetup = { configured: false, skipped: true };
-      return { success: true };
-    }
-
-    // Skip in dry-run mode
-    if (context.options?.dryRun) {
-      context.passcodeSetup = { configured: true, skipped: false };
-      // Clear the passcode from context
-      context.passcodeValue = undefined;
-      return { success: true };
-    }
-
-    try {
-      // Hash the passcode using PBKDF2 (same as daemon's auth/passcode.ts)
-      const ITERATIONS = 100000;
-      const KEY_LENGTH = 64;
-      const DIGEST = 'sha512';
-      const SALT_LENGTH = 16;
-
-      const salt = crypto.randomBytes(SALT_LENGTH);
-      const derivedKey = await new Promise<Buffer>((resolve, reject) => {
-        crypto.pbkdf2(context.passcodeValue!, salt, ITERATIONS, KEY_LENGTH, DIGEST, (err, key) => {
-          if (err) reject(err);
-          else resolve(key);
-        });
-      });
-
-      const hash = `${ITERATIONS}:${salt.toString('base64')}:${derivedKey.toString('base64')}`;
-
-      const passcodeData: PasscodeData = {
-        hash,
-        setAt: new Date().toISOString(),
-      };
-
-      // Save passcode to vault
-      const { getVault } = await import('@agenshield/daemon');
-      const vault = getVault();
-      await vault.set('passcode', passcodeData);
-
-      // Enable passcode protection in state
-      const { updatePasscodeProtectionState } = await import('@agenshield/daemon');
-      updatePasscodeProtectionState({ enabled: true });
-
-      context.passcodeSetup = { configured: true, skipped: false };
-
-      // Clear the passcode from context for security
-      context.passcodeValue = undefined;
-
-      return { success: true };
-    } catch (err) {
-      // Clear the passcode from context even on failure
-      context.passcodeValue = undefined;
-      return {
-        success: false,
-        error: `Failed to setup passcode: ${(err as Error).message}`,
-      };
-    }
-  },
-
   complete: async (_context) => {
     // Write initial migration state so `agenshield update` knows the base version
     try {
@@ -1934,11 +1864,11 @@ export function createWizardEngine(options?: WizardOptions): WizardEngine {
     /**
      * Run setup phase — all setup steps from confirm through complete.
      * Called after user confirms they want to proceed.
-     * Excludes: setup-passcode, open-dashboard, complete (handled by runFinalPhase).
+     * Excludes: open-dashboard, complete (handled by runFinalPhase).
      */
     async runSetupPhase() {
       const excludeFromSetup: WizardStepId[] = [
-        'setup-passcode', 'open-dashboard', 'complete',
+        'open-dashboard', 'complete',
       ];
 
       // Prompt for sudo credentials before privileged steps (skip in dry-run)
@@ -1972,11 +1902,10 @@ export function createWizardEngine(options?: WizardOptions): WizardEngine {
     },
 
     /**
-     * Run final phase (setup-passcode, open-dashboard, and complete)
-     * Called after the passcode UI has collected the passcode value
+     * Run final phase (open-dashboard and complete)
      */
     async runFinalPhase() {
-      const finalSteps: WizardStepId[] = ['setup-passcode', 'open-dashboard', 'complete'];
+      const finalSteps: WizardStepId[] = ['open-dashboard', 'complete'];
       await runSteps(state, context, finalSteps, engine.onStateChange);
 
       if (!state.hasError) {

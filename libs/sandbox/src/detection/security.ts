@@ -253,10 +253,18 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
   const processes = findProcessesByPatterns(allPatterns);
   // Filter out short-lived installer processes (npm install, node setup scripts) from unisolated list
   const INSTALLER_PATTERNS = ['npm ', 'npm install', 'node setup', 'node install', 'brew '];
+
+  // Detect sudo delegation: `sudo -u {sandboxUser}` wrappers run as root but
+  // correctly delegate to the agent user — not a security violation.
+  const isSudoDelegation = (proc: { user: string; command: string }) =>
+    proc.user === 'root' &&
+    sandboxUsers.some((u) => proc.command.includes(`-u ${u}`));
+
   const unIsolatedProcesses = processes.filter(
     (p) =>
       !sandboxUsers.includes(p.user) &&
-      !INSTALLER_PATTERNS.some((pat) => p.command.includes(pat)),
+      !INSTALLER_PATTERNS.some((pat) => p.command.includes(pat)) &&
+      !isSudoDelegation(p),
   );
   const isIsolated = sandboxUserExists && unIsolatedProcesses.length === 0;
 
@@ -276,7 +284,7 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
 
   if (unIsolatedProcesses.length > 0) {
     for (const proc of unIsolatedProcesses) {
-      warnings.push(`Target process running as user "${proc.user}" (PID ${proc.pid})`);
+      warnings.push(`Target process running as user "${proc.user}" (PID ${proc.pid}): ${proc.command}`);
     }
     recommendations.push('Stop unisolated processes and restart via sandbox');
   }

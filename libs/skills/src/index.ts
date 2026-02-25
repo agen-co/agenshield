@@ -23,6 +23,10 @@ export { CatalogService } from './catalog';
 export { LocalSearchAdapter, RemoteSearchAdapter } from './catalog';
 export type { SearchAdapter } from './catalog';
 
+// Download
+export { DownloadService } from './download';
+export type { DownloadParams, DownloadResult } from './download';
+
 // Install
 export { InstallService } from './install';
 export type { InstallParams } from './install';

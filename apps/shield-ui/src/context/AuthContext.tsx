@@ -1,124 +1,147 @@
 /**
  * Authentication context provider
  *
- * Manages auth state, token storage, and automatic token refresh.
+ * JWT-based auth. Tokens arrive via:
+ *   1. URL hash (#access_token=<jwt>) — set by `agenshield start`
+ *   2. Sudo login from the browser lock screen
+ *
+ * Automatic token refresh is scheduled 2 minutes before expiry.
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import type { AuthStatusResponse } from '@agenshield/ipc';
 import { authApi } from '../api/auth';
 
 interface AuthState {
-  /** Whether auth status has been loaded */
+  /** Whether initial auth check has completed */
   loaded: boolean;
-  /** Whether a passcode has been set */
-  passcodeSet: boolean;
-  /** Whether protection is enabled */
-  protectionEnabled: boolean;
-  /** Whether anonymous read-only access is allowed (default: true) */
-  allowAnonymousReadOnly: boolean;
   /** Whether the user is currently authenticated */
   authenticated: boolean;
-  /** Current session token */
+  /** JWT token role */
+  role: 'admin' | 'broker' | null;
+  /** Current JWT token */
   token: string | null;
-  /** Token expiration timestamp */
+  /** Token expiration timestamp (ms) */
   expiresAt: number | null;
-  /** Whether account is locked out */
-  lockedOut: boolean;
-  /** When lockout expires */
-  lockedUntil: string | null;
   /** Error message */
   error: string | null;
 }
 
 interface AuthContextValue extends AuthState {
-  /** Unlock with passcode */
-  unlock: (passcode: string) => Promise<{ success: boolean; error?: string; remainingAttempts?: number }>;
-  /** Lock (invalidate session) */
-  lock: () => Promise<void>;
-  /** Setup initial passcode */
-  setup: (passcode: string) => Promise<{ success: boolean; error?: string }>;
-  /** Change passcode */
-  changePasscode: (oldPasscode: string, newPasscode: string) => Promise<{ success: boolean; error?: string }>;
+  /** Login with macOS sudo credentials */
+  loginWithSudo: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   /** Refresh auth status from server */
   refreshStatus: () => Promise<void>;
-  /** Check if we need authentication for protected actions */
-  requiresAuth: boolean;
-  /** Whether the UI should be fully blocked until authenticated */
-  requiresFullAuth: boolean;
-  /** Whether current session is read-only (not authenticated but anonymous access allowed) */
-  isReadOnly: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const SESSION_TOKEN_KEY = 'agenshield_session_token';
-const SESSION_EXPIRES_KEY = 'agenshield_session_expires';
+const SESSION_TOKEN_KEY = 'agenshield_jwt_token';
+const SESSION_EXPIRES_KEY = 'agenshield_jwt_expires';
+
+/**
+ * Consume JWT from URL hash (#access_token=<jwt>) and remove it from the URL.
+ */
+function consumeHashToken(): { token: string; expiresAt: number } | null {
+  if (typeof window === 'undefined') return null;
+  const hash = window.location.hash;
+  if (!hash) return null;
+
+  const params = new URLSearchParams(hash.slice(1));
+  const token = params.get('access_token');
+  if (!token) return null;
+
+  // Remove hash from URL without triggering navigation
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+
+  // Decode JWT payload to get expiry (base64url)
+  try {
+    const payloadB64 = token.split('.')[1];
+    if (!payloadB64) return null;
+    const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+    const expiresAt = payload.exp ? payload.exp * 1000 : Date.now() + 30 * 60 * 1000;
+    return { token, expiresAt };
+  } catch {
+    // If we can't decode, assume 30min TTL
+    return { token, expiresAt: Date.now() + 30 * 60 * 1000 };
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AuthState>({
-    loaded: false,
-    passcodeSet: false,
-    protectionEnabled: false,
-    allowAnonymousReadOnly: true,
-    authenticated: false,
-    token: null,
-    expiresAt: null,
-    lockedOut: false,
-    lockedUntil: null,
-    error: null,
+  const [state, setState] = useState<AuthState>(() => {
+    // Check URL hash first (highest priority)
+    const hashToken = consumeHashToken();
+    if (hashToken) {
+      sessionStorage.setItem(SESSION_TOKEN_KEY, hashToken.token);
+      sessionStorage.setItem(SESSION_EXPIRES_KEY, String(hashToken.expiresAt));
+      return {
+        loaded: false,
+        authenticated: true,
+        role: 'admin',
+        token: hashToken.token,
+        expiresAt: hashToken.expiresAt,
+        error: null,
+      };
+    }
+
+    // Restore from sessionStorage
+    const savedToken = sessionStorage.getItem(SESSION_TOKEN_KEY);
+    const savedExpires = sessionStorage.getItem(SESSION_EXPIRES_KEY);
+    if (savedToken && savedExpires) {
+      const expiresAt = parseInt(savedExpires, 10);
+      if (Date.now() < expiresAt) {
+        return {
+          loaded: false,
+          authenticated: true,
+          role: 'admin',
+          token: savedToken,
+          expiresAt,
+          error: null,
+        };
+      }
+      // Expired — clear
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      sessionStorage.removeItem(SESSION_EXPIRES_KEY);
+    }
+
+    return {
+      loaded: false,
+      authenticated: false,
+      role: null,
+      token: null,
+      expiresAt: null,
+      error: null,
+    };
   });
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Restore token from sessionStorage
-  useEffect(() => {
-    const savedToken = sessionStorage.getItem(SESSION_TOKEN_KEY);
-    const savedExpires = sessionStorage.getItem(SESSION_EXPIRES_KEY);
-
-    if (savedToken && savedExpires) {
-      const expiresAt = parseInt(savedExpires, 10);
-      if (Date.now() < expiresAt) {
-        setState((prev) => ({
-          ...prev,
-          token: savedToken,
-          expiresAt,
-          authenticated: true,
-        }));
-      } else {
-        // Token expired, clear it
-        sessionStorage.removeItem(SESSION_TOKEN_KEY);
-        sessionStorage.removeItem(SESSION_EXPIRES_KEY);
-      }
-    }
-  }, []);
-
-  // Listen for 401 responses from the API client to reset auth state
+  // Listen for 401 responses to reset auth state
   useEffect(() => {
     const handleExpired = () => {
       setState((prev) => ({
         ...prev,
         authenticated: false,
+        role: null,
         token: null,
         expiresAt: null,
       }));
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      sessionStorage.removeItem(SESSION_EXPIRES_KEY);
     };
     window.addEventListener('agenshield:auth-expired', handleExpired);
     return () => window.removeEventListener('agenshield:auth-expired', handleExpired);
   }, []);
 
-  // Fetch auth status from server
+  // Fetch auth status from server (validates current token)
   const refreshStatus = useCallback(async () => {
     try {
-      const status: AuthStatusResponse = await authApi.getStatus();
+      const status = await authApi.getStatus();
       setState((prev) => ({
         ...prev,
         loaded: true,
-        passcodeSet: status.passcodeSet,
-        protectionEnabled: status.protectionEnabled,
-        allowAnonymousReadOnly: status.allowAnonymousReadOnly ?? true,
-        lockedOut: status.lockedOut,
-        lockedUntil: status.lockedUntil || null,
+        authenticated: status.authenticated || prev.authenticated,
+        role: status.role ?? prev.role,
+        expiresAt: status.expiresAt ?? prev.expiresAt,
         error: null,
       }));
     } catch {
@@ -159,10 +182,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             sessionStorage.setItem(SESSION_EXPIRES_KEY, String(result.expiresAt));
           }
         } catch {
-          // Token refresh failed, mark as unauthenticated
+          // Token refresh failed — mark as unauthenticated
           setState((prev) => ({
             ...prev,
             authenticated: false,
+            role: null,
             token: null,
             expiresAt: null,
           }));
@@ -179,18 +203,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [state.token, state.expiresAt]);
 
-  const unlock = useCallback(async (passcode: string) => {
+  const loginWithSudo = useCallback(async (username: string, password: string) => {
     try {
-      const result = await authApi.unlock(passcode);
+      const result = await authApi.sudoLogin(username, password);
 
       if (result.success && result.token) {
         setState((prev) => ({
           ...prev,
           authenticated: true,
+          role: 'admin',
           token: result.token!,
           expiresAt: result.expiresAt!,
           error: null,
-          lockedOut: false,
         }));
         sessionStorage.setItem(SESSION_TOKEN_KEY, result.token);
         sessionStorage.setItem(SESSION_EXPIRES_KEY, String(result.expiresAt));
@@ -200,97 +224,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return {
         success: false,
         error: result.error || 'Authentication failed',
-        remainingAttempts: result.remainingAttempts,
       };
     } catch (err) {
-      const error = err as Error & { data?: { remainingAttempts?: number; error?: string } };
-      const errorMsg = error.data?.error || error.message || 'Authentication failed';
-
-      // Check if locked out
-      if ((err as Error & { status?: number }).status === 429) {
-        setState((prev) => ({ ...prev, lockedOut: true }));
-        await refreshStatus();
-      }
-
       return {
         success: false,
-        error: errorMsg,
-        remainingAttempts: error.data?.remainingAttempts,
+        error: (err as Error).message || 'Authentication failed',
       };
-    }
-  }, [refreshStatus]);
-
-  const lock = useCallback(async () => {
-    if (state.token) {
-      try {
-        await authApi.lock(state.token);
-      } catch {
-        // Ignore errors when locking
-      }
-    }
-
-    setState((prev) => ({
-      ...prev,
-      authenticated: false,
-      token: null,
-      expiresAt: null,
-    }));
-    sessionStorage.removeItem(SESSION_TOKEN_KEY);
-    sessionStorage.removeItem(SESSION_EXPIRES_KEY);
-  }, [state.token]);
-
-  const setup = useCallback(async (passcode: string) => {
-    try {
-      const result = await authApi.setup(passcode);
-      if (result.success) {
-        await refreshStatus();
-        // Automatically unlock after setup
-        return unlock(passcode);
-      }
-      return { success: false, error: result.error || 'Setup failed' };
-    } catch (err) {
-      return { success: false, error: (err as Error).message };
-    }
-  }, [refreshStatus, unlock]);
-
-  const changePasscode = useCallback(async (oldPasscode: string, newPasscode: string) => {
-    try {
-      const result = await authApi.change(oldPasscode, newPasscode);
-      if (result.success) {
-        // Session is cleared server-side, re-authenticate with new passcode
-        setState((prev) => ({
-          ...prev,
-          authenticated: false,
-          token: null,
-          expiresAt: null,
-        }));
-        sessionStorage.removeItem(SESSION_TOKEN_KEY);
-        sessionStorage.removeItem(SESSION_EXPIRES_KEY);
-        return { success: true };
-      }
-      return { success: false, error: result.error || 'Change failed' };
-    } catch (err) {
-      return { success: false, error: (err as Error).message };
     }
   }, []);
 
-  const requiresAuth = state.protectionEnabled && state.passcodeSet && !state.authenticated;
-  // Full auth required: protection enabled, no anonymous read-only, and not authenticated
-  const requiresFullAuth = requiresAuth && !state.allowAnonymousReadOnly;
-  // Read-only: protection enabled, authenticated is false, but anonymous read-only is allowed.
-  // Fail-closed: default to read-only until auth status is loaded to prevent button flicker.
-  const isReadOnly = !state.loaded || (state.protectionEnabled && state.passcodeSet && !state.authenticated && state.allowAnonymousReadOnly);
-
   const contextValue: AuthContextValue = {
     ...state,
-    unlock,
-    lock,
-    setup,
-    changePasscode,
+    loginWithSudo,
     refreshStatus,
-    requiresAuth,
-    requiresFullAuth,
-    isReadOnly,
   };
 
   return (

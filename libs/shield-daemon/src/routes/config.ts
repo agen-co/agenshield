@@ -15,7 +15,6 @@ import { loadConfig, loadScopedConfig, updateConfig, updateScopedConfig, saveCon
 import { getStorage } from '@agenshield/storage';
 import { getDefaultState, loadState, saveState } from '../state/index';
 import { getVault } from '../vault';
-import { getSessionManager } from '../auth/session';
 import { isAuthenticated } from '../auth/middleware';
 import { redactConfig } from '../auth/redact';
 import { syncFilesystemPolicyAcls } from '../acl';
@@ -63,7 +62,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
     const config = profileId ? loadScopedConfig(profileId) : loadConfig();
     return {
       success: true,
-      data: isAuthenticated(request) ? config : redactConfig(config),
+      data: (await isAuthenticated(request)) ? config : redactConfig(config),
     };
   });
 
@@ -203,9 +202,6 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
 
       // 3. Reset state to defaults
       saveState(getDefaultState());
-
-      // 4. Clear all active sessions
-      getSessionManager().clearAllSessions();
 
       return { success: true };
     } catch (error) {

@@ -206,6 +206,39 @@ export class Storage {
   }
 
   /**
+   * Unlock the vault with a raw encryption key (no passcode derivation).
+   * Used by the daemon's VaultKeyManager for automatic vault unlock.
+   */
+  unlockWithKey(key: Buffer): void {
+    this.encryptionKey = Buffer.from(key);
+  }
+
+  /**
+   * Initialize encryption with a raw key (first-time setup).
+   * Stores a sentinel in meta so `hasPasscode()` returns true,
+   * then sets the encryption key directly.
+   */
+  initEncryption(key: Buffer): void {
+    const now = new Date().toISOString();
+    const upsertMeta = this.db.prepare(
+      `INSERT OR REPLACE INTO ${META} (key, value) VALUES (@key, @value)`,
+    );
+
+    // Store a marker salt and dummy hash so hasPasscode() returns true
+    // and the vault is recognized as initialized
+    const markerSalt = Buffer.alloc(32, 0).toString('hex');
+    const markerHash = 'vault-key-managed';
+
+    this.db.transaction(() => {
+      upsertMeta.run({ key: META_KEYS.ENCRYPTION_SALT, value: markerSalt });
+      upsertMeta.run({ key: META_KEYS.PASSCODE_HASH, value: markerHash });
+      upsertMeta.run({ key: META_KEYS.PASSCODE_SET_AT, value: now });
+    })();
+
+    this.encryptionKey = Buffer.from(key);
+  }
+
+  /**
    * Lock the vault (clear encryption key from memory).
    */
   lock(): void {

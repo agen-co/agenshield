@@ -9,7 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ApiResponse, DetectedTarget } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 import { emitEvent } from '../events/emitter';
-import { triggerTargetCheck, checkProcessesRunning } from '../watchers/targets';
+import { triggerTargetCheck, checkProcessesRunning, checkOpenClawRunning, listClaudeProcesses, listOpenClawProcesses } from '../watchers/targets';
 import { ShieldLogger } from '../services/shield-logger';
 import { ShieldStepTracker } from '../services/shield-step-tracker';
 import { ManifestBuilder } from '../services/manifest-builder';
@@ -229,6 +229,7 @@ interface TargetInfo {
   binaryPath?: string;
   gatewayPort?: number;
   pid?: number;
+  processes?: import('@agenshield/ipc').AgentProcessInfo[];
 }
 
 // ── Route registration ──────────────────────────────────────────
@@ -259,41 +260,45 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         };
       });
 
-      // Check running status: primary signal is ps -u <agentUsername>,
-      // secondary is launchctl for broker status.
+      // Check running status using type-specific detection helpers.
       try {
         const { execSync } = await import('node:child_process');
         for (const target of results) {
-          if (target.shielded) {
-            try {
-              const matchedProfile = profiles.find((p: { id: string }) =>
-                p.id === target.id,
+          if (!target.shielded) continue;
+
+          try {
+            const matchedProfile = profiles.find((p: { id: string }) => p.id === target.id);
+            const agentUsername = matchedProfile?.agentUsername;
+            if (!agentUsername) continue;
+
+            const runBaseName = agentUsername.replace(/^ash_/, '').replace(/_agent$/, '');
+
+            if (target.type === 'openclaw') {
+              target.running = checkOpenClawRunning(
+                agentUsername,
+                runBaseName,
+                app.processManager ?? null,
+                target.id,
               );
-              const agentUsername = matchedProfile?.agentUsername;
-
-              // Primary check: agent user has running processes
-              const processesRunning = agentUsername
-                ? checkProcessesRunning(agentUsername)
-                : false;
-
-              // Secondary check: launchctl broker status
-              const runBaseName = agentUsername?.replace(/^ash_/, '').replace(/_agent$/, '') ?? target.id;
-              let brokerRunning = false;
+              target.processes = listOpenClawProcesses(agentUsername);
+            } else if (target.type === 'claude-code') {
+              const procs = listClaudeProcesses(agentUsername);
+              target.running = procs.length > 0;
+              target.processes = procs;
+            } else {
+              // Fallback: launchctl broker check only
               try {
                 const brokerOutput = execSync(
                   `launchctl list | grep com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
                   { encoding: 'utf-8', timeout: 5_000 },
                 );
-                brokerRunning = brokerOutput.trim().length > 0;
+                target.running = brokerOutput.trim().length > 0;
               } catch {
-                // launchctl check failed — rely on process check
+                // leave as false
               }
-
-              // Target is running if agent user has processes OR broker is registered in launchctl
-              target.running = processesRunning || brokerRunning;
-            } catch {
-              // Can't check — leave as false
             }
+          } catch {
+            // Can't check — leave as false
           }
         }
       } catch {
@@ -860,6 +865,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             addRegistryInstance,
             generateRouterWrapper,
             buildInstallRouterCommands,
+            buildInstallUserLocalRouterCommands,
           } = await import('@agenshield/sandbox');
 
           // Determine the binary name from base preset ID (e.g. 'claude-code' → 'claude')
@@ -898,11 +904,64 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           const wrapperContent = generateRouterWrapper(binName);
           const installCmd = buildInstallRouterCommands(binName, wrapperContent);
           await executor.execAsRoot(installCmd, { timeout: 15_000 });
+          // Also install router at ~/.agenshield/bin/<binName> (user-local, takes priority via shell rc)
+          const userLocalCmd = buildInstallUserLocalRouterCommands(binName, wrapperContent, hostHome);
+          await executor.execAsRoot(userLocalCmd, { timeout: 15_000 });
+          // Ensure the user-local bin dir is owned by the host user
+          await executor.execAsRoot(
+            `chown -R ${hostUsername}:staff "${hostHome}/.agenshield/bin"`,
+            { timeout: 10_000 },
+          );
+
           tracker.completeStep('install_path_router');
-          manifestBuilder.recordInfra('install_path_router', 5, { binName });
+          manifestBuilder.recordInfra('install_path_router', 5, { binName, hostHome });
+
+          // Append PATH override to host shell rc (runs after NVM sourcing)
+          tracker.startStep('install_path_shell_override');
+          try {
+            const hostShell = process.env['SHELL'] || '/bin/zsh';
+            const rcFile = hostShell.endsWith('/zsh')
+              ? `${hostHome}/.zshrc`
+              : hostShell.endsWith('/bash')
+                ? `${hostHome}/.bash_profile`
+                : `${hostHome}/.profile`;
+
+            const startMarker = '# >>> AgenShield PATH override >>>';
+            const endMarker = '# <<< AgenShield PATH override <<<';
+
+            // Only append if not already present
+            const checkCmd = `grep -q '${startMarker}' "${rcFile}" 2>/dev/null`;
+            const check = await executor.execAsRoot(checkCmd, { timeout: 5_000 }).catch(() => ({ success: false }));
+
+            if (!check.success) {
+              const block = [
+                '',
+                startMarker,
+                '# DO NOT EDIT — managed by AgenShield. Remove with `agenshield uninstall`.',
+                'export PATH="$HOME/.agenshield/bin:$PATH"',
+                endMarker,
+                '',
+              ].join('\n');
+
+              await executor.execAsRoot(
+                `cat >> "${rcFile}" << 'AGENSHIELD_PATH_EOF'${block}AGENSHIELD_PATH_EOF`,
+                { timeout: 10_000 },
+              );
+              // Restore ownership to host user
+              await executor.execAsRoot(`chown ${hostUsername}:staff "${rcFile}"`, { timeout: 5_000 });
+            }
+
+            tracker.completeStep('install_path_shell_override');
+            manifestBuilder.recordInfra('install_path_shell_override', 5, { rcFile, hostHome });
+          } catch (shellRcErr) {
+            tracker.completeStep('install_path_shell_override');
+            request.log.warn({ targetId, err: shellRcErr }, `Shell rc PATH override: ${(shellRcErr as Error).message}`);
+            // Non-fatal
+          }
         } catch (err) {
           tracker.completeStep('install_path_registry');
           tracker.skipStep('install_path_router');
+          tracker.skipStep('install_path_shell_override');
           request.log.warn({ targetId, err }, `PATH override partial: ${(err as Error).message}`);
           // Non-fatal — continue with shield
         }
@@ -1525,6 +1584,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
               resolvePresetId,
               removeRegistryInstance,
               buildRemoveRouterCommands,
+              buildRemoveUserLocalRouterCommands,
               pathRegistryPath,
             } = await import('@agenshield/sandbox');
 
@@ -1546,10 +1606,34 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             if (remainingCount === 0) {
               const removeCmd = buildRemoveRouterCommands(binName);
               await executor.execAsRoot(removeCmd, { timeout: 15_000 }).catch(() => {});
+
+              // Also remove user-local router at ~/.agenshield/bin/<binName>
+              const removeUserLocalCmd = buildRemoveUserLocalRouterCommands(binName, hostHome);
+              await executor.execAsRoot(removeUserLocalCmd, { timeout: 5_000 }).catch(() => {});
             }
 
             if (Object.keys(registry).length === 0) {
               await executor.execAsRoot(`rm -f "${resolvedRegistryPath}"`, { timeout: 5_000 }).catch(() => {});
+
+              // Remove shell rc PATH override block when no targets remain
+              const startMarker = '# >>> AgenShield PATH override >>>';
+              const endMarker = '# <<< AgenShield PATH override <<<';
+              const hostShell = process.env['SHELL'] || '/bin/zsh';
+              const rcFile = hostShell.endsWith('/zsh')
+                ? `${hostHome}/.zshrc`
+                : hostShell.endsWith('/bash')
+                  ? `${hostHome}/.bash_profile`
+                  : `${hostHome}/.profile`;
+              await executor.execAsRoot(
+                `sed -i '' '/${startMarker.replace(/[/]/g, '\\/')}/,/${endMarker.replace(/[/]/g, '\\/')}/d' "${rcFile}" 2>/dev/null; true`,
+                { timeout: 10_000 },
+              ).catch(() => {});
+              // Restore ownership
+              try {
+                const { execSync } = await import('node:child_process');
+                const consoleUser = execSync('stat -f "%Su" /dev/console', { encoding: 'utf-8', timeout: 3_000 }).trim();
+                await executor.execAsRoot(`chown ${consoleUser}:staff "${rcFile}"`, { timeout: 5_000 }).catch(() => {});
+              } catch { /* best effort */ }
             } else {
               const registryJson = JSON.stringify(registry, null, 2);
               await executor.execAsRoot(
@@ -1670,6 +1754,20 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
     '/targets/lifecycle/:targetId/start',
     async (request, reply) => {
       const { targetId } = request.params;
+
+      // Claude Code is terminal-launched — no daemon to start
+      try {
+        const storage = getStorage();
+        const startProfile = storage.profiles.getAll().find((p) => p.id === targetId)
+          ?? storage.profiles.getAll().find((p: { presetId?: string }) => p.presetId === targetId);
+        if ((startProfile as { presetId?: string })?.presetId === 'claude-code') {
+          return reply.code(400).send({
+            success: false,
+            error: { code: 'NOT_STARTABLE', message: 'Claude Code is launched from the terminal. Start a claude session manually.' },
+          });
+        }
+      } catch { /* fall through to normal flow */ }
+
       const executor = app.privilegeExecutor;
 
       if (!executor) {
@@ -1725,6 +1823,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
                 }
               } catch { /* use defaults */ }
 
+              const guardedShell = `${agentHome}/.agenshield/bin/guarded-shell`;
               processManager.spawn({
                 targetId,
                 profileId: profile.id,
@@ -1733,6 +1832,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
                 agentHome,
                 env: gwEnv,
                 gatewayPort: gwPort,
+                guardedShell,
               });
             } catch (gwErr) {
               request.log.warn({ err: gwErr }, 'Gateway spawn via ProcessManager failed');
@@ -1766,6 +1866,20 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
     '/targets/lifecycle/:targetId/stop',
     async (request, reply) => {
       const { targetId } = request.params;
+
+      // Claude Code is terminal-launched — no daemon to stop
+      try {
+        const storage = getStorage();
+        const stopProfile = storage.profiles.getAll().find((p) => p.id === targetId)
+          ?? storage.profiles.getAll().find((p: { presetId?: string }) => p.presetId === targetId);
+        if ((stopProfile as { presetId?: string })?.presetId === 'claude-code') {
+          return reply.code(400).send({
+            success: false,
+            error: { code: 'NOT_STOPPABLE', message: 'Claude Code is launched from the terminal. Close your claude sessions manually.' },
+          });
+        }
+      } catch { /* fall through to normal flow */ }
+
       const executor = app.privilegeExecutor;
 
       if (!executor) {
@@ -1814,7 +1928,30 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           await executor.execAsRoot(
             `launchctl disable system/${gwLabel} 2>/dev/null; true\nlaunchctl kill SIGTERM system/${gwLabel}`,
             { timeout: 15_000 },
-          ).catch(() => { /* gateway stop is best-effort */ });
+          ).catch((gwErr) => {
+            request.log.debug({ err: gwErr }, `Gateway launchctl stop for ${gwLabel} failed (best-effort)`);
+          });
+
+          // Final safety net: pkill user gateway processes
+          const agentUsername = profile?.agentUsername;
+          if (agentUsername) {
+            await executor.execAsRoot(
+              `pkill -TERM -u ${agentUsername} -f 'openclaw.*gateway' 2>/dev/null || true`,
+              { timeout: 5_000 },
+            ).catch(() => { /* best-effort */ });
+
+            // Delayed SIGKILL for anything that survived SIGTERM
+            setTimeout(async () => {
+              try {
+                await executor.execAsRoot(
+                  `pkill -KILL -u ${agentUsername} -f 'openclaw.*gateway' 2>/dev/null || true`,
+                  { timeout: 5_000 },
+                );
+              } catch {
+                // best-effort
+              }
+            }, 3_000);
+          }
         }
 
         emitEvent('process:stopped', { process: targetId, action: 'stop' });

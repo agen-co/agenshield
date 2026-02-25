@@ -1,5 +1,8 @@
 /**
- * Install service — Install/uninstall skills, manage auto-update settings
+ * Install service — Install/uninstall skills, manage auto-update settings.
+ *
+ * The skill MUST already exist in the local DB (from a prior download or upload).
+ * Remote downloading is handled by DownloadService.
  */
 
 import type { Skill, SkillVersion, SkillInstallation } from '@agenshield/ipc';
@@ -9,7 +12,7 @@ import type { EventEmitter } from 'node:events';
 import type { SkillEvent } from '../events';
 import type { InstallParams } from './types';
 import type { DeployService } from '../deploy/deploy.service';
-import { SkillNotFoundError, VersionNotFoundError, RemoteSkillNotFoundError } from '../errors';
+import { SkillNotFoundError, VersionNotFoundError } from '../errors';
 import * as crypto from 'node:crypto';
 
 export class InstallService {
@@ -30,67 +33,18 @@ export class InstallService {
     let version: SkillVersion | null = null;
 
     try {
-      // Resolve skill — from remote or local
-      if (params.remoteId) {
-        skill = this.skills.getByRemoteId(params.remoteId);
-
-        if (!skill && this.remote) {
-          const descriptor = await this.remote.getSkill(params.remoteId);
-          if (!descriptor) throw new RemoteSkillNotFoundError(params.remoteId);
-
-          this.emit({
-            type: 'install:started',
-            operationId,
-            skillSlug: descriptor.slug,
-            profileId: params.profileId,
-          });
-
-          // Download
-          this.emit({
-            type: 'install:downloading',
-            progress: {
-              operationId, skillSlug: descriptor.slug,
-              step: 'downloading', stepIndex: 0, totalSteps: 4,
-              message: `Downloading ${descriptor.slug}...`,
-            },
-          });
-
-          const { version: dlVersion } = await this.remote.download(params.remoteId, params.version);
-
-          // Create local skill record
-          skill = this.skills.create({
-            name: descriptor.name,
-            slug: descriptor.slug,
-            author: descriptor.author,
-            description: descriptor.description,
-            tags: descriptor.tags,
-            source: 'marketplace',
-            remoteId: descriptor.remoteId,
-            isPublic: true,
-          });
-
-          // Create version
-          version = this.skills.addVersion({
-            skillId: skill.id,
-            version: dlVersion,
-            folderPath: `/skills/${descriptor.slug}/${dlVersion}`,
-            contentHash: descriptor.checksum,
-            hashUpdatedAt: new Date().toISOString(),
-            approval: 'unknown',
-            trusted: false,
-            analysisStatus: 'pending',
-            requiredBins: [],
-            requiredEnv: [],
-            extractedCommands: [],
-          });
-        }
-      }
-
-      if (params.skillId && !skill) {
+      // Resolve skill from local DB — by skillId, remoteId, or slug
+      if (params.skillId) {
         skill = this.skills.getById(params.skillId);
       }
+      if (!skill && params.remoteId) {
+        skill = this.skills.getByRemoteId(params.remoteId);
+      }
+      if (!skill && params.slug) {
+        skill = this.skills.getBySlug(params.slug);
+      }
 
-      if (!skill) throw new SkillNotFoundError();
+      if (!skill) throw new SkillNotFoundError(params.skillId ?? params.remoteId ?? params.slug);
 
       const skillSlug = skill.slug;
       this.emit({
@@ -101,11 +55,9 @@ export class InstallService {
       });
 
       // Resolve version
-      if (!version) {
-        version = params.version
-          ? this.skills.getVersion({ skillId: skill.id, version: params.version })
-          : this.skills.getLatestVersion(skill.id);
-      }
+      version = params.version
+        ? this.skills.getVersion({ skillId: skill.id, version: params.version })
+        : this.skills.getLatestVersion(skill.id);
 
       if (!version) throw new VersionNotFoundError(params.version ?? 'latest', { skillSlug: skill.slug });
 
@@ -114,7 +66,7 @@ export class InstallService {
         type: 'install:creating',
         progress: {
           operationId, skillSlug,
-          step: 'creating-installation', stepIndex: 3, totalSteps: 4,
+          step: 'creating-installation', stepIndex: 1, totalSteps: 2,
           message: 'Creating installation...',
         },
       });
@@ -153,7 +105,7 @@ export class InstallService {
       this.emit({
         type: 'install:error',
         operationId,
-        skillSlug: skill?.slug ?? params.remoteId ?? 'unknown',
+        skillSlug: skill?.slug ?? params.skillId ?? params.remoteId ?? 'unknown',
         error: errorMsg,
       });
       throw err;

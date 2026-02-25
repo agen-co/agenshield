@@ -28,8 +28,8 @@ import { scopeStore } from '../state/scope';
 
 const BASE_URL = '/api';
 
-const SESSION_TOKEN_KEY = 'agenshield_session_token';
-const SESSION_EXPIRES_KEY = 'agenshield_session_expires';
+const SESSION_TOKEN_KEY = 'agenshield_jwt_token';
+const SESSION_EXPIRES_KEY = 'agenshield_jwt_expires';
 
 /**
  * Get the current auth token from session storage

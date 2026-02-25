@@ -1,0 +1,44 @@
+{
+  "name": "auth",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/auth/src",
+  "projectType": "library",
+  "tags": ["versioning:synchronized"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/auth/jest.config.ts",
+        "passWithNoTests": true
+      }
+    },
+    "build-cjs": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "libs/auth/dist",
+        "main": "libs/auth/src/index.ts",
+        "tsConfig": "libs/auth/tsconfig.lib.json",
+        "format": ["esm"],
+        "declaration": true,
+        "declarationRootDir": "libs/auth/src",
+        "bundle": true,
+        "thirdParty": false,
+        "platform": "node",
+        "assets": ["libs/auth/package.json"],
+        "esbuildOptions": {
+          "outExtension": { ".js": ".js" },
+          "external": ["@agenshield/ipc", "jose"]
+        }
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-cjs"],
+      "options": {
+        "command": "node scripts/strip-dist-from-pkg.js libs/auth/dist/package.json"
+      }
+    }
+  }
+}

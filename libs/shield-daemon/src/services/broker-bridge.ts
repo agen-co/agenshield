@@ -5,11 +5,35 @@
  * Used for privileged operations that require broker's elevated permissions.
  */
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { BrokerClient, type SkillInstallFile, type SkillInstallResult, type SkillUninstallResult } from '@agenshield/broker';
 import type { SyncedSecrets } from '@agenshield/ipc';
 
 // Singleton broker client instance
 let brokerClient: BrokerClient | null = null;
+
+const SYSTEM_SOCKET = '/var/run/agenshield/agenshield.sock';
+
+/**
+ * Resolve the broker socket path.
+ *
+ * Priority:
+ * 1. `AGENSHIELD_SOCKET` environment variable (explicit override)
+ * 2. Per-profile socket at `$AGENSHIELD_AGENT_HOME/.agenshield/run/agenshield.sock`
+ * 3. System socket at `/var/run/agenshield/agenshield.sock`
+ */
+function resolveSocketPath(): string {
+  const envSocket = process.env['AGENSHIELD_SOCKET'];
+  if (envSocket) return envSocket;
+
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || os.homedir();
+  const perProfileSocket = path.join(agentHome, '.agenshield', 'run', 'agenshield.sock');
+  if (fs.existsSync(perProfileSocket)) return perProfileSocket;
+
+  return SYSTEM_SOCKET;
+}
 
 /**
  * Get the broker client instance
@@ -17,7 +41,7 @@ let brokerClient: BrokerClient | null = null;
 function getBrokerClient(): BrokerClient {
   if (!brokerClient) {
     brokerClient = new BrokerClient({
-      socketPath: process.env['AGENSHIELD_SOCKET'] || '/var/run/agenshield/agenshield.sock',
+      socketPath: resolveSocketPath(),
       httpHost: 'localhost',
       httpPort: 5201, // Broker uses 5201, daemon uses 5200
       timeout: 60000, // 60s timeout for file operations

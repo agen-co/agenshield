@@ -2,7 +2,7 @@
  * SystemPanel types
  */
 
-export type SystemPanelMode = 'status' | 'setup' | 'passcode';
+export type SystemPanelMode = 'status' | 'setup';
 
 export interface SystemPanelProps {
   /** Whether the panel is visible */

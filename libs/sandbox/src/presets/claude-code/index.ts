@@ -7,3 +7,6 @@
 export { getClaudeCodePipeline } from './pipeline.js';
 export { installClaudeCodeStep } from './install-claude-code.js';
 export { verifyClaudeBinaryStep } from './verify-claude-binary.js';
+export { detectHostClaudeStep } from './detect-host-claude.js';
+export { copyClaudeConfigStep } from './copy-claude-config.js';
+export { rewriteClaudePathsStep } from './rewrite-claude-paths.js';
