@@ -6,6 +6,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { useSnapshot } from 'valtio';
 import { targetsStore, setTargets } from '../state/targets';
 import { useHealthGate } from './hooks';
+import { authFetch } from './client';
 import type { TargetStatusInfo, ShieldStepState } from '@agenshield/ipc';
 
 export interface ActiveOperationInfo {
@@ -21,12 +22,7 @@ export interface ActiveOperationInfo {
 const BASE_URL = '/api';
 
 async function targetRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const headers: HeadersInit = {};
-  if (options?.body !== undefined) {
-    headers['Content-Type'] = 'application/json';
-  }
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
-    headers,
+  const res = await authFetch(`${BASE_URL}${endpoint}`, {
     ...options,
   });
   if (!res.ok) {

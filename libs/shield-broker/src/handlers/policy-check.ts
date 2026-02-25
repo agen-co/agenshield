@@ -73,10 +73,9 @@ export async function handlePolicyCheck(
   const result = await deps.policyEnforcer.check(operation, checkParams, context);
 
   if (result.allowed) {
-    // For exec operations, always forward to daemon to acquire sandbox config
-    // (proxy port, seatbelt profile, env injection). Without this, child
-    // processes run unsandboxed and cannot reach the network through the proxy.
-    if (operation === 'exec') {
+    // Always forward exec + http_request to daemon for activity recording
+    // and user-defined policy evaluation (exec also needs sandbox config).
+    if (operation === 'exec' || operation === 'http_request') {
       const daemonUrl = deps.daemonUrl || DEFAULT_DAEMON_URL;
       const daemonResult = await forwardPolicyToDaemon(
         operation, target || '', daemonUrl, execContext, deps.brokerAuth
@@ -95,7 +94,7 @@ export async function handlePolicyCheck(
       }
     }
 
-    // Non-exec fast path — broker allowed, no sandbox needed.
+    // Non-exec/http fast path — broker allowed, no sandbox needed.
     return {
       success: true,
       data: {

@@ -2,11 +2,12 @@
  * Policy repository — Scoped CRUD with preset seeding
  *
  * Policies: UNION all matching scopes (additive, priority for conflicts).
+ * Tier hierarchy: managed > target > global.
  */
 
-import type { PolicyConfig } from '@agenshield/ipc';
+import type { PolicyConfig, TieredPolicies } from '@agenshield/ipc';
 import { PolicyConfigSchema, getPresetById } from '@agenshield/ipc';
-import type { DbPolicyRow } from '../../types';
+import type { DbPolicyRow, DbProfileRow } from '../../types';
 import { buildScopeWhere, buildPolicyScopeWhere } from '../../scoping';
 import { BaseRepository } from '../base.repository';
 import type { CreatePolicyInput } from './policy.schema';
@@ -36,11 +37,44 @@ export class PolicyRepository extends BaseRepository {
       preset: policy.preset ?? null,
       scope: policy.scope ?? null,
       networkAccess: policy.networkAccess ?? null,
+      enforcement: policy.enforcement ?? null,
+      managed: 0,
+      managedSource: null,
       createdAt: now,
       updatedAt: now,
     });
 
-    return policy;
+    return { ...policy, tier: this.scope?.profileId ? 'target' : 'global' };
+  }
+
+  /**
+   * Create a managed (admin-enforced) policy. Always global scope.
+   */
+  createManaged(input: CreatePolicyInput, source?: string): PolicyConfig {
+    const policy = this.validate(PolicyConfigSchema, input);
+    const now = this.now();
+
+    this.db.prepare(Q.insert).run({
+      id: policy.id,
+      profileId: null, // Managed policies are always global
+      name: policy.name,
+      action: policy.action,
+      target: policy.target,
+      patterns: JSON.stringify(policy.patterns),
+      enabled: policy.enabled ? 1 : 0,
+      priority: policy.priority ?? null,
+      operations: policy.operations ? JSON.stringify(policy.operations) : null,
+      preset: policy.preset ?? null,
+      scope: policy.scope ?? null,
+      networkAccess: policy.networkAccess ?? null,
+      enforcement: policy.enforcement ?? null,
+      managed: 1,
+      managedSource: source ?? null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return { ...policy, tier: 'managed' };
   }
 
   /**
@@ -70,6 +104,73 @@ export class PolicyRepository extends BaseRepository {
   }
 
   /**
+   * Get all managed policies (always global scope).
+   */
+  getManaged(): PolicyConfig[] {
+    const rows = this.db.prepare(Q.selectManaged).all() as DbPolicyRow[];
+    return rows.map(mapPolicy);
+  }
+
+  /**
+   * Get policies organized by tier.
+   * In scoped context: returns managed, global, and target-specific policies.
+   * In global context: returns managed and global policies (no target).
+   */
+  getTiered(): TieredPolicies {
+    const managed = this.getManaged();
+
+    if (this.scope?.profileId) {
+      // Scoped context: separate global vs target-specific non-managed policies
+      const nonManagedGlobal = this.db.prepare(Q.selectNonManaged('profile_id IS NULL'))
+        .all() as DbPolicyRow[];
+      const nonManagedTarget = this.db.prepare(Q.selectNonManaged('profile_id = @profileId'))
+        .all({ profileId: this.scope.profileId }) as DbPolicyRow[];
+
+      return {
+        managed,
+        global: nonManagedGlobal.map(mapPolicy),
+        target: nonManagedTarget.map(mapPolicy),
+      };
+    }
+
+    // Global context: just managed + global non-managed
+    const nonManagedGlobal = this.db.prepare(Q.selectNonManaged('profile_id IS NULL'))
+      .all() as DbPolicyRow[];
+
+    return {
+      managed,
+      global: nonManagedGlobal.map(mapPolicy),
+      target: [],
+    };
+  }
+
+  /**
+   * Get all target sections with their policies (for global view).
+   */
+  getAllTargetSections(): TieredPolicies['targetSections'] {
+    const profiles = this.db.prepare(
+      'SELECT id, target_name, name FROM profiles ORDER BY name',
+    ).all() as Array<Pick<DbProfileRow, 'id' | 'target_name' | 'name'>>;
+
+    const sections: NonNullable<TieredPolicies['targetSections']> = [];
+
+    for (const profile of profiles) {
+      const rows = this.db.prepare(Q.selectNonManaged('profile_id = @profileId'))
+        .all({ profileId: profile.id }) as DbPolicyRow[];
+
+      if (rows.length > 0) {
+        sections.push({
+          profileId: profile.id,
+          targetName: profile.target_name ?? profile.name,
+          policies: rows.map(mapPolicy),
+        });
+      }
+    }
+
+    return sections;
+  }
+
+  /**
    * Update a policy.
    */
   update(id: string, input: UpdatePolicyInput): PolicyConfig | null {
@@ -95,6 +196,25 @@ export class PolicyRepository extends BaseRepository {
   deleteAll(): number {
     const { clause, params } = buildScopeWhere(this.scope ?? { profileId: null });
     const result = this.db.prepare(Q.deleteScoped(clause)).run(params);
+    return result.changes;
+  }
+
+  /**
+   * Delete only non-managed policies for a scope.
+   * Used by saveConfig to preserve managed policies during the delete+re-insert cycle.
+   */
+  deleteNonManaged(): number {
+    const { clause, params } = buildScopeWhere(this.scope ?? { profileId: null });
+    const result = this.db.prepare(Q.deleteNonManagedScoped(clause)).run(params);
+    return result.changes;
+  }
+
+  /**
+   * Delete all managed policies from a specific source.
+   * Used by the batch sync endpoint to replace all policies from an external source.
+   */
+  deleteManagedBySource(source: string): number {
+    const result = this.db.prepare(Q.deleteManagedBySource).run({ source });
     return result.changes;
   }
 

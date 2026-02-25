@@ -14,6 +14,7 @@ export {
   InsufficientPermissionsError,
   SudoVerificationError,
   RateLimitError,
+  CloudAuthError,
 } from './errors';
 
 // Types
@@ -72,3 +73,20 @@ export {
   getCurrentUsername,
   resetRateLimit,
 } from './sudo-verify';
+
+// Cloud authentication (Ed25519 agent keys, AgentSig headers, credentials)
+export {
+  CLOUD_CONFIG,
+  generateEd25519Keypair,
+  createAgentSigHeader,
+  parseAgentSigHeader,
+  verifyAgentSig,
+  saveCloudCredentials,
+  loadCloudCredentials,
+  isCloudEnrolled,
+} from './cloud-auth';
+export type {
+  Ed25519Keypair,
+  CloudCredentials,
+  AgentSigParts,
+} from './cloud-auth';

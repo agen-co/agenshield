@@ -28,6 +28,7 @@ import { CompleteStep } from './steps/CompleteStep';
 import { StateOverviewStep } from './steps/StateOverviewStep';
 import { ScanResultsStep } from './steps/ScanResultsStep';
 import { setupPanelStore, resetSetupPanel, markShieldComplete, mergeDetectedTargets } from '../../../../state/setup-panel';
+import { authFetch } from '../../../../api/client';
 import { useTargets } from '../../../../api/targets';
 import { useIsShielding } from '../../../../hooks/useIsShielding';
 
@@ -105,9 +106,8 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
     setCurrentStep('shielding');
 
     try {
-      const res = await fetch(`/api/targets/lifecycle/${selectedTargetId}/shield`, {
+      const res = await authFetch(`/api/targets/lifecycle/${selectedTargetId}/shield`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ baseName, openclawVersion: version }),
       });
       if (!res.ok) {
@@ -145,7 +145,7 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
   const handleRefresh = useCallback(async () => {
     setupPanelStore.isDetecting = true;
     try {
-      const res = await fetch('/api/targets/lifecycle/detect', { method: 'POST' });
+      const res = await authFetch('/api/targets/lifecycle/detect', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         mergeDetectedTargets(data.data);

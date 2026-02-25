@@ -15,6 +15,7 @@ export {
   // Config schemas
   DaemonConfigSchema,
   PolicyConfigSchema,
+  PolicyTierSchema,
   VaultConfigSchema,
   ShieldConfigSchema,
   UserDefinitionSchema,

@@ -13,6 +13,8 @@ import { PolicySetsMigration } from './013-policy-sets';
 import { ProfileInstallManifestMigration } from './014-profile-install-manifest';
 import { DismissedTargetsMigration } from './015-dismissed-targets';
 import { ProfileGatewayPortMigration } from './016-profile-gateway-port';
+import { PolicyTiersMigration } from './017-policy-tiers';
+import { PolicyEnforcementMigration } from './018-policy-enforcement';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -28,6 +30,8 @@ export const ALL_MIGRATIONS: Migration[] = [
   new ProfileInstallManifestMigration(),
   new DismissedTargetsMigration(),
   new ProfileGatewayPortMigration(),
+  new PolicyTiersMigration(),
+  new PolicyEnforcementMigration(),
 ];
 
 /**

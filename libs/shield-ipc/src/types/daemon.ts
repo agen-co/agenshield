@@ -32,4 +32,8 @@ export interface DaemonStatus {
   agentUsername?: string;
   /** OpenClaw service status (daemon + gateway) */
   openclaw?: OpenClawServiceStatus;
+  /** Whether the daemon is connected to AgenShield Cloud */
+  cloudConnected?: boolean;
+  /** Company name from AgenShield Cloud enrollment */
+  cloudCompany?: string;
 }

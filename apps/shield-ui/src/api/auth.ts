@@ -44,12 +44,12 @@ export const authApi = {
   getStatus: () => authRequest<AuthStatusResponse>('/auth/status'),
 
   /**
-   * Login with macOS sudo credentials
+   * Login with macOS sudo credentials (username auto-detected by daemon)
    */
-  sudoLogin: (username: string, password: string) =>
+  sudoLogin: (password: string) =>
     authRequest<SudoLoginResponse>('/auth/sudo-login', {
       method: 'POST',
-      body: JSON.stringify({ username, password } satisfies SudoLoginRequest),
+      body: JSON.stringify({ password } satisfies SudoLoginRequest),
     }),
 
   /**

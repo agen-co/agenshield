@@ -143,6 +143,9 @@ export interface BrokerConfig {
   socketGroup?: string;
 }
 
+/** Policy tier in the hierarchy: managed (admin-enforced) > target (per-target) > global (shared) */
+export type PolicyTier = 'managed' | 'global' | 'target';
+
 export interface PolicyConfig {
   /** Unique identifier for the policy */
   id: string;
@@ -151,11 +154,13 @@ export interface PolicyConfig {
   /** Policy action: allow, deny, or approval (future) */
   action: 'allow' | 'deny' | 'approval';
   /** What this policy targets */
-  target: 'skill' | 'command' | 'url' | 'filesystem';
+  target: 'skill' | 'command' | 'url' | 'filesystem' | 'process';
   /** URL/command patterns to match */
   patterns: string[];
   /** Whether this policy is active */
   enabled: boolean;
+  /** Enforcement mode for process-target policies: alert (default) or kill */
+  enforcement?: 'alert' | 'kill';
   /** Priority (higher = evaluated first) */
   priority?: number;
   /** Operations this policy applies to */
@@ -168,6 +173,8 @@ export interface PolicyConfig {
   networkAccess?: 'none' | 'proxy' | 'direct';
   /** Per-policy resource limits (overrides global defaults) */
   resourceLimits?: import('./policy').ResourceLimits;
+  /** Policy tier — derived from storage, not set by clients */
+  tier?: PolicyTier;
 }
 
 export interface VaultConfig {

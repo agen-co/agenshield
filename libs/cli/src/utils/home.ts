@@ -217,6 +217,25 @@ export function downloadAndExtract(
 // ---------------------------------------------------------------------------
 
 /**
+ * Map of all workspace @agenshield/* packages to their monorepo lib directory.
+ * Used to rewrite deps to `file:` references for self-contained local installs.
+ */
+const WORKSPACE_PKG_MAP: Record<string, string> = {
+  '@agenshield/broker': 'libs/shield-broker',
+  '@agenshield/daemon': 'libs/shield-daemon',
+  '@agenshield/integrations': 'libs/shield-integrations',
+  '@agenshield/interceptor': 'libs/shield-interceptor',
+  '@agenshield/ipc': 'libs/shield-ipc',
+  '@agenshield/patcher': 'libs/shield-patcher',
+  '@agenshield/sandbox': 'libs/sandbox',
+  '@agenshield/storage': 'libs/storage',
+  '@agenshield/auth': 'libs/auth',
+  '@agenshield/policies': 'libs/policies',
+  '@agenshield/seatbelt': 'libs/seatbelt',
+  '@agentshield/skills': 'libs/skills',
+};
+
+/**
  * Walk up from the current script location looking for a package.json
  * with a `workspaces` field — i.e. the monorepo root.
  */
@@ -240,9 +259,10 @@ export function findMonorepoRoot(): string | null {
 /**
  * Install AgenShield from local monorepo build output instead of npm.
  *
- * Symlinks `~/.agenshield/dist` → `<repoRoot>/libs/cli/dist` so that
- * Node.js resolves the real path and walks up to find `libs/cli/node_modules/`
- * (where non-hoisted deps like `ink` live).
+ * Copies `libs/cli/dist/` to `~/.agenshield/dist/`, rewrites workspace
+ * dependencies to `file:` references pointing at each lib's dist dir,
+ * adds npm `overrides` for transitive workspace deps, then runs
+ * `npm install --production` to produce a self-contained installation.
  */
 export function installFromLocal(
   repoRoot: string,
@@ -270,18 +290,60 @@ export function installFromLocal(
       }
     } catch { /* doesn't exist yet */ }
 
-    // Symlink entire dist dir so Node resolves modules from monorepo
-    fs.symlinkSync(srcDir, dest, 'dir');
+    // Copy CLI dist contents to dest (rsync preferred, cp -r fallback)
+    fs.mkdirSync(dest, { recursive: true });
+    try {
+      execSync(`rsync -a "${srcDir}/" "${dest}/"`, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 60_000,
+      });
+    } catch {
+      // rsync unavailable — fall back to cp
+      execSync(`cp -R "${srcDir}/." "${dest}/"`, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 60_000,
+      });
+    }
 
-    // Read version from source package.json
-    const pkgPath = path.join(srcDir, 'package.json');
+    // Read version from copied package.json
+    const pkgPath = path.join(dest, 'package.json');
     let version = 'unknown';
+    let pkg: Record<string, unknown> = {};
     if (fs.existsSync(pkgPath)) {
       try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-        if (pkg.version) version = pkg.version;
+        pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        if (typeof pkg['version'] === 'string') version = pkg['version'] as string;
       } catch { /* ignore */ }
     }
+
+    // Rewrite @agenshield/* deps to file: references and add overrides
+    const deps = (pkg['dependencies'] ?? {}) as Record<string, string>;
+    const overrides: Record<string, string> = {};
+
+    for (const [pkgName, libDir] of Object.entries(WORKSPACE_PKG_MAP)) {
+      const distPath = path.join(repoRoot, libDir, 'dist');
+      const fileRef = `file:${distPath}`;
+
+      // Rewrite direct dependencies
+      if (deps[pkgName]) {
+        deps[pkgName] = fileRef;
+      }
+
+      // All workspace packages go into overrides for transitive resolution
+      overrides[pkgName] = fileRef;
+    }
+
+    pkg['dependencies'] = deps;
+    pkg['overrides'] = overrides;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+
+    // Install production deps (handles native modules like better-sqlite3)
+    execSync('npm install --production --no-optional', {
+      cwd: dest,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 300_000,
+      env: { ...process.env, NODE_ENV: 'production' },
+    });
 
     return { success: true, version };
   } catch (err) {

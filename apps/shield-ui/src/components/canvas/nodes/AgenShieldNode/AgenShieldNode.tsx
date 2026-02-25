@@ -6,8 +6,8 @@
  * lines between them. Status determines seam color; daemonRunning
  * determines fill brightness, breathing animation, and wing state.
  *
- * Wings open when the daemon is running or when wingsForceOpen is set
- * during setup.
+ * Wings are always open — shield always renders with expanded wings and
+ * left/right sections visible.
  *
  * Handle zones (dynamic arrays):
  *   - topHandles: core component connections (5)
@@ -19,9 +19,7 @@
 import { memo, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useTheme } from '@mui/material/styles';
-import { useSnapshot } from 'valtio';
 import type { AgenShieldData } from '../../Canvas.types';
-import { systemStore } from '../../../../state/system-store';
 
 /* ---- Shield piece paths (from favicon.svg, viewBox 0 0 200 200) ---- */
 const SHIELD_PIECES = {
@@ -82,10 +80,8 @@ export const AgenShieldNode = memo(({ data }: NodeProps) => {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
 
-  const { wingsForceOpen } = useSnapshot(systemStore);
-
-  // Wings open when daemon running or force-open during setup
-  const wingsOpen = daemonRunning || wingsForceOpen;
+  // Wings are always open — shield always renders with expanded wings
+  const wingsOpen = true;
 
   const fillColor = daemonRunning
     ? (isDark ? '#EDEDED' : '#171717')

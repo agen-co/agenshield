@@ -333,6 +333,80 @@ describe('compile', () => {
     });
   });
 
+  describe('tier-based priority boost', () => {
+    it('managed policies override global policies at the same base priority', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({ id: 'global-allow', target: 'url', action: 'allow', patterns: ['example.com'], tier: 'global', priority: 50 }),
+        makePolicy({ id: 'managed-deny', target: 'url', action: 'deny', patterns: ['example.com'], tier: 'managed', priority: 50 }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluate({
+        operation: 'http_request',
+        target: 'https://example.com',
+      });
+      expect(result.policyId).toBe('managed-deny');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('managed policies override target policies at the same base priority', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({ id: 'target-allow', target: 'command', action: 'allow', patterns: ['git:*'], tier: 'target', priority: 100 }),
+        makePolicy({ id: 'managed-deny', target: 'command', action: 'deny', patterns: ['git:*'], tier: 'managed', priority: 100 }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluate({
+        operation: 'exec',
+        target: 'git push',
+      });
+      expect(result.policyId).toBe('managed-deny');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('target policies override global policies at the same base priority', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({ id: 'global-deny', target: 'url', action: 'deny', patterns: ['api.example.com'], tier: 'global', priority: 10 }),
+        makePolicy({ id: 'target-allow', target: 'url', action: 'allow', patterns: ['api.example.com'], tier: 'target', priority: 10 }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluate({
+        operation: 'http_request',
+        target: 'https://api.example.com',
+      });
+      expect(result.policyId).toBe('target-allow');
+      expect(result.allowed).toBe(true);
+    });
+
+    it('policies without tier get no boost (treated as global)', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({ id: 'no-tier', target: 'url', action: 'allow', patterns: ['example.com'], priority: 10 }),
+        makePolicy({ id: 'target-tier', target: 'url', action: 'deny', patterns: ['example.com'], tier: 'target', priority: 10 }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluate({
+        operation: 'http_request',
+        target: 'https://example.com',
+      });
+      // target tier (10 + 5000 = 5010) should win over no-tier (10 + 0 = 10)
+      expect(result.policyId).toBe('target-tier');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('preserves relative priority within same tier', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({ id: 'managed-low', target: 'url', action: 'allow', patterns: ['example.com'], tier: 'managed', priority: 1 }),
+        makePolicy({ id: 'managed-high', target: 'url', action: 'deny', patterns: ['example.com'], tier: 'managed', priority: 50 }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluate({
+        operation: 'http_request',
+        target: 'https://example.com',
+      });
+      // Higher base priority within managed tier should win
+      expect(result.policyId).toBe('managed-high');
+      expect(result.allowed).toBe(false);
+    });
+  });
+
   describe('scope and operations', () => {
     it('wires policyScopeMatches into compiled rules', () => {
       const policies: PolicyConfig[] = [
@@ -376,6 +450,105 @@ describe('compile', () => {
       // file_write should not match the operations filter
       const result2 = engine.evaluate({ operation: 'file_write', target: '/etc/passwd' });
       expect(result2.policyId).toBeUndefined();
+    });
+  });
+
+  describe('process target rules', () => {
+    it('groups process policies into processRules', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({ id: 'proc-1', target: 'process', action: 'deny', patterns: ['openclaw'] }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluateProcess('openclaw');
+      expect(result).not.toBeNull();
+      expect(result!.policyId).toBe('proc-1');
+      expect(result!.allowed).toBe(false);
+    });
+
+    it('does not cross-match process rules with command evaluation', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({ id: 'proc-1', target: 'process', action: 'deny', patterns: ['openclaw'] }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluate({ operation: 'exec', target: 'openclaw' });
+      // Process rules should NOT be evaluated via normal evaluate()
+      expect(result.policyId).toBeUndefined();
+    });
+
+    it('maps process_run operation to process target', () => {
+      expect(operationToTarget('process_run')).toBe('process');
+    });
+
+    it('returns null when no process deny rule matches', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({ id: 'proc-1', target: 'process', action: 'deny', patterns: ['openclaw'] }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluateProcess('node server.js');
+      expect(result).toBeNull();
+    });
+
+    it('carries enforcement field from policy to result', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({
+          id: 'proc-kill',
+          target: 'process',
+          action: 'deny',
+          patterns: ['*openclaw*'],
+          enforcement: 'kill',
+        }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluateProcess('/usr/bin/openclaw-server --daemon');
+      expect(result).not.toBeNull();
+      expect(result!.enforcement).toBe('kill');
+    });
+
+    it('defaults enforcement to alert when not specified', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({ id: 'proc-alert', target: 'process', action: 'deny', patterns: ['*claude*'] }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluateProcess('/Users/david/.claude/bin/claude');
+      expect(result).not.toBeNull();
+      expect(result!.enforcement).toBe('alert');
+    });
+
+    it('respects priority ordering for process rules', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({
+          id: 'proc-low',
+          target: 'process',
+          action: 'deny',
+          patterns: ['*claude*'],
+          priority: 10,
+          enforcement: 'alert',
+        }),
+        makePolicy({
+          id: 'proc-high',
+          target: 'process',
+          action: 'deny',
+          patterns: ['*claude*'],
+          priority: 100,
+          enforcement: 'kill',
+        }),
+      ];
+      const engine = compile({ policies });
+      const result = engine.evaluateProcess('claude --interactive');
+      expect(result).not.toBeNull();
+      expect(result!.policyId).toBe('proc-high');
+      expect(result!.enforcement).toBe('kill');
+    });
+
+    it('only matches deny rules in evaluateProcess', () => {
+      const policies: PolicyConfig[] = [
+        makePolicy({ id: 'proc-allow', target: 'process', action: 'allow', patterns: ['node:*'] }),
+        makePolicy({ id: 'proc-deny', target: 'process', action: 'deny', patterns: ['*openclaw*'] }),
+      ];
+      const engine = compile({ policies });
+      // node is allowed but evaluateProcess only looks at deny rules
+      const result = engine.evaluateProcess('node server.js');
+      expect(result).toBeNull();
     });
   });
 });

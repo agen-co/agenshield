@@ -43,6 +43,7 @@
     "sandbox"
   ],
   "dependencies": {
+    "@agenshield/auth": "0.7.3",
     "@agenshield/broker": "0.7.3",
     "@agenshield/daemon": "0.7.3",
     "@agenshield/integrations": "0.7.3",

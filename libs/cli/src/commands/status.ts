@@ -8,6 +8,8 @@
 import * as fs from 'node:fs';
 import { Command } from 'commander';
 import { getEffectiveEnvForScanning } from '../utils/sudo-env.js';
+import { output } from '../utils/output.js';
+import { ensureSetupComplete } from '../utils/setup-guard.js';
 
 const DAEMON_URL = 'http://127.0.0.1:5200';
 
@@ -57,56 +59,50 @@ async function fetchDaemonStatus(): Promise<{
 /**
  * Show per-target status from daemon
  */
-async function showDaemonStatus(
+async function showDaemonStatusInfo(
   daemonInfo: NonNullable<Awaited<ReturnType<typeof fetchDaemonStatus>>>,
 ): Promise<void> {
   const { checkSecurityStatus } = await import('@agenshield/sandbox');
 
   const ver = daemonInfo.daemon.version ? ` (v${daemonInfo.daemon.version})` : '';
   const pid = daemonInfo.daemon.pid ? `, PID ${daemonInfo.daemon.pid}` : '';
-  console.log(`Daemon:       ✓ Running${ver}${pid}`);
+  output.info(`Daemon:       ${output.green('\u2713')} Running${ver}${pid}`);
 
   const profiles = daemonInfo.profiles;
   if (profiles.length > 0) {
-    console.log('\nTargets:');
+    output.info('\nTargets:');
     for (const p of profiles) {
       const target = p.targetName ?? p.name;
-      console.log(`  ${target}:`);
+      output.info(`  ${target}:`);
 
-      // Sandbox user
       const agent = p.agentUsername;
-      console.log(`    Sandbox User: ${agent ? `✓ ${agent}` : '✗ Not created'}`);
+      output.info(`    Sandbox User: ${agent ? `\u2713 ${agent}` : '\u2717 Not created'}`);
+      output.info(`    Isolation:    ${p.shielded ? '\u2713 Active' : '\u25CB Not active'}`);
 
-      // Isolation
-      console.log(`    Isolation:    ${p.shielded ? '✓ Active' : '○ Not active'}`);
-
-      // Guarded shell (per-target check)
       if (p.agentHomeDir) {
         const shellPath = `${p.agentHomeDir}/.agenshield/bin/guarded-shell`;
         const hasShell = fs.existsSync(shellPath);
-        console.log(`    Shell:        ${hasShell ? '✓ Guarded' : '○ Not installed'}`);
+        output.info(`    Shell:        ${hasShell ? '\u2713 Guarded' : '\u25CB Not installed'}`);
       }
     }
   } else {
-    console.log('\nTargets:      (none)');
+    output.info('\nTargets:      (none)');
   }
 
-  // Secrets check
   const security = checkSecurityStatus({ env: getEffectiveEnvForScanning(), callerRole: 'daemon' });
-  console.log(
-    `\nSecrets:      ${security.exposedSecrets.length === 0 ? '✓ Protected' : `⚠ ${security.exposedSecrets.length} exposed`}`,
+  output.info(
+    `\nSecrets:      ${security.exposedSecrets.length === 0 ? '\u2713 Protected' : `\u26A0 ${security.exposedSecrets.length} exposed`}`,
   );
 
-  // Overall
-  console.log('\n─────────────────────');
+  output.info('\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
   if (security.critical.length > 0) {
-    console.log('Status: ⛔ CRITICAL - Immediate action required');
+    output.info('Status: \u26D4 CRITICAL - Immediate action required');
   } else if (profiles.length > 0 && profiles.every((p) => p.shielded)) {
-    console.log('Status: ✅ SECURE');
+    output.info('Status: \u2705 SECURE');
   } else if (profiles.length > 0) {
-    console.log('Status: ⚠ PARTIAL - Not all targets shielded');
+    output.info('Status: \u26A0 PARTIAL - Not all targets shielded');
   } else {
-    console.log('Status: ⚠ UNPROTECTED - Run "agenshield start"');
+    output.info('Status: \u26A0 UNPROTECTED - Run "agenshield start"');
   }
 }
 
@@ -117,40 +113,40 @@ async function showLocalStatus(): Promise<void> {
   const { listAgenshieldUsers, guardedShellPath, checkSecurityStatus } =
     await import('@agenshield/sandbox');
 
-  console.log('Daemon:       ✗ Not running\n');
+  output.info('Daemon:       \u2717 Not running\n');
 
   const users = listAgenshieldUsers();
   const agents = users.filter((u) => u.username.endsWith('_agent'));
 
   if (agents.length > 0) {
-    console.log('Targets (local scan):');
+    output.info('Targets (local scan):');
     for (const agent of agents) {
       const target = agent.username.replace(/^ash_/, '').replace(/_agent$/, '');
       const agentHome = `/Users/${agent.username}`;
       const shellPath = guardedShellPath(agentHome);
       const hasShell = fs.existsSync(shellPath);
-      console.log(`  ${target}:`);
-      console.log(`    Sandbox User: ✓ ${agent.username}`);
-      console.log(`    Shell:        ${hasShell ? '✓ Guarded' : '○ Not installed'}`);
+      output.info(`  ${target}:`);
+      output.info(`    Sandbox User: \u2713 ${agent.username}`);
+      output.info(`    Shell:        ${hasShell ? '\u2713 Guarded' : '\u25CB Not installed'}`);
     }
   } else {
-    console.log('Targets:      (none found)');
+    output.info('Targets:      (none found)');
   }
 
   const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
-  console.log(
-    `\nSecrets:      ${security.exposedSecrets.length === 0 ? '✓ Protected' : `⚠ ${security.exposedSecrets.length} exposed`}`,
+  output.info(
+    `\nSecrets:      ${security.exposedSecrets.length === 0 ? '\u2713 Protected' : `\u26A0 ${security.exposedSecrets.length} exposed`}`,
   );
 
-  console.log('\n─────────────────────');
+  output.info('\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
   if (security.critical.length > 0) {
-    console.log('Status: ⛔ CRITICAL - Immediate action required');
+    output.info('Status: \u26D4 CRITICAL - Immediate action required');
   } else if (agents.length > 0 && security.isIsolated) {
-    console.log('Status: ✅ SECURE');
+    output.info('Status: \u2705 SECURE');
   } else if (agents.length > 0) {
-    console.log('Status: ⚠ PARTIAL - Run "agenshield start" to complete');
+    output.info('Status: \u26A0 PARTIAL - Run "agenshield start" to complete');
   } else {
-    console.log('Status: ⚠ UNPROTECTED - Run "agenshield start"');
+    output.info('Status: \u26A0 UNPROTECTED - Run "agenshield start"');
   }
 }
 
@@ -158,12 +154,12 @@ async function showLocalStatus(): Promise<void> {
  * Show the current status (daemon-first, local fallback)
  */
 async function showStatus(): Promise<void> {
-  console.log('AgenShield Status');
-  console.log('=================\n');
+  output.info('AgenShield Status');
+  output.info('=================\n');
 
   const daemonStatus = await fetchDaemonStatus();
   if (daemonStatus) {
-    await showDaemonStatus(daemonStatus);
+    await showDaemonStatusInfo(daemonStatus);
   } else {
     await showLocalStatus();
   }
@@ -177,11 +173,12 @@ export function createStatusCommand(): Command {
     .description('Show current AgenShield status')
     .option('-j, --json', 'Output as JSON')
     .action(async (options) => {
+      ensureSetupComplete();
       if (options.json) {
         const { checkSecurityStatus } = await import('@agenshield/sandbox');
         const daemonStatus = await fetchDaemonStatus();
         const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
-        console.log(JSON.stringify({ daemon: daemonStatus, security }, null, 2));
+        output.data({ daemon: daemonStatus, security });
       } else {
         await showStatus();
       }

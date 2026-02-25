@@ -9,6 +9,7 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useHealthGate } from '../api/hooks';
+import { authFetch } from '../api/client';
 import { systemStore, type MetricsSnapshot } from '../state/system-store';
 
 const BACKFILL_LIMIT = 900; // 900 * 2s = 30 min
@@ -19,7 +20,7 @@ export function useMetricsBackfill(): void {
   const { data } = useQuery({
     queryKey: ['metrics-backfill'] as const,
     queryFn: async () => {
-      const res = await fetch(`/api/metrics/history?limit=${BACKFILL_LIMIT}`);
+      const res = await authFetch(`/api/metrics/history?limit=${BACKFILL_LIMIT}`);
       if (!res.ok) return [];
       const json = await res.json();
       return (json.data ?? []) as MetricsSnapshot[];

@@ -13,7 +13,9 @@ export async function activityRoutes(app: FastifyInstance): Promise<void> {
       const authenticated = await isAuthenticated(request);
       const raw = Number(request.query.limit) || 500;
       const limit = Math.min(Math.max(raw, 1), 10000);
-      const profileId = request.query.profileId || undefined;
+      const profileId = request.query.profileId
+        || (request.headers['x-shield-profile-id'] as string | undefined)
+        || undefined;
 
       const events = getStorage().activities.getAll({ limit, profileId });
 

@@ -74,18 +74,22 @@ export const DaemonConfigSchema = z.object({
   enableHostsEntry: z.boolean().default(false),
 });
 
+export const PolicyTierSchema = z.enum(['managed', 'global', 'target']);
+
 export const PolicyConfigSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(100),
   action: z.enum(['allow', 'deny', 'approval']),
-  target: z.enum(['skill', 'command', 'url', 'filesystem']),
+  target: z.enum(['skill', 'command', 'url', 'filesystem', 'process']),
   patterns: z.array(z.string()),
   enabled: z.boolean().default(true),
+  enforcement: z.enum(['alert', 'kill']).optional(),
   priority: z.number().optional(),
   operations: z.array(z.string()).optional(),
   preset: z.string().optional(),
   scope: z.string().optional(),
   networkAccess: z.enum(['none', 'proxy', 'direct']).optional(),
+  tier: PolicyTierSchema.optional(),
 });
 
 export const VaultConfigSchema = z.object({

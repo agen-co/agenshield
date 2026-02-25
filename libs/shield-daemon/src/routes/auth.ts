@@ -16,12 +16,14 @@ import type {
 } from '@agenshield/ipc';
 import {
   signAdminToken,
+  signBrokerToken,
   verifyToken,
   verifySudoPassword,
+  getCurrentUsername,
   getAdminTtlSeconds,
 } from '@agenshield/auth';
+import { getStorage } from '@agenshield/storage';
 import { extractToken } from '../auth/middleware';
-import { isRunningAsRoot } from '../auth/passcode';
 
 /**
  * Register authentication routes
@@ -65,7 +67,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         };
       }
 
-      const { username, password } = parseResult.data;
+      const { password } = parseResult.data;
+      const username = parseResult.data.username || getCurrentUsername();
 
       try {
         const sudoResult = await verifySudoPassword(username, password);
@@ -144,12 +147,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post(
     '/auth/admin-token',
-    async (_request: FastifyRequest, reply: FastifyReply): Promise<SudoLoginResponse> => {
-      if (!isRunningAsRoot()) {
+    async (request: FastifyRequest, reply: FastifyReply): Promise<SudoLoginResponse> => {
+      // Only allow from localhost (daemon binds to 127.0.0.1)
+      const ip = request.ip;
+      if (ip !== '127.0.0.1' && ip !== '::1' && ip !== '::ffff:127.0.0.1') {
         reply.code(403);
         return {
           success: false,
-          error: 'This endpoint requires root access',
+          error: 'This endpoint is only accessible from localhost',
         };
       }
 
@@ -161,6 +166,43 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         token,
         expiresAt,
       };
+    },
+  );
+
+  /**
+   * POST /auth/broker-token - Generate a broker JWT for a target profile (admin-only)
+   */
+  app.post<{ Body: { targetId: string } }>(
+    '/auth/broker-token',
+    async (request: FastifyRequest<{ Body: { targetId: string } }>, reply: FastifyReply) => {
+      // Verify admin auth
+      const token = extractToken(request);
+      if (!token) {
+        reply.code(401);
+        return { success: false, error: 'No token provided' };
+      }
+
+      const result = await verifyToken(token);
+      if (!result.valid || !result.payload || result.payload.role !== 'admin') {
+        reply.code(403);
+        return { success: false, error: 'Admin authentication required' };
+      }
+
+      const { targetId } = request.body;
+      if (!targetId) {
+        reply.code(400);
+        return { success: false, error: 'targetId is required' };
+      }
+
+      const storage = getStorage();
+      const profile = storage.profiles.getById(targetId);
+      if (!profile) {
+        reply.code(404);
+        return { success: false, error: `Profile not found: ${targetId}` };
+      }
+
+      const brokerJwt = await signBrokerToken(profile.id, profile.id);
+      return { success: true, token: brokerJwt };
     },
   );
 }

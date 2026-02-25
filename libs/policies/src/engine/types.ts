@@ -16,6 +16,8 @@ export interface CompiledRule {
   scopeMatch: (context?: PolicyExecutionContext) => boolean;
   /** Operations filter (null = all operations) */
   operations: Set<string> | null;
+  /** Enforcement mode for process-target policies */
+  enforcement?: 'alert' | 'kill';
 }
 
 /** Pre-computed effects from graph evaluation (no graph walk at runtime) */
@@ -46,4 +48,12 @@ export interface EvaluationResult {
   reason?: string;
   effects?: GraphEffects;
   executionContext?: PolicyExecutionContext;
+}
+
+/** Result of process policy evaluation */
+export interface ProcessEvaluationResult extends EvaluationResult {
+  /** Enforcement mode — what to do with the violating process */
+  enforcement: 'alert' | 'kill';
+  /** Name of the matching policy */
+  policyName?: string;
 }

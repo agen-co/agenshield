@@ -26,6 +26,7 @@ import {
   type ResourceLimitEnforcedPayload,
   type MetricsSnapshotPayload,
   type TargetStatusInfo,
+  type EnforcementProcessPayload,
 } from '@agenshield/ipc';
 
 // Re-export for internal daemon consumers that import from this file
@@ -105,6 +106,7 @@ function deriveSource(type: string, data: unknown, profileId?: string): string {
   }
   if (type.startsWith('setup:')) return (d?.targetId as string) ?? 'daemon';
   if (type.startsWith('process:broker')) return (d?.process as string) ?? 'system';
+  if (type.startsWith('enforcement:')) return 'daemon';
   if (type.startsWith('resource:')) return 'system';
   if (type.startsWith('metrics:')) return 'system';
   if (type.startsWith('targets:')) return 'daemon';
@@ -307,4 +309,14 @@ export function emitMetricsSnapshot(data: MetricsSnapshotPayload): void {
 
 export function emitTargetStatus(targets: TargetStatusInfo[]): void {
   broadcast('targets:status', { targets });
+}
+
+// ===== Enforcement event helpers =====
+
+export function emitProcessViolation(data: EnforcementProcessPayload): void {
+  broadcast('enforcement:process_violation', data);
+}
+
+export function emitProcessKilled(data: EnforcementProcessPayload): void {
+  broadcast('enforcement:process_killed', data);
 }

@@ -6,6 +6,7 @@
 
 import { execSync } from 'node:child_process';
 import * as os from 'node:os';
+import { PrivilegeError } from '../errors.js';
 
 /**
  * Information about the current user's privileges
@@ -84,8 +85,7 @@ export function ensureSudoAccess(): void {
   try {
     execSync('sudo -v 2>/dev/null', { stdio: 'inherit', timeout: 60_000 });
   } catch {
-    console.error('Failed to obtain sudo access.');
-    process.exit(1);
+    throw new PrivilegeError('Failed to obtain sudo access.');
   }
 }
 
@@ -145,6 +145,6 @@ export function ensureRoot(command: string): void {
   const priv = detectPrivileges();
   if (!priv.isRoot) {
     printPrivilegeWarning(command, priv);
-    process.exit(1);
+    throw new PrivilegeError(`Command "${command}" requires root privileges.`, command);
   }
 }

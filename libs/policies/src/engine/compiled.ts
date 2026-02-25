@@ -11,12 +11,13 @@ import type { GraphEffects } from '../graph/effects';
 import { emptyEffects } from '../graph/effects';
 import { normalizeUrlTarget } from '../matcher/url';
 import { operationToTarget } from './compiler';
-import type { CompiledRule, PrecomputedEffects, EvaluationInput, EvaluationResult } from './types';
+import type { CompiledRule, PrecomputedEffects, EvaluationInput, EvaluationResult, ProcessEvaluationResult } from './types';
 
 export interface CompiledEngineData {
   commandRules: CompiledRule[];
   urlRules: CompiledRule[];
   filesystemRules: CompiledRule[];
+  processRules: CompiledRule[];
   graphEffectsMap: Map<string, PrecomputedEffects>;
   activeDormantIds: Set<string>;
   defaultAction: 'allow' | 'deny';
@@ -118,11 +119,44 @@ export class CompiledPolicyEngine {
     return this.data.activeDormantIds;
   }
 
+  /**
+   * Evaluate a running process against process-target policies.
+   *
+   * Returns null if no deny rule matches (process is allowed).
+   * Returns ProcessEvaluationResult if a deny rule matches.
+   */
+  evaluateProcess(command: string, context?: PolicyExecutionContext): ProcessEvaluationResult | null {
+    const rules = this.data.processRules;
+
+    for (const rule of rules) {
+      // Only deny rules trigger enforcement
+      if (rule.action !== 'deny') continue;
+
+      // Check scope match
+      if (!rule.scopeMatch(context)) continue;
+
+      // Check pattern match
+      for (const matcher of rule.matchers) {
+        if (matcher(command)) {
+          return {
+            allowed: false,
+            policyId: rule.policyId,
+            reason: `Process denied by policy: ${rule.policyId}`,
+            enforcement: rule.enforcement ?? 'alert',
+          };
+        }
+      }
+    }
+
+    return null;
+  }
+
   private getRulesForTarget(targetType: string): CompiledRule[] {
     switch (targetType) {
       case 'command': return this.data.commandRules;
       case 'url': return this.data.urlRules;
       case 'filesystem': return this.data.filesystemRules;
+      case 'process': return this.data.processRules;
       default: return [];
     }
   }

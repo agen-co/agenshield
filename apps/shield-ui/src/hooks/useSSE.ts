@@ -13,6 +13,7 @@ import { addAlert, acknowledgeAlertInStore, acknowledgeAllAlertsInStore, alertsS
 import { handleMetricsSnapshot } from '../state/system-store';
 import { createSSEClient, type SSEClient } from '../api/sse';
 import { api } from '../api/client';
+import { scopeStore } from '../state/scope';
 import { queryKeys } from '../api/hooks';
 import type { DaemonStatus, SecurityStatusPayload, MetricsSnapshotPayload, TargetStatusInfo, Alert } from '@agenshield/ipc';
 import { handleSkillSSEEvent, fetchInstalledSkills } from '../stores/skills';
@@ -226,7 +227,7 @@ export function useSSE(enabled = true, token?: string | null) {
           // Load history once on first successful connection
           if (!historyLoaded.current) {
             historyLoaded.current = true;
-            api.getActivity().then((res) => {
+            api.getActivity(500, scopeStore.profileId ?? undefined).then((res) => {
               const historical: SSEEvent[] = res.data.map((e: Record<string, unknown>) => ({
                 id: crypto.randomUUID(),
                 type: e.type as string,

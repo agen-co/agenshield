@@ -22,11 +22,13 @@ const __dirname = path.dirname(__filename);
 
 /**
  * Daemon configuration
+ *
+ * Respects AGENSHIELD_PORT and AGENSHIELD_HOST env vars for overrides.
  */
 export const DAEMON_CONFIG = {
   PID_FILE: '/var/run/agenshield/agenshield.pid',
-  PORT: 5200,
-  HOST: '127.0.0.1', // Use IPv4 for actual connections (avoids IPv6 issues)
+  PORT: Number(process.env['AGENSHIELD_PORT']) || 5200,
+  HOST: process.env['AGENSHIELD_HOST'] || '127.0.0.1', // Use IPv4 for actual connections (avoids IPv6 issues)
   DISPLAY_HOST: 'localhost', // Use localhost for user-facing URLs
   LOG_DIR: '/var/log/agenshield',
   SOCKET_DIR: '/var/run/agenshield',
@@ -815,10 +817,55 @@ export async function stopDaemon(): Promise<{
  * Returns null if the file doesn't exist or can't be read.
  */
 export function readAdminToken(): string | null {
-  const tokenPath = '/var/run/agenshield/.admin-token';
+  const paths = [
+    path.join(os.homedir(), '.agenshield', '.admin-token'),
+    '/var/run/agenshield/.admin-token',
+  ];
+  for (const tokenPath of paths) {
+    try {
+      const token = fs.readFileSync(tokenPath, 'utf-8').trim();
+      if (token) return token;
+    } catch {
+      // Not readable, try next
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetch the admin JWT token from the daemon HTTP API.
+ * Used as a fallback when the token file is not readable (e.g. non-root CLI).
+ * The daemon runs as root and can issue tokens via POST /api/auth/admin-token.
+ */
+export async function fetchAdminToken(): Promise<string | null> {
   try {
-    return fs.readFileSync(tokenPath, 'utf-8').trim();
-  } catch {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(
+      `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}/api/auth/admin-token`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      },
+    );
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      if (process.env['AGENSHIELD_DEBUG'] || process.env['DEBUG']) {
+        const body = await response.text().catch(() => '');
+        console.error(`[debug] fetchAdminToken: HTTP ${response.status} — ${body.slice(0, 200)}`);
+      }
+      return null;
+    }
+
+    const data = (await response.json()) as { success: boolean; token?: string };
+    return data.success && data.token ? data.token : null;
+  } catch (err) {
+    if (process.env['AGENSHIELD_DEBUG'] || process.env['DEBUG']) {
+      console.error(`[debug] fetchAdminToken: ${(err as Error).message}`);
+    }
     return null;
   }
 }

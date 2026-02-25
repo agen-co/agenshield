@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Box, Typography, TextField, Button, Alert } from '@mui/material';
 import { Lock, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { authApi } from '../../api/auth';
 import { slideIn } from '../../styles/animations';
 
 interface AuthenticateStepProps {
@@ -13,7 +14,7 @@ interface AuthenticateStepProps {
 }
 
 export function AuthenticateStep({ onNext }: AuthenticateStepProps) {
-  const { loginWithSudo, authenticated } = useAuth();
+  const { authenticated } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +32,7 @@ export function AuthenticateStep({ onNext }: AuthenticateStepProps) {
     setError(null);
     setLoading(true);
     try {
-      const result = await loginWithSudo(username, password);
+      const result = await authApi.sudoLogin(password);
       if (result.success) {
         onNext();
       } else {

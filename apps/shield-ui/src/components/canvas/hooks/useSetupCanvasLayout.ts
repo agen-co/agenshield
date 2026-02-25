@@ -127,14 +127,12 @@ export function useSetupCanvasLayout(
     setAllExposed(hasAnyUnshielded);
   }, [hasAnyUnshielded]);
 
-  // Show auxiliary components when AgenShield is active (shielded card or forced open)
-  const hasAnyShielded = data.anyShielded;
-  const wingsForced = systemStoreSnap.wingsForceOpen;
+  // Management sections (left/right aux components) are always visible
   useEffect(() => {
-    setExtendedComponentsActive(hasAnyShielded || wingsForced);
-  }, [hasAnyShielded, wingsForced]);
+    setExtendedComponentsActive(true);
+  }, []);
 
-  const isExtended = data.anyShielded || wingsForced;
+  const isExtended = true;
 
   const topologyKey = useMemo(
     () =>
@@ -167,8 +165,6 @@ export function useSetupCanvasLayout(
       anyUnshielded: boolean;
       isExtended: boolean;
     };
-
-    if (!topo.hasDetection && !topo.anyShielded && !topo.isExtended) return null;
 
     const contentCenterX = LAYOUT_CENTER_X;
     const shieldX = contentCenterX - SHIELD_W / 2;

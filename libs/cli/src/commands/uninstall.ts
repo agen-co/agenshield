@@ -14,6 +14,8 @@ import * as readline from 'node:readline';
 import { execSync } from 'node:child_process';
 import { ensureSudoAccess } from '../utils/privileges.js';
 import { stopDaemon } from '../utils/daemon.js';
+import { output } from '../utils/output.js';
+import { CliError } from '../errors.js';
 
 /**
  * Resolve the data directory (~/.agenshield) for the calling user.
@@ -55,18 +57,16 @@ async function tryOpenStorage(dataDir: string) {
 
 /**
  * Create an execAsRoot wrapper for CLI context.
- * ensureSudoAccess() caches sudo credentials but does NOT elevate the process
- * to UID 0, so every command must be prefixed with `sudo`.
  */
 function makeExecAsRoot() {
   return async (cmd: string, opts?: { timeout?: number }): Promise<{ success: boolean; output: string; error?: string }> => {
     try {
-      const output = execSync(`sudo ${cmd}`, {
+      const cmdOutput = execSync(`sudo ${cmd}`, {
         encoding: 'utf-8',
         timeout: opts?.timeout ?? 30_000,
         stdio: ['pipe', 'pipe', 'pipe'],
       }).trim();
-      return { success: true, output };
+      return { success: true, output: cmdOutput };
     } catch (err) {
       const message = (err as Error).message;
       return { success: false, output: '', error: message };
@@ -109,18 +109,16 @@ async function unshieldProfile(
   const profileBaseName = agentUsername?.replace(/^ash_/, '').replace(/_agent$/, '') ?? profile.id;
 
   if (profile.installManifest) {
-    // ── Manifest-driven rollback ───────────────────────────────
-    console.log('  Using manifest-driven rollback...');
+    output.info('  Using manifest-driven rollback...');
 
     const { getRollbackHandler, ROLLBACK_HANDLERS_REGISTERED } = await import('@agenshield/sandbox');
-    // Ensure side-effect import happened
     void ROLLBACK_HANDLERS_REGISTERED;
 
     const { hostHome, hostUsername } = resolveHostInfo();
 
     const rollbackCtx = {
       execAsRoot: makeExecAsRoot(),
-      onLog: (message: string) => console.log(`    ${message}`),
+      onLog: (message: string) => output.info(`    ${message}`),
       agentHome: agentHomeDir || '',
       agentUsername: agentUsername || '',
       profileBaseName,
@@ -137,31 +135,30 @@ async function unshieldProfile(
       if (handler) {
         try {
           await handler(rollbackCtx, entry as Parameters<typeof handler>[1]);
-          console.log(`  \x1b[32m✓\x1b[0m rollback: ${entry.stepId}`);
+          output.success(`rollback: ${entry.stepId}`);
         } catch (err) {
-          console.log(`  \x1b[33m!\x1b[0m rollback: ${entry.stepId} — ${(err as Error).message}`);
+          output.warn(`rollback: ${entry.stepId} \u2014 ${(err as Error).message}`);
         }
       } else {
-        console.log(`  \x1b[90m-\x1b[0m rollback: ${entry.stepId} (no handler)`);
+        output.info(`  ${output.dim('-')} rollback: ${entry.stepId} (no handler)`);
       }
     }
 
-    // ── Post-rollback verification ────────────────────────────
-    // Safety net: verify users/groups were actually removed.
+    // Post-rollback verification
     const execAsRoot = makeExecAsRoot();
 
     for (const username of [agentUsername, profile.brokerUsername].filter(Boolean) as string[]) {
       const check = await execAsRoot(`id -u ${username} 2>/dev/null`, { timeout: 5_000 });
       if (check.success) {
-        console.log(`  \x1b[33m!\x1b[0m User ${username} still exists — retrying cleanup...`);
+        output.warn(`User ${username} still exists \u2014 retrying cleanup...`);
         await execAsRoot(`pkill -9 -u ${username} 2>/dev/null; true`, { timeout: 5_000 });
         await execAsRoot(`sleep 1`, { timeout: 5_000 });
         const retry = await execAsRoot(`dscl . -delete /Users/${username}`, { timeout: 15_000 });
         const verify = await execAsRoot(`id -u ${username} 2>/dev/null`, { timeout: 5_000 });
         if (verify.success) {
-          console.log(`  \x1b[31m✗\x1b[0m Could not delete user ${username}: ${retry.error ?? 'unknown error'}`);
+          output.error(`Could not delete user ${username}: ${retry.error ?? 'unknown error'}`);
         } else {
-          console.log(`  \x1b[32m✓\x1b[0m User ${username} removed on retry`);
+          output.success(`User ${username} removed on retry`);
         }
       }
     }
@@ -169,30 +166,27 @@ async function unshieldProfile(
     const socketGroupName = `ash_${profileBaseName}`;
     const groupCheck = await execAsRoot(`dscl . -read /Groups/${socketGroupName} 2>/dev/null`, { timeout: 5_000 });
     if (groupCheck.success) {
-      console.log(`  \x1b[33m!\x1b[0m Group ${socketGroupName} still exists — retrying cleanup...`);
+      output.warn(`Group ${socketGroupName} still exists \u2014 retrying cleanup...`);
       const retry = await execAsRoot(`dscl . -delete /Groups/${socketGroupName}`, { timeout: 10_000 });
       const verify = await execAsRoot(`dscl . -read /Groups/${socketGroupName} 2>/dev/null`, { timeout: 5_000 });
       if (verify.success) {
-        console.log(`  \x1b[31m✗\x1b[0m Could not delete group ${socketGroupName}: ${retry.error ?? 'unknown error'}`);
+        output.error(`Could not delete group ${socketGroupName}: ${retry.error ?? 'unknown error'}`);
       } else {
-        console.log(`  \x1b[32m✓\x1b[0m Group ${socketGroupName} removed on retry`);
+        output.success(`Group ${socketGroupName} removed on retry`);
       }
     }
   } else {
-    // ── Legacy fallback — hardcoded unshield ───────────────────
-    console.log('  No install manifest — using legacy cleanup...');
+    output.info('  No install manifest \u2014 using legacy cleanup...');
     const execAsRoot = makeExecAsRoot();
 
-    // 1. Stop processes
     if (agentUsername) {
       await execAsRoot(
         `ps -u $(id -u ${agentUsername} 2>/dev/null) -o pid= 2>/dev/null | xargs kill 2>/dev/null; sleep 1; ps -u $(id -u ${agentUsername} 2>/dev/null) -o pid= 2>/dev/null | xargs kill -9 2>/dev/null; true`,
         { timeout: 15_000 },
       );
-      console.log(`  \x1b[32m✓\x1b[0m Stopped processes for ${agentUsername}`);
+      output.success(`Stopped processes for ${agentUsername}`);
     }
 
-    // 2. Unload & remove LaunchDaemons
     const plistLabels = [
       `com.agenshield.broker.${profileBaseName}`,
       `com.agenshield.${profileBaseName}.gateway`,
@@ -203,40 +197,34 @@ async function unshieldProfile(
         { timeout: 15_000 },
       );
     }
-    console.log('  \x1b[32m✓\x1b[0m Removed LaunchDaemons');
+    output.success('Removed LaunchDaemons');
 
-    // 3. Remove sudoers rules
     await execAsRoot(`rm -f "/etc/sudoers.d/agenshield-${profileBaseName}" 2>/dev/null; true`, { timeout: 5_000 });
-    console.log('  \x1b[32m✓\x1b[0m Removed sudoers rules');
+    output.success('Removed sudoers rules');
 
-    // 4. Remove guarded shell from /etc/shells
     if (agentHomeDir) {
       await execAsRoot(`sed -i '' '\\|${agentHomeDir}/.agenshield/bin/guarded-shell|d' /etc/shells 2>/dev/null; true`, { timeout: 5_000 });
     }
-    console.log('  \x1b[32m✓\x1b[0m Removed guarded shell entries');
+    output.success('Removed guarded shell entries');
 
-    // 5. Delete agent home directory
     if (agentHomeDir) {
       await execAsRoot(`rm -rf "${agentHomeDir}"`, { timeout: 60_000 });
-      console.log(`  \x1b[32m✓\x1b[0m Deleted ${agentHomeDir}`);
+      output.success(`Deleted ${agentHomeDir}`);
     }
 
-    // 6. Delete sandbox users
     if (agentUsername) {
       await execAsRoot(`dscl . -delete /Users/${agentUsername} 2>/dev/null; true`, { timeout: 15_000 });
     }
     if (profile.brokerUsername) {
       await execAsRoot(`dscl . -delete /Users/${profile.brokerUsername} 2>/dev/null; true`, { timeout: 15_000 });
     }
-    console.log('  \x1b[32m✓\x1b[0m Deleted sandbox users');
+    output.success('Deleted sandbox users');
 
-    // 7. Delete socket group
     const socketGroupName = `ash_${profileBaseName}`;
     await execAsRoot(`dscl . -delete /Groups/${socketGroupName} 2>/dev/null; true`, { timeout: 15_000 });
-    console.log('  \x1b[32m✓\x1b[0m Deleted socket group');
+    output.success('Deleted socket group');
   }
 
-  // Always delete policies + profile from storage
   try {
     const scopedStorage = storage.for({ profileId: profile.id });
     scopedStorage.policies.deleteAll();
@@ -245,29 +233,25 @@ async function unshieldProfile(
   }
 
   storage.profiles.delete(profile.id);
-  console.log('  \x1b[32m✓\x1b[0m Removed profile from storage');
+  output.success('Removed profile from storage');
 }
 
 /**
  * Run system-level cleanup (guarded shell, router wrappers, dirs).
- * Called after all profiles are unshielded.
  */
 async function systemCleanup(dataDir: string): Promise<void> {
-  console.log('\nSystem cleanup...');
+  output.info('\nSystem cleanup...');
 
   const execAsRoot = makeExecAsRoot();
 
-  // Remove guarded shell entries from /etc/shells
   await execAsRoot(`sed -i '' '\\|/usr/local/bin/guarded-shell|d' /etc/shells 2>/dev/null; true`);
   await execAsRoot(`sed -i '' '\\|/.agenshield/bin/guarded-shell|d' /etc/shells 2>/dev/null; true`);
-  console.log('\x1b[32m✓\x1b[0m Cleaned /etc/shells');
+  output.success('Cleaned /etc/shells');
 
-  // Remove legacy guarded shell binary
   if (fs.existsSync('/usr/local/bin/guarded-shell')) {
     await execAsRoot('rm -f /usr/local/bin/guarded-shell');
   }
 
-  // Remove router wrappers
   try {
     const { scanForRouterWrappers, pathRegistryPath, ROUTER_MARKER } = await import('@agenshield/sandbox');
     const { hostHome } = resolveHostInfo();
@@ -282,16 +266,15 @@ async function systemCleanup(dataDir: string): Promise<void> {
       }
     }
     if (wrappers.length > 0) {
-      console.log(`\x1b[32m✓\x1b[0m Removed ${wrappers.length} PATH router wrapper(s)`);
+      output.success(`Removed ${wrappers.length} PATH router wrapper(s)`);
     }
 
-    // Remove user-local router wrappers from ~/.agenshield/bin/
     const userLocalBinDir = path.join(hostHome, '.agenshield', 'bin');
     try {
       if (fs.existsSync(userLocalBinDir)) {
         let removedCount = 0;
         for (const file of fs.readdirSync(userLocalBinDir)) {
-          if (file === 'agenshield') continue; // Skip the CLI shim
+          if (file === 'agenshield') continue;
           const fullPath = path.join(userLocalBinDir, file);
           try {
             const content = fs.readFileSync(fullPath, 'utf-8');
@@ -302,26 +285,24 @@ async function systemCleanup(dataDir: string): Promise<void> {
           } catch { /* skip unreadable files */ }
         }
         if (removedCount > 0) {
-          console.log(`\x1b[32m✓\x1b[0m Removed ${removedCount} user-local router wrapper(s)`);
+          output.success(`Removed ${removedCount} user-local router wrapper(s)`);
         }
       }
     } catch {
       // Best effort
     }
 
-    // Delete path registry
     const registryPath = pathRegistryPath(hostHome);
     if (fs.existsSync(registryPath)) {
       await execAsRoot(`rm -f "${registryPath}"`);
     }
 
-    // Remove shell rc PATH override block
     try {
       const { removePathOverrideFromShellRc } = await import('../utils/home.js');
       const hostShell = process.env['SHELL'] || '';
       const { removed, rcFile } = removePathOverrideFromShellRc(hostHome, hostShell);
       if (removed) {
-        console.log(`\x1b[32m✓\x1b[0m Removed PATH override from ${rcFile}`);
+        output.success(`Removed PATH override from ${rcFile}`);
       }
     } catch {
       // Best effort
@@ -330,7 +311,6 @@ async function systemCleanup(dataDir: string): Promise<void> {
     // Best effort
   }
 
-  // Remove remaining LaunchDaemons
   const plistDir = '/Library/LaunchDaemons';
   try {
     if (fs.existsSync(plistDir)) {
@@ -346,7 +326,6 @@ async function systemCleanup(dataDir: string): Promise<void> {
     // Best effort
   }
 
-  // Remove legacy directories
   const cleanupPaths = [
     '/etc/agenshield',
     '/opt/agenshield',
@@ -357,9 +336,8 @@ async function systemCleanup(dataDir: string): Promise<void> {
       await execAsRoot(`rm -rf "${p}"`);
     }
   }
-  console.log('\x1b[32m✓\x1b[0m Cleaned legacy directories');
+  output.success('Cleaned legacy directories');
 
-  // Remove agenshield sudoers files
   try {
     const sudoersDir = '/etc/sudoers.d';
     if (fs.existsSync(sudoersDir)) {
@@ -373,13 +351,12 @@ async function systemCleanup(dataDir: string): Promise<void> {
     // Best effort
   }
 
-  // Clean up user data directory
   if (fs.existsSync(dataDir)) {
     try {
       execSync(`sudo rm -rf "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-      console.log(`\x1b[32m✓\x1b[0m Deleted ${dataDir}`);
+      output.success(`Deleted ${dataDir}`);
     } catch {
-      console.log(`\x1b[33m!\x1b[0m Could not fully remove ${dataDir}`);
+      output.warn(`Could not fully remove ${dataDir}`);
     }
   }
 }
@@ -387,22 +364,24 @@ async function systemCleanup(dataDir: string): Promise<void> {
 /**
  * Run the uninstall process
  */
-async function runUninstall(options: { force?: boolean; prefix?: string; skipBackup?: boolean }): Promise<void> {
+async function runUninstall(options: { force?: boolean; prefix?: string; skipBackup?: boolean; dryRun?: boolean }): Promise<void> {
+  if (options.dryRun) {
+    output.info('[dry-run] Would perform uninstall. No changes made.');
+    return;
+  }
+
   ensureSudoAccess();
 
-  // --skip-backup: go straight to discovery-based force uninstall
   if (options.skipBackup) {
     await runForceUninstall(options);
     return;
   }
 
   const dataDir = resolveDataDir();
-
-  // Try to open storage and read profiles
   const storage = await tryOpenStorage(dataDir);
 
   if (!storage) {
-    console.log('\x1b[33m⚠ Storage not available — falling back to discovery-based cleanup.\x1b[0m\n');
+    output.warn('Storage not available \u2014 falling back to discovery-based cleanup.\n');
     await runForceUninstall(options);
     return;
   }
@@ -411,40 +390,38 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
   try {
     profiles = storage.profiles.getAll().filter(p => p.type === 'target');
   } catch {
-    console.log('\x1b[33m⚠ Could not read profiles — falling back to discovery-based cleanup.\x1b[0m\n');
+    output.warn('Could not read profiles \u2014 falling back to discovery-based cleanup.\n');
     storage.close();
     await runForceUninstall(options);
     return;
   }
 
   if (profiles.length === 0) {
-    console.log('\x1b[33m⚠ No target profiles found — falling back to discovery-based cleanup.\x1b[0m\n');
+    output.warn('No target profiles found \u2014 falling back to discovery-based cleanup.\n');
     storage.close();
     await runForceUninstall(options);
     return;
   }
 
-  // Show what will be unshielded
-  console.log('\x1b[31mAgenShield Uninstall\x1b[0m');
-  console.log('====================\n');
-  console.log('This will unshield the following targets:\n');
+  output.info(`${output.red('AgenShield Uninstall')}`);
+  output.info('====================\n');
+  output.info('This will unshield the following targets:\n');
   for (const p of profiles) {
     const target = p.targetName ?? p.name;
     const agent = p.agentUsername ?? '(unknown)';
-    console.log(`  \x1b[33m->\x1b[0m ${target} (user: ${agent})`);
+    output.info(`  ${output.yellow('->')} ${target} (user: ${agent})`);
   }
-  console.log('');
-  console.log('And then:');
-  console.log('  \x1b[33m->\x1b[0m Stop and remove agenshield daemon');
-  console.log('  \x1b[33m->\x1b[0m Remove guarded shell');
-  console.log('  \x1b[33m->\x1b[0m Remove PATH router wrappers');
-  console.log('  \x1b[33m->\x1b[0m Delete system configuration');
-  console.log('  \x1b[33m->\x1b[0m Delete data directory');
-  console.log('');
-  console.log('\x1b[31mWARNING: This action cannot be undone!\x1b[0m');
-  console.log('');
+  output.info('');
+  output.info('And then:');
+  output.info(`  ${output.yellow('->')} Stop and remove agenshield daemon`);
+  output.info(`  ${output.yellow('->')} Remove guarded shell`);
+  output.info(`  ${output.yellow('->')} Remove PATH router wrappers`);
+  output.info(`  ${output.yellow('->')} Delete system configuration`);
+  output.info(`  ${output.yellow('->')} Delete data directory`);
+  output.info('');
+  output.info(`${output.red('WARNING: This action cannot be undone!')}`);
+  output.info('');
 
-  // Confirm
   if (!options.force) {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -452,56 +429,55 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
     });
 
     const answer = await new Promise<string>((resolve) => {
-      rl.question('Type UNINSTALL to confirm: ', (answer) => {
+      rl.question('Type UNINSTALL to confirm: ', (ans) => {
         rl.close();
-        resolve(answer);
+        resolve(ans);
       });
     });
 
     if (answer !== 'UNINSTALL') {
-      console.log('\nUninstall cancelled.');
+      output.info('\nUninstall cancelled.');
       storage.close();
-      process.exit(0);
+      return;
     }
   }
 
-  console.log('\nUninstalling...\n');
+  output.info('\nUninstalling...\n');
 
-  // Stop daemon first — retry up to 3 times if port is still held
-  console.log('Stopping daemon...');
+  output.info('Stopping daemon...');
   let stopResult: { success: boolean; message: string } = { success: false, message: '' };
   for (let attempt = 1; attempt <= 3; attempt++) {
     stopResult = await stopDaemon();
     if (stopResult.success) break;
     if (attempt < 3) {
-      console.log(`  Attempt ${attempt} failed, retrying in 2s...`);
+      output.info(`  Attempt ${attempt} failed, retrying in 2s...`);
       await new Promise(r => setTimeout(r, 2000));
     }
   }
-  const stopIcon = stopResult.success ? '\x1b[32m✓\x1b[0m' : '\x1b[33m!\x1b[0m';
-  console.log(`${stopIcon} stop-daemon: ${stopResult.message}`);
-  console.log('');
+  if (stopResult.success) {
+    output.success(`stop-daemon: ${stopResult.message}`);
+  } else {
+    output.warn(`stop-daemon: ${stopResult.message}`);
+  }
+  output.info('');
 
-  // Unshield each profile
   for (const profile of profiles) {
     const target = profile.targetName ?? profile.name;
-    console.log(`Unshielding ${target}...`);
+    output.info(`Unshielding ${target}...`);
     try {
       await unshieldProfile(profile, storage);
-      console.log(`\x1b[32m✓\x1b[0m ${target} unshielded\n`);
+      output.success(`${target} unshielded\n`);
     } catch (err) {
-      console.log(`\x1b[31m✗\x1b[0m ${target} unshield failed: ${(err as Error).message}\n`);
+      output.error(`${target} unshield failed: ${(err as Error).message}\n`);
     }
   }
 
   storage.close();
-
-  // System-level cleanup
   await systemCleanup(dataDir);
 
-  console.log('');
-  console.log('\x1b[32mUninstall complete!\x1b[0m');
-  console.log('All AgenShield targets have been unshielded and artifacts removed.');
+  output.info('');
+  output.success('Uninstall complete!');
+  output.info('All AgenShield targets have been unshielded and artifacts removed.');
 }
 
 /**
@@ -510,18 +486,18 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
 async function runForceUninstall(options: { force?: boolean }): Promise<void> {
   const { forceUninstall } = await import('@agenshield/sandbox');
 
-  console.log('\x1b[33mForce Uninstall (Discovery-based)\x1b[0m');
-  console.log('==================================\n');
-  console.log('This will:');
-  console.log('  \x1b[33m->\x1b[0m Stop and remove agenshield daemon');
-  console.log('  \x1b[33m->\x1b[0m Delete any discovered sandbox users (ash_*)');
-  console.log('  \x1b[33m->\x1b[0m Delete any discovered workspace groups (ash_*)');
-  console.log('  \x1b[33m->\x1b[0m Remove guarded shell');
-  console.log('  \x1b[33m->\x1b[0m Delete /etc/agenshield configuration');
-  console.log('  \x1b[33m->\x1b[0m Remove databases (main + activity), vault, backups');
-  console.log('');
-  console.log('\x1b[31mWARNING: This will NOT restore targets to their original state!\x1b[0m');
-  console.log('');
+  output.info(`${output.yellow('Force Uninstall (Discovery-based)')}`);
+  output.info('==================================\n');
+  output.info('This will:');
+  output.info(`  ${output.yellow('->')} Stop and remove agenshield daemon`);
+  output.info(`  ${output.yellow('->')} Delete any discovered sandbox users (ash_*)`);
+  output.info(`  ${output.yellow('->')} Delete any discovered workspace groups (ash_*)`);
+  output.info(`  ${output.yellow('->')} Remove guarded shell`);
+  output.info(`  ${output.yellow('->')} Delete /etc/agenshield configuration`);
+  output.info(`  ${output.yellow('->')} Remove databases (main + activity), vault, backups`);
+  output.info('');
+  output.info(`${output.red('WARNING: This will NOT restore targets to their original state!')}`);
+  output.info('');
 
   if (!options.force) {
     const rl = readline.createInterface({
@@ -530,45 +506,45 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
     });
 
     const answer = await new Promise<string>((resolve) => {
-      rl.question('Type FORCE to confirm: ', (answer) => {
+      rl.question('Type FORCE to confirm: ', (ans) => {
         rl.close();
-        resolve(answer);
+        resolve(ans);
       });
     });
 
     if (answer !== 'FORCE') {
-      console.log('\nUninstall cancelled.');
-      process.exit(0);
+      output.info('\nUninstall cancelled.');
+      return;
     }
   }
 
-  console.log('\nForce uninstalling...\n');
+  output.info('\nForce uninstalling...\n');
 
-  const result = forceUninstall((progress) => {
-    const icon = progress.success ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m';
-    console.log(`${icon} ${progress.step}: ${progress.message || progress.error || ''}`);
+  const result = forceUninstall((progress: { success: boolean; step: string; message?: string; error?: string }) => {
+    if (progress.success) {
+      output.success(`${progress.step}: ${progress.message || progress.error || ''}`);
+    } else {
+      output.error(`${progress.step}: ${progress.message || progress.error || ''}`);
+    }
   });
 
-  // Clean up user data directory
   const dataDir = resolveDataDir();
   if (fs.existsSync(dataDir)) {
     try {
       execSync(`sudo rm -rf "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-      console.log(`\x1b[32m✓\x1b[0m cleanup: Deleted ${dataDir} (databases, vault, logs)`);
+      output.success(`cleanup: Deleted ${dataDir} (databases, vault, logs)`);
     } catch {
-      console.log(`\x1b[33m!\x1b[0m cleanup: Could not fully remove ${dataDir} (may contain root-owned files)`);
+      output.warn(`cleanup: Could not fully remove ${dataDir} (may contain root-owned files)`);
     }
   }
 
-  console.log('');
+  output.info('');
 
   if (result.success) {
-    console.log('\x1b[32mForce uninstall complete!\x1b[0m');
-    console.log('AgenShield artifacts have been removed.');
+    output.success('Force uninstall complete!');
+    output.info('AgenShield artifacts have been removed.');
   } else {
-    console.log('\x1b[31mForce uninstall failed!\x1b[0m');
-    console.log(result.error || 'Unknown error');
-    process.exit(1);
+    throw new CliError(result.error || 'Force uninstall failed', 'UNINSTALL_FAILED');
   }
 }
 
@@ -581,6 +557,7 @@ export function createUninstallCommand(): Command {
     .option('-f, --force', 'Skip confirmation prompt')
     .option('--prefix <prefix>', 'Uninstall a specific prefixed installation')
     .option('--skip-backup', 'Force discovery-based cleanup (bypass profile-based uninstall)')
+    .option('--dry-run', 'Show what would be done without making changes')
     .action(async (options) => {
       await runUninstall(options);
     });

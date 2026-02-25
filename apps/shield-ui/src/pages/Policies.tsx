@@ -1,6 +1,11 @@
 /**
  * Policies page - tabbed layout (Commands / Network / Filesystem)
  * Tab selection is driven by the URL: /policies/commands, /policies/network, /policies/filesystem
+ *
+ * Policies are organized into three tiers:
+ * - Managed: Admin-enforced, read-only
+ * - Global: Shared across targets (read-only in target view)
+ * - Target: Per-target policies (only in scoped context)
  */
 
 import { useState, useCallback, useMemo } from 'react';
@@ -13,10 +18,11 @@ import {
   Collapse,
   Tabs,
   Tab,
+  Typography,
 } from '@mui/material';
 import { Plus, Terminal, Globe, FolderOpen, Play } from 'lucide-react';
-import type { PolicyConfig } from '@agenshield/ipc';
-import { useConfig, useUpdateConfig, useSecrets, useUpdateSecret, useSkills } from '../api/hooks';
+import type { PolicyConfig, TieredPolicies } from '@agenshield/ipc';
+import { useConfig, useUpdateConfig, useSecrets, useUpdateSecret, useSkills, useTieredPolicies } from '../api/hooks';
 import { useGuardedAction } from '../hooks/useGuardedAction';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import { tokens } from '../styles/tokens';
@@ -28,6 +34,9 @@ import { CommandPolicyList } from '../components/policies/CommandPolicyList';
 import { NetworkPolicyList } from '../components/policies/NetworkPolicyList';
 import { FilesystemPolicyTable } from '../components/policies/FilesystemPolicyTable';
 import { SimulatePanel } from '../components/policies/SimulatePanel';
+import { PolicyTierSection } from '../components/policies/PolicyTierSection';
+import { useSnapshot } from 'valtio';
+import { scopeStore } from '../state/scope';
 
 const TAB_SLUGS = ['commands', 'network', 'filesystem', 'simulate'] as const;
 const TAB_TARGETS: Record<string, 'command' | 'url' | 'filesystem'> = {
@@ -42,6 +51,11 @@ interface PoliciesProps {
   onTabChange?: (tab: string) => void;
 }
 
+/** Filter policies by target type */
+function filterByTarget(policies: PolicyConfig[], target: string) {
+  return policies.filter((p) => p.target === target);
+}
+
 export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps = {}) {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
@@ -51,11 +65,13 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
   const activeTarget = TAB_TARGETS[TAB_SLUGS[activeTab]];
 
   const { data: config } = useConfig();
+  const { data: tiered } = useTieredPolicies();
   const updateConfig = useUpdateConfig();
   const { data: secretsData } = useSecrets();
   const updateSecret = useUpdateSecret();
   const { data: skillsData } = useSkills();
   const guard = useGuardedAction();
+  const { profileId } = useSnapshot(scopeStore);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<PolicyConfig | null>(null);
@@ -66,14 +82,22 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
 
   const { guardOpen, guardConfirm, guardCancel } = useUnsavedChangesGuard(formDirty);
 
+  // All policies (flat) for mutations — from config endpoint
   const policies = config?.data?.policies ?? [];
   const secrets = secretsData?.data ?? [];
   const skills = skillsData?.data ?? [];
 
-  // Filter policies by target
-  const commandPolicies = useMemo(() => policies.filter((p) => p.target === 'command'), [policies]);
-  const networkPolicies = useMemo(() => policies.filter((p) => p.target === 'url'), [policies]);
-  const filesystemPolicies = useMemo(() => policies.filter((p) => p.target === 'filesystem'), [policies]);
+  // Tiered policies for rendering
+  const managedPolicies = tiered?.managed ?? [];
+  const globalPolicies = tiered?.global ?? [];
+  const targetPolicies = tiered?.target ?? [];
+  const targetSections = tiered?.targetSections ?? [];
+
+  // Determine which policies are editable (for the current context)
+  const isScoped = !!profileId;
+
+  // The editable tier: in target view = target policies, in global view = global policies
+  const editablePolicies = isScoped ? targetPolicies : globalPolicies;
 
   // Check if any installed skills have commands (for empty state)
   const hasSkillCommands = useMemo(
@@ -209,6 +233,82 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
     }
   };
 
+  // Noop handlers for read-only sections
+  const noop = () => {};
+  const noopToggle = () => {};
+  const noopEdit = () => {};
+  const noopDelete = () => {};
+  const noopAddSkill = () => {};
+
+  /** Render a tier's policies for the currently active tab */
+  function renderTierPolicies(
+    tierPolicies: PolicyConfig[],
+    readOnly: boolean,
+  ) {
+    const target = activeTarget;
+    if (!target) return null;
+
+    const filtered = filterByTarget(tierPolicies, target === 'command' ? 'command' : target === 'url' ? 'url' : 'filesystem');
+
+    if (filtered.length === 0) return (
+      <Box sx={{ p: 2 }}>
+        <Typography variant="body2" color="text.secondary">No policies</Typography>
+      </Box>
+    );
+
+    if (activeTab === 0) {
+      return (
+        <CommandPolicyList
+          policies={filtered}
+          skills={readOnly ? [] : skills}
+          onToggle={readOnly ? noopToggle : requestToggle}
+          onEdit={readOnly ? noopEdit : handleEdit}
+          onDelete={readOnly ? noopDelete : handleDelete}
+          onAddSkillPolicy={readOnly ? noopAddSkill : handleAddSkillPolicy}
+          readOnly={readOnly}
+          busy={updateConfig.isPending}
+        />
+      );
+    }
+
+    if (activeTab === 1) {
+      return (
+        <NetworkPolicyList
+          policies={filtered}
+          onToggle={readOnly ? noopToggle : requestToggle}
+          onEdit={readOnly ? noopEdit : handleEdit}
+          onDelete={readOnly ? noopDelete : handleDelete}
+          readOnly={readOnly}
+          busy={updateConfig.isPending}
+        />
+      );
+    }
+
+    if (activeTab === 2) {
+      return (
+        <FilesystemPolicyTable
+          policies={filtered}
+          onToggle={readOnly ? noopToggle : requestToggle}
+          onUpdate={readOnly ? noop : handleFsUpdate}
+          onAdd={readOnly ? noop : handleFsAdd}
+          onDelete={readOnly ? noopDelete : handleDelete}
+          readOnly={readOnly}
+          busy={updateConfig.isPending}
+        />
+      );
+    }
+
+    return null;
+  }
+
+  /** Check if any tier has policies for the active tab target */
+  const activePolicyTarget = activeTarget;
+  const hasManagedForTab = activePolicyTarget ? filterByTarget(managedPolicies, activePolicyTarget).length > 0 : false;
+  const hasGlobalForTab = activePolicyTarget ? filterByTarget(globalPolicies, activePolicyTarget).length > 0 : false;
+  const hasTargetForTab = activePolicyTarget ? filterByTarget(targetPolicies, activePolicyTarget).length > 0 : false;
+  const hasEditableForTab = activePolicyTarget ? filterByTarget(editablePolicies, activePolicyTarget).length > 0 : false;
+  const hasAnyPolicies = hasManagedForTab || hasGlobalForTab || hasTargetForTab;
+
   return (
     <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       {!embedded && (
@@ -280,77 +380,192 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
         </Box>
 
         <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
-          {/* Tab 0: Commands */}
-          {activeTab === 0 && (
-            commandPolicies.length === 0 && !hasSkillCommands ? (
-              <EmptyState
-                icon={<Terminal size={28} />}
-                title="No command policies"
-                description="Add a command policy to control which CLI commands agents can execute."
-                action={
-                  !formOpen ? (
-                    <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd}>
-                      Add Policy
-                    </Button>
-                  ) : undefined
-                }
-              />
-            ) : (
-              <CommandPolicyList
-                policies={commandPolicies}
-                skills={skills}
-                onToggle={requestToggle}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onAddSkillPolicy={handleAddSkillPolicy}
-                readOnly={false}
-                busy={updateConfig.isPending}
-              />
-            )
-          )}
-
-          {/* Tab 1: Network */}
-          {activeTab === 1 && (
-            networkPolicies.length === 0 ? (
-              <EmptyState
-                icon={<Globe size={28} />}
-                title="No network policies"
-                description="Add a URL policy to control which endpoints agents can access."
-                action={
-                  !formOpen ? (
-                    <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd}>
-                      Add Policy
-                    </Button>
-                  ) : undefined
-                }
-              />
-            ) : (
-              <NetworkPolicyList
-                policies={networkPolicies}
-                onToggle={requestToggle}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                readOnly={false}
-                busy={updateConfig.isPending}
-              />
-            )
-          )}
-
-          {/* Tab 2: Filesystem (inline editing — always show table with add row) */}
-          {activeTab === 2 && (
-            <FilesystemPolicyTable
-              policies={filesystemPolicies}
-              onToggle={requestToggle}
-              onUpdate={handleFsUpdate}
-              onAdd={handleFsAdd}
-              onDelete={handleDelete}
-              readOnly={false}
-              busy={updateConfig.isPending}
-            />
-          )}
-
-          {/* Tab 3: Simulate */}
+          {/* Tab 3: Simulate — no tiering needed */}
           {activeTab === 3 && <SimulatePanel />}
+
+          {/* Tabs 0-2: Tiered policy display */}
+          {activeTab <= 2 && !tiered && (
+            /* Fallback to flat list while tiered data is loading */
+            <>
+              {activeTab === 0 && (
+                filterByTarget(policies, 'command').length === 0 && !hasSkillCommands ? (
+                  <EmptyState
+                    icon={<Terminal size={28} />}
+                    title="No command policies"
+                    description="Add a command policy to control which CLI commands agents can execute."
+                    action={
+                      !formOpen ? (
+                        <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd}>
+                          Add Policy
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                ) : (
+                  <CommandPolicyList
+                    policies={filterByTarget(policies, 'command')}
+                    skills={skills}
+                    onToggle={requestToggle}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    onAddSkillPolicy={handleAddSkillPolicy}
+                    readOnly={false}
+                    busy={updateConfig.isPending}
+                  />
+                )
+              )}
+
+              {activeTab === 1 && (
+                filterByTarget(policies, 'url').length === 0 ? (
+                  <EmptyState
+                    icon={<Globe size={28} />}
+                    title="No network policies"
+                    description="Add a URL policy to control which endpoints agents can access."
+                    action={
+                      !formOpen ? (
+                        <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd}>
+                          Add Policy
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                ) : (
+                  <NetworkPolicyList
+                    policies={filterByTarget(policies, 'url')}
+                    onToggle={requestToggle}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    readOnly={false}
+                    busy={updateConfig.isPending}
+                  />
+                )
+              )}
+
+              {activeTab === 2 && (
+                <FilesystemPolicyTable
+                  policies={filterByTarget(policies, 'filesystem')}
+                  onToggle={requestToggle}
+                  onUpdate={handleFsUpdate}
+                  onAdd={handleFsAdd}
+                  onDelete={handleDelete}
+                  readOnly={false}
+                  busy={updateConfig.isPending}
+                />
+              )}
+            </>
+          )}
+
+          {activeTab <= 2 && tiered && (
+            <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {/* Empty state when no policies exist for this tab */}
+              {!hasAnyPolicies && activeTab === 0 && !hasSkillCommands && (
+                <EmptyState
+                  icon={<Terminal size={28} />}
+                  title="No command policies"
+                  description="Add a command policy to control which CLI commands agents can execute."
+                  action={
+                    !formOpen ? (
+                      <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd}>
+                        Add Policy
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              )}
+              {!hasAnyPolicies && activeTab === 1 && (
+                <EmptyState
+                  icon={<Globe size={28} />}
+                  title="No network policies"
+                  description="Add a URL policy to control which endpoints agents can access."
+                  action={
+                    !formOpen ? (
+                      <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleAdd}>
+                        Add Policy
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              )}
+
+              {/* Managed tier — always read-only */}
+              {hasManagedForTab && (
+                <PolicyTierSection
+                  tier="managed"
+                  label="Managed Policies"
+                  description="Admin-enforced policies that cannot be modified"
+                  count={activePolicyTarget ? filterByTarget(managedPolicies, activePolicyTarget).length : 0}
+                  readOnly
+                >
+                  {renderTierPolicies(managedPolicies, true)}
+                </PolicyTierSection>
+              )}
+
+              {/* Global tier — editable in global view, read-only in target view */}
+              {hasGlobalForTab && (
+                <PolicyTierSection
+                  tier="global"
+                  label={isScoped ? 'Inherited (Global)' : 'Global Policies'}
+                  count={activePolicyTarget ? filterByTarget(globalPolicies, activePolicyTarget).length : 0}
+                  readOnly={isScoped}
+                >
+                  {renderTierPolicies(globalPolicies, isScoped)}
+                </PolicyTierSection>
+              )}
+
+              {/* Target tier — only in scoped context */}
+              {isScoped && (
+                <PolicyTierSection
+                  tier="target"
+                  label="Target Policies"
+                  count={activePolicyTarget ? filterByTarget(targetPolicies, activePolicyTarget).length : 0}
+                >
+                  {hasTargetForTab ? (
+                    renderTierPolicies(targetPolicies, false)
+                  ) : (
+                    <Box sx={{ p: 2 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        No target-specific policies for this tab.
+                      </Typography>
+                    </Box>
+                  )}
+                </PolicyTierSection>
+              )}
+
+              {/* Target sections — only in global view */}
+              {!isScoped && targetSections.length > 0 && targetSections.map((section) => {
+                const sectionFiltered = activePolicyTarget
+                  ? filterByTarget(section.policies, activePolicyTarget)
+                  : [];
+                if (sectionFiltered.length === 0) return null;
+                return (
+                  <PolicyTierSection
+                    key={section.profileId}
+                    tier="target"
+                    label={section.targetName}
+                    count={sectionFiltered.length}
+                    collapsible
+                    defaultCollapsed
+                    readOnly
+                  >
+                    {renderTierPolicies(section.policies, true)}
+                  </PolicyTierSection>
+                );
+              })}
+
+              {/* Filesystem always shows the add row in the editable tier */}
+              {activeTab === 2 && !hasEditableForTab && (
+                <FilesystemPolicyTable
+                  policies={[]}
+                  onToggle={requestToggle}
+                  onUpdate={handleFsUpdate}
+                  onAdd={handleFsAdd}
+                  onDelete={handleDelete}
+                  readOnly={false}
+                  busy={updateConfig.isPending}
+                />
+              )}
+            </Box>
+          )}
         </CardContent>
       </Card>
 

@@ -31,6 +31,7 @@ export { ConfigRepository } from './repositories/config';
 export type { ConfigData } from './repositories/config';
 export { StateRepository } from './repositories/state';
 export { PolicyRepository } from './repositories/policy';
+export type { UpdatePolicyInput } from './repositories/policy';
 export { ActivityRepository } from './repositories/activity';
 export { SkillsRepository } from './repositories/skills';
 export { CommandsRepository } from './repositories/commands';

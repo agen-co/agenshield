@@ -11,7 +11,7 @@ import type { Storage, ScopedStorage } from '@agenshield/storage';
 import type { EventBus } from '@agenshield/ipc';
 import { compile } from './engine/compiler';
 import type { CompiledPolicyEngine } from './engine/compiled';
-import type { EvaluationInput, EvaluationResult } from './engine/types';
+import type { EvaluationInput, EvaluationResult, ProcessEvaluationResult } from './engine/types';
 import { HierarchyResolver } from './hierarchy/resolver';
 import { evaluateGraphEffects, emptyEffects } from './graph/effects';
 import type { GraphEffects, SecretsResolver } from './graph/effects';
@@ -98,6 +98,16 @@ export class PolicyManager {
     input: EvaluationInput,
   ): EvaluationResult {
     return this.evaluate({ ...input, resolveSecrets: true });
+  }
+
+  // ---- Process evaluation ----
+
+  /**
+   * Evaluate a running process against process-target policies.
+   * Returns null if no deny rule matches (process is allowed).
+   */
+  evaluateProcess(command: string, context?: import('@agenshield/ipc').PolicyExecutionContext): ProcessEvaluationResult | null {
+    return this.engine.evaluateProcess(command, context);
   }
 
   // ---- CRUD (each triggers recompile) ----

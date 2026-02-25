@@ -146,10 +146,13 @@ export function saveConfig(config: ShieldConfig): void {
     brokerJson: config.broker ? JSON.stringify(config.broker) : null,
   });
 
-  // Sync policies: delete all global-scope policies, re-insert
+  // Sync policies: delete non-managed global-scope policies, re-insert
+  // Managed policies are preserved across config saves.
   const globalScope = storage.for({ profileId: null });
-  globalScope.policies.deleteAll();
+  globalScope.policies.deleteNonManaged();
   for (const p of config.policies) {
+    // Skip managed policies — they are not sent by clients
+    if (p.tier === 'managed') continue;
     globalScope.policies.create(p);
   }
 
@@ -220,10 +223,12 @@ export function saveScopedConfig(config: ShieldConfig, profileId: string): void 
   // Filter to only profile-specific policies
   const profilePolicies = config.policies.filter((p) => !globalPolicyIds.has(p.id));
 
-  // Delete and re-insert profile-scoped policies only
+  // Delete non-managed and re-insert profile-scoped policies only.
+  // Managed policies are preserved across config saves.
   const scoped = storage.for({ profileId });
-  scoped.policies.deleteAll();
+  scoped.policies.deleteNonManaged();
   for (const p of profilePolicies) {
+    if (p.tier === 'managed') continue;
     scoped.policies.create(p);
   }
 

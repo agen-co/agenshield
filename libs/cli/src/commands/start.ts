@@ -6,49 +6,19 @@
  */
 
 import { Command } from 'commander';
+import fs from 'node:fs';
 import {
   getDaemonStatus,
   startDaemon,
   readAdminToken,
+  fetchAdminToken,
   DAEMON_CONFIG,
 } from '../utils/daemon.js';
+import { openBrowser, buildBrowserUrl, waitForAdminToken } from '../utils/browser.js';
 import { ensureSudoAccess, startSudoKeepalive } from '../utils/privileges.js';
-
-/**
- * Open the daemon UI in the default browser
- */
-async function openBrowser(url: string): Promise<void> {
-  try {
-    const { exec } = await import('node:child_process');
-    exec(`open "${url}"`);
-  } catch {
-    // Non-fatal — user can open manually
-  }
-}
-
-/**
- * Build the browser URL with optional JWT token in hash
- */
-function buildBrowserUrl(token: string | null): string {
-  const base = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
-  if (token) {
-    return `${base}/#access_token=${token}`;
-  }
-  return base;
-}
-
-/**
- * Wait for the admin token file to appear (daemon writes it at startup)
- */
-async function waitForAdminToken(maxWaitMs = 5000): Promise<string | null> {
-  const start = Date.now();
-  while (Date.now() - start < maxWaitMs) {
-    const token = readAdminToken();
-    if (token) return token;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  return null;
-}
+import { output } from '../utils/output.js';
+import { ensureSetupComplete } from '../utils/setup-guard.js';
+import { DaemonStartError } from '../errors.js';
 
 /**
  * Create the start command
@@ -58,16 +28,25 @@ export function createStartCommand(): Command {
     .description('Start AgenShield and open the dashboard')
     .option('-f, --foreground', 'Run in foreground (blocking)')
     .option('--no-browser', 'Do not open the browser')
+    .option('--seed-policies <file>', 'Seed managed policies from a JSON file on start')
     .action(async (options) => {
+      ensureSetupComplete();
       const status = await getDaemonStatus();
 
       if (status.running) {
-        console.log(`\x1b[32m✓ Daemon is already running (PID: ${status.pid ?? 'unknown'})\x1b[0m`);
-
-        // Read existing admin token or request a fresh one
-        const token = readAdminToken();
+        const token = readAdminToken() ?? await fetchAdminToken();
         const url = buildBrowserUrl(token);
-        console.log(`  URL: ${url}`);
+
+        output.success(`Daemon is already running (PID: ${status.pid ?? 'unknown'})`);
+        output.info('');
+        output.info('  Dashboard URL:');
+        output.info(`  ${output.cyan(url)}`);
+        if (token) {
+          output.info('');
+          output.info('  Admin token:');
+          output.info(`  ${output.dim(token)}`);
+        }
+        output.info('');
 
         if (options.browser !== false) {
           openBrowser(url);
@@ -83,7 +62,7 @@ export function createStartCommand(): Command {
         sudoKeepalive = startSudoKeepalive();
       }
 
-      console.log('Starting AgenShield daemon...');
+      output.info('Starting AgenShield daemon...');
       const result = await startDaemon({ foreground: options.foreground, sudo: true });
 
       if (sudoKeepalive) {
@@ -91,24 +70,77 @@ export function createStartCommand(): Command {
       }
 
       if (result.success) {
-        console.log(`\x1b[32m✓ ${result.message}\x1b[0m`);
-        if (result.pid) {
-          console.log(`  PID: ${result.pid}`);
-        }
-
-        // Wait for the daemon to write the admin token, then include it in the URL
         const token = await waitForAdminToken();
         const url = buildBrowserUrl(token);
-        console.log(`  URL: ${url}`);
+
+        output.success(`${result.message}${result.pid ? ` (PID: ${result.pid})` : ''}`);
+
+        // Seed managed policies from file if provided
+        if (options.seedPolicies) {
+          await seedManagedPolicies(options.seedPolicies, token);
+        }
+
+        output.info('');
+        output.info('  Dashboard URL:');
+        output.info(`  ${output.cyan(url)}`);
+        if (token) {
+          output.info('');
+          output.info('  Admin token:');
+          output.info(`  ${output.dim(token)}`);
+        }
+        output.info('');
 
         if (!options.foreground && options.browser !== false) {
           openBrowser(url);
         }
       } else {
-        console.log(`\x1b[31m✗ ${result.message}\x1b[0m`);
-        process.exit(1);
+        throw new DaemonStartError(result.message);
       }
     });
 
   return cmd;
+}
+
+/**
+ * Seed managed policies from a JSON file into the running daemon.
+ * POSTs to /api/config/policies/managed/sync.
+ */
+async function seedManagedPolicies(filePath: string, token: string | null): Promise<void> {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const data = JSON.parse(raw);
+
+    // Expect { source?: string, policies: PolicyConfig[] } or PolicyConfig[]
+    const body = Array.isArray(data)
+      ? { source: 'seed', policies: data }
+      : { source: data.source ?? 'seed', policies: data.policies };
+
+    if (!Array.isArray(body.policies)) {
+      output.warn('Seed file must contain a policies array');
+      return;
+    }
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(
+      `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}/api/config/policies/managed/sync`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      },
+    );
+
+    if (res.ok) {
+      output.success(`Seeded ${body.policies.length} managed policies from ${filePath}`);
+    } else {
+      const text = await res.text();
+      output.warn(`Failed to seed policies: ${res.status} ${text.slice(0, 200)}`);
+    }
+  } catch (err) {
+    output.warn(`Failed to read or seed policies from ${filePath}: ${(err as Error).message}`);
+  }
 }

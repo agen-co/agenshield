@@ -1,5 +1,5 @@
 import { Typography, Switch, IconButton, Box, Chip } from '@mui/material';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Lock, Pencil, Trash2 } from 'lucide-react';
 import { StatusBadge } from '../../shared/StatusBadge';
 import { Root, Header, Footer } from './PolicyCard.styles';
 import type { PolicyCardProps } from './PolicyCard.types';
@@ -43,6 +43,24 @@ export function PolicyCard({
             variant="outlined"
             sx={{ fontSize: 11, height: 20 }}
           />
+          {policy.tier === 'managed' && (
+            <Chip
+              size="small"
+              icon={<Lock size={10} />}
+              label="Managed"
+              color="warning"
+              variant="outlined"
+              sx={{ fontSize: 10, height: 18 }}
+            />
+          )}
+          {policy.tier === 'global' && (
+            <Chip
+              size="small"
+              label="Inherited"
+              variant="outlined"
+              sx={{ fontSize: 10, height: 18 }}
+            />
+          )}
           {policy.preset && (
             <Chip
               size="small"

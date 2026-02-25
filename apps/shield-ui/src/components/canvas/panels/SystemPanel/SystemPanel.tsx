@@ -19,6 +19,7 @@ import { useSecurity } from '../../../../api/hooks';
 import { useProfiles } from '../../../../api/hooks';
 import { eventStore } from '../../../../state/events';
 import { setupPanelStore, resetSetupPanel, markShieldComplete, mergeDetectedTargets } from '../../../../state/setup-panel';
+import { authFetch } from '../../../../api/client';
 import { useTargets } from '../../../../api/targets';
 import type { SystemPanelProps, SystemPanelMode } from './SystemPanel.types';
 import type { ShieldProgressEntry } from '../../../../state/setup-panel';
@@ -193,9 +194,8 @@ export function SystemPanel({ open, onShieldComplete }: SystemPanelProps) {
     setCurrentStep('shielding');
 
     try {
-      const res = await fetch(`/api/targets/lifecycle/${selectedTargetId}/shield`, {
+      const res = await authFetch(`/api/targets/lifecycle/${selectedTargetId}/shield`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ baseName, openclawVersion: version }),
       });
       if (!res.ok) {
@@ -222,7 +222,7 @@ export function SystemPanel({ open, onShieldComplete }: SystemPanelProps) {
   const handleRefresh = useCallback(async () => {
     setupPanelStore.isDetecting = true;
     try {
-      const res = await fetch('/api/targets/lifecycle/detect', { method: 'POST' });
+      const res = await authFetch('/api/targets/lifecycle/detect', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         mergeDetectedTargets(data.data);

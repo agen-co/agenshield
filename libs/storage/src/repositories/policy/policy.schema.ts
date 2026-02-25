@@ -23,6 +23,9 @@ export const UpdatePolicySchema = z.object({
   preset: z.string().optional(),
   scope: z.string().optional(),
   networkAccess: z.enum(['allow', 'deny', 'restrict']).optional(),
+  enforcement: z.enum(['alert', 'kill']).optional(),
+  managed: z.boolean().optional(),
+  managedSource: z.string().optional(),
 });
 export type UpdatePolicyInput = z.input<typeof UpdatePolicySchema>;
 
@@ -42,6 +45,9 @@ export const UpdatePolicyCodec = z.codec(
       preset: data.preset,
       scope: data.scope,
       network_access: data.networkAccess,
+      enforcement: data.enforcement,
+      managed: data.managed !== undefined ? (data.managed ? 1 : 0) : undefined,
+      managed_source: data.managedSource,
     }),
   }
 );

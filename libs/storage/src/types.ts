@@ -55,6 +55,9 @@ export interface DbPolicyRow {
   preset: string | null;
   scope: string | null;
   network_access: string | null;
+  enforcement: string | null;
+  managed: number;
+  managed_source: string | null;
   created_at: string;
   updated_at: string;
 }

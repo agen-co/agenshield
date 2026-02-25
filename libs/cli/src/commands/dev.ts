@@ -16,6 +16,9 @@ import * as fs from 'node:fs';
 import { execSync, spawnSync } from 'node:child_process';
 import { ensureSudoAccess } from '../utils/privileges.js';
 import { startDaemon, stopDaemon, getDaemonStatus } from '../utils/daemon.js';
+import { output } from '../utils/output.js';
+import { ensureSetupComplete } from '../utils/setup-guard.js';
+import { CliError } from '../errors.js';
 import {
   loadDevState,
   saveDevState,
@@ -44,11 +47,9 @@ const DEV_BASE_GID = 5300;
  * Launch the Web UI setup server in the browser
  */
 async function runDevWebUI(options: { baseName?: string; prefix?: string; baseUid?: number; tui: boolean }): Promise<void> {
-  // Dynamic import to avoid pulling in server deps unless needed
   const { createSetupServer } = await import('../setup-server/server.js');
   const { createWizardEngine } = await import('../wizard/engine.js');
 
-  // The wizard engine will auto-detect the dev-harness preset
   const engine = createWizardEngine({
     prefix: options.prefix || DEV_PREFIX,
     baseName: options.baseName || DEV_BASE_NAME,
@@ -57,23 +58,19 @@ async function runDevWebUI(options: { baseName?: string; prefix?: string; baseUi
   });
   const detectionResult = await engine.runDetectionPhase();
   if (!detectionResult.success) {
-    console.log(`Warning: Detection phase issue: ${detectionResult.error}`);
+    output.warn(`Detection phase issue: ${detectionResult.error}`);
   }
 
-  // Acquire sudo credentials now (in the terminal) before opening the browser,
-  // so the setup phase can use cached credentials without a TTY prompt.
   ensureSudoAccess();
 
   const server = createSetupServer(engine);
   const url = await server.start(5200);
-  console.log(`Web UI available at: ${url}`);
+  output.info(`Web UI available at: ${url}`);
 
-  // Open browser (already running as user, so default browser is correct)
   try {
     execSync(`open ${url}`, { stdio: 'pipe' });
   } catch { /* Non-macOS or open failed */ }
 
-  // Wait for setup completion OR SIGINT
   const completionOrSignal = Promise.race([
     server.waitForCompletion(),
     new Promise<void>((resolve) => {
@@ -83,24 +80,22 @@ async function runDevWebUI(options: { baseName?: string; prefix?: string; baseUi
   ]);
 
   await completionOrSignal;
-  console.log('\nShutting down Web UI server...');
+  output.info('\nShutting down Web UI server...');
   await server.stop();
 
-  // Start daemon now that port is free
-  console.log('Starting daemon...');
+  output.info('Starting daemon...');
   const daemonResult = await startDaemon();
   if (daemonResult.success) {
-    console.log(`Daemon started (PID: ${daemonResult.pid})`);
+    output.info(`Daemon started (PID: ${daemonResult.pid})`);
   } else {
-    console.warn(`Warning: ${daemonResult.message}`);
+    output.warn(daemonResult.message);
   }
 
-  // Force exit after grace period
   setTimeout(() => process.exit(0), 1000).unref();
 }
 
 /**
- * Run dev mode: detect state → wizard setup or skip → start daemon → render TUI → stop daemon
+ * Run dev mode: detect state -> wizard setup or skip -> start daemon -> render TUI -> stop daemon
  */
 async function runDevMode(options: {
   baseName?: string;
@@ -110,19 +105,17 @@ async function runDevMode(options: {
 }): Promise<void> {
   let state: DevState | null = null;
 
-  // Check for existing dev state
   if (devStateExists()) {
     state = loadDevState();
     if (state) {
-      // Verify user still exists
       const exists = await userExists(state.agentUsername);
       if (!exists) {
-        console.log(`Dev user ${state.agentUsername} no longer exists. Re-creating...`);
-        console.log('');
+        output.info(`Dev user ${state.agentUsername} no longer exists. Re-creating...`);
+        output.info('');
         state = null;
         deleteDevState();
       } else {
-        console.log(`Resuming dev session (user: ${state.agentUsername})`);
+        output.info(`Resuming dev session (user: ${state.agentUsername})`);
 
         const cfg = createUserConfig({
           prefix: state.prefix,
@@ -131,7 +124,6 @@ async function runDevMode(options: {
           baseGid: state.baseGid,
         });
 
-        // Ensure nodePath is set (backcompat with older state files)
         if (!state.nodePath) {
           const agentBinDir = path.join(cfg.agentUser.home, 'bin');
           const nodeDest = path.join(agentBinDir, 'node');
@@ -147,7 +139,6 @@ async function runDevMode(options: {
           state.nodePath = nodeDest;
         }
 
-        // Backcompat: ensure skillsDir is set
         if (!state.skillsDir) {
           state.skillsDir = path.join(cfg.agentUser.home, '.openclaw-dev', 'skills');
         }
@@ -155,7 +146,6 @@ async function runDevMode(options: {
           state.installedSkills = [];
         }
 
-        // Re-copy test harness if path points outside agent home
         if (state.testHarnessPath && !state.testHarnessPath.startsWith(cfg.agentUser.home)) {
           const harnessSource = findTestHarness();
           if (harnessSource) {
@@ -168,14 +158,12 @@ async function runDevMode(options: {
           }
         }
 
-        // Update lastUsedAt
         state.lastUsedAt = new Date().toISOString();
         saveDevState(state);
       }
     }
   }
 
-  // First run: interactive wizard-like setup
   if (!state) {
     let resolvedState: DevState | null = null;
     let webuiRequested = false;
@@ -204,62 +192,56 @@ async function runDevMode(options: {
     }
 
     if (!resolvedState) {
-      console.log('Setup cancelled.');
-      process.exit(0);
+      output.info('Setup cancelled.');
+      return;
     }
 
     state = resolvedState;
 
     const saveResult = saveDevState(state);
     if (!saveResult.success) {
-      console.log(`Warning: could not persist dev state: ${saveResult.error}`);
+      output.warn(`could not persist dev state: ${saveResult.error}`);
     }
   }
 
-  // Start daemon
-  console.log('Starting daemon...');
+  output.info('Starting daemon...');
   const daemonResult = await startDaemon();
   if (!daemonResult.success) {
-    console.log(`Warning: ${daemonResult.message}`);
-    console.log('TUI will start but daemon status may show as stopped.');
+    output.warn(daemonResult.message);
+    output.info('TUI will start but daemon status may show as stopped.');
   } else {
-    console.log(`Daemon: ${daemonResult.message}`);
+    output.info(`Daemon: ${daemonResult.message}`);
   }
-  console.log('');
+  output.info('');
 
   if (options.tui) {
-    // Render interactive TUI
     const { waitUntilExit } = render(React.createElement(DevApp, { devState: state }));
     await waitUntilExit();
   } else {
-    // Headless mode: wait for SIGINT/SIGTERM
-    console.log('Dev environment running. Press Ctrl+C to stop.');
+    output.info('Dev environment running. Press Ctrl+C to stop.');
     await new Promise<void>((resolve) => {
       process.on('SIGINT', resolve);
       process.on('SIGTERM', resolve);
     });
   }
 
-  // Stop daemon on exit
-  console.log('');
-  console.log('Stopping daemon...');
+  output.info('');
+  output.info('Stopping daemon...');
   const stopResult = await stopDaemon();
-  console.log(stopResult.message);
+  output.info(stopResult.message);
 }
 
 /**
  * Clean dev environment: stop daemon, remove users/groups, delete state
  */
 async function runDevClean(): Promise<void> {
-  console.log('Cleaning dev environment...');
-  console.log('');
+  output.info('Cleaning dev environment...');
+  output.info('');
 
-  // Stop daemon first
-  console.log('Stopping daemon...');
+  output.info('Stopping daemon...');
   const stopResult = await stopDaemon();
-  console.log(`  ${stopResult.message}`);
+  output.info(`  ${stopResult.message}`);
 
-  // Load state to get config
   const state = loadDevState();
   const config = createUserConfig({
     prefix: state?.prefix || DEV_PREFIX,
@@ -268,94 +250,81 @@ async function runDevClean(): Promise<void> {
     baseGid: state?.baseGid || DEV_BASE_GID,
   });
 
-  // Remove dev skills/config directory
   if (state?.skillsDir) {
-    const devConfigDir = path.dirname(state.skillsDir); // .openclaw-dev
-    console.log('Removing dev skills directory...');
+    const devConfigDir = path.dirname(state.skillsDir);
+    output.info('Removing dev skills directory...');
     try {
       execSync(`rm -rf "${devConfigDir}"`, { stdio: 'pipe' });
-      console.log('  ✓ Dev skills directory removed');
+      output.info('  \u2713 Dev skills directory removed');
     } catch {
-      console.log('  ✗ Could not remove dev skills directory');
+      output.info('  \u2717 Could not remove dev skills directory');
     }
   }
 
-  // Remove directories
-  console.log('Removing directories...');
+  output.info('Removing directories...');
   const dirResults = await removeAllDirectories(config);
   for (const r of dirResults) {
-    console.log(`  ${r.success ? '✓' : '✗'} ${r.message}`);
+    output.info(`  ${r.success ? '\u2713' : '\u2717'} ${r.message}`);
   }
 
-  // Delete users and groups
-  console.log('Removing users and groups...');
+  output.info('Removing users and groups...');
   const deleteResult = await deleteAllUsersAndGroups(config);
   for (const r of deleteResult.users) {
-    console.log(`  ${r.success ? '✓' : '✗'} ${r.message}`);
+    output.info(`  ${r.success ? '\u2713' : '\u2717'} ${r.message}`);
   }
   for (const r of deleteResult.groups) {
-    console.log(`  ${r.success ? '✓' : '✗'} ${r.message}`);
+    output.info(`  ${r.success ? '\u2713' : '\u2717'} ${r.message}`);
   }
 
-  // Delete state file
-  console.log('Removing dev state...');
+  output.info('Removing dev state...');
   deleteDevState();
 
-  console.log('');
-  console.log('Dev environment cleaned. You can start fresh with: agenshield dev');
+  output.info('');
+  output.info('Dev environment cleaned. You can start fresh with: agenshield dev');
 }
 
 /**
  * Open an interactive login shell as the sandboxed agent user
  */
 async function runDevShell(options: { noDaemon: boolean }): Promise<void> {
-  // 1. Verify dev environment is set up
   if (!devStateExists()) {
-    console.error('Dev environment not set up. Run "agenshield dev" first to create the sandbox.');
-    process.exit(1);
+    throw new CliError('Dev environment not set up. Run "agenshield dev" first to create the sandbox.', 'DEV_NOT_SETUP');
   }
 
   const state = loadDevState();
   if (!state) {
-    console.error('Dev state could not be loaded. Run "agenshield dev" to set up.');
-    process.exit(1);
+    throw new CliError('Dev state could not be loaded. Run "agenshield dev" to set up.', 'DEV_STATE_ERROR');
   }
 
-  // 2. Verify agent user exists
   const exists = await userExists(state.agentUsername);
   if (!exists) {
-    console.error(`Agent user ${state.agentUsername} does not exist. Run "agenshield dev" to re-create.`);
-    process.exit(1);
+    throw new CliError(`Agent user ${state.agentUsername} does not exist. Run "agenshield dev" to re-create.`, 'DEV_USER_MISSING');
   }
 
-  // 3. Ensure guarded-shell is installed
   if (!fs.existsSync(GUARDED_SHELL_PATH)) {
-    console.log('Installing guarded-shell...');
+    output.info('Installing guarded-shell...');
     const gsResult = await installGuardedShell();
     if (!gsResult.success) {
-      console.error(`Failed to install guarded-shell: ${gsResult.message}`);
-      process.exit(1);
+      throw new CliError(`Failed to install guarded-shell: ${gsResult.message}`, 'SHELL_INSTALL_FAILED');
     }
-    console.log('Guarded-shell installed.');
+    output.info('Guarded-shell installed.');
   }
 
-  // 4. Start daemon if needed (unless --no-daemon)
   let daemonStartedByUs = false;
   if (!options.noDaemon) {
     const status = await getDaemonStatus();
     if (!status.running) {
-      console.log('Starting daemon...');
+      output.info('Starting daemon...');
       const daemonResult = await startDaemon();
       if (daemonResult.success) {
-        console.log(`Daemon started (PID: ${daemonResult.pid})`);
+        output.info(`Daemon started (PID: ${daemonResult.pid})`);
         daemonStartedByUs = true;
       } else {
-        console.warn(`Warning: ${daemonResult.message}`);
+        output.warn(daemonResult.message);
       }
     }
   }
 
-  // 5. Resolve agent home and list available commands
   const cfg = createUserConfig({
     prefix: state.prefix,
     baseName: state.baseName,
@@ -371,38 +340,34 @@ async function runDevShell(options: { noDaemon: boolean }): Promise<void> {
     // bin dir may not exist
   }
 
-  // 6. Print info
-  console.log('');
-  console.log('Opening sandboxed shell');
-  console.log(`  User:  ${state.agentUsername}`);
-  console.log(`  Home:  ${agentHome}`);
-  console.log(`  PATH:  $HOME/bin`);
-  console.log(`  Shell: ${GUARDED_SHELL_PATH}`);
-  console.log('');
+  output.info('');
+  output.info('Opening sandboxed shell');
+  output.info(`  User:  ${state.agentUsername}`);
+  output.info(`  Home:  ${agentHome}`);
+  output.info(`  PATH:  $HOME/bin`);
+  output.info(`  Shell: ${GUARDED_SHELL_PATH}`);
+  output.info('');
   if (binContents.length > 0) {
-    console.log(`  Available commands (${binContents.length}):`);
+    output.info(`  Available commands (${binContents.length}):`);
     for (const cmd of binContents) {
-      console.log(`    - ${cmd}`);
+      output.info(`    - ${cmd}`);
     }
   } else {
-    console.log('  No commands found in $HOME/bin');
+    output.info('  No commands found in $HOME/bin');
   }
-  console.log('');
-  console.log('Type exit to leave the sandboxed shell.');
-  console.log('---');
+  output.info('');
+  output.info('Type exit to leave the sandboxed shell.');
+  output.info('---');
 
-  // 7. Spawn interactive login shell as agent user
   spawnSync('sudo', ['-u', state.agentUsername, '-i'], { stdio: 'inherit' });
 
-  // 8. Shell exited
-  console.log('');
-  console.log('Shell session ended.');
+  output.info('');
+  output.info('Shell session ended.');
 
-  // 9. Stop daemon if we started it
   if (daemonStartedByUs) {
-    console.log('Stopping daemon...');
-    const stopResult = await stopDaemon();
-    console.log(stopResult.message);
+    output.info('Stopping daemon...');
+    const stopResult2 = await stopDaemon();
+    output.info(stopResult2.message);
   }
 }
 
@@ -417,6 +382,7 @@ export function createDevCommand(): Command {
     .option('--base-uid <uid>', 'Base UID for users', parseInt)
     .option('--no-tui', 'Start daemon without interactive TUI')
     .action(async (opts) => {
+      ensureSetupComplete();
       await runDevMode({
         baseName: opts.baseName,
         prefix: opts.prefix,

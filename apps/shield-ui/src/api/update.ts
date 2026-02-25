@@ -7,12 +7,12 @@ import { useEffect, useRef } from 'react';
 import { subscribe } from 'valtio';
 import { updateStore, type UpdatePhase } from '../state/update';
 import { eventStore } from '../state/events';
+import { authFetch } from './client';
 
 const BASE_URL = '/api';
 
 async function updateRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${endpoint}`, {
-    headers: { 'Content-Type': 'application/json' },
+  const res = await authFetch(`${BASE_URL}${endpoint}`, {
     ...options,
   });
   if (!res.ok) {

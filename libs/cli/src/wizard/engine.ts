@@ -1738,7 +1738,8 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     try {
       const { MIGRATION_STATE_PATH } = await import('@agenshield/ipc');
       const { execSync } = await import('node:child_process');
-      const VERSION = '0.1.0';
+      const { getVersion } = await import('../utils/version.js');
+      const VERSION = getVersion();
       const state = JSON.stringify({
         currentVersion: VERSION,
         history: [],

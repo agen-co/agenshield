@@ -119,3 +119,8 @@ export {
   type TargetStatusPayload,
   TARGET_EVENT_TYPES,
 } from './target.events';
+
+export {
+  type EnforcementProcessPayload,
+  ENFORCEMENT_EVENT_TYPES,
+} from './enforcement.events';

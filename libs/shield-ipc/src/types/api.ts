@@ -3,7 +3,7 @@
  */
 
 import type { DaemonStatus, OpenClawServiceStatus } from './daemon';
-import type { ShieldConfig } from './config';
+import type { ShieldConfig, PolicyConfig } from './config';
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -61,6 +61,24 @@ export type FsBrowseResponse = ApiResponse<{ entries: FsBrowseEntry[] }>;
 // OpenClaw types
 export type GetOpenClawStatusResponse = ApiResponse<OpenClawServiceStatus>;
 export type OpenClawActionResponse = ApiResponse<{ message: string }>;
+
+// Tiered policy response
+export interface TieredPolicies {
+  /** Admin-enforced, read-only policies */
+  managed: PolicyConfig[];
+  /** Shared policies (global scope) */
+  global: PolicyConfig[];
+  /** Target-specific policies (only populated in scoped context) */
+  target: PolicyConfig[];
+  /** All targets' policies grouped (only populated in global context) */
+  targetSections?: Array<{
+    profileId: string;
+    targetName: string;
+    policies: PolicyConfig[];
+  }>;
+}
+
+export type GetTieredPoliciesResponse = ApiResponse<TieredPolicies>;
 
 // Request types
 export type UpdateConfigRequest = Partial<ShieldConfig>;

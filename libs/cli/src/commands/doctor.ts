@@ -6,112 +6,105 @@
 
 import { Command } from 'commander';
 import { getEffectiveEnvForScanning } from '../utils/sudo-env.js';
+import { output } from '../utils/output.js';
 
 /**
  * Run diagnostics
  */
 async function runDoctor(): Promise<void> {
-  console.log('AgenShield Doctor');
-  console.log('=================');
+  output.info('AgenShield Doctor');
+  output.info('=================');
 
   const { checkPrerequisites, detectOpenClaw, checkSecurityStatus } = await import(
     '@agenshield/sandbox'
   );
 
   // Check prerequisites
-  console.log('\nPrerequisites:');
+  output.info('\nPrerequisites:');
   const prereqs = checkPrerequisites();
   if (prereqs.ok) {
-    console.log('  ✓ All prerequisites met');
+    output.info('  \u2713 All prerequisites met');
   } else {
-    console.log('  ✗ Missing prerequisites:');
-    prereqs.missing.forEach((m) => console.log(`    - ${m}`));
+    output.info('  \u2717 Missing prerequisites:');
+    prereqs.missing.forEach((m: string) => output.info(`    - ${m}`));
   }
 
   // Check OpenClaw installation
-  console.log('\nOpenClaw Installation:');
+  output.info('\nOpenClaw Installation:');
   const detection = detectOpenClaw();
   if (detection.installation.found) {
-    console.log(`  ✓ Found (${detection.installation.method})`);
-    console.log(`    Version: ${detection.installation.version || 'unknown'}`);
-    console.log(`    Path: ${detection.installation.packagePath || 'unknown'}`);
+    output.info(`  \u2713 Found (${detection.installation.method})`);
+    output.info(`    Version: ${detection.installation.version || 'unknown'}`);
+    output.info(`    Path: ${detection.installation.packagePath || 'unknown'}`);
   } else {
-    console.log('  ✗ Not found');
+    output.info('  \u2717 Not found');
   }
 
   // Security Status
-  console.log('\n🔒 Security Status:');
+  output.info('\nSecurity Status:');
   const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
 
-  // Critical issues first
   if (security.critical.length > 0) {
-    console.log('\n  ⛔ CRITICAL ISSUES:');
-    security.critical.forEach((c) => console.log(`    ${c}`));
+    output.info('\n  CRITICAL ISSUES:');
+    security.critical.forEach((c: string) => output.info(`    ${c}`));
   }
 
-  // Current user
-  console.log(`\n  Current user: ${security.currentUser}`);
+  output.info(`\n  Current user: ${security.currentUser}`);
   if (security.runningAsRoot) {
-    console.log('  ⛔ Running as root - THIS IS DANGEROUS!');
+    output.info('  Running as root - THIS IS DANGEROUS!');
   }
 
-  // Sandbox status
-  console.log('\n  Sandbox Status:');
+  output.info('\n  Sandbox Status:');
   if (security.sandboxUserExists) {
-    console.log('    ✓ User "openclaw" exists');
+    output.info('    \u2713 User "openclaw" exists');
   } else {
-    console.log('    ○ User "openclaw" not created');
+    output.info('    \u25CB User "openclaw" not created');
   }
 
   if (security.isIsolated) {
-    console.log('    ✓ OpenClaw is running in isolated sandbox');
+    output.info('    \u2713 OpenClaw is running in isolated sandbox');
   } else if (security.sandboxUserExists) {
-    console.log('    ⚠ OpenClaw is NOT running in sandbox');
+    output.info('    \u26A0 OpenClaw is NOT running in sandbox');
   }
 
-  // Exposed secrets
   if (security.exposedSecrets.length > 0) {
-    console.log('\n  ⚠ Exposed Secrets in Environment:');
-    security.exposedSecrets.forEach((s) => console.log(`    - ${s}`));
-    console.log('    (These would be accessible to any skill)');
+    output.info('\n  \u26A0 Exposed Secrets in Environment:');
+    security.exposedSecrets.forEach((s: string) => output.info(`    - ${s}`));
+    output.info('    (These would be accessible to any skill)');
   } else {
-    console.log('\n  ✓ No obvious secrets in environment');
+    output.info('\n  \u2713 No obvious secrets in environment');
   }
 
-  // Warnings
   if (security.warnings.length > 0) {
-    console.log('\n  ⚠ Warnings:');
-    security.warnings.forEach((w) => console.log(`    - ${w}`));
+    output.info('\n  \u26A0 Warnings:');
+    security.warnings.forEach((w: string) => output.info(`    - ${w}`));
   }
 
-  // Recommendations
   if (security.recommendations.length > 0) {
-    console.log('\n  📋 Recommendations:');
-    security.recommendations.forEach((r) => console.log(`    → ${r}`));
+    output.info('\n  Recommendations:');
+    security.recommendations.forEach((r: string) => output.info(`    \u2192 ${r}`));
   }
 
-  // Detection warnings/errors
   if (detection.warnings.length > 0) {
-    console.log('\nInstallation Warnings:');
-    detection.warnings.forEach((w) => console.log(`  ! ${w}`));
+    output.info('\nInstallation Warnings:');
+    detection.warnings.forEach((w: string) => output.info(`  ! ${w}`));
   }
 
   if (detection.errors.length > 0) {
-    console.log('\nInstallation Errors:');
-    detection.errors.forEach((e) => console.log(`  ✗ ${e}`));
+    output.info('\nInstallation Errors:');
+    detection.errors.forEach((e: string) => output.info(`  \u2717 ${e}`));
   }
 
-  // Summary
-  console.log('\n─────────────────────');
+  output.info('\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
   const hasIssues = security.critical.length > 0 || security.warnings.length > 0;
   if (security.isIsolated && !hasIssues) {
-    console.log('✅ System is properly secured');
+    output.info('\u2705 System is properly secured');
   } else if (security.critical.length > 0) {
-    console.log('⛔ Critical security issues found - run "agenshield setup" immediately');
+    output.info('\u26D4 Critical security issues found - run "agenshield setup" immediately');
   } else if (!security.sandboxUserExists) {
-    console.log('⚠ OpenClaw not isolated - run "agenshield setup" to secure');
+    output.info('\u26A0 OpenClaw not isolated - run "agenshield setup" to secure');
   } else {
-    console.log('⚠ Some issues found - review recommendations above');
+    output.info('\u26A0 Some issues found - review recommendations above');
   }
 }
 
@@ -131,7 +124,7 @@ export function createDoctorCommand(): Command {
         const prereqs = checkPrerequisites();
         const detection = detectOpenClaw();
         const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
-        console.log(JSON.stringify({ prereqs, detection, security }, null, 2));
+        output.data({ prereqs, detection, security });
       } else {
         await runDoctor();
       }

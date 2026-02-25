@@ -16,7 +16,6 @@ import { SHIELD_HEADERS } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 import { buildSandboxConfig } from '@agenshield/seatbelt';
 import type { SharedCapabilities } from '@agenshield/seatbelt';
-import { filterUrlPoliciesForCommand } from '@agenshield/policies';
 import { loadConfig } from '../config/index';
 import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning, emitEvent, emitResourceWarning, emitResourceLimitEnforced } from '../events/emitter';
 import { resolveProfileByToken } from '../services/profile-token';

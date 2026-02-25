@@ -7,7 +7,12 @@
  * @packageDocumentation
  */
 
-export const VERSION = '0.1.0';
+import { getVersion } from './utils/version.js';
+
+export const VERSION = getVersion();
+
+// Re-export error classes
+export * from './errors.js';
 
 // Re-export detection utilities
 export * from './detect/index.js';

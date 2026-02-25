@@ -17,7 +17,7 @@ export const AuthStatusResponseSchema = z.object({
  * Sudo login request schema
  */
 export const SudoLoginRequestSchema = z.object({
-  username: z.string().min(1, 'Username is required'),
+  username: z.string().optional(),
   password: z.string().min(1, 'Password is required'),
 });
 

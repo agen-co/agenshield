@@ -7,6 +7,7 @@
 
 import { proxy } from 'valtio';
 import type { DetectedTarget, OldInstallation, ShieldStepState } from '@agenshield/ipc';
+import { authFetch } from '../api/client';
 
 export interface ShieldLogEntry {
   message: string;
@@ -71,7 +72,7 @@ export const setupPanelStore = proxy<SetupPanelState>({
  */
 export async function loadDismissedTargets(): Promise<void> {
   try {
-    const res = await fetch('/api/targets/lifecycle/dismissed');
+    const res = await authFetch('/api/targets/lifecycle/dismissed');
     const data = await res.json();
     if (data.success && Array.isArray(data.data)) {
       setupPanelStore.dismissedCardIds = data.data;
@@ -299,9 +300,8 @@ export const KNOWN_PRESETS = [
 export function dismissCard(id: string): void {
   if (!setupPanelStore.dismissedCardIds.includes(id)) {
     setupPanelStore.dismissedCardIds.push(id);
-    fetch('/api/targets/lifecycle/dismissed', {
+    authFetch('/api/targets/lifecycle/dismissed', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetId: id }),
     }).catch(() => { /* best-effort persist */ });
   }
@@ -315,7 +315,7 @@ export function restoreCard(id: string): void {
   const idx = setupPanelStore.dismissedCardIds.indexOf(id);
   if (idx !== -1) {
     setupPanelStore.dismissedCardIds.splice(idx, 1);
-    fetch(`/api/targets/lifecycle/dismissed/${encodeURIComponent(id)}`, {
+    authFetch(`/api/targets/lifecycle/dismissed/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }).catch(() => { /* best-effort persist */ });
   }

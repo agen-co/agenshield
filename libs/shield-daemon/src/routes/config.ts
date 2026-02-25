@@ -9,6 +9,9 @@ import type {
   GetConfigResponse,
   UpdateConfigResponse,
   UpdateConfigRequest,
+  GetTieredPoliciesResponse,
+  PolicyConfig,
+  ApiResponse,
 } from '@agenshield/ipc';
 import { OPENCLAW_PRESET, AGENCO_PRESET, getPresetById } from '@agenshield/ipc';
 import { loadConfig, loadScopedConfig, updateConfig, updateScopedConfig, saveConfig, getDefaultConfig } from '../config/index';
@@ -108,6 +111,14 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
               }
             }
           }
+        }
+
+        // Strip managed policies from client input — managed policies
+        // can only be created/modified through the managed CRUD endpoints.
+        if (request.body.policies) {
+          request.body.policies = request.body.policies.filter(
+            (p) => p.tier !== 'managed',
+          );
         }
 
         const oldPolicies = profileId
@@ -254,6 +265,156 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       };
     }
   });
+
+  /**
+   * GET /config/policies/tiered — Get policies organized by tier.
+   * In scoped context: returns { managed, global, target } for that profile.
+   * In global context: returns { managed, global, target: [], targetSections }.
+   */
+  app.get('/config/policies/tiered', async (request): Promise<GetTieredPoliciesResponse> => {
+    const profileId = request.shieldContext?.profileId;
+    const storage = getStorage();
+
+    if (profileId) {
+      const tiered = storage.for({ profileId }).policies.getTiered();
+      return { success: true, data: tiered };
+    }
+
+    // Global view: include target sections
+    const globalRepo = storage.for({ profileId: null }).policies;
+    const tiered = globalRepo.getTiered();
+    tiered.targetSections = globalRepo.getAllTargetSections();
+    return { success: true, data: tiered };
+  });
+
+  /**
+   * POST /config/policies/managed — Create a managed (admin-enforced) policy.
+   */
+  app.post<{ Body: PolicyConfig }>(
+    '/config/policies/managed',
+    async (request): Promise<ApiResponse<PolicyConfig>> => {
+      try {
+        const storage = getStorage();
+        const policy = storage.for({ profileId: null }).policies.createManaged(
+          request.body,
+          request.body.preset ?? 'admin',
+        );
+        return { success: true, data: policy };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MANAGED_POLICY_CREATE_FAILED',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /config/policies/managed/:id — Update a managed policy.
+   */
+  app.put<{ Params: { id: string }; Body: Record<string, unknown> }>(
+    '/config/policies/managed/:id',
+    async (request): Promise<ApiResponse<PolicyConfig>> => {
+      try {
+        const storage = getStorage();
+        const existing = storage.for({ profileId: null }).policies.getById(request.params.id);
+        if (!existing || existing.tier !== 'managed') {
+          return {
+            success: false,
+            error: { code: 'NOT_FOUND', message: 'Managed policy not found' },
+          };
+        }
+
+        const updated = storage.for({ profileId: null }).policies.update(
+          request.params.id,
+          request.body as import('@agenshield/storage').UpdatePolicyInput,
+        );
+        if (!updated) {
+          return {
+            success: false,
+            error: { code: 'UPDATE_FAILED', message: 'Failed to update managed policy' },
+          };
+        }
+        return { success: true, data: updated };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MANAGED_POLICY_UPDATE_FAILED',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * DELETE /config/policies/managed/:id — Delete a managed policy.
+   */
+  app.delete<{ Params: { id: string } }>(
+    '/config/policies/managed/:id',
+    async (request): Promise<ApiResponse<{ deleted: boolean }>> => {
+      try {
+        const storage = getStorage();
+        const existing = storage.for({ profileId: null }).policies.getById(request.params.id);
+        if (!existing || existing.tier !== 'managed') {
+          return {
+            success: false,
+            error: { code: 'NOT_FOUND', message: 'Managed policy not found' },
+          };
+        }
+
+        const deleted = storage.for({ profileId: null }).policies.delete(request.params.id);
+        return { success: true, data: { deleted } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MANAGED_POLICY_DELETE_FAILED',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * POST /config/policies/managed/sync — Batch upsert managed policies from external source.
+   * Replaces all managed policies from the given source with the provided list.
+   */
+  app.post<{ Body: { source: string; policies: PolicyConfig[] } }>(
+    '/config/policies/managed/sync',
+    async (request): Promise<ApiResponse<{ synced: number }>> => {
+      try {
+        const { source, policies } = request.body;
+        const storage = getStorage();
+        const repo = storage.for({ profileId: null }).policies;
+
+        // Delete all existing managed policies from this source
+        repo.deleteManagedBySource(source);
+
+        // Insert new managed policies
+        let synced = 0;
+        for (const p of policies) {
+          repo.createManaged(p, source);
+          synced++;
+        }
+
+        return { success: true, data: { synced } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'MANAGED_POLICY_SYNC_FAILED',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          },
+        };
+      }
+    },
+  );
 
   /**
    * GET /config/openclaw - Display agent's OpenClaw configuration

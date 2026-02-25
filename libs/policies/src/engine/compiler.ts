@@ -12,6 +12,7 @@ import type { PolicyConfig, PolicyGraph } from '@agenshield/ipc';
 import { matchUrlPattern, normalizeUrlTarget } from '../matcher/url';
 import { matchCommandPattern } from '../matcher/command';
 import { matchFilesystemPattern } from '../matcher/filesystem';
+import { matchProcessPattern } from '../matcher/process';
 import { policyScopeMatches } from '../matcher/scope';
 import { getActiveDormantPolicyIds } from '../graph/dormant';
 import type { CompiledRule, PrecomputedEffects } from './types';
@@ -38,6 +39,8 @@ export function operationToTarget(operation: string): string {
     case 'file_write':
     case 'file_list':
       return 'filesystem';
+    case 'process_run':
+      return 'process';
     default:
       return operation;
   }
@@ -52,6 +55,8 @@ function buildMatchers(policy: PolicyConfig): Array<(target: string) => boolean>
       return (target: string) => matchUrlPattern(pattern, normalizeUrlTarget(target));
     } else if (policy.target === 'command') {
       return (target: string) => matchCommandPattern(pattern, target);
+    } else if (policy.target === 'process') {
+      return (target: string) => matchProcessPattern(pattern, target);
     } else {
       // filesystem
       return (target: string) => matchFilesystemPattern(pattern, target);
@@ -141,17 +146,24 @@ export function compile(input: CompileInput): CompiledPolicyEngine {
   const commandRules: CompiledRule[] = [];
   const urlRules: CompiledRule[] = [];
   const filesystemRules: CompiledRule[] = [];
+  const processRules: CompiledRule[] = [];
 
   for (const policy of applicable) {
+    // Tier-based priority boost: Managed > Target > Global
+    const tierBoost = policy.tier === 'managed' ? 10000
+                    : policy.tier === 'target' ? 5000
+                    : 0;
+
     const rule: CompiledRule = {
       policyId: policy.id,
       action: policy.action,
-      priority: policy.priority ?? 0,
+      priority: (policy.priority ?? 0) + tierBoost,
       matchers: buildMatchers(policy),
       scopeMatch: (ctx) => policyScopeMatches(policy, ctx),
       operations: policy.operations && policy.operations.length > 0
         ? new Set(policy.operations)
         : null,
+      enforcement: policy.enforcement,
     };
 
     switch (policy.target) {
@@ -164,6 +176,9 @@ export function compile(input: CompileInput): CompiledPolicyEngine {
       case 'filesystem':
         filesystemRules.push(rule);
         break;
+      case 'process':
+        processRules.push(rule);
+        break;
     }
   }
 
@@ -172,6 +187,7 @@ export function compile(input: CompileInput): CompiledPolicyEngine {
   commandRules.sort(sortByPriority);
   urlRules.sort(sortByPriority);
   filesystemRules.sort(sortByPriority);
+  processRules.sort(sortByPriority);
 
   // Pre-compute graph effects
   const graphEffectsMap = graph ? precomputeGraphEffects(graph) : new Map();
@@ -182,6 +198,7 @@ export function compile(input: CompileInput): CompiledPolicyEngine {
     commandRules,
     urlRules,
     filesystemRules,
+    processRules,
     graphEffectsMap,
     activeDormantIds,
     defaultAction,

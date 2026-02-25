@@ -9,6 +9,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { SchemaMigration } from '../../../migrations/001-schema';
+import { PolicyTiersMigration } from '../../../migrations/017-policy-tiers';
+import { PolicyEnforcementMigration } from '../../../migrations/018-policy-enforcement';
 import { PolicyRepository } from '../policy.repository';
 
 function insertProfile(db: Database.Database, id: string, name?: string): void {
@@ -29,6 +31,8 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   new SchemaMigration().up(db);
+  new PolicyTiersMigration().up(db);
+  new PolicyEnforcementMigration().up(db);
   return {
     db,
     cleanup: () => {
@@ -350,6 +354,155 @@ describe('PolicyRepository', () => {
       // The seeded policies should be queryable with that scope
       const all = scopedPreset.getAll();
       expect(all.length).toBe(count);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Tier: managed, global, target
+  // -----------------------------------------------------------------------
+
+  describe('Tiers', () => {
+    beforeEach(() => seedScopeFixtures(db));
+
+    it('should create a regular policy with tier="global" when no scope', () => {
+      const created = repo.create(makePolicy());
+      expect(created.tier).toBe('global');
+    });
+
+    it('should create a regular policy with tier="target" when scoped', () => {
+      const scoped = new PolicyRepository(db, getKey, { profileId: 'profile-a' });
+      const created = scoped.create(makePolicy());
+      expect(created.tier).toBe('target');
+    });
+
+    it('should create a managed policy with tier="managed"', () => {
+      const created = repo.createManaged(makePolicy(), 'cloud');
+      expect(created.tier).toBe('managed');
+    });
+
+    it('should store managed_source for managed policies', () => {
+      const policy = makePolicy();
+      repo.createManaged(policy, 'cloud-admin');
+
+      // Verify via raw SQL
+      const row = db.prepare('SELECT managed, managed_source FROM policies WHERE id = ?').get(policy.id) as { managed: number; managed_source: string | null };
+      expect(row.managed).toBe(1);
+      expect(row.managed_source).toBe('cloud-admin');
+    });
+
+    it('should derive tier correctly in getById', () => {
+      const globalPolicy = makePolicy({ id: 'tier-g' });
+      repo.create(globalPolicy);
+
+      const managedPolicy = makePolicy({ id: 'tier-m' });
+      repo.createManaged(managedPolicy, 'admin');
+
+      const scopedRepo = new PolicyRepository(db, getKey, { profileId: 'profile-a' });
+      const targetPolicy = makePolicy({ id: 'tier-t' });
+      scopedRepo.create(targetPolicy);
+
+      expect(repo.getById('tier-g')!.tier).toBe('global');
+      expect(repo.getById('tier-m')!.tier).toBe('managed');
+      expect(repo.getById('tier-t')!.tier).toBe('target');
+    });
+
+    it('should return managed policies via getManaged()', () => {
+      repo.create(makePolicy({ id: 'regular' }));
+      repo.createManaged(makePolicy({ id: 'managed-1' }), 'admin');
+      repo.createManaged(makePolicy({ id: 'managed-2' }), 'cloud');
+
+      const managed = repo.getManaged();
+      expect(managed).toHaveLength(2);
+      expect(managed.every((p) => p.tier === 'managed')).toBe(true);
+    });
+
+    it('should return tiered policies via getTiered() in global context', () => {
+      repo.createManaged(makePolicy({ id: 'm1' }), 'admin');
+      repo.create(makePolicy({ id: 'g1' }));
+
+      const tiered = repo.getTiered();
+      expect(tiered.managed).toHaveLength(1);
+      expect(tiered.managed[0].id).toBe('m1');
+      expect(tiered.global).toHaveLength(1);
+      expect(tiered.global[0].id).toBe('g1');
+      expect(tiered.target).toHaveLength(0);
+    });
+
+    it('should return tiered policies via getTiered() in scoped context', () => {
+      repo.createManaged(makePolicy({ id: 'm1' }), 'admin');
+      repo.create(makePolicy({ id: 'g1' }));
+      const scopedA = new PolicyRepository(db, getKey, { profileId: 'profile-a' });
+      scopedA.create(makePolicy({ id: 't1' }));
+
+      const tiered = scopedA.getTiered();
+      expect(tiered.managed).toHaveLength(1);
+      expect(tiered.global).toHaveLength(1);
+      expect(tiered.target).toHaveLength(1);
+      expect(tiered.target[0].id).toBe('t1');
+    });
+
+    it('should deleteNonManaged only delete non-managed policies', () => {
+      repo.createManaged(makePolicy({ id: 'preserved' }), 'admin');
+      repo.create(makePolicy({ id: 'deleted-1' }));
+      repo.create(makePolicy({ id: 'deleted-2' }));
+
+      const deleted = repo.deleteNonManaged();
+      expect(deleted).toBe(2);
+
+      // Managed policy preserved
+      expect(repo.getById('preserved')).not.toBeNull();
+      expect(repo.getById('preserved')!.tier).toBe('managed');
+
+      // Non-managed policies gone
+      expect(repo.getById('deleted-1')).toBeNull();
+      expect(repo.getById('deleted-2')).toBeNull();
+    });
+
+    it('should deleteNonManaged respect profile scope', () => {
+      const scopedA = new PolicyRepository(db, getKey, { profileId: 'profile-a' });
+      scopedA.create(makePolicy({ id: 'scope-a-pol' }));
+
+      const scopedB = new PolicyRepository(db, getKey, { profileId: 'profile-b' });
+      scopedB.create(makePolicy({ id: 'scope-b-pol' }));
+
+      // Delete only profile-a non-managed policies
+      const deletedCount = scopedA.deleteNonManaged();
+      expect(deletedCount).toBe(1);
+
+      // profile-b policy preserved
+      expect(repo.getById('scope-b-pol')).not.toBeNull();
+      expect(repo.getById('scope-a-pol')).toBeNull();
+    });
+
+    it('should return target sections via getAllTargetSections()', () => {
+      const scopedA = new PolicyRepository(db, getKey, { profileId: 'profile-a' });
+      scopedA.create(makePolicy({ id: 'sec-a-1' }));
+      scopedA.create(makePolicy({ id: 'sec-a-2' }));
+
+      const scopedB = new PolicyRepository(db, getKey, { profileId: 'profile-b' });
+      scopedB.create(makePolicy({ id: 'sec-b-1' }));
+
+      const sections = repo.getAllTargetSections();
+      expect(sections).toBeDefined();
+      expect(sections!.length).toBe(2);
+
+      const sectionA = sections!.find((s) => s.profileId === 'profile-a');
+      expect(sectionA).toBeDefined();
+      expect(sectionA!.policies).toHaveLength(2);
+
+      const sectionB = sections!.find((s) => s.profileId === 'profile-b');
+      expect(sectionB).toBeDefined();
+      expect(sectionB!.policies).toHaveLength(1);
+    });
+
+    it('should omit empty target sections from getAllTargetSections()', () => {
+      // Only add policies for profile-a, not profile-b
+      const scopedA = new PolicyRepository(db, getKey, { profileId: 'profile-a' });
+      scopedA.create(makePolicy({ id: 'only-a' }));
+
+      const sections = repo.getAllTargetSections();
+      expect(sections!.every((s) => s.policies.length > 0)).toBe(true);
+      expect(sections!.find((s) => s.profileId === 'profile-b')).toBeUndefined();
     });
   });
 

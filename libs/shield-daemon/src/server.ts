@@ -28,7 +28,7 @@ import { loadOrCreateSecret, signAdminToken } from '@agenshield/auth';
 import { activateMCP, deactivateMCP } from './mcp';
 import { getActivityWriter } from './services/activity-writer';
 import { shutdownProxyPool } from './proxy/pool';
-import { getQuarantineDir, getSkillBackupDir, isDevMode } from './config/paths';
+import { getQuarantineDir, getSkillBackupDir, isDevMode, getConfigDir } from './config/paths';
 import { verifyConfigIntegrity } from './config/loader';
 import { ConfigTamperError } from './config/errors';
 import { DaemonDeployAdapter } from './adapters/daemon-deploy-adapter';
@@ -49,6 +49,8 @@ import { pushSecretsToBroker } from './services/broker-bridge';
 import { startMetricsCollector, stopMetricsCollector } from './services/metrics-collector';
 import { resolveTargetContext } from './services/target-context';
 import { ProcessManager } from './services/process-manager';
+import { getCloudConnector } from './services/cloud-connector';
+import { startProcessEnforcer, stopProcessEnforcer } from './services/process-enforcer';
 
 /**
  * Create and configure the Fastify server
@@ -219,13 +221,31 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   // ─── Generate admin token file ──────────────────────────
   try {
     const adminToken = await signAdminToken();
-    const tokenPath = '/var/run/agenshield/.admin-token';
-    const tokenDir = '/var/run/agenshield';
-    if (!fs.existsSync(tokenDir)) {
-      fs.mkdirSync(tokenDir, { recursive: true, mode: 0o700 });
+
+    // Primary: user-accessible config dir (~/.agenshield/.admin-token)
+    const configTokenPath = path.join(getConfigDir(), '.admin-token');
+    fs.writeFileSync(configTokenPath, adminToken, { mode: 0o600 });
+    // Chown to calling user if running under sudo
+    const sudoUser = process.env['SUDO_USER'];
+    if (process.getuid?.() === 0 && sudoUser) {
+      try {
+        const uid = parseInt(execSync(`id -u ${sudoUser}`, { encoding: 'utf-8' }).trim(), 10);
+        const gid = parseInt(execSync(`id -g ${sudoUser}`, { encoding: 'utf-8' }).trim(), 10);
+        fs.chownSync(configTokenPath, uid, gid);
+      } catch { /* best effort */ }
     }
-    fs.writeFileSync(tokenPath, adminToken, { mode: 0o600 });
-    app.log.info('Admin token written to /var/run/agenshield/.admin-token');
+    app.log.info(`Admin token written to ${configTokenPath}`);
+
+    // Secondary: system dir (best-effort, for root-level reads)
+    try {
+      const tokenDir = '/var/run/agenshield';
+      if (!fs.existsSync(tokenDir)) {
+        fs.mkdirSync(tokenDir, { recursive: true, mode: 0o755 });
+      }
+      fs.writeFileSync(path.join(tokenDir, '.admin-token'), adminToken, { mode: 0o644 });
+    } catch {
+      app.log.debug('Could not write token to /var/run/agenshield — using config dir only');
+    }
   } catch (err) {
     app.log.warn({ err }, 'Failed to write admin token file');
   }
@@ -455,9 +475,24 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   app.decorate('processManager', processManager);
   setProcessManager(processManager);
 
+  // Connect to AgenShield Cloud if credentials exist
+  const cloudConnector = getCloudConnector();
+  try {
+    await cloudConnector.connect();
+    if (cloudConnector.isConnected()) {
+      app.log.info(`[cloud] Connected to AgenShield Cloud (${cloudConnector.getCompanyName() ?? 'unknown company'})`);
+    }
+  } catch (err) {
+    app.log.warn({ err }, '[cloud] Failed to connect to AgenShield Cloud');
+  }
+
+  // Start process enforcer (scans running host processes against process-target policies)
+  startProcessEnforcer({ intervalMs: 10_000 });
+
   // Stop watchers, proxy pool, and MCP on server close
   app.addHook('onClose', async () => {
     emitProcessStopped('daemon', { pid: process.pid });
+    stopProcessEnforcer();
     stopSecurityWatcher();
     stopMetricsCollector();
     stopTargetWatcher();
@@ -479,6 +514,8 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
         await app.privilegeExecutor.shutdown();
       } catch { /* non-fatal */ }
     }
+    // Disconnect cloud connector
+    cloudConnector.disconnect();
     // Clear broker's in-memory secrets on shutdown
     try {
       const { clearBrokerSecrets } = await import('./services/broker-bridge.js');

@@ -4,8 +4,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSnapshot } from 'valtio';
-import type { UpdateConfigRequest, SimulateRequest } from '@agenshield/ipc';
-import { api, type CreateSecretRequest } from './client';
+import type { UpdateConfigRequest, SimulateRequest, TieredPolicies } from '@agenshield/ipc';
+import { api, authFetch, type CreateSecretRequest } from './client';
 import { daemonStatusStore } from '../state/daemon-status';
 import { securityStore, setSecurityStatus } from '../state/security';
 import { alertsStore, setAlerts, acknowledgeAlertInStore, acknowledgeAllAlertsInStore } from '../state/alerts';
@@ -16,6 +16,7 @@ import { scopeStore } from '../state/scope';
 export const queryKeys = {
   health: ['health'] as const,
   config: ['config'] as const,
+  tieredPolicies: ['policies', 'tiered'] as const,
   skills: ['skills'] as const,
   secrets: ['secrets'] as const,
   availableEnvSecrets: ['secrets', 'env'] as const,
@@ -109,7 +110,26 @@ export function useUpdateConfig() {
     mutationFn: (data: UpdateConfigRequest) => api.updateConfig(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.config });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tieredPolicies });
     },
+  });
+}
+
+/**
+ * Hook to fetch policies organized by tier (managed, global, target).
+ */
+export function useTieredPolicies() {
+  const healthy = useHealthGate();
+  const scope = useScopeKey();
+  return useQuery({
+    queryKey: [...queryKeys.tieredPolicies, scope] as const,
+    queryFn: async (): Promise<TieredPolicies> => {
+      const res = await authFetch('/api/config/policies/tiered');
+      if (!res.ok) throw new Error('Failed to fetch tiered policies');
+      const json = await res.json();
+      return json.data as TieredPolicies;
+    },
+    enabled: healthy,
   });
 }
 
@@ -438,7 +458,7 @@ export function useMetricsHistory(limit = 150) {
   return useQuery({
     queryKey: ['metrics-history', limit] as const,
     queryFn: async () => {
-      const res = await fetch(`/api/metrics/history?limit=${limit}`);
+      const res = await authFetch(`/api/metrics/history?limit=${limit}`);
       if (!res.ok) return [];
       const json = await res.json();
       return (json.data ?? []) as Array<{
@@ -464,7 +484,7 @@ export function useTargetMetricsHistory(targetId: string | null) {
   return useQuery({
     queryKey: ['metrics-history', 'target', targetId] as const,
     queryFn: async () => {
-      const res = await fetch(`/api/metrics/history?targetId=${encodeURIComponent(targetId!)}&limit=150`);
+      const res = await authFetch(`/api/metrics/history?targetId=${encodeURIComponent(targetId!)}&limit=150`);
       if (!res.ok) return [];
       const json = await res.json();
       return (json.data ?? []) as Array<{

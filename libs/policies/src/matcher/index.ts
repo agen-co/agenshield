@@ -20,3 +20,7 @@ export {
   commandScopeMatches,
   filterUrlPoliciesForCommand,
 } from './scope';
+
+export {
+  matchProcessPattern,
+} from './process';

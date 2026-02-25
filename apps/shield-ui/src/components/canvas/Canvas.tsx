@@ -17,8 +17,9 @@ import '@xyflow/react/dist/style.css';
 import { useTheme } from '@mui/material/styles';
 import { useSnapshot } from 'valtio';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { IconButton } from '@mui/material';
+import { IconButton, Box } from '@mui/material';
 import { Sun, Moon } from 'lucide-react';
+import { CircularLoader } from '../../elements/loaders/CircularLoader';
 import {
   CanvasContainer,
   ThemeToggleOverlay,
@@ -529,7 +530,21 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
   const edgeTypes = useMemo(() => canvasEdgeTypes, []);
 
 
+  const { isDetecting } = useSnapshot(setupPanelStore);
   const { zoomPhase, skipEntryAnimation } = useSnapshot(drilldownStore);
+
+  // Canvas loading state: show overlay until data is ready (prevents blink)
+  const [dataReady, setDataReady] = useState(false);
+  useEffect(() => {
+    if (dataReady) return;
+    if (!isDetecting && nodes.length > 0) {
+      setDataReady(true);
+      return;
+    }
+    // Safety timeout: reveal canvas after 3s regardless
+    const timeout = setTimeout(() => setDataReady(true), 3000);
+    return () => clearTimeout(timeout);
+  }, [dataReady, isDetecting, nodes.length]);
 
   const handlePaneClick = useCallback(() => {
     if (drilldownStore.zoomPhase === 'zoomed') {
@@ -573,6 +588,23 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
   return (
     <CanvasContainer ref={containerRef}>
       <SvgFilters />
+
+      {/* Loading overlay — covers canvas until data is ready */}
+      {!dataReady && (
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 5,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            bgcolor: 'background.default',
+          }}
+        >
+          <CircularLoader size={32} />
+        </Box>
+      )}
 
       {/* Dark/light mode toggle */}
       {onToggleDarkMode && (

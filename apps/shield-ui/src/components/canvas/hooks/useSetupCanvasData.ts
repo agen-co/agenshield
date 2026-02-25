@@ -13,6 +13,7 @@ import { useEffect, useMemo } from 'react';
 import { useSnapshot } from 'valtio';
 import type { DetectedTarget } from '@agenshield/ipc';
 import { useHealthGate, useProfiles, useSecurity, useSystemMetrics } from '../../../api/hooks';
+import { authFetch } from '../../../api/client';
 import { setupPanelStore, mergeDetectedTargets, loadDismissedTargets } from '../../../state/setup-panel';
 import { startMetricsSimulation, systemStore } from '../../../state/system-store';
 import type { ApplicationCardData, SetupCanvasData } from '../Canvas.types';
@@ -51,7 +52,7 @@ export function useSetupCanvasData(): SetupCanvasData {
     // Load dismissed targets + detect in parallel
     Promise.all([
       loadDismissedTargets(),
-      fetch('/api/targets/lifecycle/detect', { method: 'POST' })
+      authFetch('/api/targets/lifecycle/detect', { method: 'POST' })
         .then((res) => res.json())
         .then((data) => {
           if (data.success) {

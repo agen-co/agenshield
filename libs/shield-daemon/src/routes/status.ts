@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import type { GetStatusResponse, DaemonStatus } from '@agenshield/ipc';
 import { VERSION, loadConfig } from '../config/index';
 import { loadState } from '../state/index';
+import { getCloudConnector } from '../services/cloud-connector';
 
 // Dynamic import — openclaw-launchdaemon may not be built yet
 let getOpenClawStatusSync: (() => unknown) | undefined;
@@ -54,6 +55,11 @@ export function buildDaemonStatus(): DaemonStatus {
     openclaw.version = cachedOpenClawVersion;
   }
 
+  // Cloud connection status
+  const cloud = getCloudConnector();
+  const cloudConnected = cloud.isConnected();
+  const cloudCompany = cloud.getCompanyName();
+
   return {
     running: true,
     pid: process.pid,
@@ -63,6 +69,7 @@ export function buildDaemonStatus(): DaemonStatus {
     startedAt: startedAt.toISOString(),
     agentUsername: agentUser?.username,
     ...(openclaw ? { openclaw } : {}),
+    ...(cloudConnected ? { cloudConnected, cloudCompany } : {}),
   };
 }
 

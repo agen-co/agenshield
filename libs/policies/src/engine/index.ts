@@ -9,4 +9,5 @@ export type {
   PrecomputedEffects,
   EvaluationInput,
   EvaluationResult,
+  ProcessEvaluationResult,
 } from './types';

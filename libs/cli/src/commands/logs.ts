@@ -17,8 +17,11 @@ import { Command } from 'commander';
 import * as readline from 'node:readline';
 import * as http from 'node:http';
 import { DAEMON_CONFIG } from '../utils/daemon.js';
+import { output } from '../utils/output.js';
+import { ensureSetupComplete } from '../utils/setup-guard.js';
+import { AuthError, ConnectionError } from '../errors.js';
 
-/** Pino numeric level → colored label */
+/** Pino numeric level -> colored label */
 const LEVEL_COLORS: Record<string, string> = {
   trace: '\x1b[90mTRACE\x1b[0m',
   debug: '\x1b[36mDEBUG\x1b[0m',
@@ -48,7 +51,6 @@ async function promptPasscode(): Promise<string> {
   });
 
   return new Promise((resolve) => {
-    // Mute input for password entry
     process.stderr.write('Passcode: ');
     const stdin = process.stdin;
     const wasRaw = stdin.isRaw;
@@ -100,14 +102,14 @@ async function authenticate(passcode: string): Promise<string> {
             const errMsg = typeof json.error === 'string'
               ? json.error
               : json.error?.message ?? 'Authentication failed';
-            reject(new Error(errMsg));
+            reject(new AuthError(errMsg));
           }
         } catch {
-          reject(new Error(`Invalid response (HTTP ${res.statusCode})`));
+          reject(new AuthError(`Invalid response (HTTP ${res.statusCode})`));
         }
       });
     });
-    req.on('error', (err) => reject(new Error(`Cannot connect to daemon: ${err.message}`)));
+    req.on('error', (err) => reject(new ConnectionError(`Cannot connect to daemon: ${err.message}`)));
     req.write(data);
     req.end();
   });
@@ -124,8 +126,7 @@ function streamLogs(token: string, level: string, recent: number, jsonMode: bool
     headers: { Accept: 'text/event-stream' },
   }, (res) => {
     if (res.statusCode !== 200) {
-      console.error(`Failed to connect to log stream (HTTP ${res.statusCode})`);
-      process.exit(1);
+      throw new ConnectionError(`Failed to connect to log stream (HTTP ${res.statusCode})`);
     }
 
     let buffer = '';
@@ -153,19 +154,17 @@ function streamLogs(token: string, level: string, recent: number, jsonMode: bool
     });
 
     res.on('end', () => {
-      console.error('Log stream disconnected');
+      output.info('Log stream disconnected');
       process.exit(0);
     });
   });
 
   req.on('error', (err) => {
-    console.error(`Connection error: ${err.message}`);
-    process.exit(1);
+    throw new ConnectionError(`Connection error: ${err.message}`);
   });
 
   req.end();
 
-  // Graceful shutdown
   process.on('SIGINT', () => {
     req.destroy();
     process.exit(0);
@@ -179,23 +178,16 @@ export function createLogsCommand(): Command {
     .option('--json', 'Output raw JSON log entries')
     .option('-n <lines>', 'Number of recent log entries to show', '50')
     .action(async (options) => {
+      ensureSetupComplete();
       const level = options.level as string;
       const jsonMode = !!options.json;
       const recent = Number(options.n) || 50;
 
-      // Prompt for passcode
       const passcode = await promptPasscode();
 
-      // Authenticate
-      let token: string;
-      try {
-        token = await authenticate(passcode);
-      } catch (err) {
-        console.error(`Authentication failed: ${(err as Error).message}`);
-        process.exit(1);
-      }
+      const token = await authenticate(passcode);
 
-      console.error(`Streaming logs (level: ${level}, recent: ${recent})...`);
+      output.info(`Streaming logs (level: ${level}, recent: ${recent})...`);
       streamLogs(token, level, recent, jsonMode);
     });
 

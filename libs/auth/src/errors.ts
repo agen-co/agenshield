@@ -78,3 +78,16 @@ export class RateLimitError extends AuthError {
     this.retryAfterMs = retryAfterMs;
   }
 }
+
+/**
+ * Thrown when agent-to-cloud authentication fails (invalid AgentSig, expired timestamp, etc.)
+ */
+export class CloudAuthError extends AuthError {
+  readonly agentId?: string;
+
+  constructor(message = 'Cloud authentication failed', agentId?: string) {
+    super(message, 'CLOUD_AUTH_FAILED');
+    this.name = 'CloudAuthError';
+    this.agentId = agentId;
+  }
+}

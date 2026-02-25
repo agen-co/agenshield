@@ -27,8 +27,9 @@ import {
   aggregateReleaseNotes,
   compareSemver,
 } from '../migrations/index.js';
+import { getVersion } from '../utils/version.js';
 
-const VERSION = '0.1.0';
+const VERSION = getVersion();
 
 /**
  * Module-level log callback for SSE broadcasting

@@ -18,6 +18,7 @@ export type {
   PrecomputedEffects,
   EvaluationInput,
   EvaluationResult,
+  ProcessEvaluationResult,
 } from './engine';
 
 // Matcher
@@ -33,6 +34,7 @@ export {
   policyScopeMatches,
   commandScopeMatches,
   filterUrlPoliciesForCommand,
+  matchProcessPattern,
 } from './matcher';
 
 // Graph

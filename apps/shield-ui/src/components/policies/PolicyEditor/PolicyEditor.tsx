@@ -37,7 +37,7 @@ interface PolicyEditorProps {
   /** Show a loading spinner on save button */
   saving?: boolean;
   /** Lock the target type (hides the target selector). Used when embedded in a tab. */
-  defaultTarget?: 'skill' | 'command' | 'url' | 'filesystem';
+  defaultTarget?: 'skill' | 'command' | 'url' | 'filesystem' | 'process';
 }
 
 interface CommandOption {
@@ -114,7 +114,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
   const initial = {
     name: policy?.name ?? '',
     action: (policy?.action ?? null) as 'allow' | 'deny' | 'approval' | null,
-    target: resolvedTarget as 'skill' | 'command' | 'url' | 'filesystem',
+    target: resolvedTarget as 'skill' | 'command' | 'url' | 'filesystem' | 'process',
     patterns: policy?.patterns.join('\n') ?? '',
     enabled: policy?.enabled ?? true,
     operations: policy?.operations ?? [] as string[],
@@ -147,7 +147,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
     setFormData({
       name: policy?.name ?? '',
       action: (policy?.action ?? null) as 'allow' | 'deny' | 'approval' | null,
-      target: (policy?.target ?? defaultTarget ?? 'command') as 'skill' | 'command' | 'url' | 'filesystem',
+      target: (policy?.target ?? defaultTarget ?? 'command') as 'skill' | 'command' | 'url' | 'filesystem' | 'process',
       patterns: policy?.patterns.join('\n') ?? '',
       enabled: policy?.enabled ?? true,
       operations: policy?.operations ?? [],

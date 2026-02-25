@@ -99,7 +99,9 @@ export async function forwardPolicyToDaemon(
   try {
     if (verbose) console.error(`[broker:forward] op=${operation} target=${target} → daemon ${daemonUrl}`);
 
-    const params = { operation, target, context };
+    const params: Record<string, unknown> = { operation, target, context };
+    if (brokerAuth?.profileId) params.__profileId = brokerAuth.profileId;
+    if (brokerAuth?.token) params.__brokerToken = brokerAuth.token;
 
     // 1. Try per-profile daemon socket (if path provided)
     if (brokerAuth?.daemonSocketPath) {
@@ -168,7 +170,9 @@ export function forwardEventsToDaemon(
   daemonUrl: string,
   brokerAuth?: BrokerAuth,
 ): void {
-  const params = { events };
+  const params: Record<string, unknown> = { events };
+  if (brokerAuth?.profileId) params.__profileId = brokerAuth.profileId;
+  if (brokerAuth?.token) params.__brokerToken = brokerAuth.token;
 
   // Try socket first
   if (brokerAuth?.daemonSocketPath) {

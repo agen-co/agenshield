@@ -74,6 +74,19 @@ function buildHeaders(extra?: HeadersInit, hasBody?: boolean): HeadersInit {
   return headers;
 }
 
+/**
+ * Authenticated fetch wrapper. Merges auth + shield-context headers into
+ * any `fetch()` call so callers outside the `api.*` methods don't need to
+ * build headers manually.
+ */
+export async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const hasBody = !!init?.body;
+  return fetch(input, {
+    ...init,
+    headers: buildHeaders(init?.headers, hasBody),
+  });
+}
+
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -164,8 +177,13 @@ export const api = {
     } }>('/metrics'),
 
   // Activity history
-  getActivity: (limit = 500) =>
-    request<{ data: Array<{ type: string; timestamp: string; data: unknown }> }>(`/activity?limit=${limit}`),
+  getActivity: (limit = 500, profileId?: string) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (profileId) params.set('profileId', profileId);
+    return request<{ data: Array<{ type: string; timestamp: string; data: unknown; profileId?: string; source?: string }> }>(
+      `/activity?${params.toString()}`
+    );
+  },
 
   // Existing endpoints
   getHealth: () => request<HealthResponse>('/health'),

@@ -20,8 +20,8 @@ export interface AuthStatusResponse {
  * Sudo login request — authenticate with macOS credentials
  */
 export interface SudoLoginRequest {
-  /** macOS username */
-  username: string;
+  /** macOS username (auto-detected from host if omitted) */
+  username?: string;
   /** macOS password */
   password: string;
 }

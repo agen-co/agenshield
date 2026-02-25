@@ -1,9 +1,8 @@
 /**
  * Authentication context provider
  *
- * JWT-based auth. Tokens arrive via:
- *   1. URL hash (#access_token=<jwt>) — set by `agenshield start`
- *   2. Sudo login from the browser lock screen
+ * JWT-based auth. Tokens arrive via URL hash (#access_token=<jwt>) set by
+ * `agenshield start`, or restored from sessionStorage.
  *
  * Automatic token refresh is scheduled 2 minutes before expiry.
  */
@@ -27,8 +26,6 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
-  /** Login with macOS sudo credentials */
-  loginWithSudo: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   /** Refresh auth status from server */
   refreshStatus: () => Promise<void>;
 }
@@ -74,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.setItem(SESSION_TOKEN_KEY, hashToken.token);
       sessionStorage.setItem(SESSION_EXPIRES_KEY, String(hashToken.expiresAt));
       return {
-        loaded: false,
+        loaded: true,
         authenticated: true,
         role: 'admin',
         token: hashToken.token,
@@ -90,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const expiresAt = parseInt(savedExpires, 10);
       if (Date.now() < expiresAt) {
         return {
-          loaded: false,
+          loaded: true,
           authenticated: true,
           role: 'admin',
           token: savedToken,
@@ -104,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     return {
-      loaded: false,
+      loaded: true,
       authenticated: false,
       role: null,
       token: null,
@@ -203,39 +200,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [state.token, state.expiresAt]);
 
-  const loginWithSudo = useCallback(async (username: string, password: string) => {
-    try {
-      const result = await authApi.sudoLogin(username, password);
-
-      if (result.success && result.token) {
-        setState((prev) => ({
-          ...prev,
-          authenticated: true,
-          role: 'admin',
-          token: result.token!,
-          expiresAt: result.expiresAt!,
-          error: null,
-        }));
-        sessionStorage.setItem(SESSION_TOKEN_KEY, result.token);
-        sessionStorage.setItem(SESSION_EXPIRES_KEY, String(result.expiresAt));
-        return { success: true };
-      }
-
-      return {
-        success: false,
-        error: result.error || 'Authentication failed',
-      };
-    } catch (err) {
-      return {
-        success: false,
-        error: (err as Error).message || 'Authentication failed',
-      };
-    }
-  }, []);
-
   const contextValue: AuthContextValue = {
     ...state,
-    loginWithSudo,
     refreshStatus,
   };
 
