@@ -3,12 +3,20 @@ import { tokens } from '../styles/tokens';
 import { PageHeader } from '../components/shared/PageHeader';
 import { AgentIdentityCard } from '../components/settings/AgentIdentityCard';
 import { ServerConfigCard } from '../components/settings/ServerConfigCard';
-import { OpenClawCard } from '../components/settings/OpenClawCard';
 import { LoggingCard } from '../components/settings/LoggingCard';
 import { AdvancedCard } from '../components/settings/AdvancedCard';
 import { DangerZoneCard } from '../components/settings/DangerZoneCard';
+import { UnshieldCard } from '../components/settings/UnshieldCard';
 
-export function Settings({ embedded, profileId }: { embedded?: boolean; profileId?: string | null } = {}) {
+interface SettingsProps {
+  embedded?: boolean;
+  profileId?: string | null;
+  targetId?: string;
+}
+
+export function Settings({ embedded, profileId, targetId }: SettingsProps = {}) {
+  const isTargetMode = embedded && !!profileId;
+
   return (
     <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
       {!embedded && (
@@ -18,12 +26,19 @@ export function Settings({ embedded, profileId }: { embedded?: boolean; profileI
         />
       )}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <AgentIdentityCard profileId={profileId} />
-        <ServerConfigCard />
-        <OpenClawCard />
-        <LoggingCard />
-        <AdvancedCard />
-        <DangerZoneCard />
+        {isTargetMode ? (
+          <>
+            <AgentIdentityCard profileId={profileId} />
+            {targetId && <UnshieldCard targetId={targetId} />}
+          </>
+        ) : (
+          <>
+            <ServerConfigCard />
+            <LoggingCard />
+            <AdvancedCard />
+            <DangerZoneCard />
+          </>
+        )}
       </Box>
     </Box>
   );

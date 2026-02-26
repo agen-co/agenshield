@@ -141,6 +141,7 @@ export class CompiledPolicyEngine {
           return {
             allowed: false,
             policyId: rule.policyId,
+            policyName: rule.policyName,
             reason: `Process denied by policy: ${rule.policyId}`,
             enforcement: rule.enforcement ?? 'alert',
           };

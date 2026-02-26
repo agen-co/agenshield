@@ -8,6 +8,7 @@ import type { GraphEffects } from '../graph/effects';
 /** A pre-compiled rule for fast runtime matching */
 export interface CompiledRule {
   policyId: string;
+  policyName: string;
   action: 'allow' | 'deny' | 'approval';
   priority: number;
   /** Pre-compiled matchers — returns true if target matches */

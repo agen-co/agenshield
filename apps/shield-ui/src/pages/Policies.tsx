@@ -20,7 +20,7 @@ import {
   Tab,
   Typography,
 } from '@mui/material';
-import { Plus, Terminal, Globe, FolderOpen, Play } from 'lucide-react';
+import { Plus, Terminal, Globe, FolderOpen, Play, Cpu } from 'lucide-react';
 import type { PolicyConfig, TieredPolicies } from '@agenshield/ipc';
 import { useConfig, useUpdateConfig, useSecrets, useUpdateSecret, useSkills, useTieredPolicies } from '../api/hooks';
 import { useGuardedAction } from '../hooks/useGuardedAction';
@@ -33,16 +33,19 @@ import { PolicyEditor } from '../components/policies/PolicyEditor';
 import { CommandPolicyList } from '../components/policies/CommandPolicyList';
 import { NetworkPolicyList } from '../components/policies/NetworkPolicyList';
 import { FilesystemPolicyTable } from '../components/policies/FilesystemPolicyTable';
+import { ProcessPolicyList } from '../components/policies/ProcessPolicyList';
 import { SimulatePanel } from '../components/policies/SimulatePanel';
 import { PolicyTierSection } from '../components/policies/PolicyTierSection';
 import { useSnapshot } from 'valtio';
 import { scopeStore } from '../state/scope';
 
-const TAB_SLUGS = ['commands', 'network', 'filesystem', 'simulate'] as const;
-const TAB_TARGETS: Record<string, 'command' | 'url' | 'filesystem'> = {
+const ALL_TAB_SLUGS = ['commands', 'network', 'filesystem', 'process', 'simulate'] as const;
+const TOP_LEVEL_TAB_SLUGS = ['commands', 'network', 'filesystem', 'process'] as const;
+const TAB_TARGETS: Record<string, 'command' | 'url' | 'filesystem' | 'process'> = {
   commands: 'command',
   network: 'url',
   filesystem: 'filesystem',
+  process: 'process',
 };
 
 interface PoliciesProps {
@@ -60,9 +63,15 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
 
+  const { profileId } = useSnapshot(scopeStore);
+
+  // Simulate tab only available in target (scoped) context
+  const isScoped = !!profileId;
+  const tabSlugs = isScoped ? ALL_TAB_SLUGS : TOP_LEVEL_TAB_SLUGS;
+
   const resolvedTab = embedded ? embeddedTab : tab;
-  const activeTab = Math.max(0, TAB_SLUGS.indexOf(resolvedTab as any));
-  const activeTarget = TAB_TARGETS[TAB_SLUGS[activeTab]];
+  const activeTab = Math.max(0, (tabSlugs as readonly string[]).indexOf(resolvedTab as string));
+  const activeTarget = TAB_TARGETS[tabSlugs[activeTab]];
 
   const { data: config } = useConfig();
   const { data: tiered } = useTieredPolicies();
@@ -71,7 +80,6 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
   const updateSecret = useUpdateSecret();
   const { data: skillsData } = useSkills();
   const guard = useGuardedAction();
-  const { profileId } = useSnapshot(scopeStore);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<PolicyConfig | null>(null);
@@ -92,9 +100,6 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
   const globalPolicies = tiered?.global ?? [];
   const targetPolicies = tiered?.target ?? [];
   const targetSections = tiered?.targetSections ?? [];
-
-  // Determine which policies are editable (for the current context)
-  const isScoped = !!profileId;
 
   // The editable tier: in target view = target policies, in global view = global policies
   const editablePolicies = isScoped ? targetPolicies : globalPolicies;
@@ -182,6 +187,11 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
           setFormDirty(false);
           setFormFocused(false);
         },
+        onError: (error) => {
+          // Error is already shown in PolicyEditor via updateConfig.isError,
+          // but log for debugging
+          console.error('[policies] Failed to save policy:', error.message);
+        },
       },
     );
   };
@@ -223,9 +233,9 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
 
   const handleTabChange = (_e: React.SyntheticEvent, newTab: number) => {
     if (embedded && onTabChange) {
-      onTabChange(TAB_SLUGS[newTab]);
+      onTabChange(tabSlugs[newTab]);
     } else {
-      navigate(TAB_SLUGS[newTab], { replace: true });
+      navigate(tabSlugs[newTab], { replace: true });
     }
     // Close editor when switching tabs (if not dirty)
     if (formOpen && !formDirty) {
@@ -248,7 +258,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
     const target = activeTarget;
     if (!target) return null;
 
-    const filtered = filterByTarget(tierPolicies, target === 'command' ? 'command' : target === 'url' ? 'url' : 'filesystem');
+    const filtered = filterByTarget(tierPolicies, target);
 
     if (filtered.length === 0) return (
       <Box sx={{ p: 2 }}>
@@ -298,6 +308,19 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
       );
     }
 
+    if (activeTab === 3) {
+      return (
+        <ProcessPolicyList
+          policies={filtered}
+          onToggle={readOnly ? noopToggle : requestToggle}
+          onEdit={readOnly ? noopEdit : handleEdit}
+          onDelete={readOnly ? noopDelete : handleDelete}
+          readOnly={readOnly}
+          busy={updateConfig.isPending}
+        />
+      );
+    }
+
     return null;
   }
 
@@ -314,7 +337,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
       {!embedded && (
         <PageHeader
           title="Policies"
-          description="Manage security policies for command, URL, and filesystem filtering."
+          description="Manage security policies for command, URL, filesystem, and process filtering."
         />
       )}
 
@@ -357,11 +380,19 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
               sx={{ minHeight: 48, textTransform: 'none' }}
             />
             <Tab
-              icon={<Play size={14} />}
+              icon={<Cpu size={14} />}
               iconPosition="start"
-              label="Simulate"
+              label="Process"
               sx={{ minHeight: 48, textTransform: 'none' }}
             />
+            {isScoped && (
+              <Tab
+                icon={<Play size={14} />}
+                iconPosition="start"
+                label="Simulate"
+                sx={{ minHeight: 48, textTransform: 'none' }}
+              />
+            )}
           </Tabs>
 
           {/* Add button — only for Commands and Network tabs */}
@@ -380,11 +411,11 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
         </Box>
 
         <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
-          {/* Tab 3: Simulate — no tiering needed */}
-          {activeTab === 3 && <SimulatePanel />}
+          {/* Tab 4: Simulate — no tiering needed */}
+          {activeTab === 4 && <SimulatePanel />}
 
-          {/* Tabs 0-2: Tiered policy display */}
-          {activeTab <= 2 && !tiered && (
+          {/* Tabs 0-3: Tiered policy display */}
+          {activeTab <= 3 && !tiered && (
             /* Fallback to flat list while tiered data is loading */
             <>
               {activeTab === 0 && (
@@ -452,10 +483,29 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                   busy={updateConfig.isPending}
                 />
               )}
+
+              {activeTab === 3 && (
+                filterByTarget(policies, 'process').length === 0 ? (
+                  <EmptyState
+                    icon={<Cpu size={28} />}
+                    title="No process policies"
+                    description="Process policies are managed by your organization's admin from AgenShield Cloud."
+                  />
+                ) : (
+                  <ProcessPolicyList
+                    policies={filterByTarget(policies, 'process')}
+                    onToggle={requestToggle}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    readOnly={false}
+                    busy={updateConfig.isPending}
+                  />
+                )
+              )}
             </>
           )}
 
-          {activeTab <= 2 && tiered && (
+          {activeTab <= 3 && tiered && (
             <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
               {/* Empty state when no policies exist for this tab */}
               {!hasAnyPolicies && activeTab === 0 && !hasSkillCommands && (
@@ -484,6 +534,13 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                       </Button>
                     ) : undefined
                   }
+                />
+              )}
+              {!hasAnyPolicies && activeTab === 3 && (
+                <EmptyState
+                  icon={<Cpu size={28} />}
+                  title="No process policies"
+                  description="Process policies are managed by your organization's admin from AgenShield Cloud."
                 />
               )}
 

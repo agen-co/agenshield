@@ -7,7 +7,7 @@
 import { getStorage } from '@agenshield/storage';
 import { getLogger } from '../logger';
 import { emitMetricsSnapshot, emitEvent } from '../events/emitter';
-import { buildSyncSnapshot, collectTargetMetrics, type FullMetricsSnapshot, type TargetMetricsEntry } from './metrics-utils';
+import { buildSnapshot, collectTargetMetrics, type FullMetricsSnapshot, type TargetMetricsEntry } from './metrics-utils';
 import { getLastTargetStatuses } from '../watchers/targets';
 
 let collectInterval: ReturnType<typeof setInterval> | null = null;
@@ -133,7 +133,7 @@ function shouldEmit(snap: FullMetricsSnapshot): boolean {
  */
 async function collectAndStore(): Promise<void> {
   try {
-    const snap = buildSyncSnapshot();
+    const snap = await buildSnapshot();
     const now = Date.now();
 
     const storage = getStorage();
@@ -156,7 +156,7 @@ async function collectAndStore(): Promise<void> {
       const runningShielded = targets.filter((t) => t.shielded && t.running);
       if (runningShielded.length > 0) {
         const profiles = storage.profiles.getAll();
-        targetEntries = collectTargetMetrics(runningShielded, profiles);
+        targetEntries = await collectTargetMetrics(runningShielded, profiles);
 
         // Store per-target snapshots
         for (const entry of targetEntries) {

@@ -1,19 +1,20 @@
 /**
  * CLI Commands
  *
- * Exports all command creator functions for registration in the main CLI.
+ * Exports all command classes for registration in the main CLI.
  */
 
-export { createSetupCommand } from './setup.js';
-export { createStatusCommand } from './status.js';
-export { createDoctorCommand } from './doctor.js';
-export { createUninstallCommand } from './uninstall.js';
-export { createDevCommand } from './dev.js';
-export { createStartCommand } from './start.js';
-export { createStopCommand } from './stop.js';
-export { createUpgradeCommand } from './upgrade.js';
-export { createInstallCommand } from './install.js';
-export { createLogsCommand } from './logs.js';
-export { createExecCommand } from './exec.js';
-export { createAuthCommand } from './auth-cmd.js';
-export { createCompletionCommand } from './completion.js';
+export { SetupCommand } from './setup.js';
+export { StatusCommand } from './status.js';
+export { DoctorCommand } from './doctor.js';
+export { UninstallCommand } from './uninstall.js';
+export { DevCommand, DevCleanCommand, DevShellCommand } from './dev.js';
+export { StartCommand } from './start.js';
+export { StopCommand } from './stop.js';
+export { UpgradeCommand } from './upgrade.js';
+export { InstallCommand } from './install.js';
+export { LogsCommand } from './logs.js';
+export { ExecCommand } from './exec.js';
+export { AuthHelpCommand, AuthTokenUiCommand, AuthTokenBrokerCommand } from './auth-cmd.js';
+export { CompletionCommand } from './completion.js';
+export { BaseCommand } from './base.js';

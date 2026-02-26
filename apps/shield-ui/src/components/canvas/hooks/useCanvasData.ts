@@ -7,6 +7,7 @@ import { useSnapshot } from 'valtio';
 import { useStatus, useHealth, useAgenCoStatus, useSecurity, useProfiles } from '../../../api/hooks';
 import { eventStore } from '../../../state/events';
 import { daemonStatusStore } from '../../../state/daemon-status';
+import { systemStore } from '../../../state/system-store';
 import { isNoiseEvent, BLOCKED_EVENT_TYPES } from '../../../utils/eventDisplay';
 import type { CanvasData, TargetWithCounts } from '../Canvas.types';
 import { formatDistanceToNow } from 'date-fns';
@@ -19,6 +20,7 @@ export function useCanvasData(): CanvasData {
   const { data: securityData } = useSecurity();
   const { events, connected: sseConnected } = useSnapshot(eventStore);
   const { status: daemonStatus } = useSnapshot(daemonStatusStore);
+  const { metrics, eventLoopHistory } = useSnapshot(systemStore);
 
   const recentEvents = useMemo(
     () => events.filter((e) => !isNoiseEvent(e)).slice(0, 20),
@@ -115,7 +117,10 @@ export function useCanvasData(): CanvasData {
     guardedShellInstalled,
     securityLevel,
     currentUser,
-    cpuPercent: 42,
-    memPercent: 68,
+    cpuPercent: metrics.cpuPercent,
+    memPercent: metrics.memPercent,
+    eventLoopP99: eventLoopHistory.length > 0
+      ? eventLoopHistory[eventLoopHistory.length - 1].p99
+      : 0,
   };
 }

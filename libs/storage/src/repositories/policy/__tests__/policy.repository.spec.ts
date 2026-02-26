@@ -11,6 +11,7 @@ import Database from 'better-sqlite3';
 import { SchemaMigration } from '../../../migrations/001-schema';
 import { PolicyTiersMigration } from '../../../migrations/017-policy-tiers';
 import { PolicyEnforcementMigration } from '../../../migrations/018-policy-enforcement';
+import { PolicyTargetProcessMigration } from '../../../migrations/019-policy-target-process';
 import { PolicyRepository } from '../policy.repository';
 
 function insertProfile(db: Database.Database, id: string, name?: string): void {
@@ -33,6 +34,7 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   new SchemaMigration().up(db);
   new PolicyTiersMigration().up(db);
   new PolicyEnforcementMigration().up(db);
+  new PolicyTargetProcessMigration().up(db);
   return {
     db,
     cleanup: () => {
@@ -503,6 +505,98 @@ describe('PolicyRepository', () => {
       const sections = repo.getAllTargetSections();
       expect(sections!.every((s) => s.policies.length > 0)).toBe(true);
       expect(sections!.find((s) => s.profileId === 'profile-b')).toBeUndefined();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // UpdatePolicySchema validation
+  // -----------------------------------------------------------------------
+
+  describe('UpdatePolicySchema validation', () => {
+    it('should accept update with target: process', () => {
+      const input = makePolicy();
+      repo.create(input);
+
+      const updated = repo.update(input.id, { target: 'process' });
+      expect(updated).not.toBeNull();
+      expect(updated!.target).toBe('process');
+    });
+
+    it('should accept update with target: url', () => {
+      const input = makePolicy();
+      repo.create(input);
+
+      const updated = repo.update(input.id, { target: 'url' });
+      expect(updated).not.toBeNull();
+      expect(updated!.target).toBe('url');
+    });
+
+    it('should accept update with target: filesystem', () => {
+      const input = makePolicy();
+      repo.create(input);
+
+      const updated = repo.update(input.id, { target: 'filesystem' });
+      expect(updated).not.toBeNull();
+      expect(updated!.target).toBe('filesystem');
+    });
+
+    it('should accept update with action: approval', () => {
+      const input = makePolicy();
+      repo.create(input);
+
+      const updated = repo.update(input.id, { action: 'approval' });
+      expect(updated).not.toBeNull();
+      expect(updated!.action).toBe('approval');
+    });
+
+    it('should accept update with networkAccess: proxy', () => {
+      const input = makePolicy();
+      repo.create(input);
+
+      const updated = repo.update(input.id, { networkAccess: 'proxy' });
+      expect(updated).not.toBeNull();
+      expect(updated!.networkAccess).toBe('proxy');
+    });
+
+    it('should accept update with networkAccess: none', () => {
+      const input = makePolicy();
+      repo.create(input);
+
+      const updated = repo.update(input.id, { networkAccess: 'none' });
+      expect(updated).not.toBeNull();
+      expect(updated!.networkAccess).toBe('none');
+    });
+
+    it('should reject update with old invalid target values', () => {
+      const input = makePolicy();
+      repo.create(input);
+
+      expect(() => repo.update(input.id, { target: 'file' as never })).toThrow();
+      expect(() => repo.update(input.id, { target: 'network' as never })).toThrow();
+      expect(() => repo.update(input.id, { target: 'shell' as never })).toThrow();
+    });
+
+    it('should reject update with old invalid action values', () => {
+      const input = makePolicy();
+      repo.create(input);
+
+      expect(() => repo.update(input.id, { action: 'ask' as never })).toThrow();
+    });
+
+    it('should reject update with old invalid networkAccess values', () => {
+      const input = makePolicy();
+      repo.create(input);
+
+      expect(() => repo.update(input.id, { networkAccess: 'restrict' as never })).toThrow();
+    });
+
+    it('should accept update with enforcement: kill', () => {
+      const input = makePolicy();
+      repo.create(input);
+
+      const updated = repo.update(input.id, { enforcement: 'kill' });
+      expect(updated).not.toBeNull();
+      expect(updated!.enforcement).toBe('kill');
     });
   });
 

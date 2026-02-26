@@ -23,6 +23,7 @@ import { onboardOpenclawStep } from './onboard-openclaw.js';
 import { detectHostOpenclawStep } from './detect-host-openclaw.js';
 import { verifyOpenclawStep } from './verify-openclaw.js';
 import { writeGatewayPlistStep } from './write-gateway-plist.js';
+import { injectSkillsStep } from './inject-skills.js';
 
 export function getOpenclawPipeline(): InstallStep[] {
   return [
@@ -51,6 +52,9 @@ export function getOpenclawPipeline(): InstallStep[] {
       return (await checkedExecAsUser(ctx, 'which openclaw', 'resolve_openclaw', 10_000)).trim();
     }),
     patchNvmNodeStep,                                           // weight 5
+
+    // Phase 10: Skills
+    injectSkillsStep,                                           // weight 3
 
     // Phase 12: Gateway
     writeGatewayPlistStep,                                      // weight 10

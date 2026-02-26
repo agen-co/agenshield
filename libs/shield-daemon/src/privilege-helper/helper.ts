@@ -234,6 +234,7 @@ function main(): void {
         }
         return {
           id: req.id,
+          result: { success: false, output: truncateOutput(stdout.trim()) },
           error: {
             code: code,
             message: truncateOutput(stderr.trim() || `Command exited with code ${code}`),
@@ -266,6 +267,7 @@ function main(): void {
         }
         return {
           id: req.id,
+          result: { success: false, output: truncateOutput(stdout.trim()) },
           error: {
             code: code,
             message: truncateOutput(stderr.trim() || `Command exited with code ${code}`),
@@ -294,6 +296,7 @@ function main(): void {
         }
         return {
           id: req.id,
+          result: { success: false, output: truncateOutput(stdout.trim()) },
           error: {
             code: code,
             message: truncateOutput(stderr.trim() || `Command exited with code ${code}`),

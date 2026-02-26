@@ -15,9 +15,10 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ReferenceLine,
 } from 'recharts';
 import { useTheme } from '@mui/material/styles';
-import { systemStore, pushTargetMetricsSnapshot, type MetricsSnapshot } from '../../../state/system-store';
+import { systemStore, pushTargetMetricsSnapshot, type MetricsSnapshot, type EventLoopSnapshot } from '../../../state/system-store';
 import { targetsStore } from '../../../state/targets';
 import { useTargetMetricsHistory } from '../../../api/hooks';
 import { pcb } from '../styles/pcb-tokens';
@@ -532,7 +533,193 @@ export function AllMetricsView() {
             </div>
           );
         })}
+        <EventLoopChart />
       </div>
+    </div>
+  );
+}
+
+/* ---- Event Loop chart ---- */
+
+function EventLoopChart() {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
+  const { eventLoopHistory } = useSnapshot(systemStore);
+
+  const chartData = useMemo(() => eventLoopHistory.map((s) => ({ ...s })), [eventLoopHistory]);
+  const latest = chartData.length > 0 ? chartData[chartData.length - 1] : null;
+
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+  const axisColor = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)';
+  const accent = pcb.component.ledAmber;
+
+  return (
+    <div style={{
+      gridColumn: '1 / -1',
+      borderRadius: 6,
+      border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+      background: isDark ? pcb.component.body : pcb.light.body,
+      overflow: 'hidden',
+    }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '10px 14px 0',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: accent,
+            boxShadow: `0 0 4px ${accent}`,
+          }} />
+          <span style={{
+            fontSize: 11,
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontWeight: 600,
+            color: accent,
+            textTransform: 'uppercase',
+            letterSpacing: 0.5,
+          }}>
+            Event Loop
+          </span>
+        </div>
+        {latest && (
+          <span style={{
+            fontSize: 12,
+            fontFamily: "'IBM Plex Mono', monospace",
+            fontWeight: 600,
+            color: isDark ? pcb.silk.primary : pcb.light.silk,
+          }}>
+            p99: {latest.p99.toFixed(1)}ms
+          </span>
+        )}
+      </div>
+
+      {/* Chart */}
+      <div style={{ width: '100%', height: 180, padding: '16px 0' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={chartData} syncId="system-metrics" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+            <XAxis
+              dataKey="timestamp"
+              tickFormatter={formatTime}
+              tick={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fill: axisColor }}
+              stroke={gridColor}
+              minTickGap={40}
+            />
+            <YAxis
+              domain={['auto', 'auto']}
+              tick={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fill: axisColor }}
+              stroke={gridColor}
+              width={52}
+              tickFormatter={(v: number) => `${v}ms`}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: isDark ? '#1C1C20' : '#FFFFFF',
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'}`,
+                borderRadius: 6,
+                fontSize: 12,
+                fontFamily: "'IBM Plex Mono', monospace",
+              }}
+              labelFormatter={(v) => formatTime(v as number)}
+              formatter={(value, name) => {
+                return [`${(value as number).toFixed(2)}ms`, name];
+              }}
+            />
+            <ReferenceLine y={50} stroke={pcb.component.ledAmber} strokeDasharray="6 4" strokeOpacity={0.6} />
+            <ReferenceLine y={200} stroke="#E1583E" strokeDasharray="6 4" strokeOpacity={0.6} />
+            <Area
+              type="monotone"
+              dataKey="p50"
+              name="p50"
+              stroke={pcb.signal.cyan}
+              fill={pcb.signal.cyan}
+              fillOpacity={0.12}
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Area
+              type="monotone"
+              dataKey="p99"
+              name="p99"
+              stroke={pcb.component.ledAmber}
+              fill="none"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Area
+              type="monotone"
+              dataKey="mean"
+              name="mean"
+              stroke={pcb.trace.silver}
+              fill="none"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              dot={false}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Live legend row */}
+      {latest && (
+        <div style={{
+          display: 'flex',
+          gap: 24,
+          padding: '0 16px 12px',
+          fontFamily: "'IBM Plex Mono', monospace",
+          fontSize: 13,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%',
+              backgroundColor: pcb.component.ledAmber,
+              boxShadow: `0 0 6px ${pcb.component.ledAmber}`,
+            }} />
+            <span style={{ color: theme.palette.text.secondary }}>p99</span>
+            <span style={{ color: theme.palette.text.primary, fontWeight: 600 }}>{latest.p99.toFixed(1)}ms</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%',
+              backgroundColor: pcb.signal.cyan,
+              boxShadow: `0 0 6px ${pcb.signal.cyan}`,
+            }} />
+            <span style={{ color: theme.palette.text.secondary }}>p50</span>
+            <span style={{ color: theme.palette.text.primary, fontWeight: 600 }}>{latest.p50.toFixed(1)}ms</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%',
+              backgroundColor: pcb.trace.silver,
+              boxShadow: `0 0 6px ${pcb.trace.silver}`,
+            }} />
+            <span style={{ color: theme.palette.text.secondary }}>mean</span>
+            <span style={{ color: theme.palette.text.primary, fontWeight: 600 }}>{latest.mean.toFixed(1)}ms</span>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {chartData.length === 0 && (
+        <div style={{
+          textAlign: 'center',
+          padding: 20,
+          color: theme.palette.text.secondary,
+          fontFamily: "'Manrope', sans-serif",
+          fontSize: 14,
+        }}>
+          Waiting for event loop data...
+        </div>
+      )}
     </div>
   );
 }

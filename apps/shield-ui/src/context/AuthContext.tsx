@@ -28,6 +28,8 @@ interface AuthState {
 interface AuthContextValue extends AuthState {
   /** Refresh auth status from server */
   refreshStatus: () => Promise<void>;
+  /** Store token and mark as authenticated (used by LoginGate after sudo login) */
+  login: (token: string, expiresAt: number) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -136,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setState((prev) => ({
         ...prev,
         loaded: true,
-        authenticated: status.authenticated || prev.authenticated,
+        authenticated: status.authenticated,
         role: status.role ?? prev.role,
         expiresAt: status.expiresAt ?? prev.expiresAt,
         error: null,
@@ -200,9 +202,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [state.token, state.expiresAt]);
 
+  const login = useCallback((token: string, expiresAt: number) => {
+    sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+    sessionStorage.setItem(SESSION_EXPIRES_KEY, String(expiresAt));
+    setState({
+      loaded: true,
+      authenticated: true,
+      role: 'admin',
+      token,
+      expiresAt,
+      error: null,
+    });
+  }, []);
+
   const contextValue: AuthContextValue = {
     ...state,
     refreshStatus,
+    login,
   };
 
   return (

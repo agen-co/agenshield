@@ -14,15 +14,15 @@ export { PolicyConfigSchema };
 
 export const UpdatePolicySchema = z.object({
   name: z.string().min(1).optional(),
-  action: z.enum(['allow', 'deny', 'ask']).optional(),
-  target: z.enum(['command', 'file', 'network', 'shell']).optional(),
+  action: z.enum(['allow', 'deny', 'approval']).optional(),
+  target: z.enum(['skill', 'command', 'url', 'filesystem', 'process']).optional(),
   patterns: z.array(z.string()).optional(),
   enabled: z.boolean().optional(),
   priority: z.number().optional(),
   operations: z.array(z.string()).optional(),
   preset: z.string().optional(),
   scope: z.string().optional(),
-  networkAccess: z.enum(['allow', 'deny', 'restrict']).optional(),
+  networkAccess: z.enum(['none', 'proxy', 'direct']).optional(),
   enforcement: z.enum(['alert', 'kill']).optional(),
   managed: z.boolean().optional(),
   managedSource: z.string().optional(),

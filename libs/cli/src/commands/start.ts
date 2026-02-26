@@ -1,12 +1,12 @@
 /**
  * Start command
  *
- * Starts the AgenShield daemon and opens the browser UI with JWT auth.
- * If the daemon is already running, fetches a fresh admin token and opens the browser.
+ * Starts the AgenShield daemon and displays the dashboard URL.
  */
 
-import { Command } from 'commander';
+import { Option } from 'clipanion';
 import fs from 'node:fs';
+import { BaseCommand } from './base.js';
 import {
   getDaemonStatus,
   startDaemon,
@@ -14,91 +14,90 @@ import {
   fetchAdminToken,
   DAEMON_CONFIG,
 } from '../utils/daemon.js';
-import { openBrowser, buildBrowserUrl, waitForAdminToken } from '../utils/browser.js';
+import { buildBrowserUrl, waitForAdminToken } from '../utils/browser.js';
 import { ensureSudoAccess, startSudoKeepalive } from '../utils/privileges.js';
 import { output } from '../utils/output.js';
 import { ensureSetupComplete } from '../utils/setup-guard.js';
+import { createSpinner } from '../utils/spinner.js';
 import { DaemonStartError } from '../errors.js';
 
-/**
- * Create the start command
- */
-export function createStartCommand(): Command {
-  const cmd = new Command('start')
-    .description('Start AgenShield and open the dashboard')
-    .option('-f, --foreground', 'Run in foreground (blocking)')
-    .option('--no-browser', 'Do not open the browser')
-    .option('--seed-policies <file>', 'Seed managed policies from a JSON file on start')
-    .action(async (options) => {
-      ensureSetupComplete();
-      const status = await getDaemonStatus();
+export class StartCommand extends BaseCommand {
+  static override paths = [['start']];
 
-      if (status.running) {
-        const token = readAdminToken() ?? await fetchAdminToken();
-        const url = buildBrowserUrl(token);
+  static override usage = BaseCommand.Usage({
+    category: 'Daemon',
+    description: 'Start the AgenShield daemon (requires setup)',
+    examples: [
+      ['Start the daemon', '$0 start'],
+      ['Start in foreground mode', '$0 start --foreground'],
+      ['Start and seed policies', '$0 start --seed-policies policies.json'],
+    ],
+  });
 
-        output.success(`Daemon is already running (PID: ${status.pid ?? 'unknown'})`);
+  foreground = Option.Boolean('-f,--foreground', false, { description: 'Run in foreground (blocking)' });
+  seedPolicies = Option.String('--seed-policies', { description: 'Seed managed policies from a JSON file on start' });
+
+  async run(): Promise<number | void> {
+    ensureSetupComplete();
+    const status = await getDaemonStatus();
+
+    if (status.running) {
+      const token = readAdminToken() ?? await fetchAdminToken();
+      const url = buildBrowserUrl(token);
+
+      output.success(`Daemon is already running (PID: ${status.pid ?? 'unknown'})`);
+      output.info('');
+      output.info('  Dashboard URL:');
+      output.info(`  ${output.cyan(url)}`);
+      if (token) {
         output.info('');
-        output.info('  Dashboard URL:');
-        output.info(`  ${output.cyan(url)}`);
-        if (token) {
-          output.info('');
-          output.info('  Admin token:');
-          output.info(`  ${output.dim(token)}`);
-        }
-        output.info('');
+        output.info('  Admin token:');
+        output.info(`  ${output.dim(token)}`);
+      }
+      output.info('');
+      return;
+    }
 
-        if (options.browser !== false) {
-          openBrowser(url);
-        }
-        return;
+    // Ensure sudo credentials are cached before spawning the daemon
+    ensureSudoAccess();
+
+    let sudoKeepalive: NodeJS.Timeout | undefined;
+    if (this.foreground) {
+      sudoKeepalive = startSudoKeepalive();
+    }
+
+    const spinner = await createSpinner('Starting AgenShield daemon...');
+    const result = await startDaemon({ foreground: this.foreground, sudo: true });
+
+    if (sudoKeepalive) {
+      clearInterval(sudoKeepalive);
+    }
+
+    if (result.success) {
+      spinner.succeed(`${result.message}${result.pid ? ` (PID: ${result.pid})` : ''}`);
+
+      const token = await waitForAdminToken();
+      const url = buildBrowserUrl(token);
+
+      // Seed managed policies from file if provided
+      if (this.seedPolicies) {
+        await seedManagedPolicies(this.seedPolicies, token);
       }
 
-      // Ensure sudo credentials are cached before spawning the daemon
-      ensureSudoAccess();
-
-      let sudoKeepalive: NodeJS.Timeout | undefined;
-      if (options.foreground) {
-        sudoKeepalive = startSudoKeepalive();
-      }
-
-      output.info('Starting AgenShield daemon...');
-      const result = await startDaemon({ foreground: options.foreground, sudo: true });
-
-      if (sudoKeepalive) {
-        clearInterval(sudoKeepalive);
-      }
-
-      if (result.success) {
-        const token = await waitForAdminToken();
-        const url = buildBrowserUrl(token);
-
-        output.success(`${result.message}${result.pid ? ` (PID: ${result.pid})` : ''}`);
-
-        // Seed managed policies from file if provided
-        if (options.seedPolicies) {
-          await seedManagedPolicies(options.seedPolicies, token);
-        }
-
+      output.info('');
+      output.info('  Dashboard URL:');
+      output.info(`  ${output.cyan(url)}`);
+      if (token) {
         output.info('');
-        output.info('  Dashboard URL:');
-        output.info(`  ${output.cyan(url)}`);
-        if (token) {
-          output.info('');
-          output.info('  Admin token:');
-          output.info(`  ${output.dim(token)}`);
-        }
-        output.info('');
-
-        if (!options.foreground && options.browser !== false) {
-          openBrowser(url);
-        }
-      } else {
-        throw new DaemonStartError(result.message);
+        output.info('  Admin token:');
+        output.info(`  ${output.dim(token)}`);
       }
-    });
-
-  return cmd;
+      output.info('');
+    } else {
+      spinner.fail('Failed to start daemon');
+      throw new DaemonStartError(result.message);
+    }
+  }
 }
 
 /**

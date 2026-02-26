@@ -499,21 +499,28 @@ export async function downloadSkill(slug: string): Promise<void> {
 
 /**
  * Install a skill. Uses the legacy monolithic pipeline (download+install) by default.
- * If `targetId` is provided, uses the new two-phase install route
- * (skill must already be downloaded).
+ * If `targets` is provided, installs to specific targets or globally.
+ *  - `'global'` or `undefined` → global install (profileId=null)
+ *  - `string` (single targetId) → install to that target
+ *  - `string[]` → install to each target in the array
  */
-export async function installSkill(slug: string, targetId?: string): Promise<void> {
+export async function installSkill(slug: string, targets?: string | string[] | 'global'): Promise<void> {
   updateSkill(slug, { actionState: 'installing' });
   try {
-    if (targetId !== undefined) {
-      await installSkillToTarget(slug, targetId);
+    if (Array.isArray(targets)) {
+      // Multi-target: install to each target sequentially
+      for (const targetId of targets) {
+        await installSkillToTarget(slug, targetId);
+      }
+    } else if (targets !== undefined && targets !== 'global') {
+      // Single target
+      await installSkillToTarget(slug, targets);
     } else {
-      // Check if skill is already downloaded — use target install route
+      // Global install
       const skill = findSkill(slug);
       if (skill?.origin === 'downloaded') {
         await installSkillToTarget(slug);
       } else {
-        // Legacy: full lifecycle install
         await installSkillDaemon(slug);
       }
     }
@@ -529,24 +536,27 @@ export async function installSkill(slug: string, targetId?: string): Promise<voi
   }
 }
 
-export async function uninstallSkill(name: string): Promise<void> {
+export async function uninstallSkill(name: string, targetId?: string): Promise<void> {
   try {
-    await uninstallSkillDaemon(name);
-    notify.success(`Skill "${name}" uninstalled`);
+    await uninstallSkillDaemon(name, targetId);
+    const suffix = targetId ? ' from target' : '';
+    notify.success(`Skill "${name}" uninstalled${suffix}`);
     await fetchInstalledSkills();
     queryClient.invalidateQueries({ queryKey: queryKeys.skillEnvRequirements });
 
-    // Clean up skill-driven command policies
-    try {
-      const slug = name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
-      const configResp = await api.getConfig();
-      const allPolicies = configResp.data?.policies ?? [];
-      const filtered = allPolicies.filter((p) => p.preset !== `skill:${slug}`);
-      if (filtered.length < allPolicies.length) {
-        await api.updateConfig({ policies: filtered });
-        queryClient.invalidateQueries({ queryKey: queryKeys.config });
-      }
-    } catch { /* best-effort cleanup */ }
+    // Clean up skill-driven command policies (only for global uninstalls)
+    if (!targetId) {
+      try {
+        const slug = name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-');
+        const configResp = await api.getConfig();
+        const allPolicies = configResp.data?.policies ?? [];
+        const filtered = allPolicies.filter((p) => p.preset !== `skill:${slug}`);
+        if (filtered.length < allPolicies.length) {
+          await api.updateConfig({ policies: filtered });
+          queryClient.invalidateQueries({ queryKey: queryKeys.config });
+        }
+      } catch { /* best-effort cleanup */ }
+    }
   } catch (err) {
     notify.error(err instanceof Error ? err.message : `Failed to uninstall "${name}"`);
     throw err;

@@ -41,3 +41,25 @@ export function acknowledgeAllAlertsInStore(): void {
   }
   alertsStore.unacknowledgedCount = 0;
 }
+
+export function revertAcknowledgeInStore(alertId: number): void {
+  const alert = alertsStore.alerts.find((a) => a.id === alertId);
+  if (alert) {
+    alert.acknowledgedAt = undefined;
+    alertsStore.unacknowledgedCount++;
+  }
+}
+
+/**
+ * Revert a batch acknowledge by clearing acknowledgedAt on the given IDs.
+ * Only reverts the specific alerts that were freshly acknowledged (not previously acknowledged ones).
+ */
+export function revertAcknowledgeAllInStore(alertIds: number[]): void {
+  for (const id of alertIds) {
+    const alert = alertsStore.alerts.find((a) => a.id === id);
+    if (alert) {
+      alert.acknowledgedAt = undefined;
+    }
+  }
+  alertsStore.unacknowledgedCount += alertIds.length;
+}

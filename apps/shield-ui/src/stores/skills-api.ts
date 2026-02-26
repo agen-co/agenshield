@@ -280,8 +280,9 @@ export async function installSkillToTarget(name: string, targetId?: string): Pro
   return res.data;
 }
 
-export async function uninstallSkillDaemon(name: string): Promise<void> {
-  await daemonRequest(`/skills/${encodeURIComponent(name)}/toggle`, { method: 'PUT', body: JSON.stringify({}) });
+export async function uninstallSkillDaemon(name: string, targetId?: string): Promise<void> {
+  const qs = targetId ? `?targetId=${encodeURIComponent(targetId)}` : '';
+  await daemonRequest(`/skills/${encodeURIComponent(name)}/toggle${qs}`, { method: 'PUT', body: JSON.stringify({}) });
 }
 
 export async function unblockSkillDaemon(name: string): Promise<void> {

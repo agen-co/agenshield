@@ -261,8 +261,9 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
       });
 
       // Check running status using type-specific detection helpers.
+      // All system commands are offloaded to the worker thread (async).
       try {
-        const { execSync } = await import('node:child_process');
+        const { getSystemExecutor } = await import('../workers/system-command.js');
         for (const target of results) {
           if (!target.shielded) continue;
 
@@ -274,23 +275,24 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             const runBaseName = agentUsername.replace(/^ash_/, '').replace(/_agent$/, '');
 
             if (target.type === 'openclaw') {
-              target.running = checkOpenClawRunning(
+              target.running = await checkOpenClawRunning(
                 agentUsername,
                 runBaseName,
                 app.processManager ?? null,
                 target.id,
               );
-              target.processes = listOpenClawProcesses(agentUsername);
+              target.processes = await listOpenClawProcesses(agentUsername);
             } else if (target.type === 'claude-code') {
-              const procs = listClaudeProcesses(agentUsername);
+              const procs = await listClaudeProcesses(agentUsername);
               target.running = procs.length > 0;
               target.processes = procs;
             } else {
               // Fallback: launchctl broker check only
               try {
-                const brokerOutput = execSync(
+                const executor = getSystemExecutor();
+                const brokerOutput = await executor.exec(
                   `launchctl list | grep com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
-                  { encoding: 'utf-8', timeout: 5_000 },
+                  { timeout: 5_000 },
                 );
                 target.running = brokerOutput.trim().length > 0;
               } catch {
@@ -302,7 +304,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
         }
       } catch {
-        // execSync not available
+        // worker not available
       }
 
       return { success: true, data: results };
@@ -556,16 +558,17 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         await executor.execAsRoot([
           `mkdir -p "${agentHome}" "${agentHome}/bin" "${agentHome}/.config"`,
           `mkdir -p "${pathsConfig.configDir}"`,
-          // .agenshield subdirs (seatbelt, bin, logs, run)
-          `mkdir -p "${agentHome}/.agenshield/seatbelt/ops" "${agentHome}/.agenshield/bin" "${agentHome}/.agenshield/logs" "${agentHome}/.agenshield/run"`,
+          // .agenshield subdirs (seatbelt, bin, logs, run, policies)
+          `mkdir -p "${agentHome}/.agenshield/seatbelt/ops" "${agentHome}/.agenshield/bin" "${agentHome}/.agenshield/logs" "${agentHome}/.agenshield/run" "${agentHome}/.agenshield/policies"`,
           `chown -R ${agentUser}:${groupName} "${agentHome}" 2>/dev/null || true`,
           `chmod 2775 "${agentHome}"`,
           // .agenshield root is root-owned (agent cannot write)
           `chown root:wheel "${agentHome}/.agenshield" "${agentHome}/.agenshield/seatbelt" "${agentHome}/.agenshield/seatbelt/ops" "${agentHome}/.agenshield/bin"`,
           `chmod 755 "${agentHome}/.agenshield" "${agentHome}/.agenshield/seatbelt" "${agentHome}/.agenshield/seatbelt/ops" "${agentHome}/.agenshield/bin"`,
-          // logs and run dirs owned by broker:socketgroup
-          `chown ${brokerUser}:${groupName} "${agentHome}/.agenshield/logs" "${agentHome}/.agenshield/run"`,
+          // logs, run, and policies dirs owned by broker:socketgroup
+          `chown ${brokerUser}:${groupName} "${agentHome}/.agenshield/logs" "${agentHome}/.agenshield/run" "${agentHome}/.agenshield/policies"`,
           `chmod 755 "${agentHome}/.agenshield/logs"`,
+          `chmod 755 "${agentHome}/.agenshield/policies"`,
           `chmod 2775 "${agentHome}/.agenshield/run"`,
         ].join(' && '), { timeout: 30_000 });
 
@@ -1083,6 +1086,15 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           `# AgenShield — allows ${hostUsername} to run commands as agent/broker without password\n` +
           `${hostUsername} ALL=(${agentUser}) NOPASSWD: ALL\n` +
           `${hostUsername} ALL=(${brokerUser}) NOPASSWD: ALL\n` +
+          `\n` +
+          `# AgenShield — allows broker to manage gateway LaunchDaemon without TTY\n` +
+          `${brokerUser} ALL=(root) NOPASSWD: /bin/launchctl kickstart system/com.agenshield.${resolvedBaseName}.gateway\n` +
+          `${brokerUser} ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/com.agenshield.${resolvedBaseName}.gateway\n` +
+          `${brokerUser} ALL=(root) NOPASSWD: /bin/launchctl enable system/com.agenshield.${resolvedBaseName}.gateway\n` +
+          `${brokerUser} ALL=(root) NOPASSWD: /bin/launchctl disable system/com.agenshield.${resolvedBaseName}.gateway\n` +
+          `${brokerUser} ALL=(root) NOPASSWD: /bin/launchctl kill SIGTERM system/com.agenshield.${resolvedBaseName}.gateway\n` +
+          `${brokerUser} ALL=(root) NOPASSWD: /bin/launchctl bootout system/com.agenshield.${resolvedBaseName}.gateway\n` +
+          `${brokerUser} ALL=(root) NOPASSWD: /bin/launchctl list com.agenshield.${resolvedBaseName}.gateway\n` +
           `SUDOERS_EOF\n` +
           `chmod 440 "/etc/sudoers.d/agenshield-${resolvedBaseName}" && visudo -c -f "/etc/sudoers.d/agenshield-${resolvedBaseName}" 2>/dev/null || rm -f "/etc/sudoers.d/agenshield-${resolvedBaseName}"`,
           { timeout: 15_000 },

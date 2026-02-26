@@ -23,7 +23,8 @@ export const copyOpenclawConfigStep: InstallStep = {
 
     const copyResult = await ctx.execAsRoot([
       `if [ -d "${hostConfigDir}" ]; then`,
-      `  cp -a "${hostConfigDir}" "${agentConfigDir}"`,
+      `  mkdir -p "${agentConfigDir}"`,
+      `  rsync -a --delete "${hostConfigDir}/" "${agentConfigDir}/"`,
       `  chown -R ${ctx.agentUsername}:${ctx.socketGroupName} "${agentConfigDir}"`,
       '  echo "CONFIG_COPIED"',
       'else',

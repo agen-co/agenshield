@@ -15,6 +15,7 @@ import {
 import { installClaudeCodeStep } from './install-claude-code.js';
 import { verifyClaudeBinaryStep } from './verify-claude-binary.js';
 import { detectHostClaudeStep } from './detect-host-claude.js';
+import { buildClaudeSearchPath } from './claude-paths.js';
 
 export function getClaudeCodePipeline(): InstallStep[] {
   return [
@@ -28,7 +29,11 @@ export function getClaudeCodePipeline(): InstallStep[] {
 
     // Phase 9: Configuration
     createAppWrapperStep('claude', async (ctx) => {             // weight 2
-      return `${ctx.agentHome}/.claude/local/bin/claude`;
+      const searchPath = buildClaudeSearchPath(ctx.agentHome);
+      const { checkedExecAsUser } = await import('../shared/install-helpers.js');
+      return (await checkedExecAsUser(ctx,
+        `export PATH="${searchPath}:$PATH" && command -v claude`,
+        'resolve_claude', 10_000)).trim();
     }),
     createStopHostProcessesStep('claude', '[c]laude'),          // weight 3
     detectHostClaudeStep,                                       // weight 2, resolve -> copy + rewrite

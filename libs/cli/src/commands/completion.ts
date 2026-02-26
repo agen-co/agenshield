@@ -16,7 +16,8 @@
  * ```
  */
 
-import { Command } from 'commander';
+import { Option } from 'clipanion';
+import { BaseCommand } from './base.js';
 
 // ── Completion script generators ──────────────────────────────────────
 
@@ -95,7 +96,7 @@ function generateZsh(): string {
 _agenshield() {
   local -a commands
   commands=(
-    'start:Start AgenShield and open the dashboard'
+    'start:Start the AgenShield daemon'
     'stop:Stop the AgenShield daemon'
     'upgrade:Upgrade AgenShield (stop, update, restart)'
     'setup:Set up AgenShield (local or cloud mode)'
@@ -146,8 +147,7 @@ _agenshield() {
           ;;
         start)
           _arguments \\
-            '(-f --foreground)'{-f,--foreground}'[Run in foreground]' \\
-            '--no-browser[Do not open browser]'
+            '(-f --foreground)'{-f,--foreground}'[Run in foreground]'
           ;;
         upgrade)
           _arguments \\
@@ -173,7 +173,7 @@ function generateFish(): string {
 complete -c agenshield -f
 
 # Commands
-complete -c agenshield -n '__fish_use_subcommand' -a start -d 'Start AgenShield and open the dashboard'
+complete -c agenshield -n '__fish_use_subcommand' -a start -d 'Start the AgenShield daemon'
 complete -c agenshield -n '__fish_use_subcommand' -a stop -d 'Stop the AgenShield daemon'
 complete -c agenshield -n '__fish_use_subcommand' -a upgrade -d 'Upgrade AgenShield (stop, update, restart)'
 complete -c agenshield -n '__fish_use_subcommand' -a setup -d 'Set up AgenShield (local or cloud mode)'
@@ -210,7 +210,6 @@ complete -c agenshield -n '__fish_seen_subcommand_from completion' -a 'bash zsh 
 
 # start flags
 complete -c agenshield -n '__fish_seen_subcommand_from start' -s f -l foreground -d 'Run in foreground'
-complete -c agenshield -n '__fish_seen_subcommand_from start' -l no-browser -d 'Do not open browser'
 
 # upgrade flags
 complete -c agenshield -n '__fish_seen_subcommand_from upgrade' -l dry-run -d 'Show what would be done'
@@ -227,41 +226,49 @@ complete -c agenshield -n '__fish_seen_subcommand_from logs' -s n -d 'Number of 
 
 // ── Command definition ────────────────────────────────────────────────
 
-/**
- * Create the completion command
- */
-export function createCompletionCommand(): Command {
-  const cmd = new Command('completion')
-    .description('Generate shell completion scripts')
-    .argument('[shell]', 'Shell type: bash, zsh, or fish')
-    .action((shell?: string) => {
-      if (!shell) {
-        // Auto-detect from SHELL env var
-        const currentShell = process.env['SHELL'] || '';
-        if (currentShell.includes('zsh')) {
-          shell = 'zsh';
-        } else if (currentShell.includes('fish')) {
-          shell = 'fish';
-        } else {
-          shell = 'bash';
-        }
-      }
+export class CompletionCommand extends BaseCommand {
+  static override paths = [['completion']];
 
-      switch (shell) {
-        case 'bash':
-          process.stdout.write(generateBash());
-          break;
-        case 'zsh':
-          process.stdout.write(generateZsh());
-          break;
-        case 'fish':
-          process.stdout.write(generateFish());
-          break;
-        default:
-          process.stderr.write(`Unknown shell: ${shell}. Supported: bash, zsh, fish\n`);
-          process.exitCode = 2;
-      }
-    });
+  static override usage = BaseCommand.Usage({
+    category: 'Setup & Maintenance',
+    description: 'Generate shell completion scripts',
+    examples: [
+      ['Generate zsh completions', '$0 completion zsh'],
+      ['Generate bash completions', '$0 completion bash'],
+      ['Generate fish completions', '$0 completion fish'],
+    ],
+  });
 
-  return cmd;
+  shell = Option.String({ required: false, name: 'shell' });
+
+  async run(): Promise<number | void> {
+    let shellType = this.shell;
+
+    if (!shellType) {
+      // Auto-detect from SHELL env var
+      const currentShell = process.env['SHELL'] || '';
+      if (currentShell.includes('zsh')) {
+        shellType = 'zsh';
+      } else if (currentShell.includes('fish')) {
+        shellType = 'fish';
+      } else {
+        shellType = 'bash';
+      }
+    }
+
+    switch (shellType) {
+      case 'bash':
+        process.stdout.write(generateBash());
+        break;
+      case 'zsh':
+        process.stdout.write(generateZsh());
+        break;
+      case 'fish':
+        process.stdout.write(generateFish());
+        break;
+      default:
+        process.stderr.write(`Unknown shell: ${shellType}. Supported: bash, zsh, fish\n`);
+        return 2;
+    }
+  }
 }

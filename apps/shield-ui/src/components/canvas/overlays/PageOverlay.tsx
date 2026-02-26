@@ -13,11 +13,12 @@ import { Tabs, Tab } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
-  Network, Terminal, HardDrive, MemoryStick,
-  Eye, Zap, KeyRound, BarChart3,
+  Network, Terminal, HardDrive,
+  Eye, Zap, KeyRound, BarChart3, Settings as SettingsIcon,
 } from 'lucide-react';
 import { CircularLoader } from '../../../elements';
 import { setSkipEntryAnimation } from '../../../state/canvas-drilldown';
+import { clearScope } from '../../../state/scope';
 import {
   OverlayRoot,
   ContentPanel,
@@ -33,7 +34,7 @@ const PAGE_META: Record<string, { title: string; icon: typeof Terminal }> = {
   secrets: { title: 'Secrets', icon: KeyRound },
   policies: { title: 'Policies', icon: Terminal },
   overview: { title: 'Overview', icon: Eye },
-  settings: { title: 'Settings', icon: MemoryStick },
+  settings: { title: 'Settings', icon: SettingsIcon },
   metrics: { title: 'System Metrics', icon: BarChart3 },
 };
 
@@ -70,6 +71,12 @@ export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps)
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const navigate = useNavigate();
+
+  // Clear scope on mount — PageOverlay only renders for system (non-target) routes,
+  // so scope should always be null. Defense-in-depth against stale scope from previous target navigation.
+  useEffect(() => {
+    clearScope();
+  }, []);
 
   // Clear skip-animation flag after first paint so subsequent navigations animate normally
   const skipClearedRef = useRef(false);

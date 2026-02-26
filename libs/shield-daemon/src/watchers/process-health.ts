@@ -3,10 +3,13 @@
  *
  * Periodically checks broker and gateway process status via launchctl.
  * Emits lifecycle events on state transitions (started, stopped, restarted).
+ *
+ * System commands are offloaded to the worker thread via
+ * SystemCommandExecutor to avoid blocking the event loop.
  */
 
-import { execSync } from 'node:child_process';
 import { emitProcessStarted, emitProcessStopped, emitProcessRestarted } from '../events/emitter';
+import { getSystemExecutor } from '../workers/system-command';
 
 const BROKER_LABEL = 'com.agenshield.broker';
 
@@ -71,14 +74,12 @@ function parseLaunchctlStatus(stdout: string): ProcessState {
 }
 
 /**
- * Get broker process status via launchctl.
+ * Get broker process status via launchctl (async, offloaded to worker).
  */
-function getBrokerStatus(): ProcessState {
+async function getBrokerStatus(): Promise<ProcessState> {
   try {
-    const stdout = execSync(`launchctl list ${BROKER_LABEL} 2>/dev/null`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const executor = getSystemExecutor();
+    const stdout = await executor.exec(`launchctl list ${BROKER_LABEL} 2>/dev/null`, { timeout: 5_000 });
     return parseLaunchctlStatus(stdout);
   } catch {
     return { running: false };
@@ -128,9 +129,9 @@ function emitTransitions(
 /**
  * Check broker and gateway health, emit events on transitions.
  */
-function checkAndEmit(): void {
+async function checkAndEmit(): Promise<void> {
   try {
-    const brokerState = getBrokerStatus();
+    const brokerState = await getBrokerStatus();
     emitTransitions('broker', previousBrokerState, brokerState);
     previousBrokerState = brokerState;
   } catch (error) {

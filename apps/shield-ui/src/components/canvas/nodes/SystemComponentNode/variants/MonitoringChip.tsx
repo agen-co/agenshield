@@ -14,16 +14,16 @@ import type { VariantProps } from '../system.types';
 export const MonitoringChip = memo(({ label, sublabel, refDesignator, theme, layout }: VariantProps) => {
   const snap = useSnapshot(systemStore);
   const { cpuPercent, memPercent, diskPercent, netUp, netDown } = snap.metrics;
-  const { exposed, active, health, okCount, warnCount, dangerCount } = snap.components.monitoring;
+  const { active, health, okCount, warnCount, dangerCount } = snap.components.monitoring;
+  const isDanger = health === 'danger';
 
   const { body } = layout;
   const { padColor, silkDim, silkColor, chipBody } = theme;
-  const chipBorder = exposed ? '#E1583E'
-    : health === 'danger' ? '#E1583E'
+  const chipBorder = health === 'danger' ? '#E1583E'
     : health === 'warn' ? '#E8B84A'
     : theme.chipBorder;
 
-  const borderRef = useExposedBorder(exposed);
+  const borderRef = useExposedBorder(isDanger);
 
   // Bar chart — heights driven by real system metrics
   const barX = body.x + body.w * 0.2;
@@ -104,14 +104,14 @@ export const MonitoringChip = memo(({ label, sublabel, refDesignator, theme, lay
 
       {/* Status LED */}
       <StatusLed x={body.x + body.w - 20} y={body.y + 14}
-        active={active} exposed={exposed} silkDim={silkDim} />
+        active={active} exposed={isDanger} silkDim={silkDim} />
 
       {/* Alert indicator */}
       <AlertIndicator x={body.x + body.w - 20} y={body.y + body.h - 22}
-        exposed={exposed} silkDim={silkDim} />
+        exposed={isDanger} silkDim={silkDim} />
 
       {/* Exposed border */}
-      {exposed && (
+      {isDanger && (
         <rect ref={borderRef} x={body.x - 1} y={body.y - 1}
           width={body.w + 2} height={body.h + 2}
           fill="none" stroke="#E1583E" strokeWidth={1.2} rx={3}

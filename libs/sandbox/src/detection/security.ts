@@ -5,8 +5,11 @@
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import { userExistsSync as userExists, GUARDED_SHELL_PATH } from '../legacy.js';
+
+const execAsync = promisify(exec);
 
 /** Legacy/fallback sandbox user names */
 const LEGACY_SANDBOX_USERS = ['openclaw', 'agentshield_default_agent'];
@@ -17,13 +20,12 @@ const SANDBOX_USER_PREFIXES = ['agentshield_', 'ash_'];
 /**
  * Discover sandbox users from the system via dscl
  */
-function discoverSandboxUsers(): string[] {
+async function discoverSandboxUsers(): Promise<string[]> {
   try {
-    const output = execSync('dscl . -list /Users', {
+    const { stdout } = await execAsync('dscl . -list /Users', {
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
     });
-    return output
+    return stdout
       .split('\n')
       .filter((u) => SANDBOX_USER_PREFIXES.some((prefix) => u.startsWith(prefix)));
   } catch {
@@ -35,11 +37,11 @@ function discoverSandboxUsers(): string[] {
  * Build the effective list of sandbox users to check against.
  * Priority: explicit known users > dscl discovery > legacy fallback
  */
-function resolveSandboxUsers(knownUsers?: string[]): string[] {
+async function resolveSandboxUsers(knownUsers?: string[]): Promise<string[]> {
   if (knownUsers && knownUsers.length > 0) {
     return knownUsers;
   }
-  const discovered = discoverSandboxUsers();
+  const discovered = await discoverSandboxUsers();
   if (discovered.length > 0) {
     return discovered;
   }
@@ -115,11 +117,12 @@ function checkExposedSecrets(env?: Record<string, string | undefined>): string[]
 }
 
 /**
- * Execute a command safely
+ * Execute a command safely (async)
  */
-function execSafe(cmd: string): string | null {
+async function execSafe(cmd: string): Promise<string | null> {
   try {
-    return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    const { stdout } = await execAsync(cmd, { encoding: 'utf-8' });
+    return stdout.trim();
   } catch {
     return null;
   }
@@ -157,12 +160,12 @@ function bracketEscape(pattern: string): string {
 /**
  * Find processes matching the given name patterns via ps aux + grep
  */
-function findProcessesByPatterns(
+async function findProcessesByPatterns(
   patterns: string[],
-): Array<{ pid: string; user: string; command: string }> {
+): Promise<Array<{ pid: string; user: string; command: string }>> {
   if (patterns.length === 0) return [];
   const grepExpr = patterns.map(bracketEscape).join('|');
-  const output = execSafe(`ps aux | grep -iE '${grepExpr}'`);
+  const output = await execSafe(`ps aux | grep -iE '${grepExpr}'`);
   if (!output) return [];
   return parsePsLines(output);
 }
@@ -226,7 +229,7 @@ export interface SecurityCheckOptions {
 /**
  * Check full security status
  */
-export function checkSecurityStatus(options?: SecurityCheckOptions): SecurityStatus {
+export async function checkSecurityStatus(options?: SecurityCheckOptions): Promise<SecurityStatus> {
   const currentUser = os.userInfo().username;
   const runningAsRoot = process.getuid?.() === 0 || currentUser === 'root';
   const warnings: string[] = [];
@@ -239,7 +242,7 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
   // Resolve effective sandbox users — derive from targets when available
   const sandboxUsers = hasTargets
     ? [...new Set(knownTargets.flatMap((t) => t.users))]
-    : resolveSandboxUsers(options?.knownSandboxUsers);
+    : await resolveSandboxUsers(options?.knownSandboxUsers);
 
   // Check sandbox user
   const sandboxUserExists = sandboxUsers.some((u) => userExists(u));
@@ -250,7 +253,7 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
   const allPatterns = hasTargets
     ? [...new Set(knownTargets.flatMap((t) => t.processPatterns ?? [t.targetName]))]
     : DEFAULT_PROCESS_PATTERNS;
-  const processes = findProcessesByPatterns(allPatterns);
+  const processes = await findProcessesByPatterns(allPatterns);
   // Filter out short-lived installer processes (npm install, node setup scripts) from unisolated list
   const INSTALLER_PATTERNS = ['npm ', 'npm install', 'node setup', 'node install', 'brew '];
 
@@ -260,11 +263,28 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
     proc.user === 'root' &&
     sandboxUsers.some((u) => proc.command.includes(`-u ${u}`));
 
+  // macOS setup commands that run as root during `agenshield install`.
+  // These are expected: user creation (dscl), group membership (dseditgroup),
+  // home dir setup (createhomedir), ownership changes (chown), and config copies (cp).
+  const SETUP_COMMAND_PREFIXES = ['dscl ', 'dseditgroup ', 'createhomedir ', 'chown ', 'cp '];
+
+  const isSetupCommand = (proc: { user: string; command: string }) => {
+    if (proc.user !== 'root') return false;
+    const cmd = proc.command;
+    const matchesPrefix = SETUP_COMMAND_PREFIXES.some((pat) => cmd.includes(pat));
+    if (!matchesPrefix) return false;
+    // Only allow if the command targets a known sandbox user or their home path
+    return sandboxUsers.some(
+      (u) => cmd.includes(u) || cmd.includes(`/Users/${u}`),
+    );
+  };
+
   const unIsolatedProcesses = processes.filter(
     (p) =>
       !sandboxUsers.includes(p.user) &&
       !INSTALLER_PATTERNS.some((pat) => p.command.includes(pat)) &&
-      !isSudoDelegation(p),
+      !isSudoDelegation(p) &&
+      !isSetupCommand(p),
   );
   const isIsolated = sandboxUserExists && unIsolatedProcesses.length === 0;
 
@@ -333,7 +353,7 @@ export function checkSecurityStatus(options?: SecurityCheckOptions): SecuritySta
     }
 
     for (const group of patternGroupMap.values()) {
-      const targetProcesses = findProcessesByPatterns(group.patterns);
+      const targetProcesses = await findProcessesByPatterns(group.patterns);
 
       for (const proc of targetProcesses) {
         // Skip processes under non-sandbox users — already caught by unIsolatedProcesses check above

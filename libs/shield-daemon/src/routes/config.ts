@@ -13,7 +13,7 @@ import type {
   PolicyConfig,
   ApiResponse,
 } from '@agenshield/ipc';
-import { OPENCLAW_PRESET, AGENCO_PRESET, getPresetById } from '@agenshield/ipc';
+import { AGENCO_PRESET, getPresetById } from '@agenshield/ipc';
 import { loadConfig, loadScopedConfig, updateConfig, updateScopedConfig, saveConfig, getDefaultConfig } from '../config/index';
 import { getStorage } from '@agenshield/storage';
 import { getDefaultState, loadState, saveState } from '../state/index';
@@ -92,14 +92,6 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
               }
             }
           } else {
-            // Global: protect OpenClaw preset
-            for (const presetPolicy of OPENCLAW_PRESET.policies) {
-              const exists = request.body.policies.some((p) => p.id === presetPolicy.id);
-              if (!exists) {
-                request.body.policies.push(presetPolicy);
-              }
-            }
-
             // Protect AgenCo preset only when it was previously applied
             const hasAgenco = request.body.policies.some((p) => p.preset === 'agenco');
             if (hasAgenco) {

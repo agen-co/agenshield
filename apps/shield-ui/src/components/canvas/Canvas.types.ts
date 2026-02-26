@@ -49,6 +49,7 @@ export interface CanvasData {
   // System metrics
   cpuPercent: number;
   memPercent: number;
+  eventLoopP99: number;
 }
 
 export interface PulseData {
@@ -150,6 +151,7 @@ export interface ControllerNodeData {
 export interface SystemMetricsNodeData {
   cpuPercent: number;
   memPercent: number;
+  eventLoopP99: number;
   [key: string]: unknown;
 }
 

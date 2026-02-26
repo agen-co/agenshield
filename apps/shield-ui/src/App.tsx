@@ -17,16 +17,17 @@ import { useHealth } from './api/hooks';
 import { useSSE } from './hooks/useSSE';
 import { useMetricsBackfill } from './hooks/useMetricsBackfill';
 import { Notifications } from './components/shared/Notifications';
+import { LoginGate } from './components/auth/LoginGate';
 import { queryClient } from './api/query-client';
 
 /**
  * Inner app that has access to auth context
  */
 function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggleDarkMode: () => void }) {
-  const { token } = useAuth();
+  const { token, authenticated, loaded } = useAuth();
   const { isError: healthError, isLoading: healthLoading, refetch: retryHealth, isFetching, isSuccess } = useHealth();
   // Connect to SSE events — token triggers reconnect on auth state change
-  useSSE(true, token);
+  useSSE(authenticated, token);
   // Backfill metrics history from SQLite on mount (global, runs once)
   useMetricsBackfill();
 
@@ -61,6 +62,11 @@ function AppContent({ darkMode, onToggleDarkMode }: { darkMode: boolean; onToggl
       }
     };
   }, [healthError, healthLoading, isSuccess]);
+
+  // Auth gate: block the entire canvas when not authenticated
+  if (loaded && !authenticated) {
+    return <LoginGate />;
+  }
 
   return (
     <BrowserRouter>

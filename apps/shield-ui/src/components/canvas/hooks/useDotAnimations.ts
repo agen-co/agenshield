@@ -18,6 +18,8 @@ import { useEffect, useRef } from 'react';
 import { subscribe } from 'valtio';
 import { Position, useReactFlow } from '@xyflow/react';
 import { eventStore } from '../../../state/events';
+import { systemStore } from '../../../state/system-store';
+import { pcb } from '../styles/pcb-tokens';
 import { classifyEventToFirewall, isEventDenied } from '../utils/eventClassification';
 import { getNodeCenter } from '../utils/dotInterpolation';
 import { computeOrthogonalRoute } from '../utils/orthogonalRouter';
@@ -142,6 +144,39 @@ export function useDotAnimations() {
       }
     });
 
+    return unsub;
+  }, [getNode]);
+
+  // Monitoring pulse: green dot from computer → core on each event loop snapshot
+  useEffect(() => {
+    let lastPulseCount = systemStore.eventLoopPulseCount;
+    const unsub = subscribe(systemStore, () => {
+      const current = systemStore.eventLoopPulseCount;
+      if (current <= lastPulseCount) return;
+      lastPulseCount = current;
+
+      const computerNode = getNode('computer');
+      const coreNode = getNode('core');
+      if (!computerNode || !coreNode) return;
+
+      const computerCenter = getNodeCenter(computerNode.position, computerNode.type);
+      const coreCenter = getNodeCenter(coreNode.position, coreNode.type);
+      const route = getRoute(computerCenter, coreCenter, Position.Bottom, Position.Top);
+      const duration = 600;
+
+      const dotId = spawnDot({
+        phase: 'to-policy',
+        denied: false,
+        waypoints: route.waypoints,
+        pathLength: route.totalLength,
+        startTime: Date.now(),
+        duration,
+        firewallId: 'monitoring',
+        color: pcb.component.ledGreen,
+      });
+
+      setTimeout(() => removeDot(dotId), duration);
+    });
     return unsub;
   }, [getNode]);
 

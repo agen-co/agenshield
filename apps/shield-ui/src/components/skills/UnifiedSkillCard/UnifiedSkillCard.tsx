@@ -15,11 +15,25 @@ const originChipConfig: Record<string, { label: string; color: 'warning' | 'defa
   untrusted: { label: 'Untrusted', color: 'warning' },
 };
 
-export function UnifiedSkillCard({ skill, selected = false, readOnly = false, onClick, onAction, onDelete }: UnifiedSkillCardProps) {
+export function UnifiedSkillCard({ skill, selected = false, readOnly = false, targetProfileId, onClick, onAction, onDelete }: UnifiedSkillCardProps) {
   const theme = useTheme();
+
+  // Per-target status: check if this skill is installed for the given target
+  const isInstalledOnTarget = targetProfileId
+    ? skill.installations?.some(i => i.profileId === targetProfileId && i.status === 'active') ?? false
+    : false;
+
+  // Override origin/actionState for per-target display
+  const effectiveOrigin = targetProfileId
+    ? (isInstalledOnTarget ? 'installed' : skill.origin)
+    : skill.origin;
+  const effectiveActionState = targetProfileId
+    ? (isInstalledOnTarget ? 'installed' : (skill.origin === 'downloaded' || skill.origin === 'installed' ? 'analyzed' : skill.actionState))
+    : skill.actionState;
+
   const vulnLevel = skill.analysis?.vulnerability?.level
-    ?? (skill.origin === 'untrusted' ? 'critical' : undefined);
-  const chipConfig = originChipConfig[skill.origin];
+    ?? (effectiveOrigin === 'untrusted' ? 'critical' : undefined);
+  const chipConfig = originChipConfig[effectiveOrigin];
   const commands = skill.analysis?.commands;
   const envVars = skill.envVariables ?? skill.analysis?.envVariables;
 
@@ -28,7 +42,7 @@ export function UnifiedSkillCard({ skill, selected = false, readOnly = false, on
   const hasDescription = !!skill.description;
   const hasCommands = commands && commands.length > 0;
   const hasEnvVars = envVars && envVars.length > 0;
-  const isUntrusted = skill.origin === 'untrusted';
+  const isUntrusted = effectiveOrigin === 'untrusted';
 
   const handleAction = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -60,7 +74,15 @@ export function UnifiedSkillCard({ skill, selected = false, readOnly = false, on
                 sx={{ fontWeight: 500, height: 18, fontSize: '0.625rem' }}
               />
             )}
-            {chipConfig && (
+            {targetProfileId && isInstalledOnTarget && (
+              <Chip
+                label="Installed"
+                color="success"
+                size="small"
+                sx={{ fontWeight: 500, height: 18, fontSize: '0.625rem' }}
+              />
+            )}
+            {chipConfig && !targetProfileId && (
               <Chip
                 label={chipConfig.label}
                 color={chipConfig.color}
@@ -68,14 +90,14 @@ export function UnifiedSkillCard({ skill, selected = false, readOnly = false, on
                 sx={{ fontWeight: 500, height: 18, fontSize: '0.625rem' }}
               />
             )}
-            {vulnLevel && skill.actionState !== 'analysis_failed' && <VulnBadge level={vulnLevel} size="compact" />}
+            {vulnLevel && effectiveActionState !== 'analysis_failed' && <VulnBadge level={vulnLevel} size="compact" />}
           </Box>
           <Typography variant="caption" color="text.secondary" noWrap display="block">
             {skill.author}{skill.version ? ` · v${skill.version}` : ''}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-          <ActionButton actionState={skill.actionState} origin={skill.origin} vulnLevel={vulnLevel} onClick={handleAction} />
+          <ActionButton actionState={effectiveActionState} origin={effectiveOrigin} vulnLevel={vulnLevel} onClick={handleAction} />
           {isUntrusted && onDelete && (
             <Button
               size="small"

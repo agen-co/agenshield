@@ -2,8 +2,7 @@
 /**
  * AgenShield CLI
  *
- * Security CLI for AI agents. Provides commands for setting up, managing,
- * and monitoring the AgenShield security sandbox.
+ * Security CLI for AI agents. Uses Clipanion v4 for class-based command routing.
  *
  * @example
  * ```bash
@@ -18,140 +17,64 @@
  * ```
  */
 
-import { Command } from 'commander';
-import { detectPrivileges } from './utils/privileges.js';
-import { resolveGlobalOptions } from './utils/globals.js';
-import { configureOutput } from './utils/output.js';
-import { CliError } from './errors.js';
-import {
-  createSetupCommand,
-  createStatusCommand,
-  createDoctorCommand,
-  createUninstallCommand,
-  createDevCommand,
-  createStartCommand,
-  createStopCommand,
-  createUpgradeCommand,
-  createInstallCommand,
-  createLogsCommand,
-  createExecCommand,
-  createAuthCommand,
-  createCompletionCommand,
-} from './commands/index.js';
+import { Cli, Builtins } from 'clipanion';
 import { getVersion } from './utils/version.js';
+
+import { StartCommand } from './commands/start.js';
+import { StopCommand } from './commands/stop.js';
+import { UpgradeCommand } from './commands/upgrade.js';
+import { SetupCommand } from './commands/setup.js';
+import { StatusCommand } from './commands/status.js';
+import { DoctorCommand } from './commands/doctor.js';
+import { UninstallCommand } from './commands/uninstall.js';
+import { DevCommand, DevCleanCommand, DevShellCommand } from './commands/dev.js';
+import { InstallCommand } from './commands/install.js';
+import { LogsCommand } from './commands/logs.js';
+import { ExecCommand } from './commands/exec.js';
+import { AuthHelpCommand, AuthTokenUiCommand, AuthTokenBrokerCommand } from './commands/auth-cmd.js';
+import { CompletionCommand } from './commands/completion.js';
 
 const VERSION = getVersion();
 
-/**
- * Create and configure the main CLI program
- */
-function createProgram(): Command {
-  const program = new Command();
-  const priv = detectPrivileges();
-
-  program
-    .name('agenshield')
-    .description('AgenShield - Security CLI for AI agents')
-    .version(VERSION, '-V, --version', 'Output the version number')
-    .option('--json', 'Output machine-readable JSON to stdout')
-    .option('-q, --quiet', 'Suppress non-essential output')
-    .option('--no-color', 'Disable colors (also respects NO_COLOR env)')
-    .option('--debug', 'Show stack traces on errors')
-    .addHelpText(
-      'after',
-      `
-Current user: ${priv.username} (UID: ${priv.uid})${priv.isRoot ? ' [ROOT]' : ''}
-
-Examples:
-  $ agenshield start                Start daemon and open dashboard
-  $ agenshield stop                 Stop daemon
-  $ agenshield upgrade              Stop, update, and restart
-  $ agenshield status               Check current status
-  $ agenshield status --json        Machine-readable status
-  $ agenshield doctor               Run diagnostics
-  $ agenshield setup                Interactive setup wizard
-  $ agenshield setup --mode local   Skip mode prompt (local)
-  $ agenshield setup --mode cloud   Skip mode prompt (cloud)
-  $ agenshield logs                 Stream daemon logs
-  $ agenshield exec <target>        Open guarded shell for an agent user
-  $ agenshield auth token ui        Print admin JWT for dashboard login
-  $ agenshield auth token broker <id>  Generate broker JWT for a target
-  $ agenshield install              Install locally to ~/.agenshield/
-  $ agenshield dev                  Dev mode with interactive TUI
-  $ agenshield dev clean            Clean dev environment
-  $ agenshield completion zsh       Generate shell completions
-  $ agenshield uninstall            Reverse isolation
-`
-    );
-
-  // Register commands
-  program.addCommand(createStartCommand());
-  program.addCommand(createStopCommand());
-  program.addCommand(createUpgradeCommand());
-  program.addCommand(createSetupCommand());
-  program.addCommand(createStatusCommand());
-  program.addCommand(createDoctorCommand());
-  program.addCommand(createUninstallCommand());
-  program.addCommand(createDevCommand());
-  program.addCommand(createInstallCommand());
-  program.addCommand(createLogsCommand());
-  program.addCommand(createExecCommand());
-  program.addCommand(createAuthCommand());
-  program.addCommand(createCompletionCommand());
-
-  return program;
-}
-
-/**
- * Central error handler
- *
- * Formats errors per --json and --debug flags, exits with proper code.
- * Exit codes: 0 success, 1 general error, 2 usage error, 130 SIGINT.
- */
-function handleError(err: unknown, debug: boolean, json: boolean): never {
-  const error = err instanceof CliError ? err : new CliError(
-    (err as Error).message ?? String(err),
-    'UNKNOWN_ERROR',
-  );
-
-  if (json) {
-    process.stdout.write(JSON.stringify(error.toJSON(), null, 2) + '\n');
-  } else {
-    process.stderr.write(`\x1b[31m\u2717 ${error.message}\x1b[0m\n`);
-    if (debug && error.stack) {
-      process.stderr.write(`\n${error.stack}\n`);
-    }
-  }
-
-  process.exit(error.exitCode);
-}
-
-/**
- * Main entry point
- */
-async function main(): Promise<void> {
-  const program = createProgram();
-
-  // Hook into Commander's pre-action to resolve global options
-  program.hook('preAction', (thisCommand) => {
-    const opts = thisCommand.opts();
-    const globalOpts = resolveGlobalOptions(opts);
-    configureOutput(globalOpts);
-  });
-
-  // Handle SIGINT gracefully
-  process.on('SIGINT', () => {
-    process.exit(130);
-  });
-
-  try {
-    await program.parseAsync(process.argv);
-  } catch (err) {
-    const opts = program.opts();
-    handleError(err, !!opts['debug'], !!opts['json']);
-  }
-}
-
-main().catch((err) => {
-  handleError(err, false, false);
+const cli = new Cli({
+  binaryLabel: 'AgenShield',
+  binaryName: 'agenshield',
+  binaryVersion: VERSION,
+  enableCapture: false,
 });
+
+// Builtins
+cli.register(Builtins.HelpCommand);
+cli.register(Builtins.VersionCommand);
+
+// Daemon
+cli.register(StartCommand);
+cli.register(StopCommand);
+cli.register(UpgradeCommand);
+cli.register(StatusCommand);
+
+// Setup & Maintenance
+cli.register(SetupCommand);
+cli.register(DoctorCommand);
+cli.register(UninstallCommand);
+cli.register(InstallCommand);
+cli.register(CompletionCommand);
+
+// Development
+cli.register(DevCommand);
+cli.register(DevCleanCommand);
+cli.register(DevShellCommand);
+cli.register(ExecCommand);
+cli.register(LogsCommand);
+
+// Authentication
+cli.register(AuthHelpCommand);
+cli.register(AuthTokenUiCommand);
+cli.register(AuthTokenBrokerCommand);
+
+// Handle SIGINT gracefully
+process.on('SIGINT', () => {
+  process.exit(130);
+});
+
+cli.runExit(process.argv.slice(2));

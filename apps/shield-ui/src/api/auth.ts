@@ -14,11 +14,19 @@ import type {
 
 const BASE_URL = '/api';
 
+const SESSION_TOKEN_KEY = 'agenshield_jwt_token';
+
 async function authRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   let res: Response;
   try {
     res = await fetch(`${BASE_URL}${endpoint}`, {
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       ...options,
     });
   } catch {

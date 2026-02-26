@@ -48,7 +48,7 @@ export function DotOverlay() {
 
     for (const dot of dots) {
       const elapsed = now - dot.startTime;
-      const color = dot.denied ? COLOR_DENIED : COLOR_ALLOWED;
+      const color = dot.color ?? (dot.denied ? COLOR_DENIED : COLOR_ALLOWED);
       const filter = dot.denied ? FILTER_DENIED : FILTER_ALLOWED;
 
       const pulse = interpolateAlongPath(

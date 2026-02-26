@@ -10,3 +10,4 @@ export { verifyClaudeBinaryStep } from './verify-claude-binary.js';
 export { detectHostClaudeStep } from './detect-host-claude.js';
 export { copyClaudeConfigStep } from './copy-claude-config.js';
 export { rewriteClaudePathsStep } from './rewrite-claude-paths.js';
+export { buildClaudeSearchPath, CLAUDE_BIN_CANDIDATE_DIRS } from './claude-paths.js';

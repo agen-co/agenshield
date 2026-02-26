@@ -3,14 +3,17 @@
  *
  * Periodically checks target lifecycle status and emits SSE events on change.
  * Follows the same pattern as watchers/security.ts.
+ *
+ * All system commands are offloaded to the worker thread via
+ * SystemCommandExecutor to avoid blocking the event loop.
  */
 
 import { createHash } from 'node:crypto';
-import { execSync } from 'node:child_process';
 import { emitTargetStatus, registerProfilePreset } from '../events/emitter';
 import type { AgentProcessInfo, TargetStatusInfo } from '@agenshield/ipc';
 import { getLogger } from '../logger';
 import type { ProcessManager } from '../services/process-manager';
+import { getSystemExecutor } from '../workers/system-command';
 
 let watcherInterval: NodeJS.Timeout | null = null;
 let lastTargetsHash: string | null = null;
@@ -32,14 +35,15 @@ const SYSTEM_PROCESS_RE = /\b(cfprefsd|lsd|trustd|diskarbitrationd|secinitd|tccd
 
 /**
  * Check if an agent user has any running processes.
- * Uses `ps -u <agentUsername>` as the primary signal for target running status.
+ * Uses `ps -U <agentUsername>` as the primary signal for target running status.
  * @deprecated Use type-specific helpers (checkOpenClawRunning / listClaudeProcesses) instead.
  */
-export function checkProcessesRunning(agentUsername: string): boolean {
+export async function checkProcessesRunning(agentUsername: string): Promise<boolean> {
   try {
-    const output = execSync(
-      `ps -u ${agentUsername} -o pid= 2>/dev/null`,
-      { encoding: 'utf-8', timeout: 5_000 },
+    const executor = getSystemExecutor();
+    const output = await executor.exec(
+      `ps -U ${agentUsername} -ax -o pid= 2>/dev/null`,
+      { timeout: 5_000 },
     );
     return output.trim().length > 0;
   } catch {
@@ -54,23 +58,25 @@ export function checkProcessesRunning(agentUsername: string): boolean {
  * Priority 2: launchctl broker plist
  * Priority 3: Filtered ps for openclaw/node processes (excludes macOS system daemons)
  */
-export function checkOpenClawRunning(
+export async function checkOpenClawRunning(
   agentUsername: string,
   runBaseName: string,
   processManager?: ProcessManager | null,
   targetId?: string,
-): boolean {
+): Promise<boolean> {
   // Priority 1: ProcessManager
   if (processManager && targetId) {
     const managed = processManager.getStatus(targetId);
     if (managed?.status === 'running') return true;
   }
 
+  const executor = getSystemExecutor();
+
   // Priority 2: launchctl broker
   try {
-    const brokerOutput = execSync(
+    const brokerOutput = await executor.exec(
       `launchctl list | grep com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
-      { encoding: 'utf-8', timeout: 5_000 },
+      { timeout: 5_000 },
     );
     if (brokerOutput.trim().length > 0) return true;
   } catch {
@@ -79,9 +85,9 @@ export function checkOpenClawRunning(
 
   // Priority 3: Filtered process list — look for openclaw or node gateway processes
   try {
-    const output = execSync(
-      `ps -u ${agentUsername} -o pid,comm= 2>/dev/null`,
-      { encoding: 'utf-8', timeout: 5_000 },
+    const output = await executor.exec(
+      `ps -U ${agentUsername} -ax -o pid,comm= 2>/dev/null`,
+      { timeout: 5_000 },
     );
     for (const line of output.trim().split('\n')) {
       const trimmed = line.trim();
@@ -101,12 +107,13 @@ export function checkOpenClawRunning(
  * List active `claude` CLI sessions running under the agent user.
  * Returns process info for each matching session.
  */
-export function listClaudeProcesses(agentUsername: string): AgentProcessInfo[] {
+export async function listClaudeProcesses(agentUsername: string): Promise<AgentProcessInfo[]> {
   const results: AgentProcessInfo[] = [];
   try {
-    const output = execSync(
-      `ps -u ${agentUsername} -o pid,etime,command= 2>/dev/null`,
-      { encoding: 'utf-8', timeout: 5_000 },
+    const executor = getSystemExecutor();
+    const output = await executor.exec(
+      `ps -U ${agentUsername} -ax -o pid,etime,command= 2>/dev/null`,
+      { timeout: 5_000 },
     );
     for (const line of output.trim().split('\n')) {
       const trimmed = line.trim();
@@ -135,12 +142,13 @@ export function listClaudeProcesses(agentUsername: string): AgentProcessInfo[] {
  * Follows the same pattern as `listClaudeProcesses()` but filters for
  * openclaw/node processes, excluding guarded-shell wrappers and system daemons.
  */
-export function listOpenClawProcesses(agentUsername: string): AgentProcessInfo[] {
+export async function listOpenClawProcesses(agentUsername: string): Promise<AgentProcessInfo[]> {
   const results: AgentProcessInfo[] = [];
   try {
-    const output = execSync(
-      `ps -u ${agentUsername} -o pid,etime,command= 2>/dev/null`,
-      { encoding: 'utf-8', timeout: 5_000 },
+    const executor = getSystemExecutor();
+    const output = await executor.exec(
+      `ps -U ${agentUsername} -ax -o pid,etime,command= 2>/dev/null`,
+      { timeout: 5_000 },
     );
     for (const line of output.trim().split('\n')) {
       const trimmed = line.trim();
@@ -219,23 +227,24 @@ async function getTargetStatuses(): Promise<TargetStatusInfo[]> {
         const runBaseName = agentUsername.replace(/^ash_/, '').replace(/_agent$/, '');
 
         if (target.type === 'openclaw') {
-          target.running = checkOpenClawRunning(
+          target.running = await checkOpenClawRunning(
             agentUsername,
             runBaseName,
             _processManager,
             target.id,
           );
-          target.processes = listOpenClawProcesses(agentUsername);
+          target.processes = await listOpenClawProcesses(agentUsername);
         } else if (target.type === 'claude-code') {
-          const procs = listClaudeProcesses(agentUsername);
+          const procs = await listClaudeProcesses(agentUsername);
           target.running = procs.length > 0;
           target.processes = procs;
         } else {
           // Fallback: launchctl broker check only
           try {
-            const brokerOutput = execSync(
+            const executor = getSystemExecutor();
+            const brokerOutput = await executor.exec(
               `launchctl list | grep com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
-              { encoding: 'utf-8', timeout: 5_000 },
+              { timeout: 5_000 },
             );
             target.running = brokerOutput.trim().length > 0;
           } catch {

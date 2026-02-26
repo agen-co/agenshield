@@ -282,7 +282,12 @@ export async function evaluatePolicyCheck(
           );
         },
         resolveSecrets: (names) => resolveSecretsFromVault(names),
-        getPolicies: () => config.policies || [],
+        getPolicies: () => {
+          if (profileId) {
+            return getStorage().for({ profileId }).policies.getEnabled();
+          }
+          return config.policies || [];
+        },
         defaultAction: config.defaultAction ?? 'deny',
         agentHome: process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent',
         brokerHttpPort: config.broker?.httpPort,

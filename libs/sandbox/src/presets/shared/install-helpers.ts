@@ -88,7 +88,18 @@ export function nvmCommand(agentHome: string, innerCmd: string): string {
 }
 
 /**
+ * Simple delay helper for retry backoff.
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+const HOMEBREW_MAX_ATTEMPTS = 3;
+const HOMEBREW_BACKOFF_MS = 5_000;
+
+/**
  * Install Homebrew to $HOME/homebrew (idempotent — skips if already present).
+ * Retries up to 3 times with 5s backoff to handle transient GitHub failures.
  */
 export async function installHomebrew(ctx: InstallContext): Promise<void> {
   ctx.onLog('Checking for existing Homebrew installation...');
@@ -105,28 +116,48 @@ export async function installHomebrew(ctx: InstallContext): Promise<void> {
 
   ctx.onLog('Installing Homebrew to agent home...');
 
-  try {
-    // Create homebrew directory
-    await checkedExecAsRoot(ctx, [
-      `mkdir -p "${ctx.agentHome}/homebrew"`,
-      `chown ${ctx.agentUsername}:${ctx.socketGroupName} "${ctx.agentHome}/homebrew"`,
-    ].join(' && '), 'homebrew_dir', 10_000);
+  const errors: string[] = [];
 
-    // Download, extract, and verify Homebrew — use direct shell (no guarded shell)
-    // so system curl/tar are available before the broker is running
-    await checkedExecAsUserDirect(ctx, [
-      `cd "${ctx.agentHome}/homebrew"`,
-      'curl -fsSL https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1',
-      `"${ctx.agentHome}/homebrew/bin/brew" --version`,
-    ].join(' && '), 'homebrew_download', 120_000);
+  for (let attempt = 1; attempt <= HOMEBREW_MAX_ATTEMPTS; attempt++) {
+    try {
+      // Clean up any partial install from a previous attempt
+      await checkedExecAsRoot(ctx, [
+        `rm -rf "${ctx.agentHome}/homebrew"`,
+        `mkdir -p "${ctx.agentHome}/homebrew"`,
+        `chown ${ctx.agentUsername}:${ctx.socketGroupName} "${ctx.agentHome}/homebrew"`,
+      ].join(' && '), 'homebrew_dir', 10_000);
 
-    ctx.onLog('Homebrew installed successfully.');
-  } catch (err) {
-    if (err instanceof InstallError) {
-      throw new HomebrewInstallError(err.message);
+      // Phase 1: Download and extract — use direct shell (no guarded shell)
+      // so system curl/tar are available before the broker is running
+      await checkedExecAsUserDirect(ctx, [
+        `cd "${ctx.agentHome}/homebrew"`,
+        'set -o pipefail',
+        'curl -fsSL --retry 3 --retry-delay 2 https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1',
+      ].join(' && '), 'homebrew_download', 120_000);
+
+      // Phase 2: Verify — suppress auto-update to avoid network calls
+      await checkedExecAsUserDirect(ctx, [
+        'HOMEBREW_NO_AUTO_UPDATE=1',
+        'HOMEBREW_NO_INSTALL_FROM_API=1',
+        `"${ctx.agentHome}/homebrew/bin/brew" --version`,
+      ].join(' '), 'homebrew_verify', 30_000);
+
+      ctx.onLog('Homebrew installed successfully.');
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`attempt ${attempt}: ${msg}`);
+
+      if (attempt < HOMEBREW_MAX_ATTEMPTS) {
+        ctx.onLog(`Homebrew install attempt ${attempt}/${HOMEBREW_MAX_ATTEMPTS} failed, retrying in ${HOMEBREW_BACKOFF_MS / 1000}s...`);
+        await delay(HOMEBREW_BACKOFF_MS);
+      }
     }
-    throw err;
   }
+
+  throw new HomebrewInstallError(
+    `Failed after ${HOMEBREW_MAX_ATTEMPTS} attempts:\n${errors.join('\n')}`,
+  );
 }
 
 

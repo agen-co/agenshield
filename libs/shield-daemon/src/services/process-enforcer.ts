@@ -6,21 +6,22 @@
  * (emits an event) or kills the process tree, depending on the policy's
  * enforcement mode.
  *
- * Follows the watcher pattern from watchers/security.ts and watchers/targets.ts.
+ * System commands are offloaded to the worker thread via SystemCommandExecutor
+ * to avoid blocking the event loop.
  */
 
-import { execSync } from 'node:child_process';
 import os from 'node:os';
 import { getLogger } from '../logger';
 import { getPolicyManager } from './policy-manager';
 import { emitProcessViolation, emitProcessKilled } from '../events/emitter';
+import { getSystemExecutor } from '../workers/system-command';
 
 // macOS system daemons — never enforce against these
 const SYSTEM_PROCESS_RE = /\b(cfprefsd|lsd|trustd|diskarbitrationd|secinitd|tccd|nsurlsessiond|mdworker|distnoted|smd|pboard|launchd|kernel_task|WindowServer|loginwindow)\b/i;
 
 const GRACE_PERIOD_MS = 5_000;
 
-interface HostProcess {
+export interface HostProcess {
   pid: number;
   user: string;
   command: string;
@@ -48,11 +49,11 @@ export function startProcessEnforcer(options?: ProcessEnforcerOptions): void {
   log.info(`[enforcer] Starting process enforcer (interval: ${intervalMs}ms)`);
 
   // Immediate scan
-  runEnforcementScan();
+  runEnforcementScan().catch(() => { /* logged internally */ });
 
   // Periodic scan
   scanTimer = setInterval(() => {
-    runEnforcementScan();
+    runEnforcementScan().catch(() => { /* logged internally */ });
   }, intervalMs);
 
   // Periodic cleanup of recentlyKilledPids (every 60s)
@@ -79,13 +80,13 @@ export function stopProcessEnforcer(): void {
 /**
  * Trigger a one-shot enforcement scan (e.g., after policy push).
  */
-export function triggerProcessEnforcement(): void {
-  runEnforcementScan();
+export async function triggerProcessEnforcement(): Promise<void> {
+  await runEnforcementScan();
 }
 
 // ─── Internal ────────────────────────────────────────────────
 
-function runEnforcementScan(): void {
+async function runEnforcementScan(): Promise<void> {
   const log = getLogger();
 
   let policyManager;
@@ -98,17 +99,33 @@ function runEnforcementScan(): void {
 
   let processes: HostProcess[];
   try {
-    processes = scanHostProcesses();
+    processes = await scanHostProcesses();
   } catch (err) {
-    log.debug({ err }, '[enforcer] Failed to scan host processes');
+    log.warn({ err }, '[enforcer] Failed to scan host processes');
     return;
   }
 
   if (processes.length === 0) return;
 
+  // Collect daemon's own process tree — never kill our own children
+  // (e.g., installation scripts running openclaw onboarding)
+  let daemonDescendants: Set<number>;
+  try {
+    const descendants = await collectDescendants(process.pid);
+    daemonDescendants = new Set(descendants);
+  } catch {
+    daemonDescendants = new Set();
+  }
+
   for (const proc of processes) {
     // Skip recently killed PIDs
     if (recentlyKilledPids.has(proc.pid)) continue;
+
+    // Skip daemon's own descendant processes
+    if (daemonDescendants.has(proc.pid)) {
+      log.debug(`[enforcer] Skipping PID ${proc.pid} (daemon descendant): ${proc.command.slice(0, 80)}`);
+      continue;
+    }
 
     const result = policyManager.evaluateProcess(proc.command);
     if (!result) continue; // Process allowed
@@ -128,7 +145,7 @@ function runEnforcementScan(): void {
         `[enforcer] Killing denied process PID ${proc.pid}: ${proc.command.slice(0, 120)} (policy: ${result.policyId})`,
       );
       emitProcessViolation(payload);
-      killProcessTree(proc.pid);
+      await killProcessTree(proc.pid);
       emitProcessKilled(payload);
       recentlyKilledPids.add(proc.pid);
     } else {
@@ -145,15 +162,15 @@ function runEnforcementScan(): void {
  * Scan running processes belonging to the current host user.
  * Excludes system processes and the daemon's own process tree.
  */
-function scanHostProcesses(): HostProcess[] {
+export async function scanHostProcesses(): Promise<HostProcess[]> {
   const currentUser = os.userInfo().username;
   const daemonPid = process.pid;
   const parentPid = process.ppid;
 
-  // ps -eo pid,user,command — get all processes with user info
-  const raw = execSync(
-    `ps -u ${currentUser} -o pid=,command= 2>/dev/null`,
-    { encoding: 'utf-8', timeout: 10_000 },
+  const executor = getSystemExecutor();
+  const raw = await executor.exec(
+    `ps -U ${currentUser} -ax -o pid=,command= 2>/dev/null`,
+    { timeout: 10_000 },
   );
 
   const processes: HostProcess[] = [];
@@ -187,8 +204,8 @@ function scanHostProcesses(): HostProcess[] {
  * Kill a process tree: SIGTERM → grace period → SIGKILL.
  * Follows the pattern from services/process-manager.ts.
  */
-function killProcessTree(pid: number): void {
-  const descendants = collectDescendants(pid);
+export async function killProcessTree(pid: number): Promise<void> {
+  const descendants = await collectDescendants(pid);
 
   // SIGTERM to the whole tree (leaves first)
   for (const childPid of descendants.reverse()) {
@@ -196,30 +213,31 @@ function killProcessTree(pid: number): void {
   }
   try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ }
 
-  // Grace period then SIGKILL
-  setTimeout(() => {
-    for (const childPid of descendants) {
-      try { process.kill(childPid, 'SIGKILL'); } catch { /* already dead */ }
-    }
-    try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
-  }, GRACE_PERIOD_MS);
+  // Grace period then SIGKILL — await completion
+  await new Promise<void>(resolve => {
+    setTimeout(() => {
+      for (const childPid of descendants) {
+        try { process.kill(childPid, 'SIGKILL'); } catch { /* already dead */ }
+      }
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+      resolve();
+    }, GRACE_PERIOD_MS);
+  });
 }
 
 /**
  * Recursively collect all descendant PIDs via `pgrep -P`.
  */
-function collectDescendants(pid: number): number[] {
+async function collectDescendants(pid: number): Promise<number[]> {
   const descendants: number[] = [];
   try {
-    const output = execSync(`pgrep -P ${pid} 2>/dev/null`, {
-      encoding: 'utf-8',
-      timeout: 5_000,
-    });
+    const executor = getSystemExecutor();
+    const output = await executor.exec(`pgrep -P ${pid} 2>/dev/null`, { timeout: 5_000 });
     for (const line of output.trim().split('\n')) {
       const childPid = parseInt(line.trim(), 10);
       if (!isNaN(childPid) && childPid > 0) {
         descendants.push(childPid);
-        descendants.push(...collectDescendants(childPid));
+        descendants.push(...await collectDescendants(childPid));
       }
     }
   } catch {

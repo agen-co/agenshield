@@ -76,10 +76,11 @@ export function AlertsBanner({ animationDelay = 50 }: AlertsBannerProps) {
   const acknowledgeAll = useAcknowledgeAllAlerts();
   const [expanded, setExpanded] = useState(false);
 
-  const alerts = data?.data ?? [];
+  const allAlerts = data?.data ?? [];
+  const alerts = allAlerts.filter((a) => !a.acknowledgedAt);
   const unacknowledgedCount = data?.meta?.unacknowledgedCount ?? 0;
 
-  // Don't render if no alerts
+  // Don't render if no unacknowledged alerts
   if (alerts.length === 0) return null;
 
   // Sort by severity

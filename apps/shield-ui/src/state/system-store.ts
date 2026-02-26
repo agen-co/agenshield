@@ -10,6 +10,7 @@
  */
 
 import { proxy } from 'valtio';
+import type { EventLoopPayload } from '@agenshield/ipc';
 import type { SystemComponentType, SystemMetrics } from '../components/canvas/Canvas.types';
 
 export type ComponentHealth = 'ok' | 'warn' | 'danger';
@@ -38,6 +39,15 @@ export interface TargetMetricsSnapshot {
   memPercent: number;
 }
 
+export interface EventLoopSnapshot {
+  timestamp: number;
+  min: number;
+  max: number;
+  mean: number;
+  p50: number;
+  p99: number;
+}
+
 const MAX_HISTORY = 900; // 900 * 2s = 30 min
 
 export interface SystemStoreState {
@@ -45,6 +55,8 @@ export interface SystemStoreState {
   metricsLoaded: boolean;
   metricsHistory: MetricsSnapshot[];
   targetMetricsHistory: Record<string, TargetMetricsSnapshot[]>;
+  eventLoopHistory: EventLoopSnapshot[];
+  eventLoopPulseCount: number;
   components: Record<SystemComponentType, ComponentStatus>;
   wingsForceOpen: boolean;
   panToShield: boolean;
@@ -73,6 +85,8 @@ export const systemStore = proxy<SystemStoreState>({
   metricsLoaded: false,
   metricsHistory: [] as MetricsSnapshot[],
   targetMetricsHistory: {} as Record<string, TargetMetricsSnapshot[]>,
+  eventLoopHistory: [] as EventLoopSnapshot[],
+  eventLoopPulseCount: 0,
   wingsForceOpen: false,
   panToShield: false,
   systemInfo: null,
@@ -164,6 +178,26 @@ export function pushTargetMetricsSnapshot(targetId: string, snap: TargetMetricsS
   const h = systemStore.targetMetricsHistory[targetId];
   h.push(snap);
   if (h.length > MAX_HISTORY) h.splice(0, h.length - MAX_HISTORY);
+}
+
+/** Push an event loop snapshot into the rolling history buffer */
+export function pushEventLoopSnapshot(snap: EventLoopSnapshot): void {
+  const h = systemStore.eventLoopHistory;
+  h.push(snap);
+  if (h.length > MAX_HISTORY) h.splice(0, h.length - MAX_HISTORY);
+}
+
+/** Handle a metrics:eventloop SSE event — push to history and bump pulse counter */
+export function handleEventLoopSnapshot(payload: EventLoopPayload): void {
+  pushEventLoopSnapshot({
+    timestamp: payload.timestamp || Date.now(),
+    min: payload.min,
+    max: payload.max,
+    mean: payload.mean,
+    p50: payload.p50,
+    p99: payload.p99,
+  });
+  systemStore.eventLoopPulseCount++;
 }
 
 export function handleMetricsSnapshot(m: {

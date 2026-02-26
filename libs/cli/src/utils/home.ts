@@ -10,8 +10,54 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+
+// ---------------------------------------------------------------------------
+// Async spawn helpers
+// ---------------------------------------------------------------------------
+
+interface SpawnResult { stdout: string; stderr: string }
+
+function spawnAsync(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number },
+  onStderr?: (line: string) => void,
+): Promise<SpawnResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { ...opts, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', (d: Buffer) => { stdout += d; });
+    child.stderr.on('data', (d: Buffer) => {
+      const chunk = d.toString();
+      stderr += chunk;
+      if (onStderr) {
+        for (const line of chunk.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed) onStderr(trimmed);
+        }
+      }
+    });
+    const timer = opts.timeout
+      ? setTimeout(() => { child.kill(); reject(new Error('Timed out')); }, opts.timeout)
+      : undefined;
+    child.on('close', (code) => {
+      if (timer) clearTimeout(timer);
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(stderr || `Exit code ${code}`));
+    });
+    child.on('error', reject);
+  });
+}
+
+function shellAsync(
+  cmd: string,
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number },
+  onStderr?: (line: string) => void,
+): Promise<SpawnResult> {
+  return spawnAsync('sh', ['-c', cmd], opts, onStderr);
+}
 
 // ---------------------------------------------------------------------------
 // Path constants
@@ -161,21 +207,24 @@ export interface DownloadResult {
  * 2. `tar xzf <tarball>` into destDir with --strip-components=1
  * 3. `npm install --production --no-optional` inside destDir
  */
-export function downloadAndExtract(
+export async function downloadAndExtract(
   version: string,
   destDir?: string,
-): DownloadResult {
+  onProgress?: (step: string) => void,
+): Promise<DownloadResult> {
   const dest = destDir ?? getDistDir();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agenshield-'));
 
   try {
     // 1. npm pack
-    const packOutput = execSync(
+    onProgress?.(`Downloading agenshield@${version}...`);
+    const packResult = await shellAsync(
       `npm pack "agenshield@${version}" --pack-destination "${tmpDir}"`,
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 120_000 },
-    ).trim();
+      { timeout: 120_000 },
+    );
 
     // packOutput is the filename of the tarball (e.g. agenshield-0.7.3.tgz)
+    const packOutput = packResult.stdout.trim();
     const tarball = path.join(tmpDir, packOutput.split('\n').pop()!.trim());
 
     if (!fs.existsSync(tarball)) {
@@ -183,19 +232,20 @@ export function downloadAndExtract(
     }
 
     // 2. Extract
+    onProgress?.('Extracting...');
     fs.mkdirSync(dest, { recursive: true });
-    execSync(
+    await shellAsync(
       `tar xzf "${tarball}" -C "${dest}" --strip-components=1`,
-      { stdio: ['pipe', 'pipe', 'pipe'], timeout: 60_000 },
+      { timeout: 60_000 },
     );
 
     // 3. Install production deps
-    execSync('npm install --production --no-optional', {
-      cwd: dest,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 300_000,
-      env: { ...process.env, NODE_ENV: 'production' },
-    });
+    onProgress?.('Installing production dependencies...');
+    await spawnAsync(
+      'npm', ['install', '--production', '--no-optional'],
+      { cwd: dest, timeout: 300_000, env: { ...process.env, NODE_ENV: 'production' } },
+      (line) => onProgress?.(`npm: ${line}`),
+    );
 
     return { success: true, version };
   } catch (err) {
@@ -259,15 +309,16 @@ export function findMonorepoRoot(): string | null {
 /**
  * Install AgenShield from local monorepo build output instead of npm.
  *
- * Copies `libs/cli/dist/` to `~/.agenshield/dist/`, rewrites workspace
- * dependencies to `file:` references pointing at each lib's dist dir,
- * adds npm `overrides` for transitive workspace deps, then runs
- * `npm install --production` to produce a self-contained installation.
+ * Copies `libs/cli/dist/` to `~/.agenshield/dist/`, then copies each
+ * workspace package's dist directly into `node_modules/` (no npm pack).
+ * Collects third-party deps from all workspace packages and runs a single
+ * `npm install --production` to resolve only non-workspace dependencies.
  */
-export function installFromLocal(
+export async function installFromLocal(
   repoRoot: string,
   destDir?: string,
-): DownloadResult {
+  onProgress?: (step: string) => void,
+): Promise<DownloadResult> {
   const dest = destDir ?? getDistDir();
   const srcDir = path.join(repoRoot, 'libs', 'cli', 'dist');
 
@@ -292,17 +343,12 @@ export function installFromLocal(
 
     // Copy CLI dist contents to dest (rsync preferred, cp -r fallback)
     fs.mkdirSync(dest, { recursive: true });
+    onProgress?.('Copying CLI build output...');
     try {
-      execSync(`rsync -a "${srcDir}/" "${dest}/"`, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 60_000,
-      });
+      await shellAsync(`rsync -a "${srcDir}/" "${dest}/"`, { timeout: 60_000 });
     } catch {
       // rsync unavailable — fall back to cp
-      execSync(`cp -R "${srcDir}/." "${dest}/"`, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 60_000,
-      });
+      await shellAsync(`cp -R "${srcDir}/." "${dest}/"`, { timeout: 60_000 });
     }
 
     // Read version from copied package.json
@@ -316,34 +362,83 @@ export function installFromLocal(
       } catch { /* ignore */ }
     }
 
-    // Rewrite @agenshield/* deps to file: references and add overrides
-    const deps = (pkg['dependencies'] ?? {}) as Record<string, string>;
-    const overrides: Record<string, string> = {};
+    // Step A: Validate workspace packages and collect third-party deps
+    const entries = Object.entries(WORKSPACE_PKG_MAP);
+    const total = entries.length;
+    const mergedDeps: Record<string, string> = {};
 
-    for (const [pkgName, libDir] of Object.entries(WORKSPACE_PKG_MAP)) {
+    for (let i = 0; i < entries.length; i++) {
+      const [pkgName, libDir] = entries[i];
       const distPath = path.join(repoRoot, libDir, 'dist');
-      const fileRef = `file:${distPath}`;
+      const distPkg = path.join(distPath, 'package.json');
 
-      // Rewrite direct dependencies
-      if (deps[pkgName]) {
-        deps[pkgName] = fileRef;
+      if (!fs.existsSync(distPkg)) {
+        return {
+          success: false,
+          version,
+          error: `Build output missing for ${pkgName}: ${distPkg}\nRun: npx nx build ${libDir.split('/').pop()}`,
+        };
       }
 
-      // All workspace packages go into overrides for transitive resolution
-      overrides[pkgName] = fileRef;
+      // Collect non-workspace third-party deps
+      try {
+        const wsPkg = JSON.parse(fs.readFileSync(distPkg, 'utf-8'));
+        const wsDeps = (wsPkg.dependencies ?? {}) as Record<string, string>;
+        for (const [dep, ver] of Object.entries(wsDeps)) {
+          if (!dep.startsWith('@agenshield/') && !dep.startsWith('@agentshield/')) {
+            // Keep the highest version if there's a conflict
+            if (!mergedDeps[dep]) {
+              mergedDeps[dep] = ver;
+            }
+          }
+        }
+      } catch { /* ignore — deps will be resolved by npm */ }
     }
 
+    // Step B: Rewrite CLI's package.json — remove workspace deps, merge third-party
+    const deps = (pkg['dependencies'] ?? {}) as Record<string, string>;
+    for (const key of Object.keys(deps)) {
+      if (key.startsWith('@agenshield/') || key.startsWith('@agentshield/')) {
+        delete deps[key];
+      }
+    }
+    // Merge collected third-party deps (CLI's own deps take priority)
+    for (const [dep, ver] of Object.entries(mergedDeps)) {
+      if (!deps[dep]) {
+        deps[dep] = ver;
+      }
+    }
     pkg['dependencies'] = deps;
-    pkg['overrides'] = overrides;
+    delete pkg['overrides'];
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 
-    // Install production deps (handles native modules like better-sqlite3)
-    execSync('npm install --production --no-optional', {
-      cwd: dest,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 300_000,
-      env: { ...process.env, NODE_ENV: 'production' },
-    });
+    // Step C: Install only third-party production deps (before copying workspace
+    // packages so npm prune doesn't delete them)
+    onProgress?.('Installing production dependencies...');
+    await spawnAsync(
+      'npm', ['install', '--production', '--no-optional'],
+      { cwd: dest, timeout: 300_000, env: { ...process.env, NODE_ENV: 'production' } },
+      (line) => onProgress?.(`npm: ${line}`),
+    );
+
+    // Step D: Copy workspace packages into node_modules (after npm install
+    // so they aren't pruned as extraneous)
+    for (let i = 0; i < entries.length; i++) {
+      const [pkgName, libDir] = entries[i];
+      const distPath = path.join(repoRoot, libDir, 'dist');
+
+      onProgress?.(`Installing ${pkgName} (${i + 1}/${total})`);
+
+      // Copy dist into node_modules/<scope>/<name>
+      const targetDir = path.join(dest, 'node_modules', ...pkgName.split('/'));
+      fs.mkdirSync(targetDir, { recursive: true });
+
+      try {
+        await shellAsync(`rsync -a "${distPath}/" "${targetDir}/"`, { timeout: 60_000 });
+      } catch {
+        await shellAsync(`cp -R "${distPath}/." "${targetDir}/"`, { timeout: 60_000 });
+      }
+    }
 
     return { success: true, version };
   } catch (err) {

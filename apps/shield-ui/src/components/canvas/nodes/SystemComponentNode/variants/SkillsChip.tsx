@@ -12,16 +12,16 @@ import type { VariantProps } from '../system.types';
 
 export const SkillsChip = memo(({ label, sublabel, refDesignator, theme, layout }: VariantProps) => {
   const snap = useSnapshot(systemStore);
-  const { exposed, active, health, okCount, warnCount, dangerCount } = snap.components.skills;
+  const { active, health, okCount, warnCount, dangerCount } = snap.components.skills;
+  const isDanger = health === 'danger';
 
   const { body } = layout;
   const { silkDim, silkColor, chipBody } = theme;
-  const chipBorder = exposed ? '#E1583E'
-    : health === 'danger' ? '#E1583E'
+  const chipBorder = health === 'danger' ? '#E1583E'
     : health === 'warn' ? '#E8B84A'
     : theme.chipBorder;
 
-  const borderRef = useExposedBorder(exposed);
+  const borderRef = useExposedBorder(isDanger);
 
   // Lightning bolt cluster center
   const cx = body.x + body.w * 0.5;
@@ -88,14 +88,14 @@ export const SkillsChip = memo(({ label, sublabel, refDesignator, theme, layout 
 
       {/* Status LED */}
       <StatusLed x={body.x + body.w - 20} y={body.y + 14}
-        active={active} exposed={exposed} silkDim={silkDim} />
+        active={active} exposed={isDanger} silkDim={silkDim} />
 
       {/* Alert indicator */}
       <AlertIndicator x={body.x + body.w - 20} y={body.y + body.h - 22}
-        exposed={exposed} silkDim={silkDim} />
+        exposed={isDanger} silkDim={silkDim} />
 
       {/* Exposed border */}
-      {exposed && (
+      {isDanger && (
         <rect ref={borderRef} x={body.x - 1} y={body.y - 1}
           width={body.w + 2} height={body.h + 2}
           fill="none" stroke="#E1583E" strokeWidth={1.2} rx={3}

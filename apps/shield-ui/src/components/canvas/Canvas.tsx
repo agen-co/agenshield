@@ -49,6 +49,7 @@ import { DrilldownOverlay } from './overlays/DrilldownOverlay';
 import { PageOverlay } from './overlays/PageOverlay';
 import { TargetOverlay } from './overlays/TargetOverlay';
 import { useCanvasHealthSync } from '../../hooks/useCanvasHealthSync';
+import { clearScope } from '../../state/scope';
 
 // Node components
 import { CloudNode } from './nodes/CloudNode';
@@ -558,6 +559,7 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
       if (compData?.componentType) {
         const route = COMPONENT_ROUTE_MAP[compData.componentType];
         if (route) {
+          clearScope();
           const tab = route.defaultTab ? `/${route.defaultTab}` : '';
           navigate(`/${route.pageId}${tab}`, {
             state: { zoomTarget: `comp-${compData.componentType}` },
@@ -565,8 +567,10 @@ export function Canvas({ darkMode, onToggleDarkMode }: CanvasProps) {
         }
       }
     } else if (node.type === 'canvas-agenshield') {
-      navigate('/overview', { state: { zoomTarget: node.id } });
+      clearScope();
+      navigate('/settings', { state: { zoomTarget: node.id } });
     } else if (node.type === 'canvas-metrics-cluster') {
+      clearScope();
       navigate('/metrics', {
         state: { zoomTarget: node.id },
       });

@@ -15,7 +15,7 @@ export const installHomebrewStep: InstallStep = {
   phase: 6,
   progressMessage: 'Installing Homebrew in agent environment...',
   runsAs: 'mixed',
-  timeout: 150_000,
+  timeout: 420_000,
   weight: 15,
 
   async check(ctx) {

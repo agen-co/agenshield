@@ -5,6 +5,7 @@
  */
 
 import type { InstallStep } from '../types.js';
+import { buildClaudeSearchPath } from './claude-paths.js';
 
 export const verifyClaudeBinaryStep: InstallStep = {
   id: 'verify_claude',
@@ -18,7 +19,7 @@ export const verifyClaudeBinaryStep: InstallStep = {
 
   async run(ctx) {
     const result = await ctx.execAsUser(
-      `export HOME="${ctx.agentHome}" && export PATH="${ctx.agentHome}/.claude/local/bin:$PATH" && claude --version`,
+      `export HOME="${ctx.agentHome}" && export PATH="${buildClaudeSearchPath(ctx.agentHome)}:$PATH" && claude --version`,
       { timeout: 15_000 },
     );
 

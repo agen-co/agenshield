@@ -6,90 +6,119 @@
  */
 
 import * as fs from 'node:fs';
-import { Command } from 'commander';
+import { Option } from 'clipanion';
+import { BaseCommand } from './base.js';
 import { getEffectiveEnvForScanning } from '../utils/sudo-env.js';
 import { output } from '../utils/output.js';
 import { ensureSetupComplete } from '../utils/setup-guard.js';
+import { DAEMON_CONFIG, readAdminToken, fetchAdminToken } from '../utils/daemon.js';
 
-const DAEMON_URL = 'http://127.0.0.1:5200';
+const DAEMON_URL = `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}`;
+
+interface TargetInfo {
+  id: string;
+  name: string;
+  type: string;
+  shielded: boolean;
+  running: boolean;
+  version?: string;
+  processes?: Array<{ pid: number; elapsed: string; command: string }>;
+}
+
+interface DaemonInfo {
+  daemon: { version?: string; pid?: number; uptime?: number; cloudConnected?: boolean };
+  targets: TargetInfo[];
+  /** True when daemon is reachable but target data couldn't be fetched (auth failure) */
+  targetsAuthRequired?: boolean;
+}
 
 /**
  * Try to fetch per-target status from the running daemon
  */
-async function fetchDaemonStatus(): Promise<{
-  daemon: { version?: string; pid?: number };
-  profiles: Array<{
-    id: string;
-    name: string;
-    targetName?: string;
-    agentUsername?: string;
-    agentHomeDir?: string;
-    shielded?: boolean;
-  }>;
-} | null> {
+async function fetchDaemonStatus(): Promise<DaemonInfo | null> {
+  // 1. Check health (public)
   try {
     const healthResp = await fetch(`${DAEMON_URL}/api/health`, { signal: AbortSignal.timeout(2000) });
     if (!healthResp.ok) return null;
-    const health = (await healthResp.json()) as Record<string, unknown>;
-
-    const profilesResp = await fetch(`${DAEMON_URL}/api/profiles`, { signal: AbortSignal.timeout(2000) });
-    const profilesBody = profilesResp.ok
-      ? ((await profilesResp.json()) as { data?: unknown[] })
-      : { data: [] };
-
-    return {
-      daemon: {
-        version: String(health['version'] ?? ''),
-        pid: typeof health['pid'] === 'number' ? health['pid'] : undefined,
-      },
-      profiles: (profilesBody.data ?? []) as Array<{
-        id: string;
-        name: string;
-        targetName?: string;
-        agentUsername?: string;
-        agentHomeDir?: string;
-        shielded?: boolean;
-      }>,
-    };
   } catch {
     return null;
   }
+
+  // 2. Fetch daemon info from /api/status (public)
+  const daemon: DaemonInfo['daemon'] = {};
+  try {
+    const statusResp = await fetch(`${DAEMON_URL}/api/status`, { signal: AbortSignal.timeout(2000) });
+    if (statusResp.ok) {
+      const body = (await statusResp.json()) as {
+        success?: boolean;
+        data?: { version?: string; pid?: number; uptime?: number; cloudConnected?: boolean };
+      };
+      if (body.data) {
+        daemon.version = body.data.version;
+        daemon.pid = body.data.pid;
+        daemon.uptime = body.data.uptime;
+        daemon.cloudConnected = body.data.cloudConnected;
+      }
+    }
+  } catch {
+    // Non-fatal — we already confirmed health
+  }
+
+  // 3. Get admin token for authenticated endpoints
+  const token = readAdminToken() ?? await fetchAdminToken();
+
+  // 4. Fetch targets from /api/targets/lifecycle (requires auth)
+  if (token) {
+    try {
+      const targetsResp = await fetch(`${DAEMON_URL}/api/targets/lifecycle`, {
+        signal: AbortSignal.timeout(5000),
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (targetsResp.ok) {
+        const body = (await targetsResp.json()) as { success?: boolean; data?: TargetInfo[] };
+        return { daemon, targets: body.data ?? [] };
+      }
+    } catch {
+      // Auth or network error — fall through to degraded mode
+    }
+  }
+
+  // 5. Daemon reachable but targets unavailable (no token or auth failed)
+  return { daemon, targets: [], targetsAuthRequired: !token };
 }
 
 /**
  * Show per-target status from daemon
  */
-async function showDaemonStatusInfo(
-  daemonInfo: NonNullable<Awaited<ReturnType<typeof fetchDaemonStatus>>>,
-): Promise<void> {
+async function showDaemonStatusInfo(daemonInfo: DaemonInfo): Promise<void> {
   const { checkSecurityStatus } = await import('@agenshield/sandbox');
 
   const ver = daemonInfo.daemon.version ? ` (v${daemonInfo.daemon.version})` : '';
   const pid = daemonInfo.daemon.pid ? `, PID ${daemonInfo.daemon.pid}` : '';
   output.info(`Daemon:       ${output.green('\u2713')} Running${ver}${pid}`);
 
-  const profiles = daemonInfo.profiles;
-  if (profiles.length > 0) {
+  const targets = daemonInfo.targets;
+  if (targets.length > 0) {
     output.info('\nTargets:');
-    for (const p of profiles) {
-      const target = p.targetName ?? p.name;
-      output.info(`  ${target}:`);
+    for (const t of targets) {
+      output.info(`  ${t.name}:`);
+      output.info(`    Isolation:    ${t.shielded ? `${output.green('\u2713')} Shielded` : '\u25CB Not shielded'}`);
 
-      const agent = p.agentUsername;
-      output.info(`    Sandbox User: ${agent ? `\u2713 ${agent}` : '\u2717 Not created'}`);
-      output.info(`    Isolation:    ${p.shielded ? '\u2713 Active' : '\u25CB Not active'}`);
-
-      if (p.agentHomeDir) {
-        const shellPath = `${p.agentHomeDir}/.agenshield/bin/guarded-shell`;
-        const hasShell = fs.existsSync(shellPath);
-        output.info(`    Shell:        ${hasShell ? '\u2713 Guarded' : '\u25CB Not installed'}`);
+      if (t.shielded) {
+        const processCount = t.processes?.length ?? 0;
+        const runLabel = t.running
+          ? `${output.green('\u2713')} Running${processCount > 0 ? ` (${processCount} process${processCount !== 1 ? 'es' : ''})` : ''}`
+          : '\u25CB Stopped';
+        output.info(`    Status:       ${runLabel}`);
       }
     }
+  } else if (daemonInfo.targetsAuthRequired) {
+    output.info(`\nTargets:      ${output.yellow('\u26A0')} Auth required - run "agenshield auth" to authenticate`);
   } else {
     output.info('\nTargets:      (none)');
   }
 
-  const security = checkSecurityStatus({ env: getEffectiveEnvForScanning(), callerRole: 'daemon' });
+  const security = await checkSecurityStatus({ env: getEffectiveEnvForScanning(), callerRole: 'daemon' });
   output.info(
     `\nSecrets:      ${security.exposedSecrets.length === 0 ? '\u2713 Protected' : `\u26A0 ${security.exposedSecrets.length} exposed`}`,
   );
@@ -97,9 +126,9 @@ async function showDaemonStatusInfo(
   output.info('\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
   if (security.critical.length > 0) {
     output.info('Status: \u26D4 CRITICAL - Immediate action required');
-  } else if (profiles.length > 0 && profiles.every((p) => p.shielded)) {
+  } else if (targets.length > 0 && targets.every((t) => t.shielded)) {
     output.info('Status: \u2705 SECURE');
-  } else if (profiles.length > 0) {
+  } else if (targets.length > 0) {
     output.info('Status: \u26A0 PARTIAL - Not all targets shielded');
   } else {
     output.info('Status: \u26A0 UNPROTECTED - Run "agenshield start"');
@@ -133,7 +162,7 @@ async function showLocalStatus(): Promise<void> {
     output.info('Targets:      (none found)');
   }
 
-  const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
+  const security = await checkSecurityStatus({ env: getEffectiveEnvForScanning() });
   output.info(
     `\nSecrets:      ${security.exposedSecrets.length === 0 ? '\u2713 Protected' : `\u26A0 ${security.exposedSecrets.length} exposed`}`,
   );
@@ -165,24 +194,31 @@ async function showStatus(): Promise<void> {
   }
 }
 
-/**
- * Create the status command
- */
-export function createStatusCommand(): Command {
-  const cmd = new Command('status')
-    .description('Show current AgenShield status')
-    .option('-j, --json', 'Output as JSON')
-    .action(async (options) => {
-      ensureSetupComplete();
-      if (options.json) {
-        const { checkSecurityStatus } = await import('@agenshield/sandbox');
-        const daemonStatus = await fetchDaemonStatus();
-        const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
-        output.data({ daemon: daemonStatus, security });
-      } else {
-        await showStatus();
-      }
-    });
+export class StatusCommand extends BaseCommand {
+  static override paths = [['status']];
 
-  return cmd;
+  static override usage = BaseCommand.Usage({
+    category: 'Daemon',
+    description: 'Show current AgenShield status',
+    examples: [
+      ['Show status', '$0 status'],
+      ['Show status as JSON', '$0 status --json'],
+    ],
+  });
+
+  async run(): Promise<number | void> {
+    ensureSetupComplete();
+    if (this.json) {
+      const { checkSecurityStatus } = await import('@agenshield/sandbox');
+      const daemonStatus = await fetchDaemonStatus();
+      const security = await checkSecurityStatus({ env: getEffectiveEnvForScanning() });
+      output.data({
+        daemon: daemonStatus?.daemon ?? null,
+        targets: daemonStatus?.targets ?? [],
+        security,
+      });
+    } else {
+      await showStatus();
+    }
+  }
 }

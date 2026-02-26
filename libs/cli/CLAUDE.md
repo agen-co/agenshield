@@ -4,32 +4,46 @@ This document provides guidance for Claude and other AI assistants working on th
 
 ## Architecture Overview
 
-The CLI uses [Commander.js](https://www.npmjs.com/package/commander) for command-line argument parsing and command organization. The architecture follows a modular pattern where each command is defined in its own file.
+The CLI uses [Clipanion v4](https://mael.dev/clipanion/) for class-based command routing and argument parsing. Each command is a class extending `BaseCommand`, which handles global options, output configuration, and error handling.
 
 ### Directory Structure
 
 ```
 libs/cli/
 ├── src/
-│   ├── cli.ts              # Main entry point - creates program and registers commands
+│   ├── cli.ts              # Main entry point - creates Cli instance and registers commands
 │   ├── index.ts            # Library exports
+│   ├── errors.ts           # Typed CLI error classes (CliError, UsageError, etc.)
 │   ├── commands/           # Command definitions (one file per command)
-│   │   ├── index.ts        # Exports all command creators
-│   │   ├── setup.ts        # Setup wizard command
-│   │   ├── status.ts       # Status display command
-│   │   ├── doctor.ts       # Diagnostic command
-│   │   ├── daemon.ts       # Daemon management (with subcommands)
-│   │   └── uninstall.ts    # Uninstall command
+│   │   ├── index.ts        # Exports all command classes
+│   │   ├── base.ts         # Abstract BaseCommand with global options + error handling
+│   │   ├── start.ts        # StartCommand
+│   │   ├── stop.ts         # StopCommand
+│   │   ├── upgrade.ts      # UpgradeCommand
+│   │   ├── setup.ts        # SetupCommand
+│   │   ├── status.ts       # StatusCommand
+│   │   ├── doctor.ts       # DoctorCommand
+│   │   ├── uninstall.ts    # UninstallCommand
+│   │   ├── install.ts      # InstallCommand
+│   │   ├── dev.ts          # DevCommand, DevCleanCommand, DevShellCommand
+│   │   ├── logs.ts         # LogsCommand
+│   │   ├── exec.ts         # ExecCommand
+│   │   ├── auth-cmd.ts     # AuthHelpCommand, AuthTokenUiCommand, AuthTokenBrokerCommand
+│   │   └── completion.ts   # CompletionCommand
 │   ├── utils/              # Shared utilities
-│   │   ├── index.ts        # Exports all utilities
-│   │   ├── privileges.ts   # Privilege detection
-│   │   └── daemon.ts       # Daemon management functions
+│   │   ├── output.ts       # Centralized output formatting (respects --json, --quiet, --no-color)
+│   │   ├── globals.ts      # GlobalOptions interface and resolver
+│   │   ├── spinner.ts      # Ora wrapper (respects json/quiet/no-tty)
+│   │   ├── privileges.ts   # Privilege detection and sudo helpers
+│   │   ├── daemon.ts       # Daemon management functions
+│   │   ├── browser.ts      # Browser/URL helpers
+│   │   ├── setup-guard.ts  # ensureSetupComplete() guard
+│   │   ├── setup-state.ts  # Setup state persistence
+│   │   ├── version.ts      # Version reader from package.json
+│   │   └── home.ts         # ~/.agenshield/ directory helpers
 │   ├── wizard/             # Interactive setup wizard (Ink/React)
-│   │   ├── index.tsx       # Wizard React component
-│   │   ├── engine.ts       # Wizard step execution engine
-│   │   └── types.ts        # TypeScript types for wizard
+│   ├── dev-tui/            # Dev mode TUI (Ink/React)
 │   └── detect/             # OpenClaw detection utilities
-│       └── index.ts
 ├── package.json
 ├── tsconfig.json
 ├── CLAUDE.md               # This file
@@ -38,93 +52,119 @@ libs/cli/
 
 ## Command Structure Pattern
 
-Each command file follows this pattern:
+Each command is a class extending `BaseCommand`:
 
 ```typescript
-import { Command } from 'commander';
+import { Option } from 'clipanion';
+import { BaseCommand } from './base.js';
 
-/**
- * Create the <name> command
- */
-export function create<Name>Command(): Command {
-  const cmd = new Command('<name>')
-    .description('Description of what the command does')
-    .option('-f, --flag', 'Option description')
-    .action(async (options) => {
-      // Command implementation
-    });
+export class MyCommand extends BaseCommand {
+  static override paths = [['my-command']];
 
-  return cmd;
+  static override usage = BaseCommand.Usage({
+    category: 'Category Name',
+    description: 'What this command does',
+    examples: [['Example description', '$0 my-command --flag']],
+  });
+
+  // Options as class properties
+  flag = Option.Boolean('-f,--flag', false, { description: 'Option description' });
+  name = Option.String('--name', { description: 'A string option' });
+  target = Option.String({ required: true, name: 'target' }); // positional
+
+  async run(): Promise<number | void> {
+    // Command implementation
+    // Access options via this.flag, this.name, this.target
+    // Global options: this.json, this.quiet, this.noColor, this.debug
+  }
 }
 ```
+
+### BaseCommand
+
+All commands extend `BaseCommand` which provides:
+- **Global options**: `--json`, `-q/--quiet`, `--no-color`, `--debug` as typed class properties
+- **`execute()`**: Calls `configureGlobals()` → `run()` → `handleError(err)` on failure
+- **`configureGlobals()`**: Wires up `output.ts` before the command runs
+- **`handleError(err)`**: Formats errors per `--json` / `--debug`, exits with proper code
 
 ### Subcommands
 
-For commands with subcommands (like `daemon`), use Commander's `.command()` method:
+For commands with subcommands, use separate classes with multi-segment paths:
 
 ```typescript
-export function createDaemonCommand(): Command {
-  const cmd = new Command('daemon')
-    .description('Parent command description');
+// `agenshield auth` — show help
+export class AuthHelpCommand extends BaseCommand {
+  static override paths = [['auth']];
+  async run() { this.context.stdout.write(this.cli.usage(AuthHelpCommand, { detailed: true })); }
+}
 
-  cmd.command('start')
-    .description('Subcommand description')
-    .action(async () => { /* ... */ });
-
-  cmd.command('stop')
-    .description('Stop the daemon')
-    .action(async () => { /* ... */ });
-
-  // Default action when no subcommand provided
-  cmd.action(async () => {
-    // Show status or help
-  });
-
-  return cmd;
+// `agenshield auth token ui`
+export class AuthTokenUiCommand extends BaseCommand {
+  static override paths = [['auth', 'token', 'ui']];
+  async run() { /* ... */ }
 }
 ```
+
+### Categories
+
+Commands are grouped by category in help output:
+- **Setup & Maintenance**: install, setup, doctor, uninstall, completion
+- **Daemon**: start, stop, upgrade, status
+- **Development**: dev, dev clean, dev shell, exec, logs
+- **Authentication**: auth, auth token ui, auth token broker
 
 ## Adding a New Command
 
 1. Create a new file in `src/commands/<name>.ts`
-2. Implement the command following the pattern above
-3. Export the creator function from `src/commands/index.ts`
-4. Register the command in `src/cli.ts`:
+2. Define a class extending `BaseCommand` with `static paths`, `static usage`, and `async run()`
+3. Export the class from `src/commands/index.ts`
+4. Register the class in `src/cli.ts`: `cli.register(MyCommand);`
+
+## Spinners
+
+Use `createSpinner()` from `utils/spinner.ts` for long-running operations:
 
 ```typescript
-import { createNewCommand } from './commands';
-// ...
-program.addCommand(createNewCommand());
+import { createSpinner } from '../utils/spinner.js';
+
+const spinner = await createSpinner('Starting daemon...');
+// ... do work ...
+spinner.succeed('Daemon started');  // or spinner.fail('Failed')
+spinner.update('New status text');  // update in-progress text
+spinner.stop();                     // stop without message
 ```
+
+The spinner automatically falls back to plain text in non-interactive mode (json, quiet, no-tty).
 
 ## Privilege Detection
 
-Commands requiring root privileges should use the `ensureRoot()` utility:
+Commands requiring root privileges should use `ensureSudoAccess()`:
 
 ```typescript
-import { ensureRoot } from '../utils/privileges';
+import { ensureSudoAccess } from '../utils/privileges.js';
 
-cmd.action(async () => {
-  ensureRoot('command-name');  // Exits if not root
+async run() {
+  ensureSudoAccess();
   // ... proceed with privileged operation
-});
+}
 ```
 
-This provides consistent error messages and guidance to users.
+## Error Handling
 
-## Interactive Components
+All commands should throw typed errors from `errors.ts`:
 
-The CLI uses [Ink](https://github.com/vadimdemedes/ink) for interactive components like the setup wizard. Ink allows building CLI UIs with React components.
+```typescript
+import { CliError, SetupRequiredError, DaemonNotRunningError } from '../errors.js';
 
-Key components:
-- `WizardApp` - Main wizard component with step navigation
-- `ink-spinner` - Loading spinners
-- `ink-select-input` - Selection menus
-- `ink-text-input` - Text input fields
+throw new CliError('Something went wrong', 'ERROR_CODE');
+throw new SetupRequiredError();
+throw new DaemonNotRunningError();
+```
+
+`BaseCommand.handleError()` catches these and formats output per `--json`/`--debug`.
 
 ## Environment Variables
-
-The CLI respects these environment variables:
 
 | Variable | Purpose |
 |----------|---------|
@@ -133,49 +173,19 @@ The CLI respects these environment variables:
 | `AGENSHIELD_DRY_RUN` | Enable dry-run mode |
 | `AGENSHIELD_SKIP_CONFIRM` | Skip confirmation prompts |
 | `AGENSHIELD_VERBOSE` | Enable verbose output |
-
-## Testing
-
-### Manual Testing
-
-```bash
-# From project root, run development version
-npm run cli:dev -- status
-npm run cli:dev -- doctor
-npm run cli:dev -- --help
-
-# Run built version
-npm run cli -- status
-```
-
-### Testing Commands Requiring Root
-
-```bash
-# Use dry-run mode when available
-npm run cli:dev -- setup --dry-run
-
-# Or use sudo
-sudo npm run cli -- setup
-```
-
-## Best Practices
-
-1. **Command Naming**: Use verb-noun pattern (e.g., `create-user`, `check-status`)
-2. **Options**: Use short flags for common options (`-v` for verbose, `-f` for force)
-3. **Output**: Use colored output sparingly, support `--json` for machine-readable output
-4. **Errors**: Exit with non-zero code on failure, print helpful error messages
-5. **Help**: Include examples in command descriptions
-6. **Async**: All command actions should be async for consistency
+| `AGENSHIELD_PORT` | Override daemon port |
+| `AGENSHIELD_HOST` | Override daemon host |
 
 ## Dependencies
 
-- `commander` - Command-line parsing
-- `ink`, `react` - Interactive CLI components
+- `clipanion` - Class-based CLI framework (zero runtime deps)
+- `ora` - Terminal spinners
+- `ink`, `react` - Interactive CLI components (dev TUI, setup wizard)
 - `@agenshield/sandbox` - Sandbox operations
 - `@agenshield/ipc` - IPC types and schemas
 
 ## Related Documentation
 
-- [Commander.js Guide](https://betterstack.com/community/guides/scaling-nodejs/commander-explained/)
+- [Clipanion Documentation](https://mael.dev/clipanion/)
 - [Ink Documentation](https://github.com/vadimdemedes/ink)
 - [Project Architecture](/docs/architecture.md)

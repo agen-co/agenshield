@@ -1,5 +1,7 @@
 jest.mock('node:child_process', () => ({
-  execSync: jest.fn().mockReturnValue(''),
+  exec: jest.fn((_cmd: string, _opts: unknown, cb: (err: null, stdout: string, stderr: string) => void) => {
+    cb(null, '', '');
+  }),
 }));
 
 jest.mock('node:fs', () => ({
@@ -83,8 +85,8 @@ describe('isSecretEnvVar', () => {
 });
 
 describe('checkSecurityStatus', () => {
-  it('returns SecurityStatus shape', () => {
-    const status = checkSecurityStatus();
+  it('returns SecurityStatus shape', async () => {
+    const status = await checkSecurityStatus();
 
     expect(status).toHaveProperty('runningAsRoot');
     expect(status).toHaveProperty('currentUser');
@@ -98,8 +100,8 @@ describe('checkSecurityStatus', () => {
     expect(status).toHaveProperty('level');
   });
 
-  it('detects exposed secrets in provided env', () => {
-    const status = checkSecurityStatus({
+  it('detects exposed secrets in provided env', async () => {
+    const status = await checkSecurityStatus({
       env: {
         AWS_SECRET_KEY: 'sk-test',
         HOME: '/Users/test',
@@ -112,8 +114,8 @@ describe('checkSecurityStatus', () => {
     expect(status.exposedSecrets).not.toContain('HOME');
   });
 
-  it('returns unprotected level when no sandbox user exists', () => {
-    const status = checkSecurityStatus({
+  it('returns unprotected level when no sandbox user exists', async () => {
+    const status = await checkSecurityStatus({
       env: {},
     });
 
@@ -121,16 +123,16 @@ describe('checkSecurityStatus', () => {
     expect(['unprotected', 'partial', 'critical']).toContain(status.level);
   });
 
-  it('level is one of the defined values', () => {
-    const status = checkSecurityStatus({ env: {} });
+  it('level is one of the defined values', async () => {
+    const status = await checkSecurityStatus({ env: {} });
 
     expect(['secure', 'partial', 'unprotected', 'critical']).toContain(
       status.level,
     );
   });
 
-  it('includes recommendations when sandbox user is missing', () => {
-    const status = checkSecurityStatus({ env: {} });
+  it('includes recommendations when sandbox user is missing', async () => {
+    const status = await checkSecurityStatus({ env: {} });
 
     expect(status.recommendations.length).toBeGreaterThan(0);
   });

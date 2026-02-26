@@ -18,10 +18,11 @@ import {
 
 export async function metricsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/metrics', async () => {
-    const [cpuPercent, diskPercent, net] = await Promise.all([
+    const [cpuPercent, diskPercent, net, activeUser] = await Promise.all([
       measureCpuPercent(),
-      Promise.resolve(getDiskPercent()),
-      Promise.resolve(getNetThroughput()),
+      getDiskPercent(),
+      getNetThroughput(),
+      getActiveUser(),
     ]);
 
     const total = os.totalmem();
@@ -41,7 +42,7 @@ export async function metricsRoutes(app: FastifyInstance): Promise<void> {
         platform: os.platform(),
         arch: os.arch(),
         uptime: Math.floor(os.uptime()),
-        activeUser: getActiveUser(),
+        activeUser,
         cpuModel: os.cpus()[0]?.model ?? 'unknown',
         totalMemory: total,
         nodeVersion: process.version,

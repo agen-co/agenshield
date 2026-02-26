@@ -156,7 +156,12 @@ export function saveConfig(config: ShieldConfig): void {
     globalScope.policies.create(p);
   }
 
-  cachedConfig = config;
+  // Re-include managed policies in cache — they were preserved in DB
+  // but excluded from the save payload.
+  const managed = storage.for({ profileId: null }).policies.getManaged();
+  cachedConfig = managed.length > 0
+    ? { ...config, policies: [...managed, ...config.policies] }
+    : config;
 
   // Recompute HMAC asynchronously (fire-and-forget)
   storeConfigHmac(config.policies).catch((err) => {

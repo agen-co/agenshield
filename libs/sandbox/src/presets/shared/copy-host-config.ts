@@ -59,7 +59,8 @@ export function createCopyHostConfigStep(options: CopyHostConfigOptions): Instal
         // Full directory copy
         const copyResult = await ctx.execAsRoot([
           `if [ -d "${hostConfigDir}" ]; then`,
-          `  cp -a "${hostConfigDir}" "${agentConfigDir}"`,
+          `  mkdir -p "${agentConfigDir}"`,
+          `  rsync -a --delete "${hostConfigDir}/" "${agentConfigDir}/"`,
           `  chown -R ${ctx.agentUsername}:${ctx.socketGroupName} "${agentConfigDir}"`,
           ...(options.postCopy?.(ctx) ?? []),
           '  echo "CONFIG_COPIED"',

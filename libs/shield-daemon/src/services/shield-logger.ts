@@ -110,7 +110,8 @@ export class ShieldLogger {
     if (this.hasStreamedOutput) {
       this.write(`    (output streamed above)`);
       this.hasStreamedOutput = false;
-      return;
+      // Fall through to show error if command failed
+      if (!error?.trim()) return;
     }
 
     if (output.trim()) {

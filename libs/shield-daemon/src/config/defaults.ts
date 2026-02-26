@@ -4,11 +4,11 @@
 
 import { createRequire } from 'node:module';
 
-import { DEFAULT_PORT, DEFAULT_HOST, OPENCLAW_PRESET } from '@agenshield/ipc';
+import { DEFAULT_PORT, DEFAULT_HOST } from '@agenshield/ipc';
 import type { ShieldConfig } from '@agenshield/ipc';
 
 const require = createRequire(import.meta.url);
-const pkg = require('../package.json') as { version: string };
+const pkg = require('./package.json') as { version: string };
 
 export const VERSION = pkg.version;
 
@@ -24,7 +24,7 @@ export function getDefaultConfig(): ShieldConfig {
       logLevel: 'info',
       enableHostsEntry: false,
     },
-    policies: [...OPENCLAW_PRESET.policies],
+    policies: [],
     vault: {
       enabled: false,
       provider: 'local',

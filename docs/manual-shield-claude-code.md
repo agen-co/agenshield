@@ -5,7 +5,7 @@ to debug failures. Commands are in execution order and grouped by phase.
 
 Unlike OpenClaw, Claude Code runs interactively — there is no gateway daemon,
 no NVM, and no Homebrew. The installer is a single `curl` command and the binary
-lands at `{AGENT_HOME}/.claude/local/bin/claude`.
+lands at `{AGENT_HOME}/.local/bin/claude`.
 
 ---
 
@@ -889,6 +889,7 @@ cat > "/Users/ash_claudecode_agent/.agenshield/seatbelt/agent.sb" << 'SEATBELT_E
 ;; ========================================
 (deny file-write* (subpath "/Users/ash_claudecode_agent/bin"))
 (deny file-write* (subpath "/Users/ash_claudecode_agent/.claude"))
+(deny file-write* (subpath "/Users/ash_claudecode_agent/.local"))
 (deny file-write* (subpath "/Users/ash_claudecode_agent/.zdot"))
 (deny file-write* (subpath "/Users/ash_claudecode_agent/.agenshield"))
 

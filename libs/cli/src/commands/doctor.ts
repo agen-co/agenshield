@@ -4,9 +4,11 @@
  * Diagnoses the AgenShield installation and checks for common issues.
  */
 
-import { Command } from 'commander';
+import { Option } from 'clipanion';
+import { BaseCommand } from './base.js';
 import { getEffectiveEnvForScanning } from '../utils/sudo-env.js';
 import { output } from '../utils/output.js';
+import { createSpinner } from '../utils/spinner.js';
 
 /**
  * Run diagnostics
@@ -15,9 +17,13 @@ async function runDoctor(): Promise<void> {
   output.info('AgenShield Doctor');
   output.info('=================');
 
+  const spinner = await createSpinner('Running diagnostics...');
+
   const { checkPrerequisites, detectOpenClaw, checkSecurityStatus } = await import(
     '@agenshield/sandbox'
   );
+
+  spinner.stop();
 
   // Check prerequisites
   output.info('\nPrerequisites:');
@@ -42,7 +48,7 @@ async function runDoctor(): Promise<void> {
 
   // Security Status
   output.info('\nSecurity Status:');
-  const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
+  const security = await checkSecurityStatus({ env: getEffectiveEnvForScanning() });
 
   if (security.critical.length > 0) {
     output.info('\n  CRITICAL ISSUES:');
@@ -108,27 +114,31 @@ async function runDoctor(): Promise<void> {
   }
 }
 
-/**
- * Create the doctor command
- */
-export function createDoctorCommand(): Command {
-  const cmd = new Command('doctor')
-    .description('Check and diagnose common issues')
-    .option('-j, --json', 'Output as JSON')
-    .option('--fix', 'Attempt to fix issues automatically')
-    .action(async (options) => {
-      if (options.json) {
-        const { checkPrerequisites, detectOpenClaw, checkSecurityStatus } = await import(
-          '@agenshield/sandbox'
-        );
-        const prereqs = checkPrerequisites();
-        const detection = detectOpenClaw();
-        const security = checkSecurityStatus({ env: getEffectiveEnvForScanning() });
-        output.data({ prereqs, detection, security });
-      } else {
-        await runDoctor();
-      }
-    });
+export class DoctorCommand extends BaseCommand {
+  static override paths = [['doctor']];
 
-  return cmd;
+  static override usage = BaseCommand.Usage({
+    category: 'Setup & Maintenance',
+    description: 'Check and diagnose common issues',
+    examples: [
+      ['Run diagnostics', '$0 doctor'],
+      ['Output diagnostics as JSON', '$0 doctor --json'],
+    ],
+  });
+
+  fix = Option.Boolean('--fix', false, { description: 'Attempt to fix issues automatically' });
+
+  async run(): Promise<number | void> {
+    if (this.json) {
+      const { checkPrerequisites, detectOpenClaw, checkSecurityStatus } = await import(
+        '@agenshield/sandbox'
+      );
+      const prereqs = checkPrerequisites();
+      const detection = detectOpenClaw();
+      const security = await checkSecurityStatus({ env: getEffectiveEnvForScanning() });
+      output.data({ prereqs, detection, security });
+    } else {
+      await runDoctor();
+    }
+  }
 }

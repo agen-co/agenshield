@@ -15,10 +15,20 @@ export interface GlobalOptions {
   debug: boolean;
 }
 
+export interface RawGlobalFlags {
+  json?: boolean;
+  quiet?: boolean;
+  verbose?: boolean;
+  noColor?: boolean;
+  debug?: boolean;
+}
+
 /**
- * Resolve global options from parsed Commander opts and the environment.
+ * Resolve global options from parsed flags and the environment.
+ * Accepts either a typed flags object (from BaseCommand) or
+ * a generic record (legacy Commander usage).
  */
-export function resolveGlobalOptions(opts: Record<string, unknown>): GlobalOptions {
+export function resolveGlobalOptions(opts: RawGlobalFlags | Record<string, unknown>): GlobalOptions {
   const noColor =
     !!opts['noColor'] ||
     !!process.env['NO_COLOR'] ||

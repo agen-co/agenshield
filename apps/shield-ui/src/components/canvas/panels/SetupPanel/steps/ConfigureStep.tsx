@@ -2,7 +2,7 @@
  * Configure step — pre-shield configuration for a target
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { ArrowLeft, Settings, Shield } from 'lucide-react';
 import { useTheme } from '@mui/material/styles';
 import type { ConfigureStepProps } from '../SetupPanel.types';
@@ -53,6 +53,13 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
   const detectedVersion = target?.version;
   const [versionChoice, setVersionChoice] = useState<VersionChoice>(detectedVersion ? 'detected' : 'latest');
   const [customVersion, setCustomVersion] = useState('');
+
+  useEffect(() => {
+    setBaseName(defaultBaseName);
+    setTouched(false);
+    setVersionChoice(detectedVersion ? 'detected' : 'latest');
+    setCustomVersion('');
+  }, [defaultBaseName, detectedVersion]);
 
   if (!target) return null;
 

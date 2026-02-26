@@ -6,13 +6,13 @@
  * Reuses PageOverlay styled components and lazy-loads existing page components.
  */
 
-import { lazy, Suspense, useCallback, useEffect, useRef, useMemo, memo } from 'react';
+import { lazy, Suspense, useState, useCallback, useEffect, useRef, useMemo, memo } from 'react';
 import { useTheme } from '@mui/material/styles';
 import { Tabs, Tab, Chip } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
-  Eye, Activity, Terminal, KeyRound, Settings,
+  Eye, Activity, Terminal, Zap, KeyRound, Settings,
 } from 'lucide-react';
 import { useSnapshot } from 'valtio';
 import { CircularLoader } from '../../../elements';
@@ -35,6 +35,7 @@ import { useTargets } from '../../../api/targets';
 const TARGET_TABS = [
   { slug: 'overview', label: 'Overview', icon: Eye },
   { slug: 'activity', label: 'Activity', icon: Activity },
+  { slug: 'skills', label: 'Skills', icon: Zap },
   { slug: 'policies', label: 'Policies', icon: Terminal },
   { slug: 'secrets', label: 'Secrets', icon: KeyRound },
   { slug: 'settings', label: 'Settings', icon: Settings },
@@ -46,6 +47,7 @@ const LazyTargetOverview = lazy(() => import('../../../pages/TargetOverview').th
 const LazyActivity = lazy(() => import('../../../pages/Activity').then(m => ({ default: m.Activity })));
 const LazyPolicies = lazy(() => import('../../../pages/Policies').then(m => ({ default: m.Policies })));
 const LazySecrets = lazy(() => import('../../../pages/Secrets').then(m => ({ default: m.Secrets })));
+const LazySkills = lazy(() => import('../../../pages/Skills').then(m => ({ default: m.Skills })));
 const LazySettings = lazy(() => import('../../../pages/Settings').then(m => ({ default: m.Settings })));
 
 /* ---- TargetOverlay ---- */
@@ -133,6 +135,9 @@ export const TargetOverlay = memo(({ targetId, tab, skipAnimation }: TargetOverl
 
   const activeTab = tab || 'overview';
   const tabIdx = Math.max(0, TARGET_TABS.findIndex(t => t.slug === activeTab));
+
+  // Track embedded policy sub-tab locally so Policies doesn't use relative navigate()
+  const [policiesTab, setPoliciesTab] = useState('commands');
 
   const handleTabChange = useCallback((_: React.SyntheticEvent, newIdx: number) => {
     navigate(`/target/${targetId}/${TARGET_TABS[newIdx].slug}`, { replace: true });
@@ -236,9 +241,10 @@ export const TargetOverlay = memo(({ targetId, tab, skipAnimation }: TargetOverl
         ) : (
           <ScrollArea>
             <Suspense fallback={fallback}>
-              {activeTab === 'policies' && <LazyPolicies embedded />}
+              {activeTab === 'skills' && <LazySkills embedded targetId={targetId} />}
+              {activeTab === 'policies' && <LazyPolicies embedded embeddedTab={policiesTab} onTabChange={setPoliciesTab} />}
               {activeTab === 'secrets' && <LazySecrets embedded />}
-              {activeTab === 'settings' && <LazySettings embedded profileId={profileId} />}
+              {activeTab === 'settings' && <LazySettings embedded profileId={profileId} targetId={targetId} />}
             </Suspense>
           </ScrollArea>
         )}

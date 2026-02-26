@@ -27,6 +27,7 @@ import {
   type MetricsSnapshotPayload,
   type TargetStatusInfo,
   type EnforcementProcessPayload,
+  type ConfigPoliciesUpdatedPayload,
 } from '@agenshield/ipc';
 
 // Re-export for internal daemon consumers that import from this file
@@ -319,4 +320,10 @@ export function emitProcessViolation(data: EnforcementProcessPayload): void {
 
 export function emitProcessKilled(data: EnforcementProcessPayload): void {
   broadcast('enforcement:process_killed', data);
+}
+
+// ===== Config event helpers =====
+
+export function emitPoliciesUpdated(data: ConfigPoliciesUpdatedPayload): void {
+  broadcast('config:policies_updated', data);
 }

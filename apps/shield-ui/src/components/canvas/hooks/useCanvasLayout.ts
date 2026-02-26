@@ -119,6 +119,7 @@ export function useCanvasLayout(data: CanvasData, viewport: ViewportSize) {
       data: {
         cpuPercent: data.cpuPercent,
         memPercent: data.memPercent,
+        eventLoopP99: data.eventLoopP99,
       },
       draggable: false,
       selectable: false,

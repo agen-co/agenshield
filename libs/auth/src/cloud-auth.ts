@@ -135,7 +135,7 @@ export function verifyAgentSig(
 
   // Verify Ed25519 signature
   const data = Buffer.from(`${parts.agentId}:${parts.timestamp}`);
-  const isValid = verify('Ed25519', data, publicKey, parts.signature);
+  const isValid = verify(null, data, publicKey, parts.signature);
 
   return isValid ? parts.agentId : null;
 }

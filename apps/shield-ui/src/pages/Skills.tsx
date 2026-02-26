@@ -1,8 +1,12 @@
 /**
  * Skills page - unified skill management, search, and analysis
+ *
+ * Supports two modes:
+ *  1. Global (default): full search, marketplace, drag-and-drop upload, InstallTargetDialog
+ *  2. Target-scoped (`targetId` prop): shows "Installed on this target" + "Available to install"
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Box, Skeleton, Typography } from '@mui/material';
 import Grid from '@mui/material/Grid2';
@@ -13,6 +17,7 @@ import { SearchInput } from '../components/shared/SearchInput';
 import { SkillsEmptyState } from '../components/skills/SkillsEmptyState';
 import { UnifiedSkillCard } from '../components/skills/UnifiedSkillCard';
 import { SkillDropZone } from '../components/skills/SkillDropZone';
+import { InstallTargetDialog } from '../components/skills/InstallTargetDialog';
 import { X } from 'lucide-react';
 import {
   skillsStore,
@@ -35,13 +40,20 @@ import { ConfirmDialog } from '../components/shared/ConfirmDialog';
 import { UntrustedSkillsSection } from '../components/skills/UntrustedSkillsSection';
 import { useGuardedAction } from '../hooks/useGuardedAction';
 
-export function Skills({ embedded }: { embedded?: boolean } = {}) {
+interface SkillsProps {
+  embedded?: boolean;
+  /** When set, the page operates in target-scoped mode */
+  targetId?: string;
+}
+
+export function Skills({ embedded, targetId }: SkillsProps = {}) {
   const snap = useSnapshot(skillsStore);
   const guard = useGuardedAction();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [confirmUninstall, setConfirmUninstall] = useState<{ name: string } | null>(null);
+  const [installDialog, setInstallDialog] = useState<{ name: string; slug: string; installations?: UnifiedSkill['installations'] } | null>(null);
 
   // Read search from URL
   const qParam = searchParams.get('q') ?? '';
@@ -56,8 +68,9 @@ export function Skills({ embedded }: { embedded?: boolean } = {}) {
     return () => clearTimeout(timer);
   }, [search]);
 
-  // Sync debounced value to URL
+  // Sync debounced value to URL (only in global mode)
   useEffect(() => {
+    if (targetId) return; // target-scoped mode uses local filtering only
     const next = new URLSearchParams(searchParams);
     if (debouncedSearch) {
       next.set('q', debouncedSearch);
@@ -67,17 +80,19 @@ export function Skills({ embedded }: { embedded?: boolean } = {}) {
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
-  }, [debouncedSearch, searchParams, setSearchParams]);
+  }, [debouncedSearch, searchParams, setSearchParams, targetId]);
 
   // Fetch installed skills on mount
   useEffect(() => {
     fetchInstalledSkills();
   }, []);
 
-  // Search when debounced value changes
+  // Search when debounced value changes (global mode only — marketplace search)
   useEffect(() => {
-    searchSkills(debouncedSearch);
-  }, [debouncedSearch]);
+    if (!targetId) {
+      searchSkills(debouncedSearch);
+    }
+  }, [debouncedSearch, targetId]);
 
   const handleCardClick = useCallback(
     (id: string) => {
@@ -86,9 +101,49 @@ export function Skills({ embedded }: { embedded?: boolean } = {}) {
     [navigate],
   );
 
+  // ---- Target-scoped skill partitioning ----
+
+  const isTargetMode = !!targetId;
+
+  // In target-scoped mode, split skills into "installed on this target" and "available"
+  const { installedOnTarget, availableForTarget } = useMemo(() => {
+    if (!isTargetMode) return { installedOnTarget: [] as UnifiedSkill[], availableForTarget: [] as UnifiedSkill[] };
+
+    const installed: UnifiedSkill[] = [];
+    const available: UnifiedSkill[] = [];
+    const q = debouncedSearch.toLowerCase();
+
+    for (const skill of snap.skills as UnifiedSkill[]) {
+      // Skip untrusted / search-only skills in target view
+      if (skill.origin === 'untrusted' || skill.origin === 'search') continue;
+
+      // Client-side filter
+      if (q.length >= 2) {
+        const matches = skill.name.toLowerCase().includes(q)
+          || skill.slug.toLowerCase().includes(q)
+          || skill.description.toLowerCase().includes(q);
+        if (!matches) continue;
+      }
+
+      const isOnTarget = skill.installations?.some(
+        i => i.profileId === targetId && i.status === 'active',
+      ) ?? false;
+
+      if (isOnTarget) {
+        installed.push(skill);
+      } else if (skill.origin === 'installed' || skill.origin === 'downloaded') {
+        available.push(skill);
+      }
+    }
+
+    return { installedOnTarget: installed, availableForTarget: available };
+  }, [isTargetMode, snap.skills, targetId, debouncedSearch]);
+
+  // ---- Global mode skill lists ----
+
   const isSearching = debouncedSearch.length >= 2;
-  const trustedSkills = isSearching ? snap.skills : getTrustedSkills(snap.skills);
-  const untrustedSkills = isSearching ? [] : getUntrustedSkills(snap.skills);
+  const trustedSkills = isTargetMode ? [] : (isSearching ? snap.skills : getTrustedSkills(snap.skills));
+  const untrustedSkills = isTargetMode ? [] : (isSearching ? [] : getUntrustedSkills(snap.skills));
 
   const getSkillActionLabel = (skill: { actionState: string; origin: string }) => {
     if (skill.origin === 'untrusted' && skill.actionState === 'analyzed') return 'Reinstall';
@@ -104,8 +159,26 @@ export function Skills({ embedded }: { embedded?: boolean } = {}) {
 
   const handleAction = useCallback(
     (skill: (typeof snap.skills)[number]) => {
-      const label = getSkillActionLabel(skill);
+      const label = isTargetMode
+        ? (skill.installations?.some(i => i.profileId === targetId && i.status === 'active') ? 'Uninstall' : 'Install')
+        : getSkillActionLabel(skill);
+
       guard(async () => {
+        // ---- Target-scoped actions ----
+        if (isTargetMode) {
+          const isOnTarget = skill.installations?.some(
+            i => i.profileId === targetId && i.status === 'active',
+          ) ?? false;
+
+          if (isOnTarget) {
+            setConfirmUninstall({ name: skill.name });
+          } else {
+            await installSkill(skill.slug, targetId);
+          }
+          return;
+        }
+
+        // ---- Global mode actions ----
         if (skill.origin === 'untrusted' && skill.actionState === 'analyzed') {
           await reinstallUntrustedSkill(skill.name);
           return;
@@ -116,9 +189,14 @@ export function Skills({ embedded }: { embedded?: boolean } = {}) {
             await analyzeSkill(skill.slug);
             break;
           case 'analyzed':
-            // Downloaded skills → install; search results → download first
+            // Downloaded skills → open target dialog; search results → download first
             if (skill.origin === 'downloaded') {
-              await installSkill(skill.slug);
+              setInstallDialog({
+                name: skill.name,
+                slug: skill.slug,
+                installations: skill.installations as UnifiedSkill['installations'],
+              });
+              return; // Dialog handles it
             } else {
               await downloadSkill(skill.slug);
             }
@@ -134,7 +212,7 @@ export function Skills({ embedded }: { embedded?: boolean } = {}) {
         }
       }, { description: `Unlock to ${label.toLowerCase()} this skill.`, actionLabel: label });
     },
-    [guard],
+    [guard, isTargetMode, targetId],
   );
 
   const handleDelete = useCallback(
@@ -153,6 +231,119 @@ export function Skills({ embedded }: { embedded?: boolean } = {}) {
       actionLabel: 'Upload Skill',
     });
   }, [guard]);
+
+  const handleInstallDialogInstall = useCallback(async (targets: string[] | 'global') => {
+    if (!installDialog) return;
+    await installSkill(installDialog.slug, targets);
+    setInstallDialog(null);
+  }, [installDialog]);
+
+  // ---- Target-scoped rendering ----
+
+  if (isTargetMode) {
+    const hasAny = installedOnTarget.length > 0 || availableForTarget.length > 0;
+    const showEmpty = !hasAny && !snap.installedLoading;
+
+    return (
+      <Box>
+        <Box sx={{ mb: 3 }}>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Filter skills..."
+            loading={false}
+          />
+          {search.length > 0 && (
+            <Typography
+              variant="caption"
+              component="button"
+              onClick={() => setSearch('')}
+              sx={{
+                mt: 0.75,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 0.5,
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                color: 'text.secondary',
+                '&:hover': { color: 'text.primary' },
+              }}
+            >
+              <X size={12} />
+              Clear filter
+            </Typography>
+          )}
+        </Box>
+
+        {showEmpty ? (
+          <SkillsEmptyState />
+        ) : (
+          <>
+            {/* Installed on this target */}
+            {installedOnTarget.length > 0 && (
+              <>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Installed on this target
+                </Typography>
+                <Grid container spacing={2} sx={{ mb: 3 }}>
+                  {installedOnTarget.map((skill) => (
+                    <Grid key={skill.slug} size={{ xs: 12, md: 6 }}>
+                      <UnifiedSkillCard
+                        skill={skill as Parameters<typeof UnifiedSkillCard>[0]['skill']}
+                        targetProfileId={targetId}
+                        onClick={() => handleCardClick(skill.installationId ?? skill.slug)}
+                        onAction={() => handleAction(skill)}
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
+              </>
+            )}
+
+            {/* Available to install */}
+            {availableForTarget.length > 0 && (
+              <>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Available to install
+                </Typography>
+                <Grid container spacing={2}>
+                  {availableForTarget.map((skill) => (
+                    <Grid key={skill.slug} size={{ xs: 12, md: 6 }}>
+                      <UnifiedSkillCard
+                        skill={skill as Parameters<typeof UnifiedSkillCard>[0]['skill']}
+                        targetProfileId={targetId}
+                        onClick={() => handleCardClick(skill.installationId ?? skill.slug)}
+                        onAction={() => handleAction(skill)}
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
+              </>
+            )}
+          </>
+        )}
+
+        <ConfirmDialog
+          open={!!confirmUninstall}
+          title="Uninstall Skill"
+          message={`Are you sure you want to uninstall "${confirmUninstall?.name}" from this target?`}
+          confirmLabel="Uninstall"
+          variant="danger"
+          onConfirm={async () => {
+            if (confirmUninstall) {
+              await uninstallSkill(confirmUninstall.name, targetId);
+            }
+            setConfirmUninstall(null);
+          }}
+          onCancel={() => setConfirmUninstall(null)}
+        />
+      </Box>
+    );
+  }
+
+  // ---- Global rendering ----
 
   const hasSkills = trustedSkills.length > 0 || untrustedSkills.length > 0;
   const showEmpty = !hasSkills && !snap.searchLoading && !snap.installedLoading;
@@ -257,6 +448,15 @@ export function Skills({ embedded }: { embedded?: boolean } = {}) {
           setConfirmUninstall(null);
         }}
         onCancel={() => setConfirmUninstall(null)}
+      />
+
+      <InstallTargetDialog
+        open={!!installDialog}
+        skillName={installDialog?.name ?? ''}
+        skillSlug={installDialog?.slug ?? ''}
+        existingInstallations={installDialog?.installations}
+        onInstall={handleInstallDialogInstall}
+        onCancel={() => setInstallDialog(null)}
       />
     </Box>
   );

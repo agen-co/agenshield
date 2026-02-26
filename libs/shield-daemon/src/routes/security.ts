@@ -29,7 +29,7 @@ export async function securityRoutes(app: FastifyInstance): Promise<void> {
         // Storage may not be initialized — fall through to discovery
       }
 
-      const status = checkSecurityStatus({ knownTargets });
+      const status = await checkSecurityStatus({ knownTargets });
 
       // Merge secret names detected in the calling user's environment
       const userSecrets = process.env['AGENSHIELD_USER_SECRETS'];

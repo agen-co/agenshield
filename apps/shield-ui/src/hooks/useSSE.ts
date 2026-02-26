@@ -10,12 +10,12 @@ import { setDaemonStatus } from '../state/daemon-status';
 import { setSecurityStatus } from '../state/security';
 import { setTargets } from '../state/targets';
 import { addAlert, acknowledgeAlertInStore, acknowledgeAllAlertsInStore, alertsStore } from '../state/alerts';
-import { handleMetricsSnapshot } from '../state/system-store';
+import { handleMetricsSnapshot, handleEventLoopSnapshot } from '../state/system-store';
 import { createSSEClient, type SSEClient } from '../api/sse';
 import { api } from '../api/client';
 import { scopeStore } from '../state/scope';
 import { queryKeys } from '../api/hooks';
-import type { DaemonStatus, SecurityStatusPayload, MetricsSnapshotPayload, TargetStatusInfo, Alert } from '@agenshield/ipc';
+import type { DaemonStatus, SecurityStatusPayload, MetricsSnapshotPayload, EventLoopPayload, TargetStatusInfo, Alert } from '@agenshield/ipc';
 import { handleSkillSSEEvent, fetchInstalledSkills } from '../stores/skills';
 import { updateShieldProgress, markShieldComplete, markShieldError, appendShieldLog, updateShieldSteps, appendStepLog } from '../state/setup-panel';
 import { updateStore } from '../state/update';
@@ -75,6 +75,12 @@ export function useSSE(enabled = true, token?: string | null) {
         // Update metrics store from SSE push
         if (type === 'metrics:snapshot') {
           handleMetricsSnapshot(data as unknown as MetricsSnapshotPayload);
+          return; // High-frequency telemetry, never in activity feed
+        }
+
+        // Update event loop metrics store from SSE push
+        if (type === 'metrics:eventloop') {
+          handleEventLoopSnapshot(data as unknown as EventLoopPayload);
           return; // High-frequency telemetry, never in activity feed
         }
 
@@ -174,6 +180,13 @@ export function useSSE(enabled = true, token?: string | null) {
         if (type === 'update:error') {
           updateStore.phase = 'error';
           if (data.state) updateStore.updateState = data.state as NonNullable<typeof updateStore.updateState>;
+        }
+
+        // Invalidate policy + config queries when policies change (e.g. cloud push)
+        if (type === 'config:policies_updated' || type === 'config:changed') {
+          queryClient.invalidateQueries({ queryKey: queryKeys.config });
+          queryClient.invalidateQueries({ queryKey: queryKeys.tieredPolicies });
+          // Fall through to addEvent()
         }
 
         // Route skill events to the skills store (don't return — let them also flow into activity feed)

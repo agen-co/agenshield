@@ -25,6 +25,8 @@ export interface AnimatedDot {
   duration: number;
   /** Firewall piece ID for phase routing */
   firewallId: string;
+  /** Optional color override (default: cyan for allowed, red for denied) */
+  color?: string;
 }
 
 const MAX_DOTS = 30;

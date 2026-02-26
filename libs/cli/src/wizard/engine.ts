@@ -1286,7 +1286,10 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       for (const user of users) {
         lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl kickstart system/com.agenshield.openclaw.gateway`);
         lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/com.agenshield.openclaw.gateway`);
+        lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl enable system/com.agenshield.openclaw.gateway`);
+        lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl disable system/com.agenshield.openclaw.gateway`);
         lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl kill SIGTERM system/com.agenshield.openclaw.gateway`);
+        lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl bootout system/com.agenshield.openclaw.gateway`);
         lines.push(`${user} ALL=(root) NOPASSWD: /bin/launchctl list com.agenshield.openclaw.gateway`);
       }
       lines.push('');

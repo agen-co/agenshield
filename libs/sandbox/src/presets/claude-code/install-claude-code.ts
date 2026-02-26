@@ -8,6 +8,7 @@
 import type { InstallStep } from '../types.js';
 import { checkedExecAsUserDirect } from '../shared/install-helpers.js';
 import { TargetAppInstallError } from '../../errors.js';
+import { buildClaudeSearchPath } from './claude-paths.js';
 
 export const installClaudeCodeStep: InstallStep = {
   id: 'install_claude',
@@ -23,7 +24,7 @@ export const installClaudeCodeStep: InstallStep = {
     if (ctx.freshInstall) return 'needed';
 
     const result = await ctx.execAsUser(
-      `export HOME="${ctx.agentHome}" && export PATH="${ctx.agentHome}/.claude/local/bin:$PATH" && command -v claude && claude --version 2>/dev/null`,
+      `export HOME="${ctx.agentHome}" && export PATH="${buildClaudeSearchPath(ctx.agentHome)}:$PATH" && command -v claude && claude --version 2>/dev/null`,
       { timeout: 15_000 },
     );
     const output = result.output ?? '';

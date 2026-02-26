@@ -294,6 +294,98 @@ describe('CompiledPolicyEngine.evaluate', () => {
     });
   });
 
+  describe('evaluateProcess', () => {
+    it('returns null when no deny rules exist', () => {
+      const engine = compile({ policies: [] });
+      expect(engine.evaluateProcess('openclaw run')).toBeNull();
+    });
+
+    it('returns null when only allow rules exist', () => {
+      const engine = compile({
+        policies: [makePolicy({ id: 'allow-proc', action: 'allow', target: 'process', patterns: ['*openclaw*'] })],
+      });
+      expect(engine.evaluateProcess('openclaw run')).toBeNull();
+    });
+
+    it('matches deny rule and returns correct policyId', () => {
+      const engine = compile({
+        policies: [makePolicy({ id: 'deny-proc', action: 'deny', target: 'process', patterns: ['*openclaw*'] })],
+      });
+      const result = engine.evaluateProcess('openclaw run');
+      expect(result).not.toBeNull();
+      expect(result!.allowed).toBe(false);
+      expect(result!.policyId).toBe('deny-proc');
+    });
+
+    it('returns enforcement: kill when policy has kill enforcement', () => {
+      const engine = compile({
+        policies: [makePolicy({ id: 'kill-proc', action: 'deny', target: 'process', patterns: ['*openclaw*'], enforcement: 'kill' })],
+      });
+      const result = engine.evaluateProcess('openclaw run');
+      expect(result).not.toBeNull();
+      expect(result!.enforcement).toBe('kill');
+    });
+
+    it('defaults enforcement to alert', () => {
+      const engine = compile({
+        policies: [makePolicy({ id: 'alert-proc', action: 'deny', target: 'process', patterns: ['*openclaw*'] })],
+      });
+      const result = engine.evaluateProcess('openclaw run');
+      expect(result).not.toBeNull();
+      expect(result!.enforcement).toBe('alert');
+    });
+
+    it('returns policyName in result', () => {
+      const engine = compile({
+        policies: [makePolicy({ id: 'named-proc', name: 'Block OpenClaw', action: 'deny', target: 'process', patterns: ['*openclaw*'] })],
+      });
+      const result = engine.evaluateProcess('openclaw run');
+      expect(result).not.toBeNull();
+      expect(result!.policyName).toBe('Block OpenClaw');
+    });
+
+    it('respects tier-based priority boost (managed > global)', () => {
+      const engine = compile({
+        policies: [
+          makePolicy({ id: 'global-allow', action: 'deny', target: 'process', patterns: ['*openclaw*'], priority: 100, tier: undefined }),
+          makePolicy({ id: 'managed-deny', action: 'deny', target: 'process', patterns: ['*openclaw*'], priority: 1, tier: 'managed' }),
+        ],
+      });
+      const result = engine.evaluateProcess('openclaw run');
+      expect(result).not.toBeNull();
+      // Managed gets +10000 boost, so managed-deny should win even with lower base priority
+      expect(result!.policyId).toBe('managed-deny');
+    });
+
+    it('does not cross-match URL or command target rules', () => {
+      const engine = compile({
+        policies: [
+          makePolicy({ id: 'url-rule', action: 'deny', target: 'url', patterns: ['*openclaw*'] }),
+          makePolicy({ id: 'cmd-rule', action: 'deny', target: 'command', patterns: ['*openclaw*'] }),
+        ],
+      });
+      expect(engine.evaluateProcess('openclaw run')).toBeNull();
+    });
+
+    it('matches interpreter-aware commands (node node_modules/openclaw/...)', () => {
+      const engine = compile({
+        policies: [makePolicy({ id: 'interp-proc', action: 'deny', target: 'process', patterns: ['openclaw'] })],
+      });
+      const result = engine.evaluateProcess('node node_modules/openclaw/bin/main.js --flag');
+      expect(result).not.toBeNull();
+      expect(result!.policyId).toBe('interp-proc');
+    });
+
+    it('applies scope filtering with explicit context', () => {
+      const engine = compile({
+        policies: [makePolicy({ id: 'scoped-proc', action: 'deny', target: 'process', patterns: ['*openclaw*'], scope: 'skill' })],
+      });
+      // Without matching scope context, should not match
+      const result = engine.evaluateProcess('openclaw run', { callerType: 'agent', depth: 0 });
+      expect(result).toBeNull();
+    });
+  });
+
   describe('context forwarding', () => {
     it('returns executionContext on match', () => {
       const ctx = { callerType: 'agent' as const, depth: 1 };

@@ -51,6 +51,8 @@ import { resolveTargetContext } from './services/target-context';
 import { ProcessManager } from './services/process-manager';
 import { getCloudConnector } from './services/cloud-connector';
 import { startProcessEnforcer, stopProcessEnforcer } from './services/process-enforcer';
+import { startEventLoopMonitor, stopEventLoopMonitor } from './services/event-loop-monitor';
+import { initSystemExecutor, shutdownSystemExecutor } from './workers/system-command';
 
 /**
  * Create and configure the Fastify server
@@ -147,7 +149,27 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // Emit daemon started event after successful listen
   emitProcessStarted('daemon', { pid: process.pid });
 
+  // Cloud connection happens AFTER listen — health checks work immediately
+  connectToCloud(app);
+
   return app;
+}
+
+/**
+ * Connect to AgenShield Cloud in the background (fire-and-forget).
+ * Called after app.listen() so health checks are already available.
+ */
+function connectToCloud(app: FastifyInstance): void {
+  const cloudConnector = getCloudConnector();
+  cloudConnector.connect()
+    .then(() => {
+      if (cloudConnector.isConnected()) {
+        app.log.info(`[cloud] Connected to AgenShield Cloud (${cloudConnector.getCompanyName() ?? 'unknown company'})`);
+      }
+    })
+    .catch((err) => {
+      app.log.warn({ err }, '[cloud] Failed to connect to AgenShield Cloud');
+    });
 }
 
 /**
@@ -155,6 +177,12 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
  * Called at boot in daemon mode, or after setup completion.
  */
 export async function startDaemonServices(app: FastifyInstance, config: DaemonConfig): Promise<void> {
+  // Initialize system command worker thread (before any watchers that need it)
+  initSystemExecutor();
+
+  // Start event loop monitor (before watchers to capture baseline)
+  startEventLoopMonitor();
+
   // Start security watcher for real-time monitoring
   startSecurityWatcher(10000); // Check every 10 seconds
 
@@ -252,6 +280,35 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
 
   // Start background metrics collector (2s interval, stores to SQLite)
   startMetricsCollector();
+
+  // ─── Migrate global OpenClaw preset policies to profile scope ──
+  // One-time migration: moves preset='openclaw' policies from global scope
+  // to per-profile scope. Custom user-created policies remain global.
+  try {
+    const globalRepo = storage.for({ profileId: null }).policies;
+    const globalPolicies = globalRepo.getAll();
+    const openclawGlobalPolicies = globalPolicies.filter((p) => p.preset === 'openclaw');
+
+    if (openclawGlobalPolicies.length > 0) {
+      // Find all OpenClaw profiles and seed their preset policies
+      const openclawProfiles = storage.profiles.getByPresetId('openclaw');
+      for (const profile of openclawProfiles) {
+        const scoped = storage.for({ profileId: profile.id });
+        scoped.policies.seedPreset('openclaw');
+      }
+
+      // Delete the global OpenClaw preset policies
+      for (const policy of openclawGlobalPolicies) {
+        globalRepo.delete(policy.id);
+      }
+
+      app.log.info(
+        `[migration] Moved ${openclawGlobalPolicies.length} OpenClaw preset policies from global to ${openclawProfiles.length} profile(s)`,
+      );
+    }
+  } catch (err) {
+    app.log.warn({ err }, '[migration] OpenClaw policy scope migration failed');
+  }
 
   // ─── Initialize PolicyManager ──────────────────────────────
   const policyManager = initPolicyManager(storage, {
@@ -475,17 +532,6 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   app.decorate('processManager', processManager);
   setProcessManager(processManager);
 
-  // Connect to AgenShield Cloud if credentials exist
-  const cloudConnector = getCloudConnector();
-  try {
-    await cloudConnector.connect();
-    if (cloudConnector.isConnected()) {
-      app.log.info(`[cloud] Connected to AgenShield Cloud (${cloudConnector.getCompanyName() ?? 'unknown company'})`);
-    }
-  } catch (err) {
-    app.log.warn({ err }, '[cloud] Failed to connect to AgenShield Cloud');
-  }
-
   // Start process enforcer (scans running host processes against process-target policies)
   startProcessEnforcer({ intervalMs: 10_000 });
 
@@ -493,6 +539,7 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   app.addHook('onClose', async () => {
     emitProcessStopped('daemon', { pid: process.pid });
     stopProcessEnforcer();
+    stopEventLoopMonitor();
     stopSecurityWatcher();
     stopMetricsCollector();
     stopTargetWatcher();
@@ -514,8 +561,10 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
         await app.privilegeExecutor.shutdown();
       } catch { /* non-fatal */ }
     }
+    // Shut down the system command worker thread
+    await shutdownSystemExecutor();
     // Disconnect cloud connector
-    cloudConnector.disconnect();
+    getCloudConnector().disconnect();
     // Clear broker's in-memory secrets on shutdown
     try {
       const { clearBrokerSecrets } = await import('./services/broker-bridge.js');

@@ -3,10 +3,13 @@
  *
  * Extracted from routes/metrics.ts so both the live REST endpoint
  * and the background metrics collector can reuse them.
+ *
+ * All system-command calls are offloaded to the worker thread via
+ * SystemCommandExecutor to avoid blocking the event loop.
  */
 
 import os from 'node:os';
-import { execSync } from 'node:child_process';
+import { getSystemExecutor } from '../workers/system-command';
 
 /* ---- CPU measurement ---- */
 
@@ -33,9 +36,10 @@ export async function measureCpuPercent(): Promise<number> {
 
 /* ---- Disk usage (df -k /) ---- */
 
-export function getDiskPercent(): number {
+export async function getDiskPercent(): Promise<number> {
   try {
-    const output = execSync('df -k /', { encoding: 'utf8', timeout: 3000 });
+    const executor = getSystemExecutor();
+    const output = await executor.exec('df -k /', { timeout: 3000 });
     const lines = output.trim().split('\n');
     if (lines.length < 2) return 0;
     const match = lines[1].match(/(\d+)%/);
@@ -56,10 +60,11 @@ interface NetSnapshot {
 
 let prevNet: NetSnapshot | null = null;
 
-export function getNetworkBytes(): { rx: number; tx: number } {
+export async function getNetworkBytes(): Promise<{ rx: number; tx: number }> {
   try {
+    const executor = getSystemExecutor();
     if (process.platform === 'darwin') {
-      const output = execSync('netstat -ib', { encoding: 'utf8', timeout: 3000 });
+      const output = await executor.exec('netstat -ib', { timeout: 3000 });
       const lines = output.trim().split('\n');
       let rx = 0;
       let tx = 0;
@@ -75,7 +80,7 @@ export function getNetworkBytes(): { rx: number; tx: number } {
       }
       return { rx, tx };
     } else {
-      const output = execSync('cat /proc/net/dev', { encoding: 'utf8', timeout: 3000 });
+      const output = await executor.exec('cat /proc/net/dev', { timeout: 3000 });
       const lines = output.trim().split('\n');
       let rx = 0;
       let tx = 0;
@@ -94,9 +99,9 @@ export function getNetworkBytes(): { rx: number; tx: number } {
   }
 }
 
-export function getNetThroughput(): { netUp: number; netDown: number } {
+export async function getNetThroughput(): Promise<{ netUp: number; netDown: number }> {
   const now = Date.now();
-  const current = getNetworkBytes();
+  const current = await getNetworkBytes();
   const snap: NetSnapshot = { time: now, rx: current.rx, tx: current.tx };
 
   if (!prevNet) {
@@ -122,12 +127,13 @@ export function getNetThroughput(): { netUp: number; netDown: number } {
 
 /* ---- Active user ---- */
 
-export function getActiveUser(): string {
+export async function getActiveUser(): Promise<string> {
   if (process.env.SUDO_USER) return process.env.SUDO_USER;
   if (process.env.LOGNAME && process.env.LOGNAME !== 'root') return process.env.LOGNAME;
   if (process.platform === 'darwin') {
     try {
-      const user = execSync('stat -f %Su /dev/console', { encoding: 'utf8', timeout: 2000 }).trim();
+      const executor = getSystemExecutor();
+      const user = (await executor.exec('stat -f %Su /dev/console', { timeout: 2000 })).trim();
       if (user && user !== 'root') return user;
     } catch { /* fall through */ }
   }
@@ -147,12 +153,10 @@ export interface TargetMetricsEntry {
  * Get aggregated CPU and memory usage for all processes owned by a given username.
  * Uses `ps -u <username> -o %cpu,%mem` and sums all rows.
  */
-export function getPerUserCpuMem(username: string): { cpuPercent: number; memPercent: number } {
+export async function getPerUserCpuMem(username: string): Promise<{ cpuPercent: number; memPercent: number }> {
   try {
-    const output = execSync(`ps -u ${username} -o %cpu,%mem`, {
-      encoding: 'utf8',
-      timeout: 3000,
-    });
+    const executor = getSystemExecutor();
+    const output = await executor.exec(`ps -u ${username} -o %cpu,%mem`, { timeout: 3000 });
     const lines = output.trim().split('\n');
     let cpu = 0;
     let mem = 0;
@@ -179,10 +183,10 @@ export function getPerUserCpuMem(username: string): { cpuPercent: number; memPer
  * @param targets - Current target status list (from target watcher cache)
  * @param profiles - All profiles (for agentUsername lookup)
  */
-export function collectTargetMetrics(
+export async function collectTargetMetrics(
   targets: Array<{ id: string; name: string; shielded: boolean; running: boolean }>,
   profiles: Array<{ id: string; agentUsername?: string }>,
-): TargetMetricsEntry[] {
+): Promise<TargetMetricsEntry[]> {
   const results: TargetMetricsEntry[] = [];
 
   for (const target of targets) {
@@ -192,7 +196,7 @@ export function collectTargetMetrics(
     const username = profile?.agentUsername;
     if (!username) continue;
 
-    const { cpuPercent, memPercent } = getPerUserCpuMem(username);
+    const { cpuPercent, memPercent } = await getPerUserCpuMem(username);
     results.push({
       targetId: target.id,
       targetName: target.name,
@@ -223,11 +227,10 @@ export interface FullMetricsSnapshot {
 }
 
 /**
- * Build a full metrics snapshot using synchronous CPU measurement.
- * Used by the collector for periodic snapshots (the async 100ms version
- * is reserved for the live REST endpoint).
+ * Build a full metrics snapshot.
+ * System commands are offloaded to the worker thread.
  */
-export function buildSyncSnapshot(): FullMetricsSnapshot {
+export async function buildSnapshot(): Promise<FullMetricsSnapshot> {
   const snap = cpuSnapshot();
   const cpuPercent = snap.total === 0 ? 0 : Math.round((1 - snap.idle / snap.total) * 10000) / 100;
 
@@ -235,8 +238,11 @@ export function buildSyncSnapshot(): FullMetricsSnapshot {
   const freeMem = os.freemem();
   const memPercent = Math.round((1 - freeMem / totalMem) * 10000) / 100;
 
-  const diskPercent = getDiskPercent();
-  const net = getNetThroughput();
+  const [diskPercent, net, activeUser] = await Promise.all([
+    getDiskPercent(),
+    getNetThroughput(),
+    getActiveUser(),
+  ]);
 
   return {
     cpuPercent,
@@ -248,7 +254,7 @@ export function buildSyncSnapshot(): FullMetricsSnapshot {
     platform: os.platform(),
     arch: os.arch(),
     uptime: Math.floor(os.uptime()),
-    activeUser: getActiveUser(),
+    activeUser,
     cpuModel: os.cpus()[0]?.model ?? 'unknown',
     totalMemory: totalMem,
     nodeVersion: process.version,

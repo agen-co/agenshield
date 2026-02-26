@@ -240,10 +240,19 @@ function detectConfigDir(): string | undefined {
 }
 
 /**
- * Get OpenClaw version via CLI
+ * Get OpenClaw version via CLI.
+ * Validates the output looks like a version string to avoid
+ * capturing banner text or other non-version output.
  */
 function getVersionViaCli(): string | null {
-  return execSafe('openclaw --version');
+  const output = execSafe('openclaw --version');
+  if (!output) return null;
+  // Take only the first line (version tools may print extra info)
+  const firstLine = output.split('\n')[0]?.trim();
+  if (!firstLine) return null;
+  // Validate it looks like a version: digits separated by dots, optional dash suffix
+  if (!/^\d+\.\d+[\d.\-]*$/.test(firstLine)) return null;
+  return firstLine;
 }
 
 // ============================================================================
@@ -299,6 +308,8 @@ export function detectOpenClaw(): DetectionResult {
     const cliVersion = getVersionViaCli();
     if (cliVersion) {
       installation.version = cliVersion;
+    } else {
+      warnings.push('Version could not be identified from openclaw --version output');
     }
   }
 

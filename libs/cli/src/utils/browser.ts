@@ -1,23 +1,8 @@
 /**
  * Shared browser utilities
- *
- * Extracted from start.ts and setup.ts to avoid duplication.
  */
 
 import { readAdminToken, fetchAdminToken, DAEMON_CONFIG } from './daemon.js';
-
-/**
- * Open a URL in the default browser.
- * Non-fatal if the browser fails to open.
- */
-export async function openBrowser(url: string): Promise<void> {
-  try {
-    const { exec } = await import('node:child_process');
-    exec(`open "${url}"`);
-  } catch {
-    // Non-fatal — user can open manually
-  }
-}
 
 /**
  * Build the dashboard URL with optional JWT token in hash.

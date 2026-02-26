@@ -49,6 +49,7 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
 
   // Config
   'config:changed': { icon: SettingsIcon, label: 'Config Changed', color: 'secondary' },
+  'config:policies_updated': { icon: ShieldAlert, label: 'Policies Updated', color: 'info' },
 
   // Exec
   'exec:monitored': { icon: Terminal, label: 'Exec Monitored', color: 'info' },
@@ -189,7 +190,7 @@ export function getEventSeverity(event: SSEEvent): EventSeverity {
   // Info: meaningful operational events
   if (t === 'skills:installed' || t === 'skills:uninstalled') return 'info';
   if (t === 'skills:analyzed' || t === 'skills:integrity_restored') return 'info';
-  if (t === 'config:changed') return 'info';
+  if (t === 'config:changed' || t === 'config:policies_updated') return 'info';
   if (t.startsWith('setup:')) return 'info';
   if (t.endsWith('_started') || t.endsWith('_stopped') || t === 'process:started' || t === 'process:stopped') return 'info';
   if (t === 'agenco:connected' || t === 'agenco:disconnected' || t === 'agenco:auth_completed') return 'info';
@@ -223,6 +224,7 @@ export function isNoiseEvent(event: SSEEvent): boolean {
   // Hide low-signal system events
   if (event.type === 'skills:approved') return true;
   if (event.type === 'daemon:status') return true;
+  if (event.type === 'metrics:eventloop') return true;
 
   // Hide API polling requests (GET to known polling endpoints)
   if (event.type === 'api:request') {
@@ -304,6 +306,11 @@ export function getEventSummary(event: SSEEvent): string {
     return `${name} — files restored`;
   }
 
+  if (event.type === 'config:policies_updated') {
+    const source = String(d.source ?? 'cloud');
+    const count = Number(d.count ?? 0);
+    return `${count} ${count === 1 ? 'policy' : 'policies'} from ${source}`;
+  }
   if (event.type === 'setup:shield_progress' || event.type === 'setup:shield_steps') {
     const targetId = String(d.targetId ?? '');
     const step = String(d.step ?? d.message ?? '');

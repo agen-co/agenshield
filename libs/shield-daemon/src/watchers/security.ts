@@ -50,9 +50,9 @@ function hasStatusChanged(prev: SecurityStatus | null, current: SecurityStatus):
 /**
  * Check security status and emit events if changed
  */
-function checkAndEmit(): void {
+async function checkAndEmit(): Promise<void> {
   try {
-    const status = checkSecurityStatus({ knownTargets: getKnownTargets(), callerRole: 'daemon' });
+    const status = await checkSecurityStatus({ knownTargets: getKnownTargets(), callerRole: 'daemon' });
 
     // Merge secret names detected in the calling user's environment
     const userSecrets = process.env['AGENSHIELD_USER_SECRETS'];

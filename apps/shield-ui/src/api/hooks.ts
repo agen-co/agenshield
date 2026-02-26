@@ -8,7 +8,7 @@ import type { UpdateConfigRequest, SimulateRequest, TieredPolicies } from '@agen
 import { api, authFetch, type CreateSecretRequest } from './client';
 import { daemonStatusStore } from '../state/daemon-status';
 import { securityStore, setSecurityStatus } from '../state/security';
-import { alertsStore, setAlerts, acknowledgeAlertInStore, acknowledgeAllAlertsInStore } from '../state/alerts';
+import { alertsStore, setAlerts, acknowledgeAlertInStore, acknowledgeAllAlertsInStore, revertAcknowledgeInStore, revertAcknowledgeAllInStore } from '../state/alerts';
 import { systemStore, handleMetricsSnapshot } from '../state/system-store';
 import { scopeStore } from '../state/scope';
 
@@ -539,8 +539,11 @@ export function useAcknowledgeAlert() {
   return useMutation({
     mutationFn: (id: number) => api.alerts.acknowledge(id),
     onMutate: (id) => {
-      // Optimistic update
       acknowledgeAlertInStore(id);
+      return { alertId: id };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.alertId) revertAcknowledgeInStore(context.alertId);
     },
   });
 }
@@ -549,8 +552,14 @@ export function useAcknowledgeAllAlerts() {
   return useMutation({
     mutationFn: () => api.alerts.acknowledgeAll(),
     onMutate: () => {
-      // Optimistic update
+      const freshIds = alertsStore.alerts
+        .filter((a) => !a.acknowledgedAt)
+        .map((a) => a.id);
       acknowledgeAllAlertsInStore();
+      return { freshIds };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.freshIds) revertAcknowledgeAllInStore(context.freshIds);
     },
   });
 }

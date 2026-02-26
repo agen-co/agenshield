@@ -156,6 +156,7 @@ export function compile(input: CompileInput): CompiledPolicyEngine {
 
     const rule: CompiledRule = {
       policyId: policy.id,
+      policyName: policy.name,
       action: policy.action,
       priority: (policy.priority ?? 0) + tierBoost,
       matchers: buildMatchers(policy),

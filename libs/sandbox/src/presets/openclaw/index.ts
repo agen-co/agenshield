@@ -12,4 +12,5 @@ export { verifyOpenclawStep } from './verify-openclaw.js';
 export { detectHostOpenclawStep } from './detect-host-openclaw.js';
 export { copyOpenclawConfigStep } from './copy-openclaw-config.js';
 export { rewriteOpenclawPathsStep } from './rewrite-openclaw-paths.js';
+export { injectSkillsStep } from './inject-skills.js';
 export { writeGatewayPlistStep } from './write-gateway-plist.js';

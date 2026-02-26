@@ -4,28 +4,32 @@
  * Stops the AgenShield daemon.
  */
 
-import { Command } from 'commander';
+import { Option } from 'clipanion';
+import { BaseCommand } from './base.js';
 import { stopDaemon } from '../utils/daemon.js';
 import { output } from '../utils/output.js';
+import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
 
-/**
- * Create the stop command
- */
-export function createStopCommand(): Command {
-  const cmd = new Command('stop')
-    .description('Stop the AgenShield daemon')
-    .action(async () => {
-      output.info('Stopping AgenShield daemon...');
+export class StopCommand extends BaseCommand {
+  static override paths = [['stop']];
 
-      const result = await stopDaemon();
+  static override usage = BaseCommand.Usage({
+    category: 'Daemon',
+    description: 'Stop the AgenShield daemon',
+    examples: [['Stop the daemon', '$0 stop']],
+  });
 
-      if (result.success) {
-        output.success(result.message);
-      } else {
-        throw new CliError(result.message, 'DAEMON_STOP_FAILED');
-      }
-    });
+  async run(): Promise<number | void> {
+    const spinner = await createSpinner('Stopping AgenShield daemon...');
 
-  return cmd;
+    const result = await stopDaemon();
+
+    if (result.success) {
+      spinner.succeed(result.message);
+    } else {
+      spinner.fail(result.message);
+      throw new CliError(result.message, 'DAEMON_STOP_FAILED');
+    }
+  }
 }

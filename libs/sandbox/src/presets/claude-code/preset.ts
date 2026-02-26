@@ -16,6 +16,7 @@ import type {
   InstallContext,
   InstallResult,
 } from '../types.js';
+import { buildClaudeSearchPath } from './claude-paths.js';
 
 /**
  * Claude Code preset implementation
@@ -29,7 +30,7 @@ export const claudeCodePreset: TargetPreset = {
   optionalBins: ['npx', 'python3', 'pip', 'brew', 'ssh'],
   policyPresetIds: ['claudecode'],
   shellFeatures: {},
-  seatbeltDenyPaths: ['.claude'],
+  seatbeltDenyPaths: ['.claude', '.local'],
 
   async detect(): Promise<PresetDetectionResult | null> {
     let binaryPath: string | undefined;
@@ -127,9 +128,16 @@ export const claudeCodePreset: TargetPreset = {
     const result = await runPipeline(getClaudeCodePipeline(), ctx);
 
     if (result.success) {
+      const searchPath = buildClaudeSearchPath(ctx.agentHome);
+      const binResult = await ctx.execAsUser(
+        `export HOME="${ctx.agentHome}" && export PATH="${searchPath}:$PATH" && command -v claude`,
+        { timeout: 10_000 },
+      );
       return {
         ...result,
-        appBinaryPath: `${ctx.agentHome}/.claude/local/bin/claude`,
+        appBinaryPath: binResult.success && binResult.output.trim()
+          ? binResult.output.trim()
+          : `${ctx.agentHome}/.local/bin/claude`,
         version: ctx.requestedVersion ?? ctx.detection?.version,
         manifestEntries: result.manifestEntries,
       };

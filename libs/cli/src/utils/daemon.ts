@@ -477,9 +477,14 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
       }
     }
 
-    // Wait a moment and verify
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const newStatus = await getDaemonStatus();
+    // Poll for daemon readiness instead of fixed 1s wait
+    const deadline = Date.now() + 5000;
+    let newStatus: DaemonStatus = { running: false };
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      newStatus = await getDaemonStatus();
+      if (newStatus.running) break;
+    }
 
     if (newStatus.running) {
       return {

@@ -9,18 +9,19 @@
  * Options `--mode` and `--cloud-url` allow skipping prompts for CI / scripting.
  */
 
-import { Command } from 'commander';
+import { Option } from 'clipanion';
 import * as os from 'node:os';
-import * as readline from 'node:readline';
+import { BaseCommand } from './base.js';
 import {
   getDaemonStatus,
   startDaemon,
   readAdminToken,
   fetchAdminToken,
 } from '../utils/daemon.js';
-import { openBrowser, buildBrowserUrl, waitForAdminToken } from '../utils/browser.js';
+import { buildBrowserUrl, waitForAdminToken } from '../utils/browser.js';
 import { ensureSudoAccess, startSudoKeepalive } from '../utils/privileges.js';
 import { output } from '../utils/output.js';
+import { createSpinner } from '../utils/spinner.js';
 import { DaemonStartError, ConnectionError, AuthError } from '../errors.js';
 import { writeSetupState, readSetupState } from '../utils/setup-state.js';
 import {
@@ -32,75 +33,13 @@ import {
   isCloudEnrolled,
   CLOUD_CONFIG,
 } from '../utils/cloud.js';
-
-// ---------------------------------------------------------------------------
-// Lightweight readline prompts
-// ---------------------------------------------------------------------------
-
-function createRl(): readline.Interface {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stderr,
-  });
-}
-
-/**
- * Present a numbered list and wait for the user to pick one.
- */
-async function promptSelect(
-  question: string,
-  options: { label: string; value: string }[],
-): Promise<string> {
-  const rl = createRl();
-  try {
-    output.info(question);
-    for (let i = 0; i < options.length; i++) {
-      output.info(`    [${i + 1}] ${options[i].label}`);
-    }
-    output.info('');
-
-    return await new Promise<string>((resolve) => {
-      const ask = () => {
-        rl.question('  Enter choice: ', (answer) => {
-          const idx = parseInt(answer.trim(), 10) - 1;
-          if (idx >= 0 && idx < options.length) {
-            resolve(options[idx].value);
-          } else {
-            output.warn(`  Please enter a number between 1 and ${options.length}`);
-            ask();
-          }
-        });
-      };
-      ask();
-    });
-  } finally {
-    rl.close();
-  }
-}
-
-/**
- * Ask for text input with an optional default value.
- */
-async function promptInput(question: string, defaultValue?: string): Promise<string> {
-  const rl = createRl();
-  try {
-    const suffix = defaultValue ? ` (${defaultValue})` : '';
-    return await new Promise<string>((resolve) => {
-      rl.question(`  ${question}${suffix}: `, (answer) => {
-        const value = answer.trim();
-        resolve(value || defaultValue || '');
-      });
-    });
-  } finally {
-    rl.close();
-  }
-}
+import { inkSelect, inkInput, inkBrowserLink } from '../prompts/index.js';
 
 // ---------------------------------------------------------------------------
 // Local setup flow
 // ---------------------------------------------------------------------------
 
-async function runLocalSetup(options: { browser: boolean }): Promise<void> {
+async function runLocalSetup(): Promise<void> {
   output.info('');
   output.info(`  ${output.bold('Local Setup')}`);
   output.info('');
@@ -117,57 +56,38 @@ async function runLocalSetup(options: { browser: boolean }): Promise<void> {
 
     output.success(`Daemon is already running (PID: ${status.pid ?? 'unknown'})`);
     output.info('');
-    if (token) {
-      output.info('  Admin token:');
-      output.info(`  ${output.dim(token)}`);
-      output.info('');
-    }
-    output.info('  Dashboard:');
-    output.info(`  ${output.cyan(url)}`);
-    output.info('');
 
     // Persist setup state
     writeSetupState({ mode: 'local', completedAt: new Date().toISOString() });
 
-    if (options.browser) {
-      openBrowser(url);
-    }
-
+    await inkBrowserLink({ url, label: 'Dashboard', token: token ?? undefined });
+    output.info('');
     output.success('Setup complete!');
     return;
   }
 
   // 3. Start daemon
-  output.info('  Starting daemon...');
+  const spinner = await createSpinner('Starting daemon...');
   const result = await startDaemon({ sudo: true });
 
   if (!result.success) {
+    spinner.fail('Failed to start daemon');
     throw new DaemonStartError(result.message);
   }
 
   // 4. Wait for admin token
+  spinner.update('Waiting for authorization...');
   const token = await waitForAdminToken();
   const url = buildBrowserUrl(token);
 
-  output.success(`Daemon started${result.pid ? ` (PID: ${result.pid})` : ''}`);
-  output.info('');
-  if (token) {
-    output.info('  Admin token:');
-    output.info(`  ${output.dim(token)}`);
-    output.info('');
-  }
-  output.info('  Dashboard:');
-  output.info(`  ${output.cyan(url)}`);
+  spinner.succeed(`Daemon started${result.pid ? ` (PID: ${result.pid})` : ''}`);
   output.info('');
 
   // 5. Persist setup state
   writeSetupState({ mode: 'local', completedAt: new Date().toISOString() });
 
-  // 6. Open browser
-  if (options.browser) {
-    openBrowser(url);
-  }
-
+  await inkBrowserLink({ url, label: 'Dashboard', token: token ?? undefined });
+  output.info('');
   output.success('Setup complete!');
 }
 
@@ -175,7 +95,7 @@ async function runLocalSetup(options: { browser: boolean }): Promise<void> {
 // Cloud setup flow
 // ---------------------------------------------------------------------------
 
-async function runCloudSetup(options: { browser: boolean; cloudUrl: string }): Promise<void> {
+async function runCloudSetup(options: { cloudUrl: string }): Promise<void> {
   output.info('');
   output.info(`  ${output.bold('Cloud Setup')}`);
   output.info('');
@@ -204,24 +124,14 @@ async function runCloudSetup(options: { browser: boolean; cloudUrl: string }): P
       throw new ConnectionError(`Failed to contact cloud: ${(err as Error).message}`);
     }
 
-    // 3. Display verification instructions
+    // 3. Display verification instructions and offer to open browser
     output.info('');
-    output.info('  To authorize this device, open the following URL:');
-    output.info('');
-    output.info(`    ${output.cyan(deviceCode.verificationUri)}`);
-    output.info('');
-    output.info('  And enter this code:');
-    output.info('');
-    output.info(`    ${output.bold(output.yellow(deviceCode.userCode))}`);
+    await inkBrowserLink({ url: deviceCode.verificationUri, label: 'Authorize this device' });
+    output.info(`  ${output.dim(`Code: ${deviceCode.userCode}`)}`);
     output.info('');
 
-    // 4. Open browser automatically
-    if (options.browser) {
-      openBrowser(deviceCode.verificationUri);
-    }
-
-    // 5. Poll for authorization
-    output.info('  Waiting for authorization...');
+    // 4. Poll for authorization
+    const spinner = await createSpinner('Waiting for authorization...');
     const pollResult = await pollDeviceCode(
       cloudUrl,
       deviceCode.deviceCode,
@@ -229,17 +139,18 @@ async function runCloudSetup(options: { browser: boolean; cloudUrl: string }): P
     );
 
     if (pollResult.status !== 'approved') {
+      spinner.fail('Authorization failed');
       throw new AuthError(`Authorization ${pollResult.status}: ${pollResult.error || 'Device code was not approved'}`);
     }
 
-    output.success(`Authorized by ${pollResult.companyName || 'your organization'}`);
+    spinner.succeed(`Authorized by ${pollResult.companyName || 'your organization'}`);
     output.info('');
 
-    // 6. Generate Ed25519 keypair
+    // 5. Generate Ed25519 keypair
     output.info('  Generating device keypair...');
     const keypair = generateEd25519Keypair();
 
-    // 7. Register device with cloud
+    // 6. Register device with cloud
     output.info('  Registering device...');
     const registration = await registerDevice(
       cloudUrl,
@@ -248,7 +159,7 @@ async function runCloudSetup(options: { browser: boolean; cloudUrl: string }): P
       os.hostname(),
     );
 
-    // 8. Save credentials locally
+    // 7. Save credentials locally
     saveCloudCredentials(
       registration.agentId,
       keypair.privateKey,
@@ -259,40 +170,40 @@ async function runCloudSetup(options: { browser: boolean; cloudUrl: string }): P
     output.success(`Device registered (ID: ${registration.agentId})`);
     output.info('');
 
-    // 9. Start daemon
-    const daemonStatus = await getDaemonStatus();
-    if (!daemonStatus.running) {
-      output.info('  Starting daemon...');
-      const daemonResult = await startDaemon({ sudo: true });
-      if (!daemonResult.success) {
-        output.error(daemonResult.message);
-        output.info('  Cloud enrollment succeeded, but the daemon failed to start.');
-        output.info('  Run `agenshield start` to start it manually.');
-        throw new DaemonStartError(daemonResult.message);
-      }
-      output.success('Daemon started');
-    }
-
-    // 10. Open dashboard
-    const adminToken = await waitForAdminToken();
-    const url = buildBrowserUrl(adminToken);
-
-    // 11. Persist setup state
+    // Persist setup state immediately — enrollment is the critical part.
+    // Daemon start is best-effort from here.
     writeSetupState({
       mode: 'cloud',
       cloudUrl,
       completedAt: new Date().toISOString(),
     });
 
+    // 8. Start daemon (best-effort — don't throw on failure)
+    const daemonStatus = await getDaemonStatus();
+    if (!daemonStatus.running) {
+      const daemonSpinner = await createSpinner('Starting daemon...');
+      const daemonResult = await startDaemon({ sudo: true });
+      if (!daemonResult.success) {
+        daemonSpinner.fail(daemonResult.message);
+        output.warn('Cloud enrollment succeeded, but the daemon failed to start.');
+        output.info('  Run `agenshield start` to start it manually.');
+        output.info('');
+        output.success('Cloud setup complete!');
+        output.info(`  Company: ${pollResult.companyName || 'Unknown'}`);
+        return;
+      }
+      daemonSpinner.succeed('Daemon started');
+    }
+
+    // 9. Open dashboard (only if daemon started)
+    const adminToken = await waitForAdminToken();
+    const url = buildBrowserUrl(adminToken);
+
     output.info('');
     output.success('Cloud setup complete!');
     output.info(`  Company: ${pollResult.companyName || 'Unknown'}`);
-    output.info(`  Dashboard: ${output.cyan(url)}`);
+    await inkBrowserLink({ url, label: 'Dashboard' });
     output.info('');
-
-    if (options.browser) {
-      openBrowser(url);
-    }
   } finally {
     clearInterval(sudoKeepalive);
   }
@@ -302,57 +213,72 @@ async function runCloudSetup(options: { browser: boolean; cloudUrl: string }): P
 // Command definition
 // ---------------------------------------------------------------------------
 
-/**
- * Create the setup command
- */
-export function createSetupCommand(): Command {
-  const cmd = new Command('setup')
-    .description('Set up AgenShield (interactive guided flow)')
-    .option('--mode <mode>', 'Skip mode prompt: "local" or "cloud"')
-    .option('--cloud-url <url>', 'Cloud API URL (skips prompt, implies --mode cloud)')
-    .option('--no-browser', 'Do not open the browser automatically')
-    .action(async (options) => {
-      output.info('');
-      output.info(`  ${output.bold('Welcome to AgenShield Setup')}`);
-      output.info('');
+export class SetupCommand extends BaseCommand {
+  static override paths = [['setup']];
 
-      const existing = readSetupState();
-      if (existing) {
-        output.info(`  ${output.dim(`Previously set up in ${existing.mode} mode (${existing.completedAt})`)}`);
-        output.info('');
+  static override usage = BaseCommand.Usage({
+    category: 'Setup & Maintenance',
+    description: 'Set up AgenShield (interactive guided flow)',
+    examples: [
+      ['Run interactive setup', '$0 setup'],
+      ['Setup in local mode (skip prompt)', '$0 setup --mode local'],
+      ['Setup in cloud mode (skip prompt)', '$0 setup --mode cloud'],
+    ],
+  });
+
+  mode = Option.String('--mode', { description: 'Skip mode prompt: "local" or "cloud"' });
+  cloudUrl = Option.String('--cloud-url', { description: 'Cloud API URL (skips prompt, implies --mode cloud)' });
+
+  async run(): Promise<number | void> {
+    output.info('');
+    output.info(`  ${output.bold('Welcome to AgenShield Setup')}`);
+    output.info('');
+
+    const existing = readSetupState();
+    if (existing) {
+      output.info(`  ${output.dim(`Previously set up in ${existing.mode} mode (${existing.completedAt})`)}`);
+      output.info('');
+    }
+
+    // Determine mode: from flag, from --cloud-url, or interactively
+    let mode: string;
+
+    if (this.cloudUrl) {
+      mode = 'cloud';
+    } else if (this.mode) {
+      mode = this.mode;
+    } else {
+      const selected = await inkSelect([
+        { label: 'Local', value: 'local' as const, description: 'Run AgenShield locally on this machine' },
+        { label: 'Cloud', value: 'cloud' as const, description: 'Connect to AgenShield Cloud for centralized management' },
+      ], { title: 'Choose Setup Mode' });
+      if (!selected) {
+        output.info('Setup cancelled.');
+        return;
       }
+      mode = selected;
+    }
 
-      // Determine mode: from flag, from --cloud-url, or interactively
-      let mode: string;
-
-      if (options.cloudUrl) {
-        mode = 'cloud';
-      } else if (options.mode) {
-        mode = options.mode;
+    if (mode === 'local') {
+      await runLocalSetup();
+    } else if (mode === 'cloud') {
+      // Determine cloud URL: from flag or interactively
+      let cloudUrl: string;
+      if (this.cloudUrl) {
+        cloudUrl = this.cloudUrl;
       } else {
-        mode = await promptSelect('  Choose setup mode:', [
-          { label: 'Local  — Run AgenShield locally on this machine', value: 'local' },
-          { label: 'Cloud  — Connect to AgenShield Cloud for centralized management', value: 'cloud' },
-        ]);
-      }
-
-      if (mode === 'local') {
-        await runLocalSetup({ browser: options.browser !== false });
-      } else if (mode === 'cloud') {
-        // Determine cloud URL: from flag or interactively
-        let cloudUrl: string;
-        if (options.cloudUrl) {
-          cloudUrl = options.cloudUrl;
-        } else {
-          cloudUrl = await promptInput('Cloud URL', CLOUD_CONFIG.url);
+        const inputUrl = await inkInput({ prompt: 'Cloud URL', defaultValue: CLOUD_CONFIG.url });
+        if (inputUrl === null) {
+          output.info('Setup cancelled.');
+          return;
         }
-
-        await runCloudSetup({ browser: options.browser !== false, cloudUrl });
-      } else {
-        output.error(`Unknown mode: "${mode}". Use "local" or "cloud".`);
-        process.exitCode = 2;
+        cloudUrl = inputUrl;
       }
-    });
 
-  return cmd;
+      await runCloudSetup({ cloudUrl });
+    } else {
+      output.error(`Unknown mode: "${mode}". Use "local" or "cloud".`);
+      process.exitCode = 2;
+    }
+  }
 }

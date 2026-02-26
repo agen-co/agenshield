@@ -6,9 +6,10 @@
  *  - Legacy (global npm / monorepo)      -> stop + update engine + restart
  */
 
-import { Command } from 'commander';
+import { Option } from 'clipanion';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { BaseCommand } from './base.js';
 import { stopDaemon, startDaemon, getDaemonStatus, DAEMON_CONFIG } from '../utils/daemon.js';
 import {
   isLocalInstall,
@@ -24,6 +25,7 @@ import {
 } from '../utils/home.js';
 import { output } from '../utils/output.js';
 import { ensureSetupComplete } from '../utils/setup-guard.js';
+import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
 import type { UpdateEngineOptions } from '../update/types.js';
 
@@ -257,14 +259,14 @@ async function upgradeLocalInstall(options: {
 
     output.info(`  Local version:   ${targetVersion}`);
   } else {
-    output.info('  Checking npm registry for latest version...');
+    const spinner = await createSpinner('Checking for updates...');
     try {
       targetVersion = queryLatestVersion();
+      spinner.succeed(`Latest version: ${targetVersion}`);
     } catch (err) {
+      spinner.fail('Failed to check for updates');
       throw new CliError(`Failed to query npm registry: ${(err as Error).message}`, 'REGISTRY_ERROR');
     }
-
-    output.info(`  Latest version:  ${targetVersion}`);
   }
 
   if (currentVersion === targetVersion && !options.force) {
@@ -277,12 +279,13 @@ async function upgradeLocalInstall(options: {
   // Stop daemon if running
   const wasDaemonRunning = (await getDaemonStatus()).running;
   if (wasDaemonRunning) {
-    output.info('  Stopping daemon...');
+    const stopSpinner = await createSpinner('Stopping daemon...');
     const stopResult = await stopDaemon();
     if (!stopResult.success && stopResult.message !== 'Daemon is not running') {
+      stopSpinner.fail(stopResult.message);
       throw new CliError(stopResult.message, 'DAEMON_STOP_FAILED');
     }
-    output.success(stopResult.message);
+    stopSpinner.succeed(stopResult.message);
   }
 
   const distDir = getDistDir();
@@ -304,17 +307,17 @@ async function upgradeLocalInstall(options: {
   } catch { /* dist doesn't exist yet */ }
   fs.mkdirSync(distDir, { recursive: true });
 
+  const dlSpinner = await createSpinner(`Downloading agenshield@${targetVersion}...`);
   if (options.local) {
     const repoRoot = findMonorepoRoot()!;
-    output.info(`  Installing agenshield@${targetVersion} from local build...`);
-    result = installFromLocal(repoRoot);
+    dlSpinner.update(`Installing agenshield@${targetVersion} from local build...`);
+    result = await installFromLocal(repoRoot, undefined, (step) => dlSpinner.update(step));
   } else {
-    output.info(`  Downloading agenshield@${targetVersion}...`);
-    result = downloadAndExtract(targetVersion);
+    result = await downloadAndExtract(targetVersion, undefined, (step) => dlSpinner.update(step));
   }
 
   if (!result.success) {
-    output.error(`Install failed: ${result.error}`);
+    dlSpinner.fail(`Install failed: ${result.error}`);
     if (fs.existsSync(backupDir)) {
       output.info('  Rolling back to previous version...');
       fs.rmSync(distDir, { recursive: true, force: true });
@@ -332,7 +335,7 @@ async function upgradeLocalInstall(options: {
   // Verify entry point
   const cliEntry = getLocalCliEntry();
   if (!fs.existsSync(cliEntry)) {
-    output.error(`CLI entry point not found at ${cliEntry}`);
+    dlSpinner.fail(`CLI entry point not found at ${cliEntry}`);
     if (fs.existsSync(backupDir)) {
       output.info('  Rolling back to previous version...');
       fs.rmSync(distDir, { recursive: true, force: true });
@@ -351,7 +354,7 @@ async function upgradeLocalInstall(options: {
     fs.rmSync(backupDir, { recursive: true, force: true });
   }
 
-  output.success(`Installed agenshield@${targetVersion}`);
+  dlSpinner.succeed(`Installed agenshield@${targetVersion}`);
 
   writeShim();
   writeVersionInfo({
@@ -362,14 +365,14 @@ async function upgradeLocalInstall(options: {
   output.success(`Updated version.json (${currentVersion} \u2192 ${targetVersion})`);
 
   if (wasDaemonRunning) {
-    output.info('  Restarting daemon...');
+    const restartSpinner = await createSpinner('Restarting daemon...');
     const startResult = await startDaemon();
     if (startResult.success) {
       const url = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
-      output.success(startResult.message);
+      restartSpinner.succeed(startResult.message);
       output.info(`  URL: ${url}`);
     } else {
-      output.error(startResult.message);
+      restartSpinner.fail(startResult.message);
     }
   }
 
@@ -428,39 +431,46 @@ async function upgradeLegacy(options: {
 // Command definition
 // ---------------------------------------------------------------------------
 
-/**
- * Create the upgrade command
- */
-export function createUpgradeCommand(): Command {
-  const cmd = new Command('upgrade')
-    .description('Upgrade AgenShield (stop, update, restart)')
-    .option('--dry-run', 'Show what would be done without making changes')
-    .option('-v, --verbose', 'Show verbose output')
-    .option('--force', 'Re-apply even if already at latest version')
-    .option('--local', 'Upgrade from local monorepo build output instead of npm')
-    .option('--cli', 'Use terminal mode instead of web browser')
-    .action(async (options) => {
-      ensureSetupComplete();
-      if (isLocalInstall()) {
-        output.info('');
-        output.info('  AgenShield Upgrade (local install)');
-        output.info('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
-        output.info('');
-        await upgradeLocalInstall({
-          force: options.force,
-          verbose: options.verbose,
-          local: options.local,
-        });
-      } else {
-        await upgradeLegacy({
-          dryRun: options.dryRun,
-          verbose: options.verbose,
-          force: options.force,
-          cli: options.cli,
-          local: options.local,
-        });
-      }
-    });
+export class UpgradeCommand extends BaseCommand {
+  static override paths = [['upgrade']];
 
-  return cmd;
+  static override usage = BaseCommand.Usage({
+    category: 'Daemon',
+    description: 'Upgrade AgenShield (stop, update, restart) (requires setup)',
+    examples: [
+      ['Upgrade to latest', '$0 upgrade'],
+      ['Dry-run upgrade', '$0 upgrade --dry-run'],
+      ['Force re-apply', '$0 upgrade --force'],
+      ['CLI mode (no browser)', '$0 upgrade --cli'],
+    ],
+  });
+
+  dryRun = Option.Boolean('--dry-run', false, { description: 'Show what would be done without making changes' });
+  verbose = Option.Boolean('-v,--verbose', false, { description: 'Show verbose output' });
+  force = Option.Boolean('--force', false, { description: 'Re-apply even if already at latest version' });
+  local = Option.Boolean('--local', false, { description: 'Upgrade from local monorepo build output instead of npm' });
+  cliMode = Option.Boolean('--cli', false, { description: 'Use terminal mode instead of web browser' });
+
+  async run(): Promise<number | void> {
+    ensureSetupComplete();
+    if (isLocalInstall()) {
+      output.info('');
+      output.info('  AgenShield Upgrade (local install)');
+      output.info('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
+      output.info('');
+      await upgradeLocalInstall({
+        force: this.force,
+        verbose: this.verbose,
+        local: this.local,
+      });
+    } else {
+      await upgradeLegacy({
+        dryRun: this.dryRun,
+        verbose: this.verbose,
+        force: this.force,
+        cli: this.cliMode,
+        local: this.local,
+      });
+    }
+  }
 }

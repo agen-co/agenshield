@@ -49,7 +49,7 @@ export const PAGE_ZOOM_TARGETS: Record<string, string> = {
   secrets: 'secrets',
   policies: 'network',
   overview: 'monitoring',
-  settings: 'memory',
+  settings: 'agenshield',
   metrics: 'metrics-cluster',
   target: 'agenshield', // fallback — overridden per-target in Canvas.tsx
 };

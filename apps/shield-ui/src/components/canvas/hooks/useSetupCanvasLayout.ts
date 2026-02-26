@@ -28,7 +28,7 @@ import type { SetupCanvasData, SystemComponentType, ConnectionIntent, HandleSpec
 import { VARIANTS } from '../nodes/SystemComponentNode/system.constants';
 import { METRICS_CLUSTER_DIMS } from '../nodes/MetricsClusterNode';
 import { useSnapshot } from 'valtio';
-import { setAllExposed, setExtendedComponentsActive, systemStore, type ComponentHealth } from '../../../state/system-store';
+import { setExtendedComponentsActive, systemStore, type ComponentHealth } from '../../../state/system-store';
 import { allocatePins } from '../utils/pinAllocator';
 
 /* ---- Health → wire color mapping ---- */
@@ -120,12 +120,6 @@ export function useSetupCanvasLayout(
 ) {
   const { width: vw, height: vh } = viewport;
   const systemStoreSnap = useSnapshot(systemStore);
-
-  // Sync exposed state to unified valtio store
-  const hasAnyUnshielded = data.anyUnshielded;
-  useEffect(() => {
-    setAllExposed(hasAnyUnshielded);
-  }, [hasAnyUnshielded]);
 
   // Management sections (left/right aux components) are always visible
   useEffect(() => {

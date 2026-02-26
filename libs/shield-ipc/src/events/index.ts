@@ -22,6 +22,8 @@ export { EventBus, type EventBusOptions, type EventMeta } from './event-bus';
 // and `registerEventTypes()` calls. Re-export payload types.
 export {
   type HeartbeatPayload,
+  type EventLoopPayload,
+  type ConfigPoliciesUpdatedPayload,
   CORE_EVENT_TYPES,
 } from './core.events';
 

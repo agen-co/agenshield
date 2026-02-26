@@ -6,15 +6,17 @@
  * falling back to discovery-based cleanup when storage is unavailable.
  */
 
-import { Command } from 'commander';
+import { Option } from 'clipanion';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
 import { execSync } from 'node:child_process';
+import { BaseCommand } from './base.js';
 import { ensureSudoAccess } from '../utils/privileges.js';
 import { stopDaemon } from '../utils/daemon.js';
 import { output } from '../utils/output.js';
+import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
 
 /**
@@ -444,20 +446,20 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
 
   output.info('\nUninstalling...\n');
 
-  output.info('Stopping daemon...');
+  const stopSpinner = await createSpinner('Stopping daemon...');
   let stopResult: { success: boolean; message: string } = { success: false, message: '' };
   for (let attempt = 1; attempt <= 3; attempt++) {
     stopResult = await stopDaemon();
     if (stopResult.success) break;
     if (attempt < 3) {
-      output.info(`  Attempt ${attempt} failed, retrying in 2s...`);
+      stopSpinner.update(`Attempt ${attempt} failed, retrying...`);
       await new Promise(r => setTimeout(r, 2000));
     }
   }
   if (stopResult.success) {
-    output.success(`stop-daemon: ${stopResult.message}`);
+    stopSpinner.succeed(`stop-daemon: ${stopResult.message}`);
   } else {
-    output.warn(`stop-daemon: ${stopResult.message}`);
+    stopSpinner.fail(`stop-daemon: ${stopResult.message}`);
   }
   output.info('');
 
@@ -548,19 +550,30 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
   }
 }
 
-/**
- * Create the uninstall command
- */
-export function createUninstallCommand(): Command {
-  const cmd = new Command('uninstall')
-    .description('Reverse isolation and restore targets')
-    .option('-f, --force', 'Skip confirmation prompt')
-    .option('--prefix <prefix>', 'Uninstall a specific prefixed installation')
-    .option('--skip-backup', 'Force discovery-based cleanup (bypass profile-based uninstall)')
-    .option('--dry-run', 'Show what would be done without making changes')
-    .action(async (options) => {
-      await runUninstall(options);
-    });
+export class UninstallCommand extends BaseCommand {
+  static override paths = [['uninstall']];
 
-  return cmd;
+  static override usage = BaseCommand.Usage({
+    category: 'Setup & Maintenance',
+    description: 'Reverse isolation and restore targets',
+    examples: [
+      ['Interactive uninstall', '$0 uninstall'],
+      ['Skip confirmation', '$0 uninstall --force'],
+      ['Dry run', '$0 uninstall --dry-run'],
+    ],
+  });
+
+  force = Option.Boolean('-f,--force', false, { description: 'Skip confirmation prompt' });
+  prefix = Option.String('--prefix', { description: 'Uninstall a specific prefixed installation' });
+  skipBackup = Option.Boolean('--skip-backup', false, { description: 'Force discovery-based cleanup (bypass profile-based uninstall)' });
+  dryRun = Option.Boolean('--dry-run', false, { description: 'Show what would be done without making changes' });
+
+  async run(): Promise<number | void> {
+    await runUninstall({
+      force: this.force,
+      prefix: this.prefix,
+      skipBackup: this.skipBackup,
+      dryRun: this.dryRun,
+    });
+  }
 }

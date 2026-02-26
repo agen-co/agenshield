@@ -16,8 +16,11 @@ import type { PolicyConfig } from '@agenshield/ipc';
 import { PolicyConfigSchema } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 import { getLogger } from '../logger';
+import { clearConfigCache } from '../config/index';
+import { emitPoliciesUpdated, emitProcessViolation, emitProcessKilled } from '../events/emitter';
 import { getPolicyManager } from './policy-manager';
-import { triggerProcessEnforcement } from './process-enforcer';
+import { triggerProcessEnforcement, scanHostProcesses, killProcessTree } from './process-enforcer';
+import { matchProcessPattern } from '@agenshield/policies';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +39,12 @@ interface CloudCommand {
 const HEARTBEAT_INTERVAL = 30_000;
 const RECONNECT_DELAY = 10_000;
 const POLL_INTERVAL = 30_000;
+
+/** Maps cloud target process identifiers to glob patterns for matching */
+const TARGET_PROCESS_PATTERNS: Record<string, string[]> = {
+  'claude-code': ['*claude*', 'claude:*'],
+  'openclaw': ['*openclaw*', 'openclaw:*'],
+};
 
 export class CloudConnector {
   private credentials: CloudCredentials | null = null;
@@ -186,6 +195,9 @@ export class CloudConnector {
         id: msg.id ?? '',
         method: msg.method,
         params: msg.params ?? {},
+      }).catch(err => {
+        const errLog = getLogger();
+        errLog.error({ err }, '[cloud] Error handling command');
       });
     } catch {
       const log = getLogger();
@@ -193,18 +205,23 @@ export class CloudConnector {
     }
   }
 
-  private handleCommand(command: CloudCommand): void {
+  private async handleCommand(command: CloudCommand): Promise<void> {
     const log = getLogger();
 
     switch (command.method) {
       case 'push_policy':
         log.info(`[cloud] Received policy push: ${JSON.stringify(command.params).slice(0, 200)}`);
-        this.applyPolicyPush(command.params);
+        await this.applyPolicyPush(command.params);
         break;
 
       case 'update_config':
         log.info('[cloud] Received config update');
         // TODO: Apply config update
+        break;
+
+      case 'kill_process':
+        log.info(`[cloud] Received kill_process command: ${JSON.stringify(command.params).slice(0, 200)}`);
+        await this.handleKillProcess(command.params);
         break;
 
       case 'ping':
@@ -308,7 +325,7 @@ export class CloudConnector {
       this.lastCommandFetch = new Date().toISOString();
 
       for (const cmd of commands) {
-        this.handleCommand(cmd);
+        await this.handleCommand(cmd);
 
         // Acknowledge via HTTP
         try {
@@ -345,7 +362,7 @@ export class CloudConnector {
   /**
    * Apply a push_policy command: replace managed policies from a source, then recompile + enforce.
    */
-  private applyPolicyPush(params: Record<string, unknown>): void {
+  private async applyPolicyPush(params: Record<string, unknown>): Promise<void> {
     const log = getLogger();
     const source = (params.source as string) ?? 'cloud';
     const rawPolicies = params.policies;
@@ -374,16 +391,77 @@ export class CloudConnector {
         }
       }
 
+      // Clear stale config cache so loadConfig() re-reads managed policies from DB
+      clearConfigCache();
+
       // Recompile the policy engine
       const policyManager = getPolicyManager();
       policyManager.recompile();
 
       log.info(`[cloud] Applied ${count} managed policies from source "${source}"`);
 
+      // Emit activity event for policy push
+      emitPoliciesUpdated({ source, count });
+
       // Trigger immediate process enforcement scan
-      triggerProcessEnforcement();
+      await triggerProcessEnforcement();
     } catch (err) {
       log.error({ err }, '[cloud] Failed to apply policy push');
+    }
+  }
+
+  // ─── Kill process ──────────────────────────────────────────────
+
+  /**
+   * Handle a kill_process command from cloud.
+   * Scans running host processes and kills/alerts on matches.
+   */
+  private async handleKillProcess(params: Record<string, unknown>): Promise<void> {
+    const log = getLogger();
+    const targetProcess = params.targetProcess as string | undefined;
+    const action = (params.action as string) ?? 'alert';
+
+    if (!targetProcess) {
+      log.warn('[cloud] kill_process: missing targetProcess');
+      return;
+    }
+
+    const patterns = TARGET_PROCESS_PATTERNS[targetProcess];
+    if (!patterns) {
+      log.warn(`[cloud] kill_process: unknown targetProcess "${targetProcess}"`);
+      return;
+    }
+
+    let processes;
+    try {
+      processes = await scanHostProcesses();
+    } catch (err) {
+      log.error({ err }, '[cloud] kill_process: failed to scan processes');
+      return;
+    }
+
+    for (const proc of processes) {
+      const matches = patterns.some(pattern => matchProcessPattern(pattern, proc.command));
+      if (!matches) continue;
+
+      const payload = {
+        pid: proc.pid,
+        user: proc.user,
+        command: proc.command,
+        policyId: `cloud:kill_process:${targetProcess}`,
+        enforcement: action as 'alert' | 'kill',
+        reason: `Cloud kill_process command for ${targetProcess}`,
+      };
+
+      if (action === 'kill') {
+        log.warn(`[cloud] Killing process PID ${proc.pid}: ${proc.command.slice(0, 120)}`);
+        emitProcessViolation(payload);
+        await killProcessTree(proc.pid);
+        emitProcessKilled(payload);
+      } else {
+        log.info(`[cloud] Process violation (${action}): PID ${proc.pid}: ${proc.command.slice(0, 120)}`);
+        emitProcessViolation(payload);
+      }
     }
   }
 
@@ -418,7 +496,7 @@ export class CloudConnector {
 
       const body = await res.json() as { source?: string; policies?: PolicyConfig[] };
       if (body.policies && Array.isArray(body.policies)) {
-        this.applyPolicyPush({
+        await this.applyPolicyPush({
           source: body.source ?? 'cloud',
           policies: body.policies,
         });

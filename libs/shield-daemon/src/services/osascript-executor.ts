@@ -213,7 +213,7 @@ export class OsascriptExecutor implements PrivilegeExecutor {
   async execAsRoot(command: string, options?: { timeout?: number; onOutput?: (stream: 'stdout' | 'stderr', data: string) => void }): Promise<ExecResult> {
     const res = await this.rpc('exec', { command, timeout: options?.timeout }, options?.onOutput);
     if (res.error) {
-      return { success: false, output: '', error: res.error.message };
+      return { success: false, output: (res.result?.output as string) ?? '', error: res.error.message };
     }
     return {
       success: res.result?.success ?? true,
@@ -224,7 +224,7 @@ export class OsascriptExecutor implements PrivilegeExecutor {
   async execAsUser(user: string, command: string, options?: { timeout?: number; onOutput?: (stream: 'stdout' | 'stderr', data: string) => void }): Promise<ExecResult> {
     const res = await this.rpc('execAsUser', { user, command, timeout: options?.timeout }, options?.onOutput);
     if (res.error) {
-      return { success: false, output: '', error: res.error.message };
+      return { success: false, output: (res.result?.output as string) ?? '', error: res.error.message };
     }
     return {
       success: res.result?.success ?? true,
@@ -235,7 +235,7 @@ export class OsascriptExecutor implements PrivilegeExecutor {
   async execAsUserDirect(user: string, command: string, options?: { timeout?: number; onOutput?: (stream: 'stdout' | 'stderr', data: string) => void }): Promise<ExecResult> {
     const res = await this.rpc('execAsUserDirect', { user, command, timeout: options?.timeout }, options?.onOutput);
     if (res.error) {
-      return { success: false, output: '', error: res.error.message };
+      return { success: false, output: (res.result?.output as string) ?? '', error: res.error.message };
     }
     return {
       success: res.result?.success ?? true,
