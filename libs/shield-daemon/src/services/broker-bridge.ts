@@ -36,7 +36,7 @@ function resolveSocketPath(): string {
 }
 
 /**
- * Get the broker client instance
+ * Get the singleton broker client instance (uses default socket resolution)
  */
 function getBrokerClient(): BrokerClient {
   if (!brokerClient) {
@@ -52,11 +52,27 @@ function getBrokerClient(): BrokerClient {
 }
 
 /**
- * Check if the broker is available
+ * Get a broker client for a specific socket path, or the singleton if none given.
  */
-export async function isBrokerAvailable(): Promise<boolean> {
+function getBrokerClientForSocket(socketPath?: string): BrokerClient {
+  if (!socketPath) return getBrokerClient();
+  return new BrokerClient({
+    socketPath,
+    httpHost: 'localhost',
+    httpPort: 5201,
+    timeout: 60000,
+    preferSocket: true,
+  });
+}
+
+/**
+ * Check if the broker is available
+ *
+ * @param socketPath - Optional override socket path (for per-target resolution)
+ */
+export async function isBrokerAvailable(socketPath?: string): Promise<boolean> {
   try {
-    const client = getBrokerClient();
+    const client = getBrokerClientForSocket(socketPath);
     return await client.isAvailable();
   } catch {
     return false;
@@ -78,9 +94,10 @@ export async function installSkillViaBroker(
     createWrapper?: boolean;
     agentHome?: string;
     socketGroup?: string;
+    socketPath?: string;
   } = {}
 ): Promise<SkillInstallResult> {
-  const client = getBrokerClient();
+  const client = getBrokerClientForSocket(options.socketPath);
 
   // Convert files to broker format (no encoding needed for text files)
   const brokerFiles: SkillInstallFile[] = files.map((file) => ({
@@ -113,9 +130,10 @@ export async function uninstallSkillViaBroker(
   options: {
     removeWrapper?: boolean;
     agentHome?: string;
+    socketPath?: string;
   } = {}
 ): Promise<SkillUninstallResult> {
-  const client = getBrokerClient();
+  const client = getBrokerClientForSocket(options.socketPath);
 
   const result = await client.skillUninstall({
     slug,

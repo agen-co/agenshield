@@ -35,6 +35,16 @@ export {
   commandScopeMatches,
   filterUrlPoliciesForCommand,
   matchProcessPattern,
+  tokenizeCommand,
+  parseSudoCommand,
+  detectShieldedExecution,
+  isShieldedProcess,
+  analyzeShieldedProcess,
+} from './matcher';
+
+export type {
+  ParsedSudoCommand,
+  ShieldedExecutionInfo,
 } from './matcher';
 
 // Graph

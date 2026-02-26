@@ -70,8 +70,10 @@ export {
   ASH_PREFIX,
   isAgenshieldUser,
   listAgenshieldUsers,
+  discoverOrphanedEntities,
   type CreateResult,
   type AgenshieldUserMeta,
+  type OrphanedEntity,
 } from './users/index.js';
 
 // Directories management
@@ -205,6 +207,8 @@ export {
   type PresetMigrationResult,
   type InstallContext,
   type InstallResult,
+  type ClaudeConfigCategory,
+  DEFAULT_CLAUDE_CONFIG_CATEGORIES,
 } from './presets/index.js';
 
 // Install Pipeline (step-based)

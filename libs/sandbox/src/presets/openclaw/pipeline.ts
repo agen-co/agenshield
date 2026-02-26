@@ -20,6 +20,7 @@ import {
 import { cleanBrewLocksStep } from './clean-brew-locks.js';
 import { installOpenclawStep } from './install-openclaw.js';
 import { onboardOpenclawStep } from './onboard-openclaw.js';
+import { ensureWorkspacePathsStep } from './ensure-workspace-paths.js';
 import { detectHostOpenclawStep } from './detect-host-openclaw.js';
 import { verifyOpenclawStep } from './verify-openclaw.js';
 import { writeGatewayPlistStep } from './write-gateway-plist.js';
@@ -41,6 +42,7 @@ export function getOpenclawPipeline(): InstallStep[] {
     // Phase 8: Target App
     installOpenclawStep,                                        // weight 25, 600s timeout, check: binary exists?
     onboardOpenclawStep,                                        // weight 5, creates openclaw.json if missing
+    ensureWorkspacePathsStep,                                   // weight 2, always rewrites host paths
     createRestoreShellConfigStep('openclaw'),                   // weight 1
     detectHostOpenclawStep,                                     // weight 2, resolve() → injects copy steps
     createStopHostProcessesStep('openclaw', 'node.*openclaw'),  // weight 3

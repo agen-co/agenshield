@@ -4,32 +4,26 @@
  * Stops the AgenShield daemon.
  */
 
-import { Option } from 'clipanion';
-import { BaseCommand } from './base.js';
+import type { Command } from 'commander';
+import { withGlobals } from './base.js';
 import { stopDaemon } from '../utils/daemon.js';
-import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
 
-export class StopCommand extends BaseCommand {
-  static override paths = [['stop']];
+export function registerStopCommand(program: Command): void {
+  program
+    .command('stop')
+    .description('Stop the AgenShield daemon')
+    .action(withGlobals(async () => {
+      const spinner = await createSpinner('Stopping AgenShield daemon...');
 
-  static override usage = BaseCommand.Usage({
-    category: 'Daemon',
-    description: 'Stop the AgenShield daemon',
-    examples: [['Stop the daemon', '$0 stop']],
-  });
+      const result = await stopDaemon();
 
-  async run(): Promise<number | void> {
-    const spinner = await createSpinner('Stopping AgenShield daemon...');
-
-    const result = await stopDaemon();
-
-    if (result.success) {
-      spinner.succeed(result.message);
-    } else {
-      spinner.fail(result.message);
-      throw new CliError(result.message, 'DAEMON_STOP_FAILED');
-    }
-  }
+      if (result.success) {
+        spinner.succeed(result.message);
+      } else {
+        spinner.fail(result.message);
+        throw new CliError(result.message, 'DAEMON_STOP_FAILED');
+      }
+    }));
 }

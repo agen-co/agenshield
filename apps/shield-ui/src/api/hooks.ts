@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSnapshot } from 'valtio';
-import type { UpdateConfigRequest, SimulateRequest, TieredPolicies } from '@agenshield/ipc';
+import type { UpdateConfigRequest, PolicyConfig, SimulateRequest, TieredPolicies } from '@agenshield/ipc';
 import { api, authFetch, type CreateSecretRequest } from './client';
 import { daemonStatusStore } from '../state/daemon-status';
 import { securityStore, setSecurityStatus } from '../state/security';
@@ -108,6 +108,54 @@ export function useUpdateConfig() {
 
   return useMutation({
     mutationFn: (data: UpdateConfigRequest) => api.updateConfig(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.config });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tieredPolicies });
+    },
+  });
+}
+
+// ── Individual policy CRUD hooks ──────────────────────────────────
+
+export function useCreatePolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: PolicyConfig) => api.createPolicy(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.config });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tieredPolicies });
+    },
+  });
+}
+
+export function useUpdatePolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string } & Record<string, unknown>) =>
+      api.updatePolicy(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.config });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tieredPolicies });
+    },
+  });
+}
+
+export function useDeletePolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deletePolicy(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.config });
+      queryClient.invalidateQueries({ queryKey: queryKeys.tieredPolicies });
+    },
+  });
+}
+
+export function useTogglePolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api.togglePolicy(id, enabled),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.config });
       queryClient.invalidateQueries({ queryKey: queryKeys.tieredPolicies });

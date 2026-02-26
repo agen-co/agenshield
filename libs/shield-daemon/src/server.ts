@@ -391,6 +391,7 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
     socketGroup,
     binDir: path.join(agentHome, 'bin'),
     devMode,
+    profiles: storage.profiles,
   });
 
   const skillManager = new SkillManager(storage, {

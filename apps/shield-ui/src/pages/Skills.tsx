@@ -202,6 +202,15 @@ export function Skills({ embedded, targetId }: SkillsProps = {}) {
             }
             break;
           case 'installed':
+            // If skill has installations, open target dialog for per-target management
+            if (skill.installations && skill.installations.length > 0) {
+              setInstallDialog({
+                name: skill.name,
+                slug: skill.slug,
+                installations: skill.installations as UnifiedSkill['installations'],
+              });
+              return;
+            }
             setConfirmUninstall({ name: skill.name });
             return; // Don't run inside guard — dialog handles it
 
@@ -232,10 +241,26 @@ export function Skills({ embedded, targetId }: SkillsProps = {}) {
     });
   }, [guard]);
 
-  const handleInstallDialogInstall = useCallback(async (targets: string[] | 'global') => {
+  const handleInstallToTarget = useCallback(async (targetId?: string) => {
     if (!installDialog) return;
-    await installSkill(installDialog.slug, targets);
-    setInstallDialog(null);
+    await installSkill(installDialog.slug, targetId ?? 'global');
+    await fetchInstalledSkills();
+    // Refresh installations in dialog state
+    const updated = skillsStore.skills.find(s => s.slug === installDialog.slug);
+    if (updated) {
+      setInstallDialog(prev => prev ? { ...prev, installations: updated.installations as UnifiedSkill['installations'] } : null);
+    }
+  }, [installDialog]);
+
+  const handleUninstallFromTarget = useCallback(async (targetId?: string) => {
+    if (!installDialog) return;
+    await uninstallSkill(installDialog.name, targetId);
+    await fetchInstalledSkills();
+    // Refresh installations in dialog state
+    const updated = skillsStore.skills.find(s => s.slug === installDialog.slug);
+    if (updated) {
+      setInstallDialog(prev => prev ? { ...prev, installations: updated.installations as UnifiedSkill['installations'] } : null);
+    }
   }, [installDialog]);
 
   // ---- Target-scoped rendering ----
@@ -455,8 +480,9 @@ export function Skills({ embedded, targetId }: SkillsProps = {}) {
         skillName={installDialog?.name ?? ''}
         skillSlug={installDialog?.slug ?? ''}
         existingInstallations={installDialog?.installations}
-        onInstall={handleInstallDialogInstall}
-        onCancel={() => setInstallDialog(null)}
+        onInstallToTarget={handleInstallToTarget}
+        onUninstallFromTarget={handleUninstallFromTarget}
+        onClose={() => setInstallDialog(null)}
       />
     </Box>
   );

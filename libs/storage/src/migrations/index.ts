@@ -16,6 +16,7 @@ import { ProfileGatewayPortMigration } from './016-profile-gateway-port';
 import { PolicyTiersMigration } from './017-policy-tiers';
 import { PolicyEnforcementMigration } from './018-policy-enforcement';
 import { PolicyTargetProcessMigration } from './019-policy-target-process';
+import { BinarySignaturesMigration } from './020-binary-signatures';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -34,6 +35,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   new PolicyTiersMigration(),
   new PolicyEnforcementMigration(),
   new PolicyTargetProcessMigration(),
+  new BinarySignaturesMigration(),
 ];
 
 /**

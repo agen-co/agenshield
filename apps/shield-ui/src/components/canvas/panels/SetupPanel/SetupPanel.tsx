@@ -100,7 +100,7 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
     }
   }, []);
 
-  const handleShield = useCallback(async (baseName?: string, version?: string) => {
+  const handleShield = useCallback(async (baseName?: string, version?: string, configCopyCategories?: string[]) => {
     if (!selectedTargetId) return;
     setShieldError(null);
     setCurrentStep('shielding');
@@ -108,7 +108,7 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
     try {
       const res = await authFetch(`/api/targets/lifecycle/${selectedTargetId}/shield`, {
         method: 'POST',
-        body: JSON.stringify({ baseName, openclawVersion: version }),
+        body: JSON.stringify({ baseName, openclawVersion: version, configCopyCategories }),
       });
       if (!res.ok) {
         let errorMsg = 'Shield operation failed';

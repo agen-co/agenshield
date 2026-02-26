@@ -15,6 +15,11 @@ import { getLogger } from '../logger';
 import { getPolicyManager } from './policy-manager';
 import { emitProcessViolation, emitProcessKilled } from '../events/emitter';
 import { getSystemExecutor } from '../workers/system-command';
+import { getActiveShieldOperations } from './shield-registry';
+import { getStorage } from '@agenshield/storage';
+import { isShieldedProcess } from '@agenshield/policies';
+import { fingerprintProcess } from './process-fingerprint';
+import type { ProcessFingerprint } from './process-fingerprint';
 
 // macOS system daemons — never enforce against these
 const SYSTEM_PROCESS_RE = /\b(cfprefsd|lsd|trustd|diskarbitrationd|secinitd|tccd|nsurlsessiond|mdworker|distnoted|smd|pboard|launchd|kernel_task|WindowServer|loginwindow)\b/i;
@@ -89,6 +94,14 @@ export async function triggerProcessEnforcement(): Promise<void> {
 async function runEnforcementScan(): Promise<void> {
   const log = getLogger();
 
+  // Skip enforcement while any shield operation is in progress — installation
+  // spawns brew/ruby/node processes that would match managed deny policies
+  const activeOps = getActiveShieldOperations();
+  if (activeOps.length > 0) {
+    log.debug(`[enforcer] Skipping scan — ${activeOps.length} shield operation(s) in progress`);
+    return;
+  }
+
   let policyManager;
   try {
     policyManager = getPolicyManager();
@@ -117,6 +130,15 @@ async function runEnforcementScan(): Promise<void> {
     daemonDescendants = new Set();
   }
 
+  // Per-scan fingerprint cache and hash lookup (created once, discarded after scan)
+  const fpCache = new Map<string, ProcessFingerprint>();
+  const hashLookup = (sha256: string): string | null => {
+    try {
+      const sig = getStorage().binarySignatures.lookupBySha256(sha256, process.platform);
+      return sig?.packageName ?? null;
+    } catch { return null; }
+  };
+
   for (const proc of processes) {
     // Skip recently killed PIDs
     if (recentlyKilledPids.has(proc.pid)) continue;
@@ -127,8 +149,25 @@ async function runEnforcementScan(): Promise<void> {
       continue;
     }
 
-    const result = policyManager.evaluateProcess(proc.command);
-    if (!result) continue; // Process allowed
+    let result = policyManager.evaluateProcess(proc.command);
+
+    // Fingerprint-based detection: if standard matching missed,
+    // resolve the binary's true identity and re-evaluate
+    if (!result) {
+      const fp = fingerprintProcess(proc.command, { cache: fpCache, hashLookup });
+      for (const candidate of fp.candidateNames) {
+        result = policyManager.evaluateProcess(candidate);
+        if (result) {
+          log.warn(
+            `[enforcer] PID ${proc.pid} identified as "${candidate}" via ${fp.resolvedVia} ` +
+            `(command: ${proc.command.slice(0, 80)})`,
+          );
+          break;
+        }
+      }
+    }
+
+    if (!result) continue; // Process truly allowed
 
     const payload = {
       pid: proc.pid,
@@ -173,6 +212,15 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
     { timeout: 10_000 },
   );
 
+  // Load agent usernames from storage to exclude sudo delegations
+  let agentUsernames = new Set<string>();
+  try {
+    const profiles = getStorage().profiles.getAll();
+    for (const p of profiles) {
+      if (p.agentUsername) agentUsernames.add(p.agentUsername);
+    }
+  } catch { /* storage not ready */ }
+
   const processes: HostProcess[] = [];
 
   for (const line of raw.trim().split('\n')) {
@@ -193,6 +241,9 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
 
     // Skip ps itself
     if (command.startsWith('ps ')) continue;
+
+    // Skip sudo delegations to known AgenShield agent users
+    if (agentUsernames.size > 0 && isShieldedProcess(command, agentUsernames)) continue;
 
     processes.push({ pid, user: currentUser, command });
   }

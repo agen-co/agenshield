@@ -45,6 +45,8 @@ export { PolicySetRepository } from './repositories/policy-set';
 export type { PolicySet, CreatePolicySetInput, UpdatePolicySetInput } from './repositories/policy-set';
 export { MetricsRepository } from './repositories/metrics';
 export type { MetricsSnapshot, MetricsSnapshotInput } from './repositories/metrics';
+export { BinarySignatureRepository } from './repositories/binary-signature';
+export type { CreateSignatureInput, UpsertBatchInput } from './repositories/binary-signature';
 
 // Migrations
 export { runMigrations, runActivityMigrations, getCurrentVersion, getDbVersion, validateDbIntegrity } from './migrations/index';

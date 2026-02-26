@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { userExistsSync as userExists, GUARDED_SHELL_PATH } from '../legacy.js';
+import { tokenizeCommand, parseSudoCommand } from '@agenshield/policies';
 
 const execAsync = promisify(exec);
 
@@ -255,13 +256,16 @@ export async function checkSecurityStatus(options?: SecurityCheckOptions): Promi
     : DEFAULT_PROCESS_PATTERNS;
   const processes = await findProcessesByPatterns(allPatterns);
   // Filter out short-lived installer processes (npm install, node setup scripts) from unisolated list
-  const INSTALLER_PATTERNS = ['npm ', 'npm install', 'node setup', 'node install', 'brew '];
+  const INSTALLER_PATTERNS = ['npm ', 'npm install', 'node setup', 'node install', 'brew ', 'dummy-openclaw'];
 
   // Detect sudo delegation: `sudo -u {sandboxUser}` wrappers run as root but
   // correctly delegate to the agent user — not a security violation.
-  const isSudoDelegation = (proc: { user: string; command: string }) =>
-    proc.user === 'root' &&
-    sandboxUsers.some((u) => proc.command.includes(`-u ${u}`));
+  const isSudoDelegation = (proc: { user: string; command: string }) => {
+    if (proc.user !== 'root') return false;
+    const tokens = tokenizeCommand(proc.command);
+    const parsed = parseSudoCommand(tokens);
+    return !!parsed?.targetUser && sandboxUsers.includes(parsed.targetUser);
+  };
 
   // macOS setup commands that run as root during `agenshield install`.
   // These are expected: user creation (dscl), group membership (dseditgroup),

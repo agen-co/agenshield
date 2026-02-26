@@ -22,7 +22,7 @@ import {
 } from '@mui/material';
 import { Plus, Terminal, Globe, FolderOpen, Play, Cpu } from 'lucide-react';
 import type { PolicyConfig, TieredPolicies } from '@agenshield/ipc';
-import { useConfig, useUpdateConfig, useSecrets, useUpdateSecret, useSkills, useTieredPolicies } from '../api/hooks';
+import { useConfig, useSecrets, useUpdateSecret, useSkills, useTieredPolicies, useCreatePolicy, useUpdatePolicy, useDeletePolicy, useTogglePolicy } from '../api/hooks';
 import { useGuardedAction } from '../hooks/useGuardedAction';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import { tokens } from '../styles/tokens';
@@ -75,7 +75,10 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
 
   const { data: config } = useConfig();
   const { data: tiered } = useTieredPolicies();
-  const updateConfig = useUpdateConfig();
+  const createPolicy = useCreatePolicy();
+  const updatePolicy = useUpdatePolicy();
+  const deletePolicy = useDeletePolicy();
+  const togglePolicy = useTogglePolicy();
   const { data: secretsData } = useSecrets();
   const updateSecret = useUpdateSecret();
   const { data: skillsData } = useSkills();
@@ -90,10 +93,13 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
 
   const { guardOpen, guardConfirm, guardCancel } = useUnsavedChangesGuard(formDirty);
 
-  // All policies (flat) for mutations — from config endpoint
+  // Flat policies from config — used only for fallback rendering while tiered data loads
   const policies = config?.data?.policies ?? [];
   const secrets = secretsData?.data ?? [];
   const skills = skillsData?.data ?? [];
+
+  // Aggregate pending state for busy indicators
+  const mutationPending = createPolicy.isPending || updatePolicy.isPending || deletePolicy.isPending || togglePolicy.isPending;
 
   // Tiered policies for rendering
   const managedPolicies = tiered?.managed ?? [];
@@ -111,10 +117,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
   );
 
   const confirmToggle = (id: string, enabled: boolean) => {
-    const updatedPolicies = policies.map((p) =>
-      p.id === id ? { ...p, enabled } : p
-    );
-    updateConfig.mutate({ policies: updatedPolicies });
+    togglePolicy.mutate({ id, enabled });
   };
 
   const requestToggle = useCallback((id: string, enabled: boolean) => {
@@ -140,9 +143,9 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
 
   const confirmDelete = () => {
     if (deleteTarget) {
-      const updatedPolicies = policies.filter((p) => p.id !== deleteTarget);
-      updateConfig.mutate({ policies: updatedPolicies });
-      setDeleteTarget(null);
+      deletePolicy.mutate(deleteTarget, {
+        onSuccess: () => setDeleteTarget(null),
+      });
     }
   };
 
@@ -161,52 +164,47 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
   }, []);
 
   const handleSave = (newPolicy: PolicyConfig, linkedSecretIds: string[]) => {
-    const isUpdate = editingPolicy && policies.some((p) => p.id === editingPolicy.id);
-    const updatedPolicies = isUpdate
-      ? policies.map((p) => (p.id === editingPolicy!.id ? newPolicy : p))
-      : [...policies, newPolicy];
+    const isUpdate = !!editingPolicy;
+    const { id: _id, ...policyData } = newPolicy;
+    const mutation = isUpdate
+      ? updatePolicy.mutateAsync({ id: editingPolicy!.id, ...policyData })
+      : createPolicy.mutateAsync(newPolicy);
 
-    updateConfig.mutate(
-      { policies: updatedPolicies },
-      {
-        onSuccess: () => {
-          const policyId = newPolicy.id;
-          for (const secret of secrets) {
-            const isLinked = linkedSecretIds.includes(secret.id);
-            const wasLinked = secret.policyIds.includes(policyId);
+    mutation
+      .then(() => {
+        const policyId = newPolicy.id;
+        for (const secret of secrets) {
+          const isLinked = linkedSecretIds.includes(secret.id);
+          const wasLinked = secret.policyIds.includes(policyId);
 
-            if (isLinked && !wasLinked) {
-              updateSecret.mutate({ id: secret.id, policyIds: [...secret.policyIds, policyId] });
-            } else if (!isLinked && wasLinked) {
-              updateSecret.mutate({ id: secret.id, policyIds: secret.policyIds.filter((pid) => pid !== policyId) });
-            }
+          if (isLinked && !wasLinked) {
+            updateSecret.mutate({ id: secret.id, policyIds: [...secret.policyIds, policyId] });
+          } else if (!isLinked && wasLinked) {
+            updateSecret.mutate({ id: secret.id, policyIds: secret.policyIds.filter((pid) => pid !== policyId) });
           }
+        }
 
-          setFormOpen(false);
-          setEditingPolicy(null);
-          setFormDirty(false);
-          setFormFocused(false);
-        },
-        onError: (error) => {
-          // Error is already shown in PolicyEditor via updateConfig.isError,
-          // but log for debugging
-          console.error('[policies] Failed to save policy:', error.message);
-        },
-      },
-    );
+        setFormOpen(false);
+        setEditingPolicy(null);
+        setFormDirty(false);
+        setFormFocused(false);
+      })
+      .catch((error) => {
+        console.error('[policies] Failed to save policy:', error.message);
+      });
   };
 
   // Filesystem inline handlers
   const handleFsUpdate = (policy: PolicyConfig) => {
     guard(() => {
-      const updatedPolicies = policies.map((p) => (p.id === policy.id ? policy : p));
-      updateConfig.mutate({ policies: updatedPolicies });
+      const { id, ...rest } = policy;
+      updatePolicy.mutate({ id, ...rest });
     }, { description: 'Unlock to modify this filesystem policy.', actionLabel: 'Modify Policy' });
   };
 
   const handleFsAdd = (policy: PolicyConfig) => {
     guard(() => {
-      updateConfig.mutate({ policies: [...policies, policy] });
+      createPolicy.mutate(policy);
     }, { description: 'Unlock to add a filesystem policy.', actionLabel: 'Add Policy' });
   };
 
@@ -276,7 +274,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
           onDelete={readOnly ? noopDelete : handleDelete}
           onAddSkillPolicy={readOnly ? noopAddSkill : handleAddSkillPolicy}
           readOnly={readOnly}
-          busy={updateConfig.isPending}
+          busy={mutationPending}
         />
       );
     }
@@ -289,7 +287,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
           onEdit={readOnly ? noopEdit : handleEdit}
           onDelete={readOnly ? noopDelete : handleDelete}
           readOnly={readOnly}
-          busy={updateConfig.isPending}
+          busy={mutationPending}
         />
       );
     }
@@ -303,7 +301,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
           onAdd={readOnly ? noop : handleFsAdd}
           onDelete={readOnly ? noopDelete : handleDelete}
           readOnly={readOnly}
-          busy={updateConfig.isPending}
+          busy={mutationPending}
         />
       );
     }
@@ -316,7 +314,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
           onEdit={readOnly ? noopEdit : handleEdit}
           onDelete={readOnly ? noopDelete : handleDelete}
           readOnly={readOnly}
-          busy={updateConfig.isPending}
+          busy={mutationPending}
         />
       );
     }
@@ -352,7 +350,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
               onCancel={handleCancel}
               onDirtyChange={setFormDirty}
               onFocusChange={setFormFocused}
-              error={updateConfig.isError}
+              error={createPolicy.isError || updatePolicy.isError}
             />
           </Box>
         </Collapse>
@@ -441,7 +439,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                     onDelete={handleDelete}
                     onAddSkillPolicy={handleAddSkillPolicy}
                     readOnly={false}
-                    busy={updateConfig.isPending}
+                    busy={mutationPending}
                   />
                 )
               )}
@@ -467,7 +465,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                     onEdit={handleEdit}
                     onDelete={handleDelete}
                     readOnly={false}
-                    busy={updateConfig.isPending}
+                    busy={mutationPending}
                   />
                 )
               )}
@@ -480,7 +478,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                   onAdd={handleFsAdd}
                   onDelete={handleDelete}
                   readOnly={false}
-                  busy={updateConfig.isPending}
+                  busy={mutationPending}
                 />
               )}
 
@@ -498,7 +496,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                     onEdit={handleEdit}
                     onDelete={handleDelete}
                     readOnly={false}
-                    busy={updateConfig.isPending}
+                    busy={mutationPending}
                   />
                 )
               )}
@@ -618,7 +616,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                   onAdd={handleFsAdd}
                   onDelete={handleDelete}
                   readOnly={false}
-                  busy={updateConfig.isPending}
+                  busy={mutationPending}
                 />
               )}
             </Box>

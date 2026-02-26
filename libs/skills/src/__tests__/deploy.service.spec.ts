@@ -376,8 +376,9 @@ describe('OpenClawDeployAdapter', () => {
       expect(adapter.canDeploy('openclaw')).toBe(true);
     });
 
-    it('returns false for other targets', () => {
-      expect(adapter.canDeploy('cloudcode')).toBe(false);
+    it('returns true for any target (deploy adapters accept all profile IDs)', () => {
+      expect(adapter.canDeploy('cloudcode')).toBe(true);
+      expect(adapter.canDeploy('target-uuid-123')).toBe(true);
     });
   });
 

@@ -98,20 +98,20 @@ describe('sanitizeOpenClawConfig', () => {
     expect(entries['test']).not.toHaveProperty('apiKey');
   });
 
-  it('enables skillWatcher in settings', () => {
+  it('passes through settings unchanged', () => {
     // No settings at all
     const result1 = sanitizeOpenClawConfig({});
-    expect(result1['settings']).toEqual({ skillWatcher: { enabled: true } });
+    expect(result1['settings']).toBeUndefined();
 
-    // Existing settings preserved
+    // Existing settings preserved as-is
     const result2 = sanitizeOpenClawConfig({ settings: { foo: 'bar' } });
-    expect(result2['settings']).toEqual({ foo: 'bar', skillWatcher: { enabled: true } });
+    expect(result2['settings']).toEqual({ foo: 'bar' });
   });
 
   it('handles empty and missing skills gracefully', () => {
     // Empty config
     const result1 = sanitizeOpenClawConfig({});
-    expect(result1['settings']).toEqual({ skillWatcher: { enabled: true } });
+    expect(result1['settings']).toBeUndefined();
 
     // skills key with no entries
     const result2 = sanitizeOpenClawConfig({ skills: {} });
@@ -235,11 +235,10 @@ describe('sanitizeOpenClawConfig', () => {
     // code-runner: no secrets to strip, passes through intact
     expect(entries['code-runner']).toEqual({ enabled: true, sandbox: true });
 
-    // Settings merged with skillWatcher
+    // Settings passed through unchanged
     expect(result['settings']).toEqual({
       theme: 'dark',
       notifications: true,
-      skillWatcher: { enabled: true },
     });
   });
 });

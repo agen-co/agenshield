@@ -211,13 +211,14 @@ _agenshield_exec() {
   if [ -n "$AGENT_HOME" ]; then
     local GUARDED_SHELL="$AGENT_HOME/.agenshield/bin/guarded-shell"
     if [ -x "$GUARDED_SHELL" ]; then
-      exec sudo -H -u "$AGENT_USER" "$GUARDED_SHELL" -c 'exec "'"$BIN"'" "$@"' -- "$@"
+      exec sudo -H -u "$AGENT_USER" "$GUARDED_SHELL" -c \
+        'export AGENSHIELD_HOST_CWD="'"$PWD"'"; exec "'"$BIN"'" "$@"' -- "$@"
     else
       # Fallback if guarded shell not installed
-      exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
+      exec sudo -H -u "$AGENT_USER" env "AGENSHIELD_HOST_CWD=$PWD" "$BIN" "$@"
     fi
   else
-    exec sudo -H -u "$AGENT_USER" "$BIN" "$@"
+    exec sudo -H -u "$AGENT_USER" env "AGENSHIELD_HOST_CWD=$PWD" "$BIN" "$@"
   fi
 }
 

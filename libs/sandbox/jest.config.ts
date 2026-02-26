@@ -14,6 +14,7 @@ export default {
   },
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    '^@agenshield/policies$': '<rootDir>/../policies/src/index.ts',
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
   testMatch: ['<rootDir>/src/__tests__/**/*.spec.ts'],

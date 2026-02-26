@@ -495,11 +495,28 @@ describe('SkillsRepository', () => {
     });
 
     it('getInstallations returns all installations', () => {
+      const v2 = repo.addVersion(makeVersionInput(skillId, { version: '2.0.0' }));
       repo.install({ skillVersionId: versionId, status: 'active' });
-      repo.install({ skillVersionId: versionId, status: 'disabled' });
+      repo.install({ skillVersionId: v2.id, status: 'disabled' });
 
       const all = repo.getInstallations();
       expect(all).toHaveLength(2);
+    });
+
+    it('idempotent install returns existing active installation', () => {
+      const first = repo.install({ skillVersionId: versionId, status: 'active' });
+      const second = repo.install({ skillVersionId: versionId, status: 'active' });
+      expect(second.id).toBe(first.id);
+
+      const all = repo.getInstallations();
+      expect(all).toHaveLength(1);
+    });
+
+    it('idempotent install reactivates disabled installation', () => {
+      const first = repo.install({ skillVersionId: versionId, status: 'disabled' });
+      const second = repo.install({ skillVersionId: versionId, status: 'active' });
+      expect(second.id).toBe(first.id);
+      expect(second.status).toBe('active');
     });
 
     it('getInstallations filters by skillVersionId', () => {
@@ -704,15 +721,19 @@ describe('SkillsRepository', () => {
     });
 
     it('getAutoUpdatable returns only eligible installations', () => {
+      insertProfile(db, 'prof-auto-1');
+      insertProfile(db, 'prof-auto-2');
+      insertProfile(db, 'prof-auto-3');
+      insertProfile(db, 'prof-auto-4');
       // auto_update=true, no pin → eligible
-      const inst1 = repo.install({ skillVersionId: versionId, status: 'active' });
+      const inst1 = repo.install({ skillVersionId: versionId, status: 'active', profileId: 'prof-auto-1' });
       // auto_update=false → not eligible
-      const inst2 = repo.install({ skillVersionId: versionId, status: 'active', autoUpdate: false });
+      const inst2 = repo.install({ skillVersionId: versionId, status: 'active', autoUpdate: false, profileId: 'prof-auto-2' });
       // pinned → not eligible
-      const inst3 = repo.install({ skillVersionId: versionId, status: 'active' });
+      const inst3 = repo.install({ skillVersionId: versionId, status: 'active', profileId: 'prof-auto-3' });
       repo.pinVersion(inst3.id, '1.0.0');
       // disabled → not eligible
-      const inst4 = repo.install({ skillVersionId: versionId, status: 'disabled' });
+      const inst4 = repo.install({ skillVersionId: versionId, status: 'disabled', profileId: 'prof-auto-4' });
 
       const eligible = repo.getAutoUpdatable(skillId);
       expect(eligible).toHaveLength(1);

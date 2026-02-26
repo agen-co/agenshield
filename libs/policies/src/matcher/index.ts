@@ -24,3 +24,19 @@ export {
 export {
   matchProcessPattern,
 } from './process';
+
+export {
+  tokenizeCommand,
+  parseSudoCommand,
+  detectShieldedExecution,
+} from './command-parser';
+
+export type {
+  ParsedSudoCommand,
+  ShieldedExecutionInfo,
+} from './command-parser';
+
+export {
+  isShieldedProcess,
+  analyzeShieldedProcess,
+} from './shielded-detection';

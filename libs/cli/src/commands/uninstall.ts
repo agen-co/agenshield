@@ -6,18 +6,19 @@
  * falling back to discovery-based cleanup when storage is unavailable.
  */
 
-import { Option } from 'clipanion';
+import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
 import { execSync } from 'node:child_process';
-import { BaseCommand } from './base.js';
+import { withGlobals } from './base.js';
 import { ensureSudoAccess } from '../utils/privileges.js';
 import { stopDaemon } from '../utils/daemon.js';
 import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
+import { inkMultiSelect } from '../prompts/index.js';
 
 /**
  * Resolve the data directory (~/.agenshield) for the calling user.
@@ -477,6 +478,13 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
   storage.close();
   await systemCleanup(dataDir);
 
+  // Orphan cleanup — best-effort, failure doesn't affect main uninstall
+  try {
+    await cleanupOrphanedEntities(options);
+  } catch (err) {
+    output.warn(`Orphan cleanup encountered an error: ${(err as Error).message}`);
+  }
+
   output.info('');
   output.success('Uninstall complete!');
   output.info('All AgenShield targets have been unshielded and artifacts removed.');
@@ -542,6 +550,13 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
 
   output.info('');
 
+  // Orphan cleanup — best-effort, failure doesn't affect main uninstall
+  try {
+    await cleanupOrphanedEntities(options);
+  } catch (err) {
+    output.warn(`Orphan cleanup encountered an error: ${(err as Error).message}`);
+  }
+
   if (result.success) {
     output.success('Force uninstall complete!');
     output.info('AgenShield artifacts have been removed.');
@@ -550,30 +565,141 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
   }
 }
 
-export class UninstallCommand extends BaseCommand {
-  static override paths = [['uninstall']];
+/**
+ * Discover and clean up orphaned ash_* entities left behind by incomplete uninstalls.
+ *
+ * In interactive mode, presents a multi-select list so users choose which entities
+ * to remove. In force mode (or non-TTY), auto-removes only verified entities
+ * (those with `.agenshield/meta.json`).
+ */
+async function cleanupOrphanedEntities(options: { force?: boolean }): Promise<void> {
+  const { discoverOrphanedEntities } = await import('@agenshield/sandbox');
+  const orphans = discoverOrphanedEntities();
 
-  static override usage = BaseCommand.Usage({
-    category: 'Setup & Maintenance',
-    description: 'Reverse isolation and restore targets',
-    examples: [
-      ['Interactive uninstall', '$0 uninstall'],
-      ['Skip confirmation', '$0 uninstall --force'],
-      ['Dry run', '$0 uninstall --dry-run'],
-    ],
-  });
-
-  force = Option.Boolean('-f,--force', false, { description: 'Skip confirmation prompt' });
-  prefix = Option.String('--prefix', { description: 'Uninstall a specific prefixed installation' });
-  skipBackup = Option.Boolean('--skip-backup', false, { description: 'Force discovery-based cleanup (bypass profile-based uninstall)' });
-  dryRun = Option.Boolean('--dry-run', false, { description: 'Show what would be done without making changes' });
-
-  async run(): Promise<number | void> {
-    await runUninstall({
-      force: this.force,
-      prefix: this.prefix,
-      skipBackup: this.skipBackup,
-      dryRun: this.dryRun,
-    });
+  if (orphans.length === 0) {
+    return;
   }
+
+  output.info('\nOrphaned ash_* entities detected:');
+  output.info('');
+
+  for (const entity of orphans) {
+    const parts: string[] = [];
+    if (entity.hasHomeDir) parts.push('home dir');
+    if (entity.hasDsclUser) parts.push('dscl user');
+    if (entity.hasDsclGroup) parts.push('dscl group');
+    const status = entity.verified ? output.green('verified') : output.yellow('unverified');
+    const date = entity.meta?.createdAt ? ` (created ${entity.meta.createdAt.slice(0, 10)})` : '';
+    output.info(`  ${output.yellow('->')} ${entity.name} [${status}] — ${parts.join(', ')}${date}`);
+  }
+  output.info('');
+
+  let selected: string[];
+
+  const isInteractive = !options.force && process.stdin.isTTY && process.stderr.isTTY;
+
+  if (isInteractive) {
+    const selectOptions = orphans.map((e) => {
+      const parts: string[] = [];
+      if (e.hasHomeDir) parts.push(`home: /Users/${e.name}`);
+      if (e.hasDsclUser) parts.push('dscl user');
+      if (e.hasDsclGroup) parts.push('dscl group');
+      const date = e.meta?.createdAt ? `, created ${e.meta.createdAt.slice(0, 10)}` : '';
+      const tag = e.verified ? 'verified' : 'unverified — may not be AgenShield';
+      return {
+        label: `${e.name} (${tag})`,
+        value: e.name,
+        description: `${parts.join(', ')}${date}`,
+      };
+    });
+
+    selected = await inkMultiSelect(selectOptions, {
+      title: 'Select entities to remove:',
+    });
+  } else {
+    // Force / non-TTY: auto-select only verified entities
+    selected = orphans.filter((e) => e.verified).map((e) => e.name);
+    const skipped = orphans.filter((e) => !e.verified);
+    if (skipped.length > 0) {
+      output.warn(
+        `Skipping ${skipped.length} unverified entit${skipped.length === 1 ? 'y' : 'ies'} (no .agenshield/meta.json): ${skipped.map((e) => e.name).join(', ')}`,
+      );
+    }
+    if (selected.length > 0) {
+      output.info(`Auto-removing ${selected.length} verified entit${selected.length === 1 ? 'y' : 'ies'}...`);
+    }
+  }
+
+  if (selected.length === 0) {
+    output.info('No orphaned entities selected for removal.');
+    return;
+  }
+
+  const execAsRoot = makeExecAsRoot();
+  const entityMap = new Map(orphans.map((e) => [e.name, e]));
+
+  for (const name of selected) {
+    const entity = entityMap.get(name);
+    if (!entity) continue;
+
+    output.info(`\nCleaning up ${name}...`);
+
+    // Kill processes owned by this user (best-effort)
+    if (entity.hasDsclUser) {
+      try {
+        await execAsRoot(`pkill -9 -u $(id -u ${name} 2>/dev/null) 2>/dev/null; true`, { timeout: 10_000 });
+      } catch { /* best effort */ }
+    }
+
+    // Delete dscl user record
+    if (entity.hasDsclUser) {
+      const result = await execAsRoot(`dscl . -delete /Users/${name}`, { timeout: 15_000 });
+      if (result.success) {
+        output.success(`Deleted dscl user ${name}`);
+      } else {
+        output.warn(`Could not delete dscl user ${name}: ${result.error ?? 'unknown'}`);
+      }
+    }
+
+    // Delete dscl group record
+    if (entity.hasDsclGroup) {
+      const result = await execAsRoot(`dscl . -delete /Groups/${name}`, { timeout: 15_000 });
+      if (result.success) {
+        output.success(`Deleted dscl group ${name}`);
+      } else {
+        output.warn(`Could not delete dscl group ${name}: ${result.error ?? 'unknown'}`);
+      }
+    }
+
+    // Remove home directory
+    if (entity.hasHomeDir) {
+      const result = await execAsRoot(`rm -rf /Users/${name}`, { timeout: 60_000 });
+      if (result.success) {
+        output.success(`Deleted /Users/${name}`);
+      } else {
+        output.warn(`Could not delete /Users/${name}: ${result.error ?? 'unknown'}`);
+      }
+    }
+  }
+
+  output.info('');
+  output.success(`Orphan cleanup complete (${selected.length} entit${selected.length === 1 ? 'y' : 'ies'} processed).`);
+}
+
+export function registerUninstallCommand(program: Command): void {
+  program
+    .command('uninstall')
+    .description('Reverse isolation and restore targets')
+    .option('-f, --force', 'Skip confirmation prompt', false)
+    .option('--prefix <prefix>', 'Uninstall a specific prefixed installation')
+    .option('--skip-backup', 'Force discovery-based cleanup (bypass profile-based uninstall)', false)
+    .option('--dry-run', 'Show what would be done without making changes', false)
+    .action(withGlobals(async (opts) => {
+      await runUninstall({
+        force: opts['force'] as boolean,
+        prefix: opts['prefix'] as string | undefined,
+        skipBackup: opts['skipBackup'] as boolean,
+        dryRun: opts['dryRun'] as boolean,
+      });
+    }));
 }

@@ -6,10 +6,10 @@
  *  - Legacy (global npm / monorepo)      -> stop + update engine + restart
  */
 
-import { Option } from 'clipanion';
+import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { BaseCommand } from './base.js';
+import { withGlobals } from './base.js';
 import { stopDaemon, startDaemon, getDaemonStatus, DAEMON_CONFIG } from '../utils/daemon.js';
 import {
   isLocalInstall,
@@ -431,46 +431,35 @@ async function upgradeLegacy(options: {
 // Command definition
 // ---------------------------------------------------------------------------
 
-export class UpgradeCommand extends BaseCommand {
-  static override paths = [['upgrade']];
-
-  static override usage = BaseCommand.Usage({
-    category: 'Daemon',
-    description: 'Upgrade AgenShield (stop, update, restart) (requires setup)',
-    examples: [
-      ['Upgrade to latest', '$0 upgrade'],
-      ['Dry-run upgrade', '$0 upgrade --dry-run'],
-      ['Force re-apply', '$0 upgrade --force'],
-      ['CLI mode (no browser)', '$0 upgrade --cli'],
-    ],
-  });
-
-  dryRun = Option.Boolean('--dry-run', false, { description: 'Show what would be done without making changes' });
-  verbose = Option.Boolean('-v,--verbose', false, { description: 'Show verbose output' });
-  force = Option.Boolean('--force', false, { description: 'Re-apply even if already at latest version' });
-  local = Option.Boolean('--local', false, { description: 'Upgrade from local monorepo build output instead of npm' });
-  cliMode = Option.Boolean('--cli', false, { description: 'Use terminal mode instead of web browser' });
-
-  async run(): Promise<number | void> {
-    ensureSetupComplete();
-    if (isLocalInstall()) {
-      output.info('');
-      output.info('  AgenShield Upgrade (local install)');
-      output.info('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
-      output.info('');
-      await upgradeLocalInstall({
-        force: this.force,
-        verbose: this.verbose,
-        local: this.local,
-      });
-    } else {
-      await upgradeLegacy({
-        dryRun: this.dryRun,
-        verbose: this.verbose,
-        force: this.force,
-        cli: this.cliMode,
-        local: this.local,
-      });
-    }
-  }
+export function registerUpgradeCommand(program: Command): void {
+  program
+    .command('upgrade')
+    .description('Upgrade AgenShield (stop, update, restart) (requires setup)')
+    .option('--dry-run', 'Show what would be done without making changes', false)
+    .option('-v, --verbose', 'Show verbose output', false)
+    .option('--force', 'Re-apply even if already at latest version', false)
+    .option('--local', 'Upgrade from local monorepo build output instead of npm', false)
+    .option('--cli', 'Use terminal mode instead of web browser', false)
+    .action(withGlobals(async (opts) => {
+      ensureSetupComplete();
+      if (isLocalInstall()) {
+        output.info('');
+        output.info('  AgenShield Upgrade (local install)');
+        output.info('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
+        output.info('');
+        await upgradeLocalInstall({
+          force: opts['force'] as boolean,
+          verbose: opts['verbose'] as boolean,
+          local: opts['local'] as boolean,
+        });
+      } else {
+        await upgradeLegacy({
+          dryRun: opts['dryRun'] as boolean,
+          verbose: opts['verbose'] as boolean,
+          force: opts['force'] as boolean,
+          cli: opts['cli'] as boolean,
+          local: opts['local'] as boolean,
+        });
+      }
+    }));
 }

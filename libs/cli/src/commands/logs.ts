@@ -13,10 +13,10 @@
  * ```
  */
 
-import { Option } from 'clipanion';
+import type { Command } from 'commander';
 import * as readline from 'node:readline';
 import * as http from 'node:http';
-import { BaseCommand } from './base.js';
+import { withGlobals } from './base.js';
 import { DAEMON_CONFIG } from '../utils/daemon.js';
 import { output } from '../utils/output.js';
 import { ensureSetupComplete } from '../utils/setup-guard.js';
@@ -172,34 +172,23 @@ function streamLogs(token: string, level: string, recent: number, jsonMode: bool
   });
 }
 
-export class LogsCommand extends BaseCommand {
-  static override paths = [['logs']];
+export function registerLogsCommand(program: Command): void {
+  program
+    .command('logs')
+    .description('Stream daemon logs in real time (requires setup)')
+    .option('--level <level>', 'Minimum log level (trace, debug, info, warn, error, fatal)', 'info')
+    .option('--logs-json', 'Output raw JSON log entries', false)
+    .option('-n <count>', 'Number of recent log entries to show', '50')
+    .action(withGlobals(async (opts) => {
+      ensureSetupComplete();
+      const jsonMode = (opts['logsJson'] as boolean) || (opts['json'] as boolean);
+      const recentCount = Number(opts['n']) || 50;
 
-  static override usage = BaseCommand.Usage({
-    category: 'Development',
-    description: 'Stream daemon logs in real time (requires setup)',
-    examples: [
-      ['Stream logs', '$0 logs'],
-      ['Stream only warnings and errors', '$0 logs --level warn'],
-      ['Stream as raw JSON', '$0 logs --json'],
-      ['Show last 100 entries', '$0 logs -n 100'],
-    ],
-  });
+      const passcode = await promptPasscode();
 
-  level = Option.String('--level', 'info', { description: 'Minimum log level (trace, debug, info, warn, error, fatal)' });
-  logsJson = Option.Boolean('--logs-json', false, { description: 'Output raw JSON log entries' });
-  recent = Option.String('-n', '50', { description: 'Number of recent log entries to show' });
+      const token = await authenticate(passcode);
 
-  async run(): Promise<number | void> {
-    ensureSetupComplete();
-    const jsonMode = this.logsJson || this.json;
-    const recentCount = Number(this.recent) || 50;
-
-    const passcode = await promptPasscode();
-
-    const token = await authenticate(passcode);
-
-    output.info(`Streaming logs (level: ${this.level}, recent: ${recentCount})...`);
-    streamLogs(token, this.level, recentCount, jsonMode);
-  }
+      output.info(`Streaming logs (level: ${opts['level']}, recent: ${recentCount})...`);
+      streamLogs(token, opts['level'] as string, recentCount, jsonMode);
+    }));
 }

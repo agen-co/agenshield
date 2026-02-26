@@ -16,8 +16,8 @@
  * ```
  */
 
-import { Option } from 'clipanion';
-import { BaseCommand } from './base.js';
+import type { Command } from 'commander';
+import { withGlobalsPositional } from './base.js';
 
 // ── Completion script generators ──────────────────────────────────────
 
@@ -226,49 +226,39 @@ complete -c agenshield -n '__fish_seen_subcommand_from logs' -s n -d 'Number of 
 
 // ── Command definition ────────────────────────────────────────────────
 
-export class CompletionCommand extends BaseCommand {
-  static override paths = [['completion']];
+export function registerCompletionCommand(program: Command): void {
+  program
+    .command('completion')
+    .description('Generate shell completion scripts')
+    .argument('[shell]', 'Shell type (bash, zsh, fish)')
+    .action(withGlobalsPositional(async (shell, _opts) => {
+      let shellType = shell;
 
-  static override usage = BaseCommand.Usage({
-    category: 'Setup & Maintenance',
-    description: 'Generate shell completion scripts',
-    examples: [
-      ['Generate zsh completions', '$0 completion zsh'],
-      ['Generate bash completions', '$0 completion bash'],
-      ['Generate fish completions', '$0 completion fish'],
-    ],
-  });
-
-  shell = Option.String({ required: false, name: 'shell' });
-
-  async run(): Promise<number | void> {
-    let shellType = this.shell;
-
-    if (!shellType) {
-      // Auto-detect from SHELL env var
-      const currentShell = process.env['SHELL'] || '';
-      if (currentShell.includes('zsh')) {
-        shellType = 'zsh';
-      } else if (currentShell.includes('fish')) {
-        shellType = 'fish';
-      } else {
-        shellType = 'bash';
+      if (!shellType) {
+        // Auto-detect from SHELL env var
+        const currentShell = process.env['SHELL'] || '';
+        if (currentShell.includes('zsh')) {
+          shellType = 'zsh';
+        } else if (currentShell.includes('fish')) {
+          shellType = 'fish';
+        } else {
+          shellType = 'bash';
+        }
       }
-    }
 
-    switch (shellType) {
-      case 'bash':
-        process.stdout.write(generateBash());
-        break;
-      case 'zsh':
-        process.stdout.write(generateZsh());
-        break;
-      case 'fish':
-        process.stdout.write(generateFish());
-        break;
-      default:
-        process.stderr.write(`Unknown shell: ${shellType}. Supported: bash, zsh, fish\n`);
-        return 2;
-    }
-  }
+      switch (shellType) {
+        case 'bash':
+          process.stdout.write(generateBash());
+          break;
+        case 'zsh':
+          process.stdout.write(generateZsh());
+          break;
+        case 'fish':
+          process.stdout.write(generateFish());
+          break;
+        default:
+          process.stderr.write(`Unknown shell: ${shellType}. Supported: bash, zsh, fish\n`);
+          process.exitCode = 2;
+      }
+    }));
 }

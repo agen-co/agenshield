@@ -4,8 +4,8 @@
  * Diagnoses the AgenShield installation and checks for common issues.
  */
 
-import { Option } from 'clipanion';
-import { BaseCommand } from './base.js';
+import type { Command } from 'commander';
+import { withGlobals } from './base.js';
 import { getEffectiveEnvForScanning } from '../utils/sudo-env.js';
 import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
@@ -114,31 +114,22 @@ async function runDoctor(): Promise<void> {
   }
 }
 
-export class DoctorCommand extends BaseCommand {
-  static override paths = [['doctor']];
-
-  static override usage = BaseCommand.Usage({
-    category: 'Setup & Maintenance',
-    description: 'Check and diagnose common issues',
-    examples: [
-      ['Run diagnostics', '$0 doctor'],
-      ['Output diagnostics as JSON', '$0 doctor --json'],
-    ],
-  });
-
-  fix = Option.Boolean('--fix', false, { description: 'Attempt to fix issues automatically' });
-
-  async run(): Promise<number | void> {
-    if (this.json) {
-      const { checkPrerequisites, detectOpenClaw, checkSecurityStatus } = await import(
-        '@agenshield/sandbox'
-      );
-      const prereqs = checkPrerequisites();
-      const detection = detectOpenClaw();
-      const security = await checkSecurityStatus({ env: getEffectiveEnvForScanning() });
-      output.data({ prereqs, detection, security });
-    } else {
-      await runDoctor();
-    }
-  }
+export function registerDoctorCommand(program: Command): void {
+  program
+    .command('doctor')
+    .description('Check and diagnose common issues')
+    .option('--fix', 'Attempt to fix issues automatically', false)
+    .action(withGlobals(async (opts) => {
+      if (opts['json']) {
+        const { checkPrerequisites, detectOpenClaw, checkSecurityStatus } = await import(
+          '@agenshield/sandbox'
+        );
+        const prereqs = checkPrerequisites();
+        const detection = detectOpenClaw();
+        const security = await checkSecurityStatus({ env: getEffectiveEnvForScanning() });
+        output.data({ prereqs, detection, security });
+      } else {
+        await runDoctor();
+      }
+    }));
 }

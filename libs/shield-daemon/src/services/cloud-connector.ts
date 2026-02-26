@@ -219,6 +219,11 @@ export class CloudConnector {
         // TODO: Apply config update
         break;
 
+      case 'push_binary_signatures':
+        log.info(`[cloud] Received binary signatures push: ${JSON.stringify(command.params).slice(0, 200)}`);
+        await this.applySignaturePush(command.params);
+        break;
+
       case 'kill_process':
         log.info(`[cloud] Received kill_process command: ${JSON.stringify(command.params).slice(0, 200)}`);
         await this.handleKillProcess(command.params);
@@ -407,6 +412,37 @@ export class CloudConnector {
       await triggerProcessEnforcement();
     } catch (err) {
       log.error({ err }, '[cloud] Failed to apply policy push');
+    }
+  }
+
+  // ─── Binary signature push ─────────────────────────────────────
+
+  /**
+   * Apply a push_binary_signatures command: replace cloud signatures, then trigger enforcement.
+   */
+  private async applySignaturePush(params: Record<string, unknown>): Promise<void> {
+    const log = getLogger();
+    const rawSignatures = params.signatures;
+
+    if (!Array.isArray(rawSignatures)) {
+      log.warn('[cloud] push_binary_signatures: missing or invalid signatures array');
+      return;
+    }
+
+    try {
+      const storage = getStorage();
+      const repo = storage.binarySignatures;
+
+      // Full replace: delete existing cloud signatures, then upsert new ones
+      repo.deleteBySource('cloud');
+      const count = repo.upsertBatch(rawSignatures);
+
+      log.info(`[cloud] Synced ${count} binary signatures from cloud`);
+
+      // Trigger immediate process enforcement scan with updated signatures
+      await triggerProcessEnforcement();
+    } catch (err) {
+      log.error({ err }, '[cloud] Failed to apply binary signature push');
     }
   }
 

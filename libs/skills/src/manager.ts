@@ -395,7 +395,11 @@ export class SkillManager extends EventEmitter {
     const installations = this.skills.getInstallations();
     const versions = this.skills.getVersions(skill.id);
     const versionIds = new Set(versions.map((v) => v.id));
-    const activeInst = installations.find((i) => versionIds.has(i.skillVersionId) && i.status === 'active');
+    const activeInst = installations.find((i) => {
+      if (!versionIds.has(i.skillVersionId) || i.status !== 'active') return false;
+      if (opts?.profileId !== undefined) return i.profileId === opts.profileId;
+      return i.profileId == null;
+    });
 
     if (activeInst) {
       // Disable: uninstall (via this.uninstall for watcher suppression)

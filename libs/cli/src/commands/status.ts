@@ -6,8 +6,8 @@
  */
 
 import * as fs from 'node:fs';
-import { Option } from 'clipanion';
-import { BaseCommand } from './base.js';
+import type { Command } from 'commander';
+import { withGlobals } from './base.js';
 import { getEffectiveEnvForScanning } from '../utils/sudo-env.js';
 import { output } from '../utils/output.js';
 import { ensureSetupComplete } from '../utils/setup-guard.js';
@@ -194,31 +194,23 @@ async function showStatus(): Promise<void> {
   }
 }
 
-export class StatusCommand extends BaseCommand {
-  static override paths = [['status']];
-
-  static override usage = BaseCommand.Usage({
-    category: 'Daemon',
-    description: 'Show current AgenShield status',
-    examples: [
-      ['Show status', '$0 status'],
-      ['Show status as JSON', '$0 status --json'],
-    ],
-  });
-
-  async run(): Promise<number | void> {
-    ensureSetupComplete();
-    if (this.json) {
-      const { checkSecurityStatus } = await import('@agenshield/sandbox');
-      const daemonStatus = await fetchDaemonStatus();
-      const security = await checkSecurityStatus({ env: getEffectiveEnvForScanning() });
-      output.data({
-        daemon: daemonStatus?.daemon ?? null,
-        targets: daemonStatus?.targets ?? [],
-        security,
-      });
-    } else {
-      await showStatus();
-    }
-  }
+export function registerStatusCommand(program: Command): void {
+  program
+    .command('status')
+    .description('Show current AgenShield status')
+    .action(withGlobals(async (opts) => {
+      ensureSetupComplete();
+      if (opts['json']) {
+        const { checkSecurityStatus } = await import('@agenshield/sandbox');
+        const daemonStatus = await fetchDaemonStatus();
+        const security = await checkSecurityStatus({ env: getEffectiveEnvForScanning() });
+        output.data({
+          daemon: daemonStatus?.daemon ?? null,
+          targets: daemonStatus?.targets ?? [],
+          security,
+        });
+      } else {
+        await showStatus();
+      }
+    }));
 }

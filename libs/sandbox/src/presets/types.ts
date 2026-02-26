@@ -110,6 +110,8 @@ export interface InstallContext {
   profileBaseName: string;
   /** When true, skip host config copy and allow onboarding (fresh OpenClaw install) */
   freshInstall?: boolean;
+  /** Which Claude config categories to copy from host (defaults to DEFAULT_CLAUDE_CONFIG_CATEGORIES) */
+  configCopyCategories?: ClaudeConfigCategory[];
 }
 
 /**
@@ -204,6 +206,14 @@ export interface TargetPreset {
    */
   install?(context: InstallContext): Promise<InstallResult>;
 }
+
+// ── Claude Config Copy Categories ───────────────────────────────
+
+/** Categories of host Claude config that can be selectively copied */
+export type ClaudeConfigCategory = 'settings' | 'plugins' | 'memory' | 'statsig' | 'plans';
+
+/** Default categories copied when no explicit selection is provided */
+export const DEFAULT_CLAUDE_CONFIG_CATEGORIES: ClaudeConfigCategory[] = ['settings', 'plugins', 'memory', 'statsig'];
 
 // ── Pipeline Step Types (merged from actions/types.ts) ──────────
 

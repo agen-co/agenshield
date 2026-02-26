@@ -10,3 +10,6 @@ export type { InputConfig } from './ink-input.js';
 
 export { inkBrowserLink } from './ink-browser-link.js';
 export type { BrowserLinkConfig } from './ink-browser-link.js';
+
+export { inkMultiSelect } from './ink-multiselect.js';
+export type { MultiSelectOption, MultiSelectConfig } from './ink-multiselect.js';

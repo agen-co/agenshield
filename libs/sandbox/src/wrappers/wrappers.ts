@@ -12,6 +12,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import type { UserConfig } from '@agenshield/ipc';
+import { NVM_VERSION } from '../presets/shared/versions.js';
 
 // Create a require function for ESM compatibility (needed for require.resolve)
 const require = createRequire(import.meta.url);
@@ -1351,7 +1352,7 @@ export interface NvmInstallResult {
   error?: Error;
 }
 
-const NVM_INSTALL_URL = 'https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh';
+const NVM_INSTALL_URL = `https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh`;
 
 /**
  * Install NVM and a specific Node.js version for the agent user.

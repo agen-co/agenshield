@@ -36,7 +36,12 @@ export function createAppWrapperStep(
       const wrapper = `#!/bin/bash
 # AgenShield ${appName} wrapper
 set -euo pipefail
-cd ~ 2>/dev/null || cd /
+if [ -n "\${AGENSHIELD_HOST_CWD:-}" ] && [ -d "\${AGENSHIELD_HOST_CWD:-}" ]; then
+  cd "\$AGENSHIELD_HOST_CWD" 2>/dev/null || cd ~ 2>/dev/null || cd /
+else
+  cd ~ 2>/dev/null || cd /
+fi
+unset AGENSHIELD_HOST_CWD
 exec "${resolvedPath}" "$@"
 `;
       await checkedExecAsRoot(ctx, [

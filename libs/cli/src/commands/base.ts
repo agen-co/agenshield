@@ -1,73 +1,84 @@
 /**
- * Abstract base command for all AgenShield CLI commands.
+ * Commander.js global option wiring and centralized error handling.
  *
- * Handles global options (--json, --quiet, --no-color, --debug),
- * configures the output module before execution, and provides
- * centralized error handling.
+ * Replaces the former Clipanion BaseCommand class. Every command action
+ * is wrapped with `withGlobals()` which resolves global options
+ * (--json, --quiet, --no-color, --debug), configures the output module,
+ * and catches errors through `handleError()`.
  */
 
-import { Command, Option } from 'clipanion';
+import { Command } from 'commander';
 import { resolveGlobalOptions } from '../utils/globals.js';
 import { configureOutput } from '../utils/output.js';
 import { CliError } from '../errors.js';
 
-export abstract class BaseCommand extends Command {
-  json = Option.Boolean('--json', false, { description: 'Output machine-readable JSON' });
-  quiet = Option.Boolean('-q,--quiet', false, { description: 'Suppress non-essential output' });
-  noColor = Option.Boolean('--no-color', false, { description: 'Disable colors' });
-  debug = Option.Boolean('--debug', false, { description: 'Show stack traces on errors' });
-
-  /**
-   * Subclasses implement their logic here.
-   */
-  abstract run(): Promise<number | void>;
-
-  /**
-   * Clipanion calls execute(). We wire up globals, then delegate to run().
-   */
-  async execute(): Promise<number | void> {
-    this.configureGlobals();
+/**
+ * Wrap a Commander action handler so that global options are resolved
+ * and output is configured before the handler runs, and errors are
+ * caught and formatted consistently.
+ *
+ * Commander passes `(opts, cmd)` for commands with no positional args,
+ * or `(arg1, arg2, ..., opts, cmd)` when positional args are declared.
+ * We always pull `cmd` from the last element and call `.optsWithGlobals()`.
+ */
+export function withGlobals(
+  handler: (opts: Record<string, unknown>, cmd: Command) => Promise<void>,
+): (...args: unknown[]) => Promise<void> {
+  return async (...args: unknown[]) => {
+    const cmd = args[args.length - 1] as Command;
+    const globals = cmd.optsWithGlobals();
+    configureOutput(resolveGlobalOptions(globals));
     try {
-      return await this.run();
+      await handler(args.length > 1 ? (args[args.length - 2] as Record<string, unknown>) : globals, cmd);
     } catch (err) {
-      return this.handleError(err);
+      handleError(err, globals);
+    }
+  };
+}
+
+/**
+ * Variant of `withGlobals` for commands that receive a single positional
+ * argument before the options object.
+ *
+ * Commander calls the action as `(positionalArg, opts, cmd)`.
+ */
+export function withGlobalsPositional(
+  handler: (positional: string, opts: Record<string, unknown>, cmd: Command) => Promise<void>,
+): (...args: unknown[]) => Promise<void> {
+  return async (...args: unknown[]) => {
+    const cmd = args[args.length - 1] as Command;
+    const opts = args[args.length - 2] as Record<string, unknown>;
+    const positional = args[0] as string;
+    const globals = cmd.optsWithGlobals();
+    configureOutput(resolveGlobalOptions(globals));
+    try {
+      await handler(positional, opts, cmd);
+    } catch (err) {
+      handleError(err, globals);
+    }
+  };
+}
+
+/**
+ * Central error handler — formats and exits per global flags.
+ */
+export function handleError(err: unknown, globals: { json?: boolean; debug?: boolean }): never {
+  const error =
+    err instanceof CliError
+      ? err
+      : new CliError(
+          (err as Error).message ?? String(err),
+          'UNKNOWN_ERROR',
+        );
+
+  if (globals.json) {
+    process.stdout.write(JSON.stringify(error.toJSON(), null, 2) + '\n');
+  } else {
+    process.stderr.write(`\x1b[31m\u2717 ${error.message}\x1b[0m\n`);
+    if (globals.debug && error.stack) {
+      process.stderr.write(`\n${error.stack}\n`);
     }
   }
 
-  /**
-   * Resolve global options and configure the output module.
-   */
-  protected configureGlobals(): void {
-    const globalOpts = resolveGlobalOptions({
-      json: this.json,
-      quiet: this.quiet,
-      noColor: this.noColor,
-      debug: this.debug,
-    });
-    configureOutput(globalOpts);
-  }
-
-  /**
-   * Central error handler — formats and exits per global flags.
-   */
-  protected handleError(err: unknown): never {
-    const error =
-      err instanceof CliError
-        ? err
-        : new CliError(
-            (err as Error).message ?? String(err),
-            'UNKNOWN_ERROR',
-          );
-
-    if (this.json) {
-      process.stdout.write(JSON.stringify(error.toJSON(), null, 2) + '\n');
-    } else {
-      process.stderr.write(`\x1b[31m\u2717 ${error.message}\x1b[0m\n`);
-      if (this.debug && error.stack) {
-        process.stderr.write(`\n${error.stack}\n`);
-      }
-    }
-
-    process.exit(error.exitCode);
-  }
+  process.exit(error.exitCode);
 }

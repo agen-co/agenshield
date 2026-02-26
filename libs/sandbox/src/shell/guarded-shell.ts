@@ -266,7 +266,12 @@ TRAPDEBUG() {
 }
 
 # ---- Ensure accessible working directory ----
-cd "$HOME" 2>/dev/null || cd /
+if [[ -n "$AGENSHIELD_HOST_CWD" ]] && [[ -d "$AGENSHIELD_HOST_CWD" ]]; then
+  cd "$AGENSHIELD_HOST_CWD" 2>/dev/null || cd "$HOME" 2>/dev/null || cd /
+else
+  cd "$HOME" 2>/dev/null || cd /
+fi
+unset AGENSHIELD_HOST_CWD
 `;
 }
 

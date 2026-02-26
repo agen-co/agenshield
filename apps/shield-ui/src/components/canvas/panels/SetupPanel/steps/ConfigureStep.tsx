@@ -22,6 +22,22 @@ const MAX_BASE_NAME = 16;
 
 type VersionChoice = 'detected' | 'latest' | 'custom';
 
+interface ConfigCategoryOption {
+  id: string;
+  label: string;
+  description: string;
+  defaultOn: boolean;
+  forced: boolean;
+}
+
+const CONFIG_CATEGORIES: ConfigCategoryOption[] = [
+  { id: 'settings', label: 'Settings', description: 'settings.json (MCP servers, preferences)', defaultOn: true, forced: true },
+  { id: 'plugins', label: 'Plugins', description: 'Installed plugins and marketplace config', defaultOn: true, forced: false },
+  { id: 'memory', label: 'Memory', description: 'Project memory files (MEMORY.md)', defaultOn: true, forced: false },
+  { id: 'statsig', label: 'Feature flags', description: 'Statsig feature flag cache', defaultOn: true, forced: false },
+  { id: 'plans', label: 'Plans', description: 'Plan mode files', defaultOn: false, forced: false },
+];
+
 function deriveDefaultBaseName(targetType: string, targetId: string): string {
   const map: Record<string, string> = {
     'claude-code': 'claude',
@@ -54,11 +70,18 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
   const [versionChoice, setVersionChoice] = useState<VersionChoice>(detectedVersion ? 'detected' : 'latest');
   const [customVersion, setCustomVersion] = useState('');
 
+  // Config copy categories (claude-code targets only)
+  const isClaudeCode = target?.type === 'claude-code';
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(
+    () => new Set(CONFIG_CATEGORIES.filter(c => c.defaultOn).map(c => c.id)),
+  );
+
   useEffect(() => {
     setBaseName(defaultBaseName);
     setTouched(false);
     setVersionChoice(detectedVersion ? 'detected' : 'latest');
     setCustomVersion('');
+    setSelectedCategories(new Set(CONFIG_CATEGORIES.filter(c => c.defaultOn).map(c => c.id)));
   }, [defaultBaseName, detectedVersion]);
 
   if (!target) return null;
@@ -169,6 +192,65 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
         </div>
       </div>
 
+      {/* Config copy categories (claude-code only) */}
+      {isClaudeCode && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={{
+            display: 'block',
+            fontSize: 12,
+            fontWeight: 600,
+            marginBottom: 6,
+            color: theme.palette.text.primary,
+          }}>
+            Host config to copy
+          </label>
+          <div style={{
+            fontSize: 10,
+            marginBottom: 6,
+            color: theme.palette.text.secondary,
+          }}>
+            Select which parts of ~/.claude to copy into the sandbox
+          </div>
+          {CONFIG_CATEGORIES.map((cat) => (
+            <label key={cat.id} style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 6,
+              padding: '3px 0',
+              fontSize: 12,
+              cursor: cat.forced ? 'default' : 'pointer',
+              opacity: cat.forced ? 0.7 : 1,
+            }}>
+              <input
+                type="checkbox"
+                checked={selectedCategories.has(cat.id)}
+                disabled={cat.forced}
+                onChange={() => {
+                  setSelectedCategories(prev => {
+                    const next = new Set(prev);
+                    if (next.has(cat.id)) next.delete(cat.id);
+                    else next.add(cat.id);
+                    return next;
+                  });
+                }}
+                style={{ accentColor: isDark ? '#C0C0C0' : '#333', marginTop: 2 }}
+              />
+              <span>
+                <span style={{ fontWeight: 500 }}>{cat.label}</span>
+                <span style={{
+                  display: 'block',
+                  fontSize: 10,
+                  color: theme.palette.text.secondary,
+                  marginTop: 1,
+                }}>
+                  {cat.description}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+
       {/* Version picker */}
       <div style={{ marginBottom: 16 }}>
         <label style={{
@@ -267,7 +349,7 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <ActionButton onClick={() => onShield(baseName, resolvedVersion)} disabled={!isValid || !isCustomVersionValid}>
+        <ActionButton onClick={() => onShield(baseName, resolvedVersion, isClaudeCode ? Array.from(selectedCategories) : undefined)} disabled={!isValid || !isCustomVersionValid}>
           Shield {target.name}
         </ActionButton>
         <SecondaryButton onClick={onBack}>

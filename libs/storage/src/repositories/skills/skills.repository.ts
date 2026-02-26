@@ -187,12 +187,30 @@ export class SkillsRepository extends BaseRepository {
 
   install(input: CreateSkillInstallationInput): SkillInstallation {
     const data = this.validate(CreateSkillInstallationSchema, input);
+    const effectiveProfileId = data.profileId ?? this.scope?.profileId ?? null;
+
+    // Idempotent: check for existing installation with same version + profile
+    const existing = this.db.prepare(Q.selectInstallationByVersionAndProfile).get({
+      skillVersionId: data.skillVersionId,
+      profileId: effectiveProfileId,
+    }) as DbSkillInstallationRow | undefined;
+
+    if (existing) {
+      const mapped = mapInstallation(existing);
+      // Already active → return as-is
+      if (mapped.status === 'active') return mapped;
+      // Disabled/pending → reactivate
+      const status = data.status ?? 'active';
+      this.db.prepare(Q.updateInstallationStatus).run({ id: existing.id, status, now: this.now() });
+      return { ...mapped, status: status as SkillInstallation['status'] };
+    }
+
     const id = this.generateId();
     const now = this.now();
 
     this.db.prepare(Q.insertInstallation).run({
       id, skillVersionId: data.skillVersionId,
-      profileId: data.profileId ?? this.scope?.profileId ?? null,
+      profileId: effectiveProfileId,
       status: data.status, wrapperPath: data.wrapperPath ?? null,
       autoUpdate: data.autoUpdate !== undefined ? (data.autoUpdate ? 1 : 0) : 1,
       pinnedVersion: data.pinnedVersion ?? null,

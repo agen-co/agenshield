@@ -28,6 +28,7 @@ import { playgroundRoutes } from './playground';
 import { metricsRoutes } from './metrics';
 import { targetLifecycleRoutes } from './target-lifecycle';
 import { logStreamRoutes } from './logs';
+import { binarySignatureRoutes } from './binary-signatures';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 import { registerShieldContext } from '../context';
@@ -133,6 +134,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(metricsRoutes);
       await api.register(targetLifecycleRoutes);
       await api.register(logStreamRoutes);
+      await api.register(binarySignatureRoutes);
     },
     { prefix: API_PREFIX }
   );

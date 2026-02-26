@@ -28,6 +28,7 @@ import { SecretsRepository } from './repositories/secrets';
 import { AlertsRepository } from './repositories/alerts';
 import { PolicySetRepository } from './repositories/policy-set';
 import { MetricsRepository } from './repositories/metrics';
+import { BinarySignatureRepository } from './repositories/binary-signature';
 
 export interface ScopedStorage {
   readonly config: ConfigRepository;
@@ -60,6 +61,7 @@ export class Storage {
   readonly policySets: PolicySetRepository;
   readonly secrets: SecretsRepository;
   readonly metrics: MetricsRepository;
+  readonly binarySignatures: BinarySignatureRepository;
 
   private constructor(db: Database.Database, activityDb: Database.Database) {
     this.db = db;
@@ -80,6 +82,7 @@ export class Storage {
     this.policySets = new PolicySetRepository(db, getKey);
     this.secrets = new SecretsRepository(db, getKey);
     this.metrics = new MetricsRepository(db);
+    this.binarySignatures = new BinarySignatureRepository(db, getKey);
   }
 
   /**

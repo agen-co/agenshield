@@ -9,13 +9,13 @@
  * `agenshield dev shell`: opens interactive shell as the sandboxed agent user.
  */
 
-import { Option } from 'clipanion';
+import type { Command } from 'commander';
 import React from 'react';
 import { render } from 'ink';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync, spawnSync } from 'node:child_process';
-import { BaseCommand } from './base.js';
+import { withGlobals } from './base.js';
 import { ensureSudoAccess } from '../utils/privileges.js';
 import { startDaemon, stopDaemon, getDaemonStatus } from '../utils/daemon.js';
 import { output } from '../utils/output.js';
@@ -374,65 +374,41 @@ async function runDevShell(options: { noDaemon: boolean }): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Command classes
+// Command registration
 // ---------------------------------------------------------------------------
 
-export class DevCommand extends BaseCommand {
-  static override paths = [['dev']];
+export function registerDevCommands(program: Command): void {
+  const dev = program
+    .command('dev')
+    .description('Run AgenShield in dev mode with interactive TUI (requires setup)')
+    .option('--base-name <name>', 'Base name for users/groups (skip mode selection prompt)')
+    .option('--prefix <prefix>', 'Custom prefix (default: dev)')
+    .option('--base-uid <uid>', 'Base UID for users')
+    .option('--no-tui', 'Start daemon without interactive TUI')
+    .action(withGlobals(async (opts) => {
+      ensureSetupComplete();
+      await runDevMode({
+        baseName: opts['baseName'] as string | undefined,
+        prefix: opts['prefix'] as string | undefined,
+        baseUid: opts['baseUid'] ? parseInt(opts['baseUid'] as string, 10) : undefined,
+        tui: opts['tui'] !== false,
+      });
+    }));
 
-  static override usage = BaseCommand.Usage({
-    category: 'Development',
-    description: 'Run AgenShield in dev mode with interactive TUI (requires setup)',
-    examples: [
-      ['Start dev mode', '$0 dev'],
-      ['Start without TUI', '$0 dev --no-tui'],
-    ],
-  });
+  dev
+    .command('clean')
+    .description('Stop daemon, remove dev users/groups, and clean up dev state')
+    .action(withGlobals(async () => {
+      ensureSudoAccess();
+      await runDevClean();
+    }));
 
-  baseName = Option.String('--base-name', { description: 'Base name for users/groups (skip mode selection prompt)' });
-  prefix = Option.String('--prefix', { description: 'Custom prefix (default: dev)' });
-  baseUid = Option.String('--base-uid', { description: 'Base UID for users' });
-  noTui = Option.Boolean('--no-tui', false, { description: 'Start daemon without interactive TUI' });
-
-  async run(): Promise<number | void> {
-    ensureSetupComplete();
-    await runDevMode({
-      baseName: this.baseName,
-      prefix: this.prefix,
-      baseUid: this.baseUid ? parseInt(this.baseUid, 10) : undefined,
-      tui: !this.noTui,
-    });
-  }
-}
-
-export class DevCleanCommand extends BaseCommand {
-  static override paths = [['dev', 'clean']];
-
-  static override usage = BaseCommand.Usage({
-    category: 'Development',
-    description: 'Stop daemon, remove dev users/groups, and clean up dev state',
-    examples: [['Clean dev environment', '$0 dev clean']],
-  });
-
-  async run(): Promise<number | void> {
-    ensureSudoAccess();
-    await runDevClean();
-  }
-}
-
-export class DevShellCommand extends BaseCommand {
-  static override paths = [['dev', 'shell']];
-
-  static override usage = BaseCommand.Usage({
-    category: 'Development',
-    description: 'Open an interactive login shell as the sandboxed agent user',
-    examples: [['Open dev shell', '$0 dev shell']],
-  });
-
-  noDaemon = Option.Boolean('--no-daemon', false, { description: 'Skip automatic daemon start/stop' });
-
-  async run(): Promise<number | void> {
-    ensureSudoAccess();
-    await runDevShell({ noDaemon: this.noDaemon });
-  }
+  dev
+    .command('shell')
+    .description('Open an interactive login shell as the sandboxed agent user')
+    .option('--no-daemon', 'Skip automatic daemon start/stop')
+    .action(withGlobals(async (opts) => {
+      ensureSudoAccess();
+      await runDevShell({ noDaemon: opts['daemon'] === false });
+    }));
 }

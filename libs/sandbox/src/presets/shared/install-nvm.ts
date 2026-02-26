@@ -6,6 +6,7 @@
 
 import type { InstallStep } from '../types.js';
 import { checkedExecAsUserDirect } from './install-helpers.js';
+import { NVM_VERSION } from './versions.js';
 
 export function createInstallNvmStep(): InstallStep {
   return {
@@ -29,7 +30,7 @@ export function createInstallNvmStep(): InstallStep {
     async run(ctx) {
       ctx.onLog('Installing NVM...');
       await checkedExecAsUserDirect(ctx,
-        'export PROFILE=/dev/null METHOD=script && curl -fsSL --retry 3 --retry-delay 2 https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash',
+        `export PROFILE=/dev/null METHOD=script && curl -fsSL --retry 3 --retry-delay 2 https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh | bash`,
         'nvm_install', 60_000);
       return { changed: true };
     },

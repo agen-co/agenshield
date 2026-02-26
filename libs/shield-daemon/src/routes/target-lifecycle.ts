@@ -334,11 +334,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
   /**
    * POST /targets/lifecycle/:targetId/shield — Shield a detected target.
    */
-  app.post<{ Params: { targetId: string }; Body: { baseName?: string; hostUsername?: string; openclawVersion?: string; freshInstall?: boolean } }>(
+  app.post<{ Params: { targetId: string }; Body: { baseName?: string; hostUsername?: string; openclawVersion?: string; freshInstall?: boolean; configCopyCategories?: string[] } }>(
     '/targets/lifecycle/:targetId/shield',
     async (request, reply) => {
       const { targetId } = request.params;
-      const body = (request.body ?? {}) as { baseName?: string; hostUsername?: string; openclawVersion?: string; freshInstall?: boolean };
+      const body = (request.body ?? {}) as { baseName?: string; hostUsername?: string; openclawVersion?: string; freshInstall?: boolean; configCopyCategories?: string[] };
       const executor = app.privilegeExecutor;
 
       if (!executor) {
@@ -499,6 +499,20 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         const agentUser = userConfig.agentUser.username;
         const brokerUser = userConfig.brokerUser.username;
         const groupName = userConfig.groups.socket.name;
+
+        // Kill stale processes for the target agent user from a previous failed shield attempt.
+        // Without this, dozens of orphaned processes can accumulate and interfere with re-shielding.
+        try {
+          await executor.execAsRoot(
+            `ps -u $(id -u ${agentUser} 2>/dev/null) -o pid= 2>/dev/null | xargs kill 2>/dev/null; ` +
+            `sleep 1; ` +
+            `ps -u $(id -u ${agentUser} 2>/dev/null) -o pid= 2>/dev/null | xargs kill -9 2>/dev/null; true`,
+            { timeout: 15_000 },
+          );
+          log(`Killed stale processes for ${agentUser}`, 'cleanup_stale');
+        } catch {
+          // Best-effort — user may not exist yet on first shield
+        }
 
         tracker.startStep('create_socket_group');
         log(`Creating agent user ${agentUser} (UID ${userConfig.agentUser.uid})...`, 'creating_users');
@@ -1033,6 +1047,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             },
             profileBaseName: resolvedBaseName,
             freshInstall: body.freshInstall,
+            configCopyCategories: body.configCopyCategories as import('@agenshield/sandbox').ClaudeConfigCategory[] | undefined,
           });
 
           // Complete the last preset tracker step

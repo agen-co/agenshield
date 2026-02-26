@@ -31,8 +31,8 @@ export class OpenClawDeployAdapter implements DeployAdapter {
     this.createWrappers = options.createWrappers ?? true;
   }
 
-  canDeploy(profileId: string | undefined): boolean {
-    return profileId === undefined || profileId === 'openclaw';
+  canDeploy(_profileId: string | undefined): boolean {
+    return true;
   }
 
   async deploy(context: DeployContext): Promise<DeployResult> {

@@ -1,20 +1,20 @@
 /**
  * CLI Commands
  *
- * Exports all command classes for registration in the main CLI.
+ * Exports all command registration functions for the main CLI.
  */
 
-export { SetupCommand } from './setup.js';
-export { StatusCommand } from './status.js';
-export { DoctorCommand } from './doctor.js';
-export { UninstallCommand } from './uninstall.js';
-export { DevCommand, DevCleanCommand, DevShellCommand } from './dev.js';
-export { StartCommand } from './start.js';
-export { StopCommand } from './stop.js';
-export { UpgradeCommand } from './upgrade.js';
-export { InstallCommand } from './install.js';
-export { LogsCommand } from './logs.js';
-export { ExecCommand } from './exec.js';
-export { AuthHelpCommand, AuthTokenUiCommand, AuthTokenBrokerCommand } from './auth-cmd.js';
-export { CompletionCommand } from './completion.js';
-export { BaseCommand } from './base.js';
+export { registerSetupCommand } from './setup.js';
+export { registerStatusCommand } from './status.js';
+export { registerDoctorCommand } from './doctor.js';
+export { registerUninstallCommand } from './uninstall.js';
+export { registerDevCommands } from './dev.js';
+export { registerStartCommand } from './start.js';
+export { registerStopCommand } from './stop.js';
+export { registerUpgradeCommand } from './upgrade.js';
+export { registerInstallCommand } from './install.js';
+export { registerLogsCommand } from './logs.js';
+export { registerExecCommand } from './exec.js';
+export { registerAuthCommands } from './auth-cmd.js';
+export { registerCompletionCommand } from './completion.js';
+export { withGlobals, withGlobalsPositional, handleError } from './base.js';

@@ -7,6 +7,7 @@
 
 import type { InstallContext } from '../types.js';
 import { InstallError, HomebrewInstallError } from '../../errors.js';
+import { HOMEBREW_VERSION } from './versions.js';
 
 /**
  * Execute a command as root, throwing InstallError on failure.
@@ -132,14 +133,16 @@ export async function installHomebrew(ctx: InstallContext): Promise<void> {
       await checkedExecAsUserDirect(ctx, [
         `cd "${ctx.agentHome}/homebrew"`,
         'set -o pipefail',
-        'curl -fsSL --retry 3 --retry-delay 2 https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1',
+        `curl -fsSL --retry 3 --retry-delay 2 https://github.com/Homebrew/brew/archive/refs/tags/${HOMEBREW_VERSION}.tar.gz | tar xz --strip 1`,
       ].join(' && '), 'homebrew_download', 120_000);
 
-      // Phase 2: Verify — suppress auto-update to avoid network calls
+      // Phase 2: Verify — suppress auto-update to avoid network calls.
+      // Redirect stderr to stdout (2>&1) so the privilege helper captures both
+      // streams — without this, brew errors go to stderr and are lost.
       await checkedExecAsUserDirect(ctx, [
         'HOMEBREW_NO_AUTO_UPDATE=1',
         'HOMEBREW_NO_INSTALL_FROM_API=1',
-        `"${ctx.agentHome}/homebrew/bin/brew" --version`,
+        `"${ctx.agentHome}/homebrew/bin/brew" --version 2>&1`,
       ].join(' '), 'homebrew_verify', 30_000);
 
       ctx.onLog('Homebrew installed successfully.');

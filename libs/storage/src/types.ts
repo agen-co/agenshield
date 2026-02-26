@@ -249,3 +249,15 @@ export interface DbMetaRow {
   key: string;
   value: string;
 }
+
+export interface DbBinarySignatureRow {
+  id: string;
+  sha256: string;
+  package_name: string;
+  version: string | null;
+  platform: string | null;
+  source: string;
+  metadata: string | null;
+  created_at: string;
+  updated_at: string;
+}

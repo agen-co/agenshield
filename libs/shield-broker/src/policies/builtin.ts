@@ -133,7 +133,7 @@ export const BuiltinPolicies: PolicyRule[] = [
     target: 'command',
     operations: ['exec'],
     patterns: [
-      'node:*', 'node-bin:*', 'npm:*', 'npx:*', 'openclaw:*',
+      'node:*', 'node.real:*', 'node-bin:*', 'npm:*', 'npx:*', 'openclaw:*',
       'git:*', 'curl:*',
       'ls:*', 'cat:*', 'head:*', 'tail:*',
       'grep:*', 'find:*', 'which:*',

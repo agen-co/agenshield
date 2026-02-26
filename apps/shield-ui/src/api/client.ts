@@ -7,6 +7,8 @@ import type {
   GetConfigResponse,
   UpdateConfigResponse,
   UpdateConfigRequest,
+  ApiResponse,
+  PolicyConfig,
   SkillAnalysis,
   SystemBinary,
   DiscoveryResult,
@@ -194,6 +196,30 @@ export const api = {
     request<UpdateConfigResponse>('/config', {
       method: 'PUT',
       body: JSON.stringify(data),
+    }),
+
+  // Individual policy CRUD
+  createPolicy: (data: PolicyConfig) =>
+    request<ApiResponse<PolicyConfig>>('/config/policies', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updatePolicy: (id: string, data: Record<string, unknown>) =>
+    request<ApiResponse<PolicyConfig>>(`/config/policies/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deletePolicy: (id: string) =>
+    request<ApiResponse<{ deleted: boolean }>>(`/config/policies/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  togglePolicy: (id: string, enabled: boolean) =>
+    request<ApiResponse<PolicyConfig>>(`/config/policies/${encodeURIComponent(id)}/toggle`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
     }),
 
   // Skills endpoints

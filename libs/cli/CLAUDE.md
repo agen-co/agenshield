@@ -4,32 +4,39 @@ This document provides guidance for Claude and other AI assistants working on th
 
 ## Architecture Overview
 
-The CLI uses [Clipanion v4](https://mael.dev/clipanion/) for class-based command routing and argument parsing. Each command is a class extending `BaseCommand`, which handles global options, output configuration, and error handling.
+The CLI uses [Commander.js](https://github.com/tj/commander.js/) for command routing and argument parsing. Each command file exports a `register*Command(program)` function that registers the command on the root Commander program. Global options and error handling are provided by `withGlobals()` and `handleError()` from `base.ts`.
 
 ### Directory Structure
 
 ```
 libs/cli/
 ├── src/
-│   ├── cli.ts              # Main entry point - creates Cli instance and registers commands
+│   ├── cli.ts              # Main entry point - creates Commander program and registers commands
 │   ├── index.ts            # Library exports
 │   ├── errors.ts           # Typed CLI error classes (CliError, UsageError, etc.)
 │   ├── commands/           # Command definitions (one file per command)
-│   │   ├── index.ts        # Exports all command classes
-│   │   ├── base.ts         # Abstract BaseCommand with global options + error handling
-│   │   ├── start.ts        # StartCommand
-│   │   ├── stop.ts         # StopCommand
-│   │   ├── upgrade.ts      # UpgradeCommand
-│   │   ├── setup.ts        # SetupCommand
-│   │   ├── status.ts       # StatusCommand
-│   │   ├── doctor.ts       # DoctorCommand
-│   │   ├── uninstall.ts    # UninstallCommand
-│   │   ├── install.ts      # InstallCommand
-│   │   ├── dev.ts          # DevCommand, DevCleanCommand, DevShellCommand
-│   │   ├── logs.ts         # LogsCommand
-│   │   ├── exec.ts         # ExecCommand
-│   │   ├── auth-cmd.ts     # AuthHelpCommand, AuthTokenUiCommand, AuthTokenBrokerCommand
-│   │   └── completion.ts   # CompletionCommand
+│   │   ├── index.ts        # Exports all register functions + withGlobals/handleError
+│   │   ├── base.ts         # withGlobals() HOF + handleError() utility
+│   │   ├── start.ts        # registerStartCommand
+│   │   ├── stop.ts         # registerStopCommand
+│   │   ├── upgrade.ts      # registerUpgradeCommand
+│   │   ├── setup.ts        # registerSetupCommand
+│   │   ├── status.ts       # registerStatusCommand
+│   │   ├── doctor.ts       # registerDoctorCommand
+│   │   ├── uninstall.ts    # registerUninstallCommand
+│   │   ├── install.ts      # registerInstallCommand
+│   │   ├── dev.ts          # registerDevCommands (dev, dev clean, dev shell)
+│   │   ├── logs.ts         # registerLogsCommand
+│   │   ├── exec.ts         # registerExecCommand
+│   │   ├── auth-cmd.ts     # registerAuthCommands (auth, auth token ui, auth token broker)
+│   │   └── completion.ts   # registerCompletionCommand
+│   ├── prompts/            # Interactive prompt helpers
+│   │   ├── index.ts        # Barrel exports
+│   │   ├── ink-select.tsx   # Single-select (arrow keys)
+│   │   ├── ink-multiselect.tsx # Multi-select (checkboxes)
+│   │   ├── ink-input.tsx    # Text input
+│   │   ├── ink-browser-link.tsx # Browser link with auto-open
+│   │   └── readline-fallback.ts # Non-TTY fallbacks
 │   ├── utils/              # Shared utilities
 │   │   ├── output.ts       # Centralized output formatting (respects --json, --quiet, --no-color)
 │   │   ├── globals.ts      # GlobalOptions interface and resolver
@@ -52,74 +59,79 @@ libs/cli/
 
 ## Command Structure Pattern
 
-Each command is a class extending `BaseCommand`:
+Each command file exports a `register*Command(program)` function:
 
 ```typescript
-import { Option } from 'clipanion';
-import { BaseCommand } from './base.js';
+import type { Command } from 'commander';
+import { withGlobals } from './base.js';
 
-export class MyCommand extends BaseCommand {
-  static override paths = [['my-command']];
-
-  static override usage = BaseCommand.Usage({
-    category: 'Category Name',
-    description: 'What this command does',
-    examples: [['Example description', '$0 my-command --flag']],
-  });
-
-  // Options as class properties
-  flag = Option.Boolean('-f,--flag', false, { description: 'Option description' });
-  name = Option.String('--name', { description: 'A string option' });
-  target = Option.String({ required: true, name: 'target' }); // positional
-
-  async run(): Promise<number | void> {
-    // Command implementation
-    // Access options via this.flag, this.name, this.target
-    // Global options: this.json, this.quiet, this.noColor, this.debug
-  }
+export function registerMyCommand(program: Command): void {
+  program
+    .command('my-command')
+    .description('What this command does')
+    .option('-f, --flag', 'Option description', false)
+    .option('--name <name>', 'A string option')
+    .action(withGlobals(async (opts) => {
+      // Command implementation
+      // Access options via opts['flag'], opts['name']
+      // Global options available via opts (merged with .optsWithGlobals())
+    }));
 }
 ```
 
-### BaseCommand
+For commands with positional arguments, use `withGlobalsPositional`:
 
-All commands extend `BaseCommand` which provides:
-- **Global options**: `--json`, `-q/--quiet`, `--no-color`, `--debug` as typed class properties
-- **`execute()`**: Calls `configureGlobals()` → `run()` → `handleError(err)` on failure
-- **`configureGlobals()`**: Wires up `output.ts` before the command runs
-- **`handleError(err)`**: Formats errors per `--json` / `--debug`, exits with proper code
+```typescript
+import { withGlobalsPositional } from './base.js';
+
+export function registerExecCommand(program: Command): void {
+  program
+    .command('exec')
+    .argument('<target>', 'Target name')
+    .action(withGlobalsPositional(async (target, opts) => {
+      // target is the positional arg string
+    }));
+}
+```
+
+### withGlobals() and handleError()
+
+`withGlobals(handler)` wraps Commander action handlers to:
+- Resolve global options (`--json`, `--quiet`, `--no-color`, `--debug`) via `.optsWithGlobals()`
+- Configure the output module before the handler runs
+- Catch errors and route them through `handleError()`
+
+`handleError(err, globals)` formats errors per `--json` / `--debug` and exits with the proper code.
 
 ### Subcommands
 
-For commands with subcommands, use separate classes with multi-segment paths:
+Commander handles subcommands via nesting:
 
 ```typescript
-// `agenshield auth` — show help
-export class AuthHelpCommand extends BaseCommand {
-  static override paths = [['auth']];
-  async run() { this.context.stdout.write(this.cli.usage(AuthHelpCommand, { detailed: true })); }
-}
+export function registerDevCommands(program: Command): void {
+  const dev = program
+    .command('dev')
+    .description('Dev mode')
+    .action(withGlobals(async (opts) => { /* main dev command */ }));
 
-// `agenshield auth token ui`
-export class AuthTokenUiCommand extends BaseCommand {
-  static override paths = [['auth', 'token', 'ui']];
-  async run() { /* ... */ }
+  dev.command('clean')
+    .description('Clean dev environment')
+    .action(withGlobals(async () => { /* clean subcommand */ }));
+
+  dev.command('shell')
+    .description('Open agent shell')
+    .option('--no-daemon', 'Skip daemon')
+    .action(withGlobals(async (opts) => { /* shell subcommand */ }));
 }
 ```
-
-### Categories
-
-Commands are grouped by category in help output:
-- **Setup & Maintenance**: install, setup, doctor, uninstall, completion
-- **Daemon**: start, stop, upgrade, status
-- **Development**: dev, dev clean, dev shell, exec, logs
-- **Authentication**: auth, auth token ui, auth token broker
 
 ## Adding a New Command
 
 1. Create a new file in `src/commands/<name>.ts`
-2. Define a class extending `BaseCommand` with `static paths`, `static usage`, and `async run()`
-3. Export the class from `src/commands/index.ts`
-4. Register the class in `src/cli.ts`: `cli.register(MyCommand);`
+2. Export a `register<Name>Command(program: Command)` function
+3. Use `withGlobals()` or `withGlobalsPositional()` to wrap the action handler
+4. Export from `src/commands/index.ts`
+5. Import and call in `src/cli.ts`: `registerMyCommand(program);`
 
 ## Spinners
 
@@ -144,10 +156,8 @@ Commands requiring root privileges should use `ensureSudoAccess()`:
 ```typescript
 import { ensureSudoAccess } from '../utils/privileges.js';
 
-async run() {
-  ensureSudoAccess();
-  // ... proceed with privileged operation
-}
+ensureSudoAccess();
+// ... proceed with privileged operation
 ```
 
 ## Error Handling
@@ -162,7 +172,18 @@ throw new SetupRequiredError();
 throw new DaemonNotRunningError();
 ```
 
-`BaseCommand.handleError()` catches these and formats output per `--json`/`--debug`.
+`handleError()` catches these and formats output per `--json`/`--debug`.
+
+## Interactive Prompts
+
+The `prompts/` directory provides Ink-based interactive components with readline fallbacks:
+
+- `inkSelect(options, config?)` — Single-select with arrow keys
+- `inkMultiSelect(options, config?)` — Multi-select with checkboxes (Space to toggle, 'a' for all)
+- `inkInput(config)` — Text input
+- `inkBrowserLink(config)` — Browser link with auto-open offer
+
+All fall back to readline when not in an interactive TTY.
 
 ## Environment Variables
 
@@ -178,14 +199,14 @@ throw new DaemonNotRunningError();
 
 ## Dependencies
 
-- `clipanion` - Class-based CLI framework (zero runtime deps)
+- `commander` - Command routing and argument parsing
 - `ora` - Terminal spinners
-- `ink`, `react` - Interactive CLI components (dev TUI, setup wizard)
+- `ink`, `react` - Interactive CLI components (dev TUI, setup wizard, prompts)
 - `@agenshield/sandbox` - Sandbox operations
 - `@agenshield/ipc` - IPC types and schemas
 
 ## Related Documentation
 
-- [Clipanion Documentation](https://mael.dev/clipanion/)
+- [Commander.js Documentation](https://github.com/tj/commander.js/)
 - [Ink Documentation](https://github.com/vadimdemedes/ink)
 - [Project Architecture](/docs/architecture.md)

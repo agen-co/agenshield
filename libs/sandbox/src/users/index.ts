@@ -23,6 +23,8 @@ export {
   ASH_PREFIX,
   isAgenshieldUser,
   listAgenshieldUsers,
+  discoverOrphanedEntities,
   type CreateResult,
   type AgenshieldUserMeta,
+  type OrphanedEntity,
 } from './users.js';

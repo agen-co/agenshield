@@ -63,6 +63,13 @@ export const Q = {
     VALUES (@id, @skillVersionId, @profileId, @status, @wrapperPath, @autoUpdate, @pinnedVersion, @installedAt, @updatedAt)`,
 
   selectInstallationById: `SELECT * FROM ${INSTALLATIONS} WHERE id = ?`,
+
+  selectInstallationByVersionAndProfile: `
+    SELECT * FROM ${INSTALLATIONS}
+    WHERE skill_version_id = @skillVersionId
+      AND (profile_id = @profileId OR (profile_id IS NULL AND @profileId IS NULL))
+    LIMIT 1`,
+
   deleteInstallation: `DELETE FROM ${INSTALLATIONS} WHERE id = ?`,
   updateInstallationStatus: `UPDATE ${INSTALLATIONS} SET status = @status, updated_at = @now WHERE id = @id`,
 

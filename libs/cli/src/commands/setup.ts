@@ -9,9 +9,9 @@
  * Options `--mode` and `--cloud-url` allow skipping prompts for CI / scripting.
  */
 
-import { Option } from 'clipanion';
+import type { Command } from 'commander';
 import * as os from 'node:os';
-import { BaseCommand } from './base.js';
+import { withGlobals } from './base.js';
 import {
   getDaemonStatus,
   startDaemon,
@@ -213,72 +213,62 @@ async function runCloudSetup(options: { cloudUrl: string }): Promise<void> {
 // Command definition
 // ---------------------------------------------------------------------------
 
-export class SetupCommand extends BaseCommand {
-  static override paths = [['setup']];
-
-  static override usage = BaseCommand.Usage({
-    category: 'Setup & Maintenance',
-    description: 'Set up AgenShield (interactive guided flow)',
-    examples: [
-      ['Run interactive setup', '$0 setup'],
-      ['Setup in local mode (skip prompt)', '$0 setup --mode local'],
-      ['Setup in cloud mode (skip prompt)', '$0 setup --mode cloud'],
-    ],
-  });
-
-  mode = Option.String('--mode', { description: 'Skip mode prompt: "local" or "cloud"' });
-  cloudUrl = Option.String('--cloud-url', { description: 'Cloud API URL (skips prompt, implies --mode cloud)' });
-
-  async run(): Promise<number | void> {
-    output.info('');
-    output.info(`  ${output.bold('Welcome to AgenShield Setup')}`);
-    output.info('');
-
-    const existing = readSetupState();
-    if (existing) {
-      output.info(`  ${output.dim(`Previously set up in ${existing.mode} mode (${existing.completedAt})`)}`);
+export function registerSetupCommand(program: Command): void {
+  program
+    .command('setup')
+    .description('Set up AgenShield (interactive guided flow)')
+    .option('--mode <mode>', 'Skip mode prompt: "local" or "cloud"')
+    .option('--cloud-url <url>', 'Cloud API URL (skips prompt, implies --mode cloud)')
+    .action(withGlobals(async (opts) => {
       output.info('');
-    }
+      output.info(`  ${output.bold('Welcome to AgenShield Setup')}`);
+      output.info('');
 
-    // Determine mode: from flag, from --cloud-url, or interactively
-    let mode: string;
-
-    if (this.cloudUrl) {
-      mode = 'cloud';
-    } else if (this.mode) {
-      mode = this.mode;
-    } else {
-      const selected = await inkSelect([
-        { label: 'Local', value: 'local' as const, description: 'Run AgenShield locally on this machine' },
-        { label: 'Cloud', value: 'cloud' as const, description: 'Connect to AgenShield Cloud for centralized management' },
-      ], { title: 'Choose Setup Mode' });
-      if (!selected) {
-        output.info('Setup cancelled.');
-        return;
+      const existing = readSetupState();
+      if (existing) {
+        output.info(`  ${output.dim(`Previously set up in ${existing.mode} mode (${existing.completedAt})`)}`);
+        output.info('');
       }
-      mode = selected;
-    }
 
-    if (mode === 'local') {
-      await runLocalSetup();
-    } else if (mode === 'cloud') {
-      // Determine cloud URL: from flag or interactively
-      let cloudUrl: string;
-      if (this.cloudUrl) {
-        cloudUrl = this.cloudUrl;
+      // Determine mode: from flag, from --cloud-url, or interactively
+      let mode: string;
+
+      if (opts['cloudUrl']) {
+        mode = 'cloud';
+      } else if (opts['mode']) {
+        mode = opts['mode'] as string;
       } else {
-        const inputUrl = await inkInput({ prompt: 'Cloud URL', defaultValue: CLOUD_CONFIG.url });
-        if (inputUrl === null) {
+        const selected = await inkSelect([
+          { label: 'Local', value: 'local' as const, description: 'Run AgenShield locally on this machine' },
+          { label: 'Cloud', value: 'cloud' as const, description: 'Connect to AgenShield Cloud for centralized management' },
+        ], { title: 'Choose Setup Mode' });
+        if (!selected) {
           output.info('Setup cancelled.');
           return;
         }
-        cloudUrl = inputUrl;
+        mode = selected;
       }
 
-      await runCloudSetup({ cloudUrl });
-    } else {
-      output.error(`Unknown mode: "${mode}". Use "local" or "cloud".`);
-      process.exitCode = 2;
-    }
-  }
+      if (mode === 'local') {
+        await runLocalSetup();
+      } else if (mode === 'cloud') {
+        // Determine cloud URL: from flag or interactively
+        let cloudUrl: string;
+        if (opts['cloudUrl']) {
+          cloudUrl = opts['cloudUrl'] as string;
+        } else {
+          const inputUrl = await inkInput({ prompt: 'Cloud URL', defaultValue: CLOUD_CONFIG.url });
+          if (inputUrl === null) {
+            output.info('Setup cancelled.');
+            return;
+          }
+          cloudUrl = inputUrl;
+        }
+
+        await runCloudSetup({ cloudUrl });
+      } else {
+        output.error(`Unknown mode: "${mode}". Use "local" or "cloud".`);
+        process.exitCode = 2;
+      }
+    }));
 }

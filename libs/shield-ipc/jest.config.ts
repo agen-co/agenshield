@@ -14,7 +14,9 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
   moduleNameMapper: {
+    '^@agenshield/ipc$': '<rootDir>/src/index.ts',
     '^(.*)\\.js$': '$1',
   },
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
+  modulePathIgnorePatterns: ['<rootDir>/dist'],
 };

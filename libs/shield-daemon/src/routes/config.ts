@@ -14,7 +14,7 @@ import type {
   ApiResponse,
 } from '@agenshield/ipc';
 import { AGENCO_PRESET, getPresetById } from '@agenshield/ipc';
-import { loadConfig, loadScopedConfig, updateConfig, updateScopedConfig, saveConfig, getDefaultConfig } from '../config/index';
+import { loadConfig, loadScopedConfig, updateConfig, updateScopedConfig, saveConfig, getDefaultConfig, clearConfigCache } from '../config/index';
 import { getStorage } from '@agenshield/storage';
 import { getDefaultState, loadState, saveState } from '../state/index';
 import { getVault } from '../vault';
@@ -56,6 +56,32 @@ function getKnownSkillNames(app: FastifyInstance): Set<string> {
   const names = new Set<string>();
   for (const s of repo.getAll()) names.add(s.slug);
   return names;
+}
+
+/**
+ * Sync policy enforcement after any policy change (ACLs, wrappers, secrets, OpenClaw, instructions).
+ */
+async function syncPoliciesAfterChange(
+  app: FastifyInstance,
+  oldPolicies: PolicyConfig[],
+  newPolicies: PolicyConfig[],
+): Promise<void> {
+  const state = loadState();
+  const agentUsername = getAgentUsername();
+  if (agentUsername) {
+    syncFilesystemPolicyAcls(oldPolicies, newPolicies, agentUsername, app.log);
+  }
+  syncCommandPoliciesAndWrappers(newPolicies, state, app.log);
+  syncSecrets(newPolicies, app.log).catch(() => { /* non-fatal */ });
+  syncOpenClawFromPolicies(newPolicies);
+
+  try {
+    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const instructionsPath = path.join(agentHome, '.openclaw', 'policy-instructions.md');
+    const markdown = generatePolicyMarkdown(newPolicies, getKnownSkillNames(app));
+    fs.mkdirSync(path.dirname(instructionsPath), { recursive: true });
+    fs.writeFileSync(instructionsPath, markdown, 'utf-8');
+  } catch { /* non-fatal */ }
 }
 
 export async function configRoutes(app: FastifyInstance): Promise<void> {
@@ -122,36 +148,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
 
         // Sync policies to system enforcement
         if (request.body.policies) {
-          const state = loadState();
-
-          // Filesystem ACLs
-          const agentUsername = getAgentUsername();
-          if (agentUsername) {
-            syncFilesystemPolicyAcls(oldPolicies, updated.policies, agentUsername, app.log);
-          } else {
-            app.log.warn('[config] No agent user found in state or environment — filesystem ACL sync skipped');
-          }
-
-          // Command allowlist + wrappers
-          syncCommandPoliciesAndWrappers(updated.policies, state, app.log);
-
-          // Sync secrets to broker (policy bindings may have changed)
-          syncSecrets(updated.policies, app.log).catch(() => { /* non-fatal */ });
-
-          // Sync openclaw.json (allowBundled, load.watch, strip env/install)
-          syncOpenClawFromPolicies(updated.policies);
-        }
-
-        // Auto-generate policy instructions Markdown for OpenClaw
-        try {
-          const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-          const instructionsPath = path.join(agentHome, '.openclaw', 'policy-instructions.md');
-          const markdown = generatePolicyMarkdown(updated.policies, getKnownSkillNames(app));
-          fs.mkdirSync(path.dirname(instructionsPath), { recursive: true });
-          fs.writeFileSync(instructionsPath, markdown, 'utf-8');
-          app.log.info(`[config] wrote policy instructions to ${instructionsPath}`);
-        } catch {
-          // Non-fatal: instructions file write failed (dev mode, permissions, etc.)
+          await syncPoliciesAfterChange(app, oldPolicies, updated.policies);
         }
 
         return {
@@ -401,6 +398,208 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
           success: false,
           error: {
             code: 'MANAGED_POLICY_SYNC_FAILED',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          },
+        };
+      }
+    },
+  );
+
+  // ── Individual policy CRUD (non-managed) ────────────────────────────
+
+  /**
+   * POST /config/policies — Create a policy.
+   * Scope auto-assigns tier: global (no profile) or target (profile-scoped).
+   */
+  app.post<{ Body: PolicyConfig }>(
+    '/config/policies',
+    async (request): Promise<ApiResponse<PolicyConfig>> => {
+      try {
+        if ((request.body as PolicyConfig).tier === 'managed') {
+          return {
+            success: false,
+            error: { code: 'INVALID_TIER', message: 'Use /config/policies/managed for managed policies' },
+          };
+        }
+
+        const profileId = request.shieldContext?.profileId ?? null;
+        const storage = getStorage();
+        const repo = storage.for({ profileId }).policies;
+
+        const oldPolicies = repo.getAll();
+        const created = repo.create(request.body);
+        clearConfigCache();
+        const newPolicies = repo.getAll();
+
+        await syncPoliciesAfterChange(app, oldPolicies, newPolicies);
+        return { success: true, data: created };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'POLICY_CREATE_FAILED',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /config/policies/:id — Update a policy (non-managed, non-preset).
+   */
+  app.put<{ Params: { id: string }; Body: Record<string, unknown> }>(
+    '/config/policies/:id',
+    async (request): Promise<ApiResponse<PolicyConfig>> => {
+      try {
+        const storage = getStorage();
+        const existing = storage.for({ profileId: null }).policies.getById(request.params.id);
+        if (!existing) {
+          return {
+            success: false,
+            error: { code: 'NOT_FOUND', message: 'Policy not found' },
+          };
+        }
+        if (existing.tier === 'managed') {
+          return {
+            success: false,
+            error: { code: 'INVALID_TIER', message: 'Use /config/policies/managed for managed policies' },
+          };
+        }
+        if (existing.preset) {
+          return {
+            success: false,
+            error: { code: 'PRESET_PROTECTED', message: 'Preset policies cannot be modified' },
+          };
+        }
+
+        const profileId = request.shieldContext?.profileId ?? null;
+        const repo = storage.for({ profileId }).policies;
+        const oldPolicies = repo.getAll();
+
+        const updated = repo.update(
+          request.params.id,
+          request.body as import('@agenshield/storage').UpdatePolicyInput,
+        );
+        if (!updated) {
+          return {
+            success: false,
+            error: { code: 'UPDATE_FAILED', message: 'Failed to update policy' },
+          };
+        }
+
+        clearConfigCache();
+        const newPolicies = repo.getAll();
+        await syncPoliciesAfterChange(app, oldPolicies, newPolicies);
+        return { success: true, data: updated };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'POLICY_UPDATE_FAILED',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * DELETE /config/policies/:id — Delete a policy (non-managed, non-preset).
+   */
+  app.delete<{ Params: { id: string } }>(
+    '/config/policies/:id',
+    async (request): Promise<ApiResponse<{ deleted: boolean }>> => {
+      try {
+        const storage = getStorage();
+        const existing = storage.for({ profileId: null }).policies.getById(request.params.id);
+        if (!existing) {
+          return {
+            success: false,
+            error: { code: 'NOT_FOUND', message: 'Policy not found' },
+          };
+        }
+        if (existing.tier === 'managed') {
+          return {
+            success: false,
+            error: { code: 'INVALID_TIER', message: 'Use /config/policies/managed for managed policies' },
+          };
+        }
+        if (existing.preset) {
+          return {
+            success: false,
+            error: { code: 'PRESET_PROTECTED', message: 'Preset policies cannot be deleted' },
+          };
+        }
+
+        const profileId = request.shieldContext?.profileId ?? null;
+        const repo = storage.for({ profileId }).policies;
+        const oldPolicies = repo.getAll();
+
+        const deleted = repo.delete(request.params.id);
+        clearConfigCache();
+        const newPolicies = repo.getAll();
+        await syncPoliciesAfterChange(app, oldPolicies, newPolicies);
+
+        return { success: true, data: { deleted } };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'POLICY_DELETE_FAILED',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          },
+        };
+      }
+    },
+  );
+
+  /**
+   * PUT /config/policies/:id/toggle — Toggle a policy's enabled state.
+   */
+  app.put<{ Params: { id: string }; Body: { enabled: boolean } }>(
+    '/config/policies/:id/toggle',
+    async (request): Promise<ApiResponse<PolicyConfig>> => {
+      try {
+        const storage = getStorage();
+        const existing = storage.for({ profileId: null }).policies.getById(request.params.id);
+        if (!existing) {
+          return {
+            success: false,
+            error: { code: 'NOT_FOUND', message: 'Policy not found' },
+          };
+        }
+        if (existing.tier === 'managed') {
+          return {
+            success: false,
+            error: { code: 'INVALID_TIER', message: 'Managed policies cannot be toggled via this endpoint' },
+          };
+        }
+
+        const profileId = request.shieldContext?.profileId ?? null;
+        const repo = storage.for({ profileId }).policies;
+        const oldPolicies = repo.getAll();
+
+        const updated = repo.update(
+          request.params.id,
+          { enabled: request.body.enabled } as import('@agenshield/storage').UpdatePolicyInput,
+        );
+        if (!updated) {
+          return {
+            success: false,
+            error: { code: 'UPDATE_FAILED', message: 'Failed to toggle policy' },
+          };
+        }
+
+        clearConfigCache();
+        const newPolicies = repo.getAll();
+        await syncPoliciesAfterChange(app, oldPolicies, newPolicies);
+        return { success: true, data: updated };
+      } catch (error) {
+        return {
+          success: false,
+          error: {
+            code: 'POLICY_TOGGLE_FAILED',
             message: error instanceof Error ? error.message : 'Unknown error',
           },
         };

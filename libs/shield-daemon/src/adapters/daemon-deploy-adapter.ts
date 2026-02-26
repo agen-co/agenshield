@@ -15,7 +15,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { execSync } from 'node:child_process';
-import type { Skill, SkillVersion, SkillFile, SkillInstallation } from '@agenshield/ipc';
+import type { Skill, SkillVersion, SkillFile, SkillInstallation, Profile } from '@agenshield/ipc';
 import { AGENCO_PRESET } from '@agenshield/ipc';
 import { stripEnvFromSkillMd } from '@agenshield/sandbox';
 import type { DeployAdapter, DeployContext, DeployResult, IntegrityCheckResult } from '@agentshield/skills';
@@ -37,6 +37,12 @@ import {
 import { injectInstallationTag } from '../services/skill-tag-injector';
 import { loadConfig, updateConfig } from '../config';
 import { syncCommandPolicies } from '../command-sync';
+import { getPolicyManager, hasPolicyManager } from '../services/policy-manager';
+
+/** Minimal profile lookup interface (avoids importing the full repository class) */
+export interface ProfileLookup {
+  getById(id: string): Profile | null;
+}
 
 export interface DaemonDeployAdapterOptions {
   /** Directory where skill files are deployed */
@@ -49,6 +55,8 @@ export interface DaemonDeployAdapterOptions {
   binDir: string;
   /** When true, skip broker/sudo/chown and use plain fs operations */
   devMode?: boolean;
+  /** Profile repository for per-target socket resolution */
+  profiles?: ProfileLookup;
 }
 
 export class DaemonDeployAdapter implements DeployAdapter {
@@ -60,6 +68,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
   private readonly socketGroup: string;
   private readonly binDir: string;
   private readonly devMode: boolean;
+  private readonly profiles?: ProfileLookup;
 
   constructor(options: DaemonDeployAdapterOptions) {
     this.skillsDir = options.skillsDir;
@@ -67,10 +76,11 @@ export class DaemonDeployAdapter implements DeployAdapter {
     this.socketGroup = options.socketGroup;
     this.binDir = options.binDir;
     this.devMode = options.devMode ?? false;
+    this.profiles = options.profiles;
   }
 
-  canDeploy(profileId: string | undefined): boolean {
-    return profileId === undefined || profileId === 'daemon' || profileId === 'openclaw';
+  canDeploy(_profileId: string | undefined): boolean {
+    return true;
   }
 
   async deploy(context: DeployContext): Promise<DeployResult> {
@@ -91,13 +101,14 @@ export class DaemonDeployAdapter implements DeployAdapter {
       }
       this.createDevWrapper(skill.slug);
     } else {
-      const brokerAvailable = await isBrokerAvailable();
+      const targetSocket = this.resolveSocketForProfile(context.installation.profileId);
+      const brokerAvailable = await isBrokerAvailable(targetSocket);
 
       if (brokerAvailable) {
         const brokerResult = await installSkillViaBroker(
           skill.slug,
           processedFiles.map((f) => ({ name: f.relativePath, content: f.content })),
-          { createWrapper: true, agentHome: this.agentHome, socketGroup: this.socketGroup },
+          { createWrapper: true, agentHome: this.agentHome, socketGroup: this.socketGroup, socketPath: targetSocket },
         );
         if (!brokerResult.installed) {
           throw new Error('Broker failed to install skill files');
@@ -157,7 +168,12 @@ export class DaemonDeployAdapter implements DeployAdapter {
       this.applyPresetPolicies(version);
     }
 
-    // 5. Compute deployed hash
+    // 5. Recompile so the interceptor's policy checks see the new allow rules
+    if (hasPolicyManager()) {
+      getPolicyManager().recompile();
+    }
+
+    // 6. Compute deployed hash
     const deployedHash = this.computeDeployedHash(destDir, processedFiles);
 
     return {
@@ -178,12 +194,14 @@ export class DaemonDeployAdapter implements DeployAdapter {
       }
       removeSkillWrapper(skill.slug, this.binDir);
     } else {
-      const brokerAvailable = await isBrokerAvailable();
+      const targetSocket = this.resolveSocketForProfile(installation.profileId);
+      const brokerAvailable = await isBrokerAvailable(targetSocket);
       if (brokerAvailable) {
         try {
           await uninstallSkillViaBroker(skill.slug, {
             removeWrapper: true,
             agentHome: this.agentHome,
+            socketPath: targetSocket,
           });
         } catch {
           // Fallback to direct removal
@@ -215,6 +233,11 @@ export class DaemonDeployAdapter implements DeployAdapter {
         updateConfig({ policies: filtered });
         syncCommandPolicies(filtered);
       }
+    }
+
+    // 5. Recompile so removed policies are no longer in the compiled engine
+    if (hasPolicyManager()) {
+      getPolicyManager().recompile();
     }
   }
 
@@ -264,6 +287,19 @@ export class DaemonDeployAdapter implements DeployAdapter {
   }
 
   // ─── Private Helpers ────────────────────────────────────────
+
+  /**
+   * Resolve the broker socket path for a specific profile.
+   * Returns undefined to use default resolution.
+   */
+  private resolveSocketForProfile(profileId?: string): string | undefined {
+    if (!profileId || !this.profiles) return undefined;
+    const profile = this.profiles.getById(profileId);
+    if (!profile?.brokerHomeDir) return undefined;
+    const socketPath = path.join(profile.brokerHomeDir, '.agenshield', 'run', 'agenshield.sock');
+    if (fs.existsSync(socketPath)) return socketPath;
+    return undefined;
+  }
 
   private async processFiles(
     files: SkillFile[],

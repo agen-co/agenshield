@@ -5,7 +5,7 @@
  * Supports dynamic configuration with optional prefix for testing/multiple instances.
  */
 
-import { exec } from 'node:child_process';
+import { exec, execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import { promisify } from 'node:util';
 import type { UserConfig, UserDefinition, GroupDefinition } from '@agenshield/ipc';
@@ -588,4 +588,107 @@ export function listAgenshieldUsers(): { username: string; meta: AgenshieldUserM
   return results;
 }
 
+/**
+ * An orphaned AgenShield entity discovered on the system.
+ *
+ * Merges three discovery sources: filesystem `/Users/ash_*` directories,
+ * `dscl . -list /Users` records, and `dscl . -list /Groups` records.
+ */
+export interface OrphanedEntity {
+  /** The `ash_*` name (without `/Users/` prefix) */
+  name: string;
+  /** Whether a dscl user record exists for this name */
+  hasDsclUser: boolean;
+  /** Whether a dscl group record exists for this name */
+  hasDsclGroup: boolean;
+  /** Whether a `/Users/<name>` home directory exists */
+  hasHomeDir: boolean;
+  /** Parsed `.agenshield/meta.json` if present */
+  meta: AgenshieldUserMeta | null;
+  /** `true` when the `.agenshield/meta.json` marker is present (confirmed AgenShield origin) */
+  verified: boolean;
+}
 
+/**
+ * Discover orphaned `ash_*` entities on the system by merging:
+ * 1. `/Users/ash_*` directories (filesystem)
+ * 2. `dscl . -list /Users` filtered by `ash_` prefix
+ * 3. `dscl . -list /Groups` filtered by `ash_` prefix
+ *
+ * Returns a deduplicated list of entities with their status across all three sources.
+ */
+export function discoverOrphanedEntities(): OrphanedEntity[] {
+  const names = new Set<string>();
+
+  // Source 1: filesystem scan
+  try {
+    const entries = fs.readdirSync('/Users', { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name.startsWith(ASH_PREFIX)) {
+        names.add(entry.name);
+      }
+    }
+  } catch {
+    // /Users not readable
+  }
+
+  // Source 2: dscl users
+  const dsclUsers = new Set<string>();
+  try {
+    const out = execSync('dscl . -list /Users', { encoding: 'utf-8' });
+    for (const line of out.split('\n')) {
+      const name = line.trim();
+      if (name.startsWith(ASH_PREFIX)) {
+        dsclUsers.add(name);
+        names.add(name);
+      }
+    }
+  } catch {
+    // dscl not available
+  }
+
+  // Source 3: dscl groups
+  const dsclGroups = new Set<string>();
+  try {
+    const out = execSync('dscl . -list /Groups', { encoding: 'utf-8' });
+    for (const line of out.split('\n')) {
+      const name = line.trim();
+      if (name.startsWith(ASH_PREFIX)) {
+        dsclGroups.add(name);
+        names.add(name);
+      }
+    }
+  } catch {
+    // dscl not available
+  }
+
+  // Build deduplicated result
+  const results: OrphanedEntity[] = [];
+  for (const name of names) {
+    const homeDir = `/Users/${name}`;
+    const hasHomeDir = fs.existsSync(homeDir) && fs.statSync(homeDir).isDirectory();
+
+    let meta: AgenshieldUserMeta | null = null;
+    let verified = false;
+    if (hasHomeDir) {
+      try {
+        const raw = fs.readFileSync(`${homeDir}/.agenshield/meta.json`, 'utf-8');
+        meta = JSON.parse(raw) as AgenshieldUserMeta;
+        verified = true;
+      } catch {
+        // No marker or invalid JSON
+      }
+    }
+
+    results.push({
+      name,
+      hasDsclUser: dsclUsers.has(name),
+      hasDsclGroup: dsclGroups.has(name),
+      hasHomeDir,
+      meta,
+      verified,
+    });
+  }
+
+  return results;
+}

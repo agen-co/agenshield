@@ -3,6 +3,7 @@ export interface InstallTargetDialogProps {
   skillName: string;
   skillSlug: string;
   existingInstallations?: Array<{ id: string; profileId?: string; status: string }>;
-  onInstall: (targets: string[] | 'global') => Promise<void>;
-  onCancel: () => void;
+  onInstallToTarget: (targetId?: string) => Promise<void>;
+  onUninstallFromTarget: (targetId?: string) => Promise<void>;
+  onClose: () => void;
 }

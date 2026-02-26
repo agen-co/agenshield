@@ -270,7 +270,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
       onSave={handleSave}
       onCancel={onCancel}
       saveDisabled={!formData.name || !formData.patterns || !formData.action || formData.action === 'approval' || (formData.target === 'filesystem' && formData.operations.length === 0)}
-      error={error ? 'Failed to update policies. Please try again.' : undefined}
+      error={error ? 'Failed to save policy. Please try again.' : undefined}
       onFocusChange={onFocusChange}
       saveLabel={saveLabel}
       saving={saving}

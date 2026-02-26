@@ -2,7 +2,7 @@
 /**
  * AgenShield CLI
  *
- * Security CLI for AI agents. Uses Clipanion v4 for class-based command routing.
+ * Security CLI for AI agents. Uses Commander.js for command routing.
  *
  * @example
  * ```bash
@@ -17,64 +17,58 @@
  * ```
  */
 
-import { Cli, Builtins } from 'clipanion';
+import { Command } from 'commander';
 import { getVersion } from './utils/version.js';
 
-import { StartCommand } from './commands/start.js';
-import { StopCommand } from './commands/stop.js';
-import { UpgradeCommand } from './commands/upgrade.js';
-import { SetupCommand } from './commands/setup.js';
-import { StatusCommand } from './commands/status.js';
-import { DoctorCommand } from './commands/doctor.js';
-import { UninstallCommand } from './commands/uninstall.js';
-import { DevCommand, DevCleanCommand, DevShellCommand } from './commands/dev.js';
-import { InstallCommand } from './commands/install.js';
-import { LogsCommand } from './commands/logs.js';
-import { ExecCommand } from './commands/exec.js';
-import { AuthHelpCommand, AuthTokenUiCommand, AuthTokenBrokerCommand } from './commands/auth-cmd.js';
-import { CompletionCommand } from './commands/completion.js';
+import { registerStartCommand } from './commands/start.js';
+import { registerStopCommand } from './commands/stop.js';
+import { registerUpgradeCommand } from './commands/upgrade.js';
+import { registerSetupCommand } from './commands/setup.js';
+import { registerStatusCommand } from './commands/status.js';
+import { registerDoctorCommand } from './commands/doctor.js';
+import { registerUninstallCommand } from './commands/uninstall.js';
+import { registerDevCommands } from './commands/dev.js';
+import { registerInstallCommand } from './commands/install.js';
+import { registerLogsCommand } from './commands/logs.js';
+import { registerExecCommand } from './commands/exec.js';
+import { registerAuthCommands } from './commands/auth-cmd.js';
+import { registerCompletionCommand } from './commands/completion.js';
 
 const VERSION = getVersion();
 
-const cli = new Cli({
-  binaryLabel: 'AgenShield',
-  binaryName: 'agenshield',
-  binaryVersion: VERSION,
-  enableCapture: false,
-});
-
-// Builtins
-cli.register(Builtins.HelpCommand);
-cli.register(Builtins.VersionCommand);
+const program = new Command()
+  .name('agenshield')
+  .version(VERSION)
+  .description('Security CLI for AI agents')
+  .option('--json', 'Output machine-readable JSON', false)
+  .option('-q, --quiet', 'Suppress non-essential output', false)
+  .option('--no-color', 'Disable colors')
+  .option('--debug', 'Show stack traces on errors', false);
 
 // Daemon
-cli.register(StartCommand);
-cli.register(StopCommand);
-cli.register(UpgradeCommand);
-cli.register(StatusCommand);
+registerStartCommand(program);
+registerStopCommand(program);
+registerUpgradeCommand(program);
+registerStatusCommand(program);
 
 // Setup & Maintenance
-cli.register(SetupCommand);
-cli.register(DoctorCommand);
-cli.register(UninstallCommand);
-cli.register(InstallCommand);
-cli.register(CompletionCommand);
+registerSetupCommand(program);
+registerDoctorCommand(program);
+registerUninstallCommand(program);
+registerInstallCommand(program);
+registerCompletionCommand(program);
 
 // Development
-cli.register(DevCommand);
-cli.register(DevCleanCommand);
-cli.register(DevShellCommand);
-cli.register(ExecCommand);
-cli.register(LogsCommand);
+registerDevCommands(program);
+registerExecCommand(program);
+registerLogsCommand(program);
 
 // Authentication
-cli.register(AuthHelpCommand);
-cli.register(AuthTokenUiCommand);
-cli.register(AuthTokenBrokerCommand);
+registerAuthCommands(program);
 
 // Handle SIGINT gracefully
 process.on('SIGINT', () => {
   process.exit(130);
 });
 
-cli.runExit(process.argv.slice(2));
+program.parseAsync(process.argv);
