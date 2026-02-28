@@ -2,6 +2,7 @@
  * Target lifecycle events.
  */
 
+import type { TargetType } from '../types/setup';
 import { registerEventTypes } from './event-registry';
 
 export interface AgentProcessInfo {
@@ -14,7 +15,7 @@ export interface AgentProcessInfo {
 export interface TargetStatusInfo {
   id: string;
   name: string;
-  type: string;
+  type: TargetType;
   shielded: boolean;
   running: boolean;
   version?: string;

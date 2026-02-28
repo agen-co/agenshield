@@ -77,6 +77,32 @@ export const OPENCLAW_CONFIG_ENFORCEMENTS: ConfigEnforcement[] = [
       },
     ],
   },
+  {
+    id: 'gateway-mode-local',
+    title: 'Gateway mode local',
+    description: 'Force local gateway mode — AgenShield manages the gateway lifecycle',
+    rules: [
+      {
+        versionRange: '*',
+        patches: [
+          { path: 'gateway.mode', value: 'local' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'gateway-bind-loopback',
+    title: 'Gateway bind loopback',
+    description: 'Bind gateway to loopback only — prevents network exposure from the sandbox',
+    rules: [
+      {
+        versionRange: '*',
+        patches: [
+          { path: 'gateway.bind', value: 'loopback' },
+        ],
+      },
+    ],
+  },
 ];
 
 // ── Helpers ─────────────────────────────────────────────────────

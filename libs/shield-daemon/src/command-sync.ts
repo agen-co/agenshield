@@ -32,10 +32,15 @@ function resolveShieldExecPath(): string {
   return hostHome ? `${hostHome}/.agenshield/bin/shield-exec` : '/opt/agenshield/bin/shield-exec';
 }
 
-/** Resolve path to shared shield-client binary */
-function resolveShieldClientPath(): string {
-  const hostHome = process.env['AGENSHIELD_HOST_HOME'] || process.env['HOME'] || '';
-  return hostHome ? `${hostHome}/.agenshield/bin/shield-client` : '/opt/agenshield/bin/shield-client';
+/** Resolve path to shared shield-client binary (lives in agent home) */
+function resolveShieldClientPath(binDir?: string): string {
+  if (binDir) {
+    // Derive agent home from binDir (e.g. /Users/agent/bin → /Users/agent)
+    const agentHome = path.dirname(binDir);
+    return `${agentHome}/.agenshield/bin/shield-client`;
+  }
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || process.env['HOME'] || '';
+  return agentHome ? `${agentHome}/.agenshield/bin/shield-client` : '/opt/agenshield/bin/shield-client';
 }
 
 /** Broker's dynamic allowlist file (dev-aware) */
@@ -216,8 +221,8 @@ export function syncCommandPolicies(
  * Generate a bash wrapper script that routes through shield-client.
  * Used as a fallback when shield-exec binary is not installed.
  */
-function generateFallbackWrapper(cmd: string): string {
-  const clientPath = resolveShieldClientPath();
+function generateFallbackWrapper(cmd: string, binDir?: string): string {
+  const clientPath = resolveShieldClientPath(binDir);
   return [
     '#!/bin/bash',
     `# ${cmd} - AgenShield proxy (auto-generated)`,
@@ -268,7 +273,7 @@ function installWrappersInDir(binDir: string, log: Logger, policyCommands?: Set<
 
     // Fallback: bash wrapper that routes through shield-client
     try {
-      fs.writeFileSync(wrapperPath, generateFallbackWrapper(cmd), { mode: 0o755 });
+      fs.writeFileSync(wrapperPath, generateFallbackWrapper(cmd, binDir), { mode: 0o755 });
     } catch {
       log.warn(`[command-sync] cannot write wrapper for ${cmd}`);
     }
@@ -302,7 +307,7 @@ function installWrappersInDir(binDir: string, log: Logger, policyCommands?: Set<
       }
 
       try {
-        fs.writeFileSync(wrapperPath, generateFallbackWrapper(cmd), { mode: 0o755 });
+        fs.writeFileSync(wrapperPath, generateFallbackWrapper(cmd, binDir), { mode: 0o755 });
         log.info(`[command-sync] installed dynamic wrapper (bash): ${cmd}`);
       } catch {
         log.warn(`[command-sync] cannot write dynamic wrapper for ${cmd}`);

@@ -2,6 +2,9 @@
  * Setup types — detection and shielding flow
  */
 
+/** Known target application types */
+export type TargetType = 'openclaw' | 'claude-code' | 'dev-harness' | 'custom';
+
 /**
  * A detected target on the system that can be shielded
  */
@@ -10,8 +13,8 @@ export interface DetectedTarget {
   id: string;
   /** Display name */
   name: string;
-  /** Target type (e.g. 'claude', 'cursor', 'windsurf') */
-  type: string;
+  /** Target type */
+  type: TargetType;
   /** Version if detectable */
   version?: string;
   /** Path to the target binary */

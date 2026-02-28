@@ -7,7 +7,7 @@
  * Also includes pipeline step types (merged from actions/types.ts).
  */
 
-import type { UserDefinition, MigrationScanResult, MigrationSelection, PrivilegeExecResult, PrivilegeExecOptions, ManifestEntry } from '@agenshield/ipc';
+import type { UserDefinition, MigrationScanResult, MigrationSelection, PrivilegeExecResult, PrivilegeExecOptions, ManifestEntry, TargetType } from '@agenshield/ipc';
 import type { HostShellConfigBackup } from './shared/install-helpers.js';
 
 /**
@@ -135,7 +135,7 @@ export interface InstallResult {
  */
 export interface TargetPreset {
   /** Unique preset identifier */
-  id: string;
+  id: TargetType;
 
   /** Display name */
   name: string;

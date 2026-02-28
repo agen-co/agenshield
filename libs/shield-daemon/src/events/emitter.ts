@@ -97,24 +97,36 @@ export function registerProfilePreset(profileId: string, presetId: string): void
 }
 
 /**
+ * Resolve a profileId to its preset name (e.g. 'claude-code') or fall back to the raw id.
+ */
+function fromProfile(profileId?: string): string | undefined {
+  if (!profileId) return undefined;
+  return profilePresetCache.get(profileId) ?? profileId;
+}
+
+/**
  * Derive a source label from the event type and data when not explicitly provided.
  */
 function deriveSource(type: string, data: unknown, profileId?: string): string {
   const d = data as Record<string, unknown> | undefined;
+  const profile = fromProfile(profileId);
+
   if (type.startsWith('interceptor:')) {
-    if (profileId) return profilePresetCache.get(profileId) ?? profileId;
-    return 'interceptor';
+    return profile ?? 'interceptor';
   }
   if (type.startsWith('setup:')) return (d?.targetId as string) ?? 'daemon';
   if (type.startsWith('process:broker')) return (d?.process as string) ?? 'system';
-  if (type.startsWith('enforcement:')) return 'daemon';
-  if (type.startsWith('resource:')) return 'system';
+  if (type.startsWith('exec:') || type.startsWith('es:')) return profile ?? 'daemon';
+  if (type.startsWith('broker:')) return profile ?? 'daemon';
+  if (type.startsWith('trace:')) return profile ?? 'daemon';
+  if (type.startsWith('skills:')) return profile ?? (d?.target as string) ?? 'daemon';
+  if (type.startsWith('enforcement:')) return profile ?? 'daemon';
+  if (type.startsWith('resource:')) return profile ?? 'system';
   if (type.startsWith('metrics:')) return 'system';
   if (type.startsWith('targets:')) return 'daemon';
   if (type.startsWith('daemon:') || type.startsWith('config:') || type.startsWith('security:')) return 'daemon';
-  if (type.startsWith('skills:')) return (d?.target as string) ?? 'daemon';
   if (type.startsWith('api:')) return 'daemon';
-  return 'daemon';
+  return profile ?? 'daemon';
 }
 
 /**

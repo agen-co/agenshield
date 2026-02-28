@@ -222,7 +222,9 @@ export async function playgroundRoutes(app: FastifyInstance): Promise<void> {
           defaultAction: config.defaultAction,
         });
 
-        const matchedPolicy = result.policyId ? manager.getById(result.policyId) ?? undefined : undefined;
+        const matchedPolicy = result.policyId
+          ? (manager.getById(result.policyId, profileId ? { profileId } : undefined) ?? undefined)
+          : undefined;
 
         pushOp('exec', sub, result.allowed ? 'allow' : 'deny', {
           policyId: result.policyId,
@@ -235,6 +237,10 @@ export async function playgroundRoutes(app: FastifyInstance): Promise<void> {
       const pool = getProxyPool();
       const execId = crypto.randomUUID();
       const commandBasename = extractCommandBasename(command);
+
+      // Debug: trace policies loaded for simulate proxy
+      const urlPolicies = filterUrlPoliciesForCommand(config.policies || [], commandBasename);
+      console.log(`[playground] Simulate: profileId=${profileId ?? 'none'}, policies=${config.policies?.length ?? 0}, urlPolicies=${urlPolicies.length}, defaultAction=${config.defaultAction ?? 'deny'}`);
 
       // Acquire a proxy with callbacks to capture HTTP traffic
       const { port: proxyPort } = await pool.acquire(

@@ -266,7 +266,9 @@ export async function evaluatePolicyCheck(
   }
 
   // Look up matched policy for sandbox config
-  const matchedPolicy = result.policyId ? manager.getById(result.policyId) ?? undefined : undefined;
+  const matchedPolicy = result.policyId
+    ? (manager.getById(result.policyId, profileId ? { profileId } : undefined) ?? undefined)
+    : undefined;
 
   // Build sandbox config using @agenshield/seatbelt
   let sandbox: SandboxConfig | undefined;

@@ -118,7 +118,10 @@ export class PolicyManager {
     return result;
   }
 
-  getById(id: string): PolicyConfig | null {
+  getById(id: string, scope?: ScopeFilter): PolicyConfig | null {
+    if (scope) {
+      return this.storage.for(scope).policies.getById(id);
+    }
     return this.storage.policies.getById(id);
   }
 

@@ -101,6 +101,9 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   // Daemon
   'daemon:status': { icon: RefreshCw, label: 'Daemon Heartbeat', color: 'secondary' },
 
+  // Metrics
+  'metrics:spike': { icon: AlertTriangle, label: 'Resource Spike', color: 'warning' },
+
   // Interceptor
   'interceptor:event': { icon: Crosshair, label: 'Interceptor Event', color: 'info' },
 
@@ -180,8 +183,9 @@ export function getEventSeverity(event: SSEEvent): EventSeverity {
     if (dtype === 'allowed' || dtype === 'allow') return 'info';
   }
 
-  // Warn: security warnings, alerts, resource limits, broker crashes
+  // Warn: security warnings, alerts, resource limits, broker crashes, resource spikes
   if (t === 'security:status' || t === 'security:warning') return 'warn';
+  if (t === 'metrics:spike') return 'warn';
   if (t.startsWith('alerts:')) return 'warn';
   if (t === 'resource:limit_exceeded') return 'warn';
   if (t === 'process:broker_crashed') return 'warn';
@@ -226,6 +230,10 @@ export function isNoiseEvent(event: SSEEvent): boolean {
   if (event.type === 'skills:approved') return true;
   if (event.type === 'daemon:status') return true;
   if (event.type === 'metrics:eventloop') return true;
+  if (event.type === 'metrics:snapshot') return true;
+  if (event.type === 'metrics:spike') return true;
+  if (event.type === 'security:status') return true;
+  if (event.type === 'targets:status') return true;
 
   // Hide API polling requests (GET to known polling endpoints)
   if (event.type === 'api:request') {

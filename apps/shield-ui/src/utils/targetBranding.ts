@@ -5,10 +5,11 @@
  * lookup consistent across canvas nodes, overlays, and sidebar.
  */
 
+import type { TargetType } from '@agenshield/ipc';
 import { Terminal, Globe, Monitor, Cpu } from 'lucide-react';
 
 /** Brand SVG icons served from /icons/ (keyed by target type) */
-export const BRAND_ICONS: Record<string, string> = {
+export const BRAND_ICONS: Partial<Record<TargetType, string>> = {
   openclaw: '/icons/openclaw.svg',
   'claude-code': '/icons/claude-code.svg',
 };
@@ -22,7 +23,7 @@ export const TARGET_ICON_MAP: Record<string, typeof Terminal> = {
 };
 
 /** Map target type to an icon string */
-const TYPE_ICON_MAP: Record<string, string> = {
+const TYPE_ICON_MAP: Partial<Record<TargetType, string>> & Record<string, string> = {
   claude: 'Terminal',
   'claude-code': 'Terminal',
   cursor: 'Monitor',
@@ -31,12 +32,12 @@ const TYPE_ICON_MAP: Record<string, string> = {
 };
 
 /** Get the brand SVG path for a target type, or null if none exists. */
-export function getBrandIcon(type: string): string | null {
-  return BRAND_ICONS[type] ?? null;
+export function getBrandIcon(type: TargetType | string): string | null {
+  return BRAND_ICONS[type as TargetType] ?? null;
 }
 
 /** Get the lucide icon component for a target type. Falls back to Terminal. */
-export function getTargetIcon(type: string): typeof Terminal {
+export function getTargetIcon(type: TargetType | string): typeof Terminal {
   const iconName = TYPE_ICON_MAP[type] ?? 'Terminal';
   return TARGET_ICON_MAP[iconName] ?? Terminal;
 }

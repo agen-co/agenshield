@@ -5,7 +5,7 @@
 import { z } from 'zod';
 
 export const ProfileSchema = z.object({
-  id: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9-]*$/),
+  id: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/),
   name: z.string().min(1).max(100),
   type: z.enum(['global', 'target']).default('target'),
   targetName: z.string().max(100).optional(),

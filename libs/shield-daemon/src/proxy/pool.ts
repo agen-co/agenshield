@@ -160,7 +160,7 @@ export class ProxyPool {
             traceId: trace.traceId,
             durationMs: Date.now() - trace.startedAt,
             childCount: children.length,
-          });
+          }, trace.profileId);
         }
       }
     } catch {

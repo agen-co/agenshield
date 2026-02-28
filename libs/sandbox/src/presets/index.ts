@@ -6,6 +6,7 @@
  */
 
 import type { TargetPreset, PresetDetectionResult } from './types.js';
+import type { TargetType } from '@agenshield/ipc';
 import { openclawPreset } from './openclaw/preset.js';
 import { claudeCodePreset } from './claude-code/preset.js';
 import { devHarnessPreset } from './dev-harness/preset.js';
@@ -47,7 +48,7 @@ export { customPreset } from './custom/preset.js';
  * Order matters: openclaw is preferred over dev-harness when both exist.
  * 'custom' is excluded from auto-detection by listAutoDetectablePresets().
  */
-export const PRESETS: Record<string, TargetPreset> = {
+export const PRESETS: Record<TargetType, TargetPreset> = {
   openclaw: openclawPreset,
   'claude-code': claudeCodePreset,
   'dev-harness': devHarnessPreset,
@@ -58,11 +59,11 @@ export const PRESETS: Record<string, TargetPreset> = {
  * Resolve an instance ID (e.g. 'claude-code-1') to its base preset ID ('claude-code').
  * Returns the input unchanged if it's already a valid preset ID or no base match is found.
  */
-export function resolvePresetId(instanceId: string): string {
-  if (PRESETS[instanceId]) return instanceId;
+export function resolvePresetId(instanceId: string): TargetType {
+  if (PRESETS[instanceId as TargetType]) return instanceId as TargetType;
   const match = instanceId.match(/^(.+)-(\d+)$/);
-  if (match && PRESETS[match[1]]) return match[1];
-  return instanceId;
+  if (match && PRESETS[match[1] as TargetType]) return match[1] as TargetType;
+  return 'custom';
 }
 
 /**
@@ -71,8 +72,8 @@ export function resolvePresetId(instanceId: string): string {
  * @param id - Preset identifier
  * @returns The preset or undefined if not found
  */
-export function getPreset(id: string): TargetPreset | undefined {
-  return PRESETS[id];
+export function getPreset(id: TargetType | string): TargetPreset | undefined {
+  return PRESETS[id as TargetType];
 }
 
 /**

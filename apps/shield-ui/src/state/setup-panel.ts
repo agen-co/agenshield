@@ -359,7 +359,7 @@ export function addManualTarget(presetId: string, customName?: string): void {
   setupPanelStore.detectedTargets.push({
     id: instanceId,
     name: instanceName,
-    type: presetId,
+    type: presetId as import('@agenshield/ipc').TargetType,
     method: 'manual',
     shielded: false,
   });

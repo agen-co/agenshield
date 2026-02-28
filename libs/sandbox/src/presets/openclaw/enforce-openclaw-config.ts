@@ -5,7 +5,7 @@
  * and writes the patched config back. Runs after config copy and
  * path rewriting so the enforcements are applied on the final config.
  *
- * Dynamically injected by detectHostOpenclawStep.
+ * Runs as a static pipeline step after detect/copy/rewrite.
  */
 
 import type { InstallStep, PipelineState } from '../types.js';

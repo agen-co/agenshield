@@ -6,6 +6,19 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { getStorage } from '@agenshield/storage';
 import { isAuthenticated } from '../auth/middleware';
 
+/**
+ * Telemetry event types to filter from historical API responses.
+ * Defence-in-depth: even if older rows exist in the DB, don't expose them.
+ */
+const TELEMETRY_TYPES: ReadonlySet<string> = new Set([
+  'heartbeat',
+  'metrics:snapshot',
+  'metrics:eventloop',
+  'daemon:status',
+  'security:status',
+  'targets:status',
+]);
+
 export async function activityRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/activity',
@@ -17,7 +30,10 @@ export async function activityRoutes(app: FastifyInstance): Promise<void> {
         || (request.headers['x-shield-profile-id'] as string | undefined)
         || undefined;
 
-      const events = getStorage().activities.getAll({ limit, profileId });
+      // Over-fetch to account for telemetry rows that will be filtered out
+      const overFetch = limit + 50;
+      const rawEvents = getStorage().activities.getAll({ limit: overFetch, profileId });
+      const events = rawEvents.filter((e) => !TELEMETRY_TYPES.has(e.type)).slice(0, limit);
 
       // Authenticated → full data
       if (authenticated) {

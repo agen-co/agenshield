@@ -100,9 +100,7 @@ export function getDefaultWrapperConfig(userConfig?: UserConfig, hostHome?: stri
     npmPath: '/usr/local/bin/npm',
     brewPath: '/opt/homebrew/bin/brew',
     nvmNodeDir: `${agentHome}/.nvm/versions/node/current`,
-    shieldClientPath: resolvedHostHome
-      ? `${resolvedHostHome}/.agenshield/bin/shield-client`
-      : '/opt/agenshield/bin/shield-client',
+    shieldClientPath: `${agentHome}/.agenshield/bin/shield-client`,
     nodeBinPath: `${agentHome}/bin/node-bin`,
   };
 }
@@ -1315,7 +1313,7 @@ PKGJSONEOF`
 }
 
 /**
- * Copy the shield-client binary to {hostHome}/.agenshield/bin/
+ * Copy the shield-client binary to {agentHome}/.agenshield/bin/
  * Shield-client is the CLI used by wrapper scripts (curl, git, etc.) to route
  * operations through the broker.
  *
@@ -1328,8 +1326,8 @@ export async function copyShieldClient(
   userConfig?: UserConfig,
   hostHome?: string,
 ): Promise<WrapperResult> {
-  const resolvedHostHome = hostHome || process.env['HOME'] || '';
-  const baseDir = resolvedHostHome ? `${resolvedHostHome}/.agenshield` : '/opt/agenshield';
+  const agentHome = userConfig?.agentUser?.home || '/Users/agenshield_agent';
+  const baseDir = `${agentHome}/.agenshield`;
   const targetPath = `${baseDir}/bin/shield-client`;
   const socketGroupName = userConfig?.groups?.socket?.name || 'ash_socket';
 
@@ -1347,7 +1345,6 @@ export async function copyShieldClient(
     await fs.access(srcPath);
 
     // Read and rewrite shebang to use per-target node-bin (bypass interceptor)
-    const agentHome = userConfig?.agentUser?.home || '/Users/agenshield_agent';
     let content = await fs.readFile(srcPath, 'utf-8');
     content = content.replace(
       /^#!\/usr\/bin\/env node/,

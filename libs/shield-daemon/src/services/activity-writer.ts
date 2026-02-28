@@ -15,6 +15,20 @@ import {
 } from '@agenshield/ipc';
 import { daemonEvents, type DaemonEvent } from '../events/emitter';
 
+/**
+ * Telemetry / status events that should NOT be persisted to the activity DB.
+ * These are high-frequency or purely informational — they add noise without value.
+ * Note: `metrics:spike` is intentionally excluded — it's alert-worthy.
+ */
+const TELEMETRY_EVENTS: ReadonlySet<string> = new Set([
+  'heartbeat',
+  'metrics:snapshot',
+  'metrics:eventloop',
+  'daemon:status',
+  'security:status',
+  'targets:status',
+]);
+
 const PRUNE_INTERVAL = 1000;
 
 let instance: ActivityWriter | null = null;
@@ -32,7 +46,7 @@ class ActivityWriter {
 
   start(): void {
     this.unsubscribe = daemonEvents.subscribe((event) => {
-      if (event.type === 'heartbeat') return;
+      if (TELEMETRY_EVENTS.has(event.type)) return;
       this.append(event);
     });
   }

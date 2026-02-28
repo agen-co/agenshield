@@ -6,7 +6,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import type { ApiResponse, DetectedTarget } from '@agenshield/ipc';
+import type { ApiResponse, DetectedTarget, TargetType } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 import { emitEvent } from '../events/emitter';
 import { triggerTargetCheck, checkProcessesRunning, checkOpenClawRunning, listClaudeProcesses, listOpenClawProcesses, resolveAgentUid } from '../watchers/targets';
@@ -101,7 +101,7 @@ export async function detectTargets(): Promise<DetectedTarget[]> {
         targets.push({
           id: preset.id,
           name: preset.name,
-          type: preset.id,
+          type: preset.id as TargetType,
           version: detection.version,
           binaryPath: detection.binaryPath,
           method: detection.method ?? 'auto',
@@ -114,7 +114,7 @@ export async function detectTargets(): Promise<DetectedTarget[]> {
           targets.push({
             id: profile.id,
             name: profile.name ?? preset.name,
-            type: preset.id,
+            type: preset.id as TargetType,
             version: detection.version,
             binaryPath: detection.binaryPath,
             method: detection.method ?? 'auto',
@@ -135,7 +135,7 @@ export async function detectTargets(): Promise<DetectedTarget[]> {
       targets.push({
         id: profile.id,
         name: profile.name ?? basePreset?.name ?? profile.presetId,
-        type: profile.presetId,
+        type: (profile.presetId ?? 'custom') as TargetType,
         method: 'profile',
         shielded: true,
       });
@@ -902,7 +902,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           // Register this instance in the path registry (with agentUsername for sudo delegation)
           const updatedRegistry = addRegistryInstance(binName, {
             targetId,
-            profileId: `${targetId}-${Date.now().toString(36)}`,
+            profileId: agentUser,
             name: preset.name,
             agentBinPath: `${agentHome}/bin/${binName}`,
             baseName: resolvedBaseName,
@@ -1380,14 +1380,14 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         log('Creating profile in storage...', 'creating_profile');
         shieldLog.step('creating_profile', 'Creating profile in storage...');
         const storage = getStorage();
-        const profileId = `${targetId}-${Date.now().toString(36)}`;
+        const profileId = agentUser;
 
         // Allocate gateway port for openclaw targets
         const gatewayPort = basePresetId === 'openclaw' ? allocateGatewayPort() : undefined;
 
         const profile = storage.profiles.create({
           id: profileId,
-          name: preset.name,
+          name: agentUser,
           presetId: basePresetId,
           agentUsername: agentUser,
           agentUid: userConfig.agentUser.uid,
