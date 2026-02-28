@@ -13,7 +13,7 @@ import { tokenizeCommand, parseSudoCommand } from '@agenshield/policies';
 const execAsync = promisify(exec);
 
 /** Legacy/fallback sandbox user names */
-const LEGACY_SANDBOX_USERS = ['openclaw', 'agentshield_default_agent'];
+const LEGACY_SANDBOX_USERS = ['ash_default_agent', 'ash_default_broker', 'openclaw', 'agentshield_default_agent'];
 
 /** Prefixes used by AgenShield sandbox users (current + legacy) */
 const SANDBOX_USER_PREFIXES = ['agentshield_', 'ash_'];
@@ -283,12 +283,42 @@ export async function checkSecurityStatus(options?: SecurityCheckOptions): Promi
     );
   };
 
+  // AgenShield management commands that run as root but are NOT security violations:
+  //  1. launchctl commands managing com.agenshield.* services
+  //  2. Lifecycle delegation: sudo -u <hostUser> <target> gateway stop / daemon stop
+  //  3. pkill cleanup commands targeting the process patterns
+  const LIFECYCLE_SUBCOMMANDS = ['gateway stop', 'daemon stop', 'gateway restart', 'daemon restart'];
+
+  const isAgenshieldManagement = (proc: { user: string; command: string }) => {
+    if (proc.user !== 'root') return false;
+    const cmd = proc.command;
+
+    // 1. launchctl managing agenshield services
+    if (cmd.includes('launchctl') && cmd.includes('com.agenshield.')) return true;
+
+    // 2. Lifecycle delegation via sudo -u <hostUser>
+    const tokens = tokenizeCommand(cmd);
+    const parsed = parseSudoCommand(tokens);
+    if (parsed?.targetUser === currentUser) {
+      const inner = parsed.innerCommand;
+      if (LIFECYCLE_SUBCOMMANDS.some((sub) => inner.includes(sub))) return true;
+    }
+
+    // 3. pkill cleanup commands referencing the host user or a target pattern
+    if (cmd.includes('pkill')) {
+      if (cmd.includes(currentUser) || allPatterns.some((pat) => cmd.includes(pat))) return true;
+    }
+
+    return false;
+  };
+
   const unIsolatedProcesses = processes.filter(
     (p) =>
       !sandboxUsers.includes(p.user) &&
       !INSTALLER_PATTERNS.some((pat) => p.command.includes(pat)) &&
       !isSudoDelegation(p) &&
-      !isSetupCommand(p),
+      !isSetupCommand(p) &&
+      !isAgenshieldManagement(p),
   );
   const isIsolated = sandboxUserExists && unIsolatedProcesses.length === 0;
 
@@ -301,7 +331,7 @@ export async function checkSecurityStatus(options?: SecurityCheckOptions): Promi
     recommendations.push('Run AgenShield setup to isolate OpenClaw in unprivileged sandbox');
   }
 
-  if (!sandboxUserExists) {
+  if (!sandboxUserExists && hasTargets) {
     warnings.push('No sandbox user found (checked: ' + sandboxUsers.join(', ') + ')');
     recommendations.push('Run "agenshield setup" to create isolated sandbox user');
   }
@@ -318,7 +348,10 @@ export async function checkSecurityStatus(options?: SecurityCheckOptions): Promi
     recommendations.push('Secrets should be managed by AgenShield broker, not environment variables');
   }
 
-  if (!guardedShellInstalled && sandboxUserExists) {
+  // Only warn about missing guarded shell when active target profiles exist.
+  // Orphan sandbox users without profiles are stale leftovers — no agent process
+  // is running that needs shell restriction, so the warning is misleading.
+  if (!guardedShellInstalled && sandboxUserExists && hasTargets) {
     const missingHint =
       guardedShellCheck.missing.length > 0
         ? ` (${guardedShellCheck.missing.join(', ')})`

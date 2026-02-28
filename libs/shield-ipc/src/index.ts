@@ -138,3 +138,6 @@ export * from './policy-graph/index';
 
 // Request context (multi-tenancy)
 export * from './context/index';
+
+// SEA (Single Executable Application) utilities
+export * from './sea';

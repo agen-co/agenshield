@@ -59,6 +59,7 @@ export async function handlePolicyCheck(
       checkParams = { path: target || '' };
       break;
     case 'exec':
+    case 'package_install':
       checkParams = { command: target || '' };
       break;
     case 'secret_inject':
@@ -75,7 +76,7 @@ export async function handlePolicyCheck(
   if (result.allowed) {
     // Always forward exec + http_request to daemon for activity recording
     // and user-defined policy evaluation (exec also needs sandbox config).
-    if (operation === 'exec' || operation === 'http_request') {
+    if (operation === 'exec' || operation === 'http_request' || operation === 'package_install') {
       const daemonUrl = deps.daemonUrl || DEFAULT_DAEMON_URL;
       const daemonResult = await forwardPolicyToDaemon(
         operation, target || '', daemonUrl, execContext, deps.brokerAuth

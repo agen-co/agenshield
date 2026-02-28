@@ -11,6 +11,7 @@ import { exec, spawn as nodeSpawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { isSEA, getSEALibDir } from '@agenshield/ipc';
 import type { UserConfig } from '@agenshield/ipc';
 import { NVM_VERSION } from '../presets/shared/versions.js';
 
@@ -72,14 +73,26 @@ export interface WrapperConfig {
 export function getDefaultWrapperConfig(userConfig?: UserConfig, hostHome?: string): WrapperConfig {
   const agentHome = userConfig?.agentUser.home || '/Users/agenshield_agent';
   const resolvedHostHome = hostHome || process.env['HOME'] || '';
+
+  // In SEA mode, interceptor is extracted to the lib directory
+  let interceptorPath: string;
+  if (isSEA()) {
+    const libDir = getSEALibDir();
+    interceptorPath = libDir
+      ? `${libDir}/interceptor/register.cjs`
+      : '/opt/agenshield/lib/interceptor/register.cjs';
+  } else {
+    interceptorPath = resolvedHostHome
+      ? `${resolvedHostHome}/.agenshield/lib/interceptor/register.cjs`
+      : '/opt/agenshield/lib/interceptor/register.cjs';
+  }
+
   return {
     agentHome,
     agentUsername: userConfig?.agentUser.username || 'agenshield_agent',
     socketPath: `${agentHome}/.agenshield/run/agenshield.sock`,
     httpPort: 5201, // Broker uses 5201, daemon uses 5200
-    interceptorPath: resolvedHostHome
-      ? `${resolvedHostHome}/.agenshield/lib/interceptor/register.cjs`
-      : '/opt/agenshield/lib/interceptor/register.cjs',
+    interceptorPath,
     interceptorFlag: '--require',
     seatbeltDir: `${agentHome}/.agenshield/seatbelt`,
     pythonPath: '/usr/bin/python3',
@@ -211,13 +224,27 @@ esac
   },
 
   npm: {
-    description: 'npm wrapper — delegates to NVM npm (patched node loads interceptor)',
+    description: 'npm wrapper — delegates to NVM npm with package install policy checks',
     generate: (config) => `#!/bin/bash
 # npm wrapper — NVM's node is patched in-place, so the interceptor loads
 # automatically when npm (a JS script) invokes node. No NODE_OPTIONS needed here.
 
 # Ensure accessible working directory
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
+# Package install policy check
+case "$1" in
+  install|add|i)
+    for arg in "\${@:2}"; do
+      [[ "$arg" == -* ]] && continue
+      "${config.shieldClientPath}" check-pkg npm "$arg" 2>/dev/null
+      if [ $? -eq 126 ]; then
+        echo "AgenShield: npm install '$arg' denied by policy" >&2
+        exit 126
+      fi
+    done
+    ;;
+esac
 
 # Only use NVM npm (patched NVM node loads interceptor automatically)
 if [ -x "${config.nvmNodeDir}/bin/npm" ]; then
@@ -230,13 +257,30 @@ fi
   },
 
   pip: {
-    description: 'pip wrapper with Python seatbelt isolation',
+    description: 'pip wrapper with Python seatbelt isolation and package install policy checks',
     usesSeatbelt: true,
     generate: (config) => `#!/bin/bash
 # pip wrapper - runs pip with AgenShield network isolation via seatbelt
 
 # Ensure accessible working directory
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
+# Package install policy check
+case "$1" in
+  install)
+    for arg in "\${@:2}"; do
+      [[ "$arg" == -* ]] && continue
+      [[ "$arg" == *.txt ]] && continue
+      pkg="\${arg%%[>=<!\\[]*}"
+      [ -z "$pkg" ] && continue
+      "${config.shieldClientPath}" check-pkg pip "$pkg" 2>/dev/null
+      if [ $? -eq 126 ]; then
+        echo "AgenShield: pip install '$pkg' denied by policy" >&2
+        exit 126
+      fi
+    done
+    ;;
+esac
 
 PYTHON_PATH="\${AGENSHIELD_PYTHON:-${config.pythonPath}}"
 SEATBELT_PROFILE="${config.seatbeltDir}/python.sb"
@@ -327,13 +371,26 @@ fi
   },
 
   npx: {
-    description: 'npx wrapper — delegates to NVM npx (patched node loads interceptor)',
+    description: 'npx wrapper — delegates to NVM npx with package execution policy checks',
     generate: (config) => `#!/bin/bash
 # npx wrapper — NVM's node is patched in-place, so the interceptor loads
 # automatically when npx (a JS script) invokes node. No NODE_OPTIONS needed here.
 
 # Ensure accessible working directory
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
+# Package execution policy check — extract the package name
+PKG=""
+for arg in "$@"; do
+  case "$arg" in --package=*) PKG="\${arg#--package=}"; break ;; -*) continue ;; *) PKG="$arg"; break ;; esac
+done
+if [ -n "$PKG" ]; then
+  "${config.shieldClientPath}" check-pkg npx "$PKG" 2>/dev/null
+  if [ $? -eq 126 ]; then
+    echo "AgenShield: npx '$PKG' denied by policy" >&2
+    exit 126
+  fi
+fi
 
 # Only use NVM npx (patched NVM node loads interceptor automatically)
 if [ -x "${config.nvmNodeDir}/bin/npx" ]; then
@@ -346,7 +403,7 @@ fi
   },
 
   brew: {
-    description: 'brew wrapper that routes through broker',
+    description: 'brew wrapper that routes through broker with package install policy checks',
     generate: (config) => `#!/bin/bash
 # brew wrapper - routes Homebrew network operations through broker
 # Install/update/upgrade operations are monitored
@@ -354,11 +411,28 @@ fi
 # Ensure accessible working directory
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
+# Suppress auto-update and API-based installs
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_INSTALL_FROM_API=1
+
 SOCKET_PATH="\${AGENSHIELD_SOCKET:-${config.socketPath}}"
 
 # Check if this is a network operation
 case "$1" in
-  install|reinstall|upgrade|update|fetch|tap|untap)
+  install|reinstall|upgrade)
+    # Package install policy check for each package argument
+    for arg in "\${@:2}"; do
+      [[ "$arg" == -* ]] && continue
+      "${config.shieldClientPath}" check-pkg brew "$arg" 2>/dev/null
+      if [ $? -eq 126 ]; then
+        echo "AgenShield: brew $1 '$arg' denied by policy" >&2
+        exit 126
+      fi
+    done
+    # Route through broker for network ops
+    exec ${config.shieldClientPath} brew "$@"
+    ;;
+  update|fetch|tap|untap)
     # Route through broker for network ops
     exec ${config.shieldClientPath} brew "$@"
     ;;
@@ -376,6 +450,94 @@ case "$1" in
     fi
     ;;
 esac
+`,
+  },
+
+  yarn: {
+    description: 'yarn wrapper — delegates to NVM yarn with package install policy checks',
+    generate: (config) => `#!/bin/bash
+# yarn wrapper — NVM's node is patched in-place, so the interceptor loads
+# automatically when yarn invokes node. No NODE_OPTIONS needed here.
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
+# Package install policy check
+case "$1" in
+  add)
+    for arg in "\${@:2}"; do
+      [[ "$arg" == -* ]] && continue
+      "${config.shieldClientPath}" check-pkg yarn "$arg" 2>/dev/null
+      if [ $? -eq 126 ]; then
+        echo "AgenShield: yarn add '$arg' denied by policy" >&2
+        exit 126
+      fi
+    done
+    ;;
+  dlx)
+    for arg in "\${@:2}"; do
+      [[ "$arg" == -* ]] && continue
+      "${config.shieldClientPath}" check-pkg yarn "$arg" 2>/dev/null
+      if [ $? -eq 126 ]; then
+        echo "AgenShield: yarn dlx '$arg' denied by policy" >&2
+        exit 126
+      fi
+      break
+    done
+    ;;
+esac
+
+# Delegate to NVM yarn
+if [ -x "${config.nvmNodeDir}/bin/yarn" ]; then
+  exec "${config.nvmNodeDir}/bin/yarn" "$@"
+else
+  echo "yarn not found" >&2
+  exit 1
+fi
+`,
+  },
+
+  pnpm: {
+    description: 'pnpm wrapper — delegates to NVM pnpm with package install policy checks',
+    generate: (config) => `#!/bin/bash
+# pnpm wrapper — NVM's node is patched in-place, so the interceptor loads
+# automatically when pnpm invokes node. No NODE_OPTIONS needed here.
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
+# Package install policy check
+case "$1" in
+  add|install)
+    for arg in "\${@:2}"; do
+      [[ "$arg" == -* ]] && continue
+      "${config.shieldClientPath}" check-pkg pnpm "$arg" 2>/dev/null
+      if [ $? -eq 126 ]; then
+        echo "AgenShield: pnpm $1 '$arg' denied by policy" >&2
+        exit 126
+      fi
+    done
+    ;;
+  dlx)
+    for arg in "\${@:2}"; do
+      [[ "$arg" == -* ]] && continue
+      "${config.shieldClientPath}" check-pkg pnpm "$arg" 2>/dev/null
+      if [ $? -eq 126 ]; then
+        echo "AgenShield: pnpm dlx '$arg' denied by policy" >&2
+        exit 126
+      fi
+      break
+    done
+    ;;
+esac
+
+# Delegate to NVM pnpm
+if [ -x "${config.nvmNodeDir}/bin/pnpm" ]; then
+  exec "${config.nvmNodeDir}/bin/pnpm" "$@"
+else
+  echo "pnpm not found" >&2
+  exit 1
+fi
 `,
   },
 

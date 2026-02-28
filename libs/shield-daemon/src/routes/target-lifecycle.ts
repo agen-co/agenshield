@@ -13,7 +13,7 @@ import { triggerTargetCheck, checkProcessesRunning, checkOpenClawRunning, listCl
 import { ShieldLogger } from '../services/shield-logger';
 import { ShieldStepTracker } from '../services/shield-step-tracker';
 import { ManifestBuilder } from '../services/manifest-builder';
-import { OPENCLAW_SHIELD_STEPS } from '@agenshield/ipc';
+import { OPENCLAW_SHIELD_STEPS, isSEA } from '@agenshield/ipc';
 import { registerShieldOperation, unregisterShieldOperation, getActiveShieldOperations } from '../services/shield-registry';
 
 // ── Gateway port allocation helper ────────────────────────────────
@@ -377,17 +377,21 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
       let pendingLog: { message: string; stepId?: string } | null = null;
       let pendingLogTimer: ReturnType<typeof setTimeout> | null = null;
 
+      let currentStep = 'initializing';
+      const shieldLog = new ShieldLogger(targetId);
+      const tracker = new ShieldStepTracker(targetId, OPENCLAW_SHIELD_STEPS);
+
       const log = (message: string, stepId?: string) => {
         const now = Date.now();
         if (now - lastLogTime >= LOG_MIN_INTERVAL) {
           lastLogTime = now;
-          emitEvent('setup:log', { targetId, message, stepId });
+          emitEvent('setup:log', { targetId, message, stepId }, tracker.getProfileId());
         } else {
           pendingLog = { message, stepId };
           if (!pendingLogTimer) {
             pendingLogTimer = setTimeout(() => {
               if (pendingLog) {
-                emitEvent('setup:log', { targetId, message: pendingLog.message, stepId: pendingLog.stepId });
+                emitEvent('setup:log', { targetId, message: pendingLog.message, stepId: pendingLog.stepId }, tracker.getProfileId());
                 lastLogTime = Date.now();
               }
               pendingLog = null;
@@ -404,14 +408,10 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           pendingLogTimer = null;
         }
         if (pendingLog) {
-          emitEvent('setup:log', { targetId, message: pendingLog.message, stepId: pendingLog.stepId });
+          emitEvent('setup:log', { targetId, message: pendingLog.message, stepId: pendingLog.stepId }, tracker.getProfileId());
           pendingLog = null;
         }
       };
-
-      let currentStep = 'initializing';
-      const shieldLog = new ShieldLogger(targetId);
-      const tracker = new ShieldStepTracker(targetId, OPENCLAW_SHIELD_STEPS);
       registerShieldOperation(targetId, targetId, tracker);
       let manifestBuilder: ManifestBuilder | undefined;
 
@@ -779,13 +779,17 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           if (!clientResult.success) {
             request.log.warn({ targetId }, `Shield-client deploy partial: ${clientResult.message}`);
           }
-          // Bootstrap node-bin so shield-client's shebang works before Phase 7
-          const bootstrapNodeDest = `${agentHome}/bin/node-bin`;
-          await executor.execAsRoot(
-            `cp "${process.execPath}" "${bootstrapNodeDest}" && chown root:${groupName} "${bootstrapNodeDest}" && chmod 755 "${bootstrapNodeDest}"`,
-            { timeout: 10_000 },
-          );
-          shieldLog.info(`Bootstrap node-bin copied from ${process.execPath} to ${bootstrapNodeDest}`);
+          // Bootstrap node-bin so shield-client's shebang works before Phase 7.
+          // In SEA mode, process.execPath is the daemon binary, not a Node.js interpreter,
+          // so skip this step — Phase 7 (NVM install + copyNodeBinary) will provide the real node-bin.
+          if (!isSEA()) {
+            const bootstrapNodeDest = `${agentHome}/bin/node-bin`;
+            await executor.execAsRoot(
+              `cp "${process.execPath}" "${bootstrapNodeDest}" && chown root:${groupName} "${bootstrapNodeDest}" && chmod 755 "${bootstrapNodeDest}"`,
+              { timeout: 10_000 },
+            );
+            shieldLog.info(`Bootstrap node-bin copied from ${process.execPath} to ${bootstrapNodeDest}`);
+          }
           tracker.completeStep('deploy_shield_client');
           manifestBuilder.recordInfra('deploy_shield_client', 4, {});
         } catch (err) {
@@ -975,6 +979,40 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             request.log.warn({ targetId, err: shellRcErr }, `Shell rc PATH override: ${(shellRcErr as Error).message}`);
             // Non-fatal
           }
+
+          // Seed default deny policy for router host passthrough
+          try {
+            const storage = getStorage();
+            const repo = storage.for({ profileId: null }).policies;
+            const policyId = 'managed-router-deny-host-passthrough';
+            const existing = repo.getById(policyId);
+            if (!existing) {
+              repo.createManaged({
+                id: policyId,
+                name: 'Router: Deny Host Passthrough',
+                action: 'deny',
+                target: 'router',
+                patterns: ['host-passthrough'],
+                enabled: true,
+              }, 'system');
+              request.log.info({ targetId }, 'Seeded default router deny host-passthrough policy');
+            }
+
+            // Sync the registry flag based on current router policies
+            const { syncRouterHostPassthrough } = await import('../services/router-sync');
+            const allPolicies = repo.getAll();
+            const syncResult = syncRouterHostPassthrough(allPolicies, hostHome);
+            if (syncResult.updated) {
+              const syncJson = JSON.stringify(syncResult.registry, null, 2);
+              await executor.execAsRoot(
+                `cat > "${registryDir}/path-registry.json" << 'REGISTRY_EOF'\n${syncJson}\nREGISTRY_EOF`,
+                { timeout: 15_000 },
+              );
+            }
+          } catch (policyErr) {
+            request.log.warn({ targetId, err: policyErr }, `Router policy seeding: ${(policyErr as Error).message}`);
+            // Non-fatal
+          }
         } catch (err) {
           tracker.completeStep('install_path_registry');
           tracker.skipStep('install_path_router');
@@ -1130,6 +1168,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           baseName: resolvedBaseName,
           socketPath: pathsConfig.socketPath,
           hostHome,
+          isSEABinary: isSEA(),
         });
         const brokerLabel = `com.agenshield.broker.${baseName}`;
         const plistPath = `/Library/LaunchDaemons/${brokerLabel}.plist`;
@@ -1358,6 +1397,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           storage.profiles.update(profileId, { gatewayPort });
         }
 
+        tracker.setProfileId(profile.id);
         tracker.completeStep('create_profile');
 
         // 9b. Persist install manifest to profile
@@ -1391,7 +1431,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         );
         const brokerFailed = criticalFailures.length > 0;
 
-        emitEvent('setup:shield_complete', { targetId, profileId: profile.id });
+        emitEvent('setup:shield_complete', { targetId, profileId: profile.id }, profile.id);
         log('Shielding complete.', 'complete');
         flushLog();
         shieldLog.finish(!brokerFailed, brokerFailed ? 'Broker socket not ready' : undefined);
@@ -1422,7 +1462,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         const runningStep = tracker.getSteps().find(s => s.status === 'running');
         if (runningStep) tracker.failStep(runningStep.id, message);
         request.log.error({ targetId, err, step: currentStep, logPath: shieldLog.logPath }, `Shield failed at step "${currentStep}": ${message}`);
-        emitEvent('setup:error', { targetId, error: message, step: currentStep });
+        emitEvent('setup:error', { targetId, error: message, step: currentStep }, tracker.getProfileId());
 
         // ── Rollback completed steps so the target can be re-shielded ──
         if (manifestBuilder) {
@@ -1435,7 +1475,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
 
             if (entries.length > 0) {
               shieldLog.info(`Rolling back ${entries.length} completed steps...`);
-              emitEvent('setup:shield_progress', { targetId, step: 'rollback', progress: 0, message: 'Rolling back failed shield...' });
+              emitEvent('setup:shield_progress', { targetId, step: 'rollback', progress: 0, message: 'Rolling back failed shield...' }, tracker.getProfileId());
 
               const hostHome = hostUsername ? `/Users/${hostUsername}` : (process.env['HOME'] || '');
               const rollbackCtx = {
@@ -1519,13 +1559,13 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         const profileBaseName = agentUsername?.replace(/^ash_/, '').replace(/_agent$/, '') ?? targetId;
 
         const log = (message: string, stepId?: string) => {
-          emitEvent('setup:log', { targetId, message, stepId });
+          emitEvent('setup:log', { targetId, message, stepId }, profile.id);
         };
 
         if (profile.installManifest) {
           // ── Manifest-driven rollback ───────────────────────────────
           log('Using manifest-driven rollback...', 'rollback');
-          emitEvent('setup:shield_progress', { targetId, step: 'rollback', progress: 5, message: 'Rolling back via manifest...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'rollback', progress: 5, message: 'Rolling back via manifest...' }, profile.id);
 
           // Import rollback registry (side-effect: registers all handlers)
           const { getRollbackHandler } = await import('@agenshield/sandbox');
@@ -1561,7 +1601,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           for (let i = 0; i < totalEntries; i++) {
             const entry = entries[i]!;
             const progress = Math.round(5 + (i / totalEntries) * 80);
-            emitEvent('setup:shield_progress', { targetId, step: 'rollback', progress, message: `Rolling back ${entry.stepId}...` });
+            emitEvent('setup:shield_progress', { targetId, step: 'rollback', progress, message: `Rolling back ${entry.stepId}...` }, profile.id);
 
             const handler = getRollbackHandler(entry.stepId);
             if (handler) {
@@ -1576,7 +1616,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
 
           // Always delete policies + profile regardless of manifest
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_policies', progress: 88, message: 'Removing policies...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_policies', progress: 88, message: 'Removing policies...' }, profile.id);
           log('Removing seeded policies...', 'removing_policies');
           try {
             const scopedStorage = storage.for({ profileId: profile.id });
@@ -1585,7 +1625,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             // Best-effort
           }
 
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_profile', progress: 95, message: 'Removing profile...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_profile', progress: 95, message: 'Removing profile...' }, profile.id);
           log('Removing profile from storage...', 'removing_profile');
           storage.profiles.delete(profile.id);
 
@@ -1594,7 +1634,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           log('No install manifest found — using legacy unshield...', 'legacy_unshield');
 
           // 1. Stop target app processes
-          emitEvent('setup:shield_progress', { targetId, step: 'stopping_processes', progress: 5, message: 'Stopping target processes...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'stopping_processes', progress: 5, message: 'Stopping target processes...' }, profile.id);
           log('Stopping all processes for agent user...', 'stopping_processes');
           if (agentUsername) {
             await executor.execAsRoot(
@@ -1604,7 +1644,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
 
           // 2. Remove PATH override (restore original binary from backup)
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_path', progress: 15, message: 'Removing PATH override...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_path', progress: 15, message: 'Removing PATH override...' }, profile.id);
           log('Removing PATH router override...', 'removing_path');
           try {
             const {
@@ -1677,7 +1717,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
 
           // 3. Unload & remove LaunchDaemons (broker + target-specific)
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_daemons', progress: 25, message: 'Removing LaunchDaemons...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_daemons', progress: 25, message: 'Removing LaunchDaemons...' }, profile.id);
           log('Unloading and removing LaunchDaemons...', 'removing_daemons');
           const plistLabels = [
             `com.agenshield.broker.${profileBaseName}`,
@@ -1691,7 +1731,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
 
           // 4. Remove sudoers rules
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_sudoers', progress: 35, message: 'Removing sudo rules...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_sudoers', progress: 35, message: 'Removing sudo rules...' }, profile.id);
           log('Removing sudoers rules...', 'removing_sudoers');
           await executor.execAsRoot(
             `rm -f "/etc/sudoers.d/agenshield-${profileBaseName}" 2>/dev/null; true`,
@@ -1699,7 +1739,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           ).catch(() => {});
 
           // 5. Remove seatbelt and guarded shell from /etc/shells
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_seatbelt', progress: 45, message: 'Removing security profile...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_seatbelt', progress: 45, message: 'Removing security profile...' }, profile.id);
           if (agentHomeDir) {
             await executor.execAsRoot(
               `sed -i '' '\\|${agentHomeDir}/.agenshield/bin/guarded-shell|d' /etc/shells 2>/dev/null; true`,
@@ -1708,7 +1748,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
 
           // 6. Delete agent home directory
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_home', progress: 55, message: 'Removing agent home directory...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_home', progress: 55, message: 'Removing agent home directory...' }, profile.id);
           if (agentHomeDir) {
             log(`Removing agent home directory ${agentHomeDir}...`, 'removing_home');
             await executor.execAsRoot(
@@ -1718,7 +1758,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
 
           // 7. Delete sandbox users (agent + broker)
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_users', progress: 65, message: 'Removing sandbox users...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_users', progress: 65, message: 'Removing sandbox users...' }, profile.id);
           log('Removing sandbox users...', 'removing_users');
           const deleteUserCmds: string[] = [];
           if (agentUsername) deleteUserCmds.push(`dscl . -delete /Users/${agentUsername} 2>/dev/null`);
@@ -1731,7 +1771,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
 
           // 8. Delete sandbox group (socket)
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_groups', progress: 75, message: 'Removing sandbox groups...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_groups', progress: 75, message: 'Removing sandbox groups...' }, profile.id);
           log('Removing sandbox groups...', 'removing_groups');
           const socketGroupName = `ash_${profileBaseName}`;
           await executor.execAsRoot(
@@ -1740,7 +1780,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           ).catch(() => {});
 
           // 9. Delete seeded policies
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_policies', progress: 82, message: 'Removing policies...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_policies', progress: 82, message: 'Removing policies...' }, profile.id);
           log('Removing seeded policies...', 'removing_policies');
           try {
             const scopedStorage = storage.for({ profileId: profile.id });
@@ -1750,14 +1790,14 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
 
           // 10. Delete profile from storage
-          emitEvent('setup:shield_progress', { targetId, step: 'removing_profile', progress: 90, message: 'Removing profile...' });
+          emitEvent('setup:shield_progress', { targetId, step: 'removing_profile', progress: 90, message: 'Removing profile...' }, profile.id);
           log('Removing profile from storage...', 'removing_profile');
           storage.profiles.delete(profile.id);
         }
 
-        emitEvent('setup:shield_progress', { targetId, step: 'cleanup', progress: 98, message: 'Final cleanup...' });
-        emitEvent('setup:shield_progress', { targetId, step: 'complete', progress: 100, message: 'Unshielding complete' });
-        emitEvent('setup:shield_complete', { targetId, profileId: profile.id });
+        emitEvent('setup:shield_progress', { targetId, step: 'cleanup', progress: 98, message: 'Final cleanup...' }, profile.id);
+        emitEvent('setup:shield_progress', { targetId, step: 'complete', progress: 100, message: 'Unshielding complete' }, profile.id);
+        emitEvent('setup:shield_complete', { targetId, profileId: profile.id }, profile.id);
         log('Unshielding complete.', 'complete');
 
         triggerTargetCheck();
@@ -1874,7 +1914,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
         }
 
-        emitEvent('process:started', { process: targetId, action: 'start' });
+        emitEvent('process:started', { process: targetId, action: 'start' }, profile?.id);
         triggerTargetCheck();
         return { success: true, data: { targetId, started: true } };
       } catch (err) {
@@ -1981,7 +2021,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
         }
 
-        emitEvent('process:stopped', { process: targetId, action: 'stop' });
+        emitEvent('process:stopped', { process: targetId, action: 'stop' }, profile?.id);
         triggerTargetCheck();
         return { success: true, data: { targetId, stopped: true } };
       } catch (err) {
@@ -2043,4 +2083,137 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
       }
     },
   );
+
+  // ── Post-upgrade regeneration ──────────────────────────────────
+
+  /**
+   * POST /system/post-upgrade — Reapply on-disk artifacts after a binary upgrade.
+   *
+   * Regenerates guarded-shell, ZDOTDIR files, and router wrappers for every
+   * active target profile so that script-level fixes ship with the new binary.
+   */
+  app.post('/system/post-upgrade', async (): Promise<ApiResponse<{
+    profiles: Array<{ id: string; name: string; status: string }>;
+    routerWrappers: string[];
+  }>> => {
+    const executor = app.privilegeExecutor;
+    if (!executor) {
+      return {
+        success: false,
+        error: { code: 'NO_EXECUTOR', message: 'Privilege executor not available. Restart the daemon.' },
+      };
+    }
+
+    const profileResults: Array<{ id: string; name: string; status: string }> = [];
+    const routerWrapperResults: string[] = [];
+
+    try {
+      const storage = getStorage();
+      const allProfiles = storage.profiles.getAll() as import('@agenshield/ipc').Profile[];
+      const targetProfiles = allProfiles.filter(
+        (p) => p.type === 'target' && p.agentHomeDir && p.presetId,
+      );
+
+      const {
+        guardedShellPath,
+        GUARDED_SHELL_CONTENT,
+        zdotDir,
+        zdotZshenvContent,
+        zdotZshrcContent,
+        getPreset,
+        scanForRouterWrappers,
+        generateRouterWrapper,
+        buildInstallRouterCommands,
+        buildInstallUserLocalRouterCommands,
+      } = await import('@agenshield/sandbox');
+
+      // Resolve host username (daemon may run as root / LaunchDaemon)
+      let hostUsername = '';
+      try {
+        const { execSync } = await import('node:child_process');
+        hostUsername = execSync('stat -f "%Su" /dev/console', { encoding: 'utf-8', timeout: 3_000 }).trim();
+      } catch {
+        hostUsername = process.env['SUDO_USER'] || process.env['USER'] || process.env['LOGNAME'] || '';
+      }
+      const hostHome = hostUsername ? `/Users/${hostUsername}` : (process.env['HOME'] || '');
+
+      // 1. Regenerate guarded-shell + ZDOTDIR for each target profile
+      for (const profile of targetProfiles) {
+        const agentHome = profile.agentHomeDir!;
+        const presetId = profile.presetId!;
+        const preset = getPreset(presetId);
+        const shellFeatures = preset?.shellFeatures ?? {};
+
+        try {
+          // Guarded shell
+          const shellPath = guardedShellPath(agentHome);
+          await executor.execAsRoot(
+            `cat > "${shellPath}" << 'GSHELL_EOF'\n${GUARDED_SHELL_CONTENT}\nGSHELL_EOF`,
+            { timeout: 15_000 },
+          );
+          await executor.execAsRoot([
+            `chown root:wheel "${shellPath}"`,
+            `chmod 755 "${shellPath}"`,
+          ].join(' && '), { timeout: 15_000 });
+
+          // ZDOTDIR .zshenv and .zshrc
+          const targetZdotDir = zdotDir(agentHome);
+          await executor.execAsRoot(`mkdir -p "${targetZdotDir}"`, { timeout: 10_000 });
+          await executor.execAsRoot(
+            `cat > "${targetZdotDir}/.zshenv" << 'ZSHENV_EOF'\n${zdotZshenvContent(agentHome, shellFeatures)}\nZSHENV_EOF`,
+            { timeout: 15_000 },
+          );
+          await executor.execAsRoot(
+            `cat > "${targetZdotDir}/.zshrc" << 'ZSHRC_EOF'\n${zdotZshrcContent(shellFeatures)}\nZSHRC_EOF`,
+            { timeout: 15_000 },
+          );
+          await executor.execAsRoot([
+            `chown -R root:wheel "${targetZdotDir}"`,
+            `chmod 644 "${targetZdotDir}/.zshenv" "${targetZdotDir}/.zshrc"`,
+          ].join(' && '), { timeout: 15_000 });
+
+          profileResults.push({ id: profile.id, name: profile.name, status: 'ok' });
+        } catch (err) {
+          profileResults.push({ id: profile.id, name: profile.name, status: `error: ${(err as Error).message}` });
+        }
+      }
+
+      // 2. Regenerate router wrappers (system-wide + user-local)
+      try {
+        const existingRouterBins = scanForRouterWrappers();
+        for (const binName of existingRouterBins) {
+          try {
+            const wrapperContent = generateRouterWrapper(binName);
+            const installCmd = buildInstallRouterCommands(binName, wrapperContent);
+            await executor.execAsRoot(installCmd, { timeout: 15_000 });
+
+            if (hostHome) {
+              const userLocalCmd = buildInstallUserLocalRouterCommands(binName, wrapperContent, hostHome);
+              await executor.execAsRoot(userLocalCmd, { timeout: 15_000 });
+              await executor.execAsRoot(
+                `chown -R ${hostUsername}:staff "${hostHome}/.agenshield/bin"`,
+                { timeout: 10_000 },
+              );
+            }
+
+            routerWrapperResults.push(binName);
+          } catch {
+            // Best-effort per wrapper
+          }
+        }
+      } catch {
+        // scanForRouterWrappers failed — skip router regeneration
+      }
+
+      return {
+        success: true,
+        data: { profiles: profileResults, routerWrappers: routerWrapperResults },
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: { code: 'POST_UPGRADE_ERROR', message: (err as Error).message },
+      };
+    }
+  });
 }

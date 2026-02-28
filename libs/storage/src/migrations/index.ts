@@ -17,6 +17,7 @@ import { PolicyTiersMigration } from './017-policy-tiers';
 import { PolicyEnforcementMigration } from './018-policy-enforcement';
 import { PolicyTargetProcessMigration } from './019-policy-target-process';
 import { BinarySignaturesMigration } from './020-binary-signatures';
+import { PolicyTargetRouterMigration } from './021-policy-target-router';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -36,6 +37,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   new PolicyEnforcementMigration(),
   new PolicyTargetProcessMigration(),
   new BinarySignaturesMigration(),
+  new PolicyTargetRouterMigration(),
 ];
 
 /**

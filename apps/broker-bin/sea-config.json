@@ -1,0 +1,9 @@
+{
+  "main": "dist/sea/apps/broker-bin/agenshield-broker.cjs",
+  "output": "dist/sea/apps/broker-bin/sea-prep.blob",
+  "disableExperimentalSEAWarning": true,
+  "useCodeCache": true,
+  "assets": {
+    "VERSION": "dist/sea/VERSION"
+  }
+}

@@ -6,10 +6,12 @@ import type Database from 'better-sqlite3';
 import type { Migration } from '../types';
 import { ActivitySchemaMigration } from './001-activity-schema';
 import { AlertsTableMigration } from './002-alerts-table';
+import { ActivitySourceMigration } from './003-activity-source';
 
 export const ACTIVITY_MIGRATIONS: Migration[] = [
   new ActivitySchemaMigration(),
   new AlertsTableMigration(),
+  new ActivitySourceMigration(),
 ];
 
 const TABLE = '_migrations';

@@ -11,12 +11,14 @@ import { emitEvent } from '../events/emitter';
 
 export class ShieldStepTracker {
   private readonly targetId: string;
+  private profileId?: string;
   private readonly steps: ShieldStepState[];
   /** Maps step id → index for O(1) lookup */
   private readonly indexMap: Map<string, number>;
 
-  constructor(targetId: string, definitions: ShieldStepDefinition[]) {
+  constructor(targetId: string, definitions: ShieldStepDefinition[], profileId?: string) {
     this.targetId = targetId;
+    this.profileId = profileId;
     this.indexMap = new Map();
     this.steps = definitions.map((def, i) => {
       this.indexMap.set(def.id, i);
@@ -106,9 +108,14 @@ export class ShieldStepTracker {
     this.broadcast();
   }
 
+  /** Set the profileId after profile creation (mid-shield). */
+  setProfileId(id: string): void {
+    this.profileId = id;
+  }
+
   /** Emit a per-step log message. */
   logStep(stepId: string, message: string, level?: 'info' | 'warn' | 'error'): void {
-    emitEvent('setup:step_log', { targetId: this.targetId, stepId, message, level });
+    emitEvent('setup:step_log', { targetId: this.targetId, stepId, message, level }, this.profileId);
   }
 
   /** Get the computed overall progress (0-100). */
@@ -120,6 +127,11 @@ export class ShieldStepTracker {
   /** Get the current step array (readonly snapshot). */
   getSteps(): readonly ShieldStepState[] {
     return this.steps;
+  }
+
+  /** Get the current profileId (may be undefined before profile creation). */
+  getProfileId(): string | undefined {
+    return this.profileId;
   }
 
   // ── Internal ────────────────────────────────────────────────
@@ -137,7 +149,7 @@ export class ShieldStepTracker {
       targetId: this.targetId,
       steps: [...this.steps],
       overallProgress: progress,
-    });
+    }, this.profileId);
 
     // Backward-compat: map to legacy shield_progress event
     const running = this.steps.find(s => s.status === 'running');
@@ -146,6 +158,6 @@ export class ShieldStepTracker {
       step: running?.id ?? (progress >= 100 ? 'complete' : 'initializing'),
       progress,
       message: running?.name ?? (progress >= 100 ? 'Shielding complete' : 'Preparing...'),
-    });
+    }, this.profileId);
   }
 }

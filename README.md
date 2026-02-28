@@ -63,50 +63,115 @@ The onboarding wizard will walk you through linking your AI model provider (Goog
 
 > For full OpenClaw documentation, see [docs.openclaw.ai/install](https://docs.openclaw.ai/install).
 
-## Quick Start
+## Installation
+
+### Method 1: curl | sh (Recommended)
+
+Downloads pre-built SEA (Single Executable Application) binaries — **no Node.js required** on the host machine.
 
 ```bash
-# Install and configure (opens web-based wizard on http://127.0.0.1:5200)
-npx agenshield@latest setup
-
-# Or use terminal-only mode
-npx agenshield@latest setup --cli
-
-# Check installation status
-npx agenshield status
-
-# Diagnose issues
-npx agenshield doctor
+curl -fsSL https://raw.githubusercontent.com/agen-co/agenshield/main/tools/sea/install.sh | sh
 ```
 
-The setup wizard will:
-1. Create isolated macOS users and groups (`ash_default_agent`, `ash_default_broker`)
-2. Create system directories (`/opt/agenshield/`, `/etc/agenshield/`, etc.)
-3. Generate macOS Seatbelt sandbox profiles
-4. Install command wrappers (curl, python, node, git, etc.)
-5. Install and start LaunchDaemons (broker, OpenClaw daemon, OpenClaw gateway)
-6. Optionally install Homebrew and Node.js inside the sandbox
-7. Migrate your target application into the sandbox
-8. Verify the full installation
+This installs three binaries to `~/.agenshield/bin/`:
+
+| Binary | Purpose |
+|--------|---------|
+| `agenshield` | CLI |
+| `agenshield-daemon` | Daemon + privilege helper |
+| `agenshield-broker` | Request broker |
+
+The installer auto-adds `~/.agenshield/bin` to your shell's PATH. After install:
+
+```bash
+source ~/.zshrc   # or ~/.bashrc, ~/.bash_profile
+agenshield setup
+```
+
+**Supported platforms:** macOS (arm64, x64), Linux (arm64, x64)
+
+**Environment variables:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AGENSHIELD_VERSION` | Install a specific version | latest |
+| `AGENSHIELD_INSTALL_DIR` | Installation directory | `~/.agenshield` |
+| `AGENSHIELD_GITHUB_REPO` | GitHub repo for downloads | `agen-co/agenshield` |
+
+### Method 2: npm
+
+Requires Node.js >= 22. Runs via Node.js — no standalone binaries are produced.
+
+```bash
+# Run directly (no global install)
+npx agenshield@latest setup
+
+# Or install globally
+npm install -g agenshield
+agenshield setup
+```
+
+### Method 3: Install from GitHub Releases
+
+Download the `.tar.gz` archive for your platform from the [GitHub Releases](https://github.com/agen-co/agenshield/releases) page:
+
+```bash
+# Download the archive (replace VERSION, PLATFORM, ARCH)
+curl -fsSL -o agenshield.tar.gz \
+  https://github.com/agen-co/agenshield/releases/download/vVERSION/agenshield-VERSION-PLATFORM-ARCH.tar.gz
+
+# Verify checksum
+curl -fsSL https://github.com/agen-co/agenshield/releases/download/vVERSION/checksums.sha256 | \
+  grep agenshield-VERSION-PLATFORM-ARCH.tar.gz | shasum -a 256 -c
+
+# Extract and install
+mkdir -p ~/.agenshield/bin
+tar -xzf agenshield.tar.gz -C ~/.agenshield/bin
+chmod 755 ~/.agenshield/bin/agenshield*
+
+# Add to PATH
+export PATH="$HOME/.agenshield/bin:$PATH"
+```
+
+### Post-Installation
+
+After installing via any method, run the setup wizard:
+
+```bash
+agenshield setup
+```
+
+The wizard prompts you to choose between **local** and **cloud** mode, then starts the daemon and opens the dashboard at **http://127.0.0.1:5200**.
+
+Verify the installation:
+
+```bash
+agenshield status
+agenshield doctor
+```
 
 ## CLI Reference
 
 ### `agenshield setup`
 
-Run the setup wizard to sandbox a target application.
+Interactive guided setup — choose between local and cloud mode.
 
 | Flag | Description |
 |------|-------------|
-| `--cli` | Use terminal UI instead of web browser |
-| `--target <preset>` | Target preset: `openclaw`, `custom` (default: auto-detect) |
-| `--entry-point <path>` | Entry point for custom target (Node.js file) |
-| `--base-name <name>` | Base name for users/groups (default: `default`) |
-| `--prefix <prefix>` | Custom prefix for users/groups (for testing multiple instances) |
-| `--base-uid <uid>` | Base UID for created users (default: `5200`) |
-| `--dry-run` | Show what would be done without making changes |
-| `--skip-confirm` | Skip confirmation prompts |
-| `-v, --verbose` | Show verbose output |
-| `--list-presets` | List available presets and exit |
+| `--mode <mode>` | Skip mode prompt: `local` or `cloud` |
+| `--cloud-url <url>` | Cloud API URL (implies `--mode cloud`) |
+
+### `agenshield install`
+
+Download and install AgenShield to `~/.agenshield/`. Downloads the npm package from the registry, extracts it, and runs `npm install --production` for dependencies. Requires Node.js >= 22.
+
+| Flag | Description |
+|------|-------------|
+| `--version <ver>` | Install a specific version (default: own version or latest) |
+| `--channel <ch>` | Release channel (default: `stable`) |
+| `--force` | Overwrite existing installation |
+| `--local` | Install from local monorepo build output instead of npm (contributors only) |
+| `--sea` | Build and install as SEA binaries (requires `--local`, contributors only) |
 
 ### `agenshield status`
 
@@ -439,6 +504,54 @@ npx nx build shield-ui
 
 # Build CLI only
 npx nx build cli
+```
+
+## Building & Installing from Source
+
+### Building SEA Binaries
+
+SEA (Single Executable Application) binaries bundle AgenShield into standalone executables that don't require Node.js on the host.
+
+**Prerequisites:** Node.js >= 22, yarn
+
+```bash
+# Full build (all 3 binaries: agenshield, agenshield-daemon, agenshield-broker)
+node --experimental-strip-types tools/sea/build-all.mts
+```
+
+**Build options:**
+
+| Flag | Description |
+|------|-------------|
+| `--skip-nx` | Skip Nx library build step |
+| `--skip-ui` | Skip UI dashboard build step |
+| `--skip-inject` | Skip postject injection (produce bundles only) |
+| `--minify` | Minify all bundles |
+| `--platform` | Target platform (default: current) |
+| `--arch` | Target architecture (default: current) |
+
+You can also build via Nx targets:
+
+```bash
+npx nx run-many -t build --projects=cli-bin,daemon-bin,broker-bin
+```
+
+Output binaries are placed in `dist/sea/apps/{cli-bin,daemon-bin,broker-bin}/`. A `.tar.gz` archive is created automatically for distribution.
+
+### Installing from Local Monorepo
+
+To install the locally-built SEA binaries to `~/.agenshield/`:
+
+```bash
+agenshield install --local --sea
+```
+
+This builds all three SEA binaries from the monorepo source and installs them to `~/.agenshield/bin/`.
+
+For a Node.js-based local install (requires Node.js on the host — copies build outputs into `~/.agenshield/dist/`, runs `npm install --production` for third-party deps, creates a shell shim):
+
+```bash
+agenshield install --local
 ```
 
 ## Testing

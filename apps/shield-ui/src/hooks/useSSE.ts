@@ -61,6 +61,9 @@ export function useSSE(enabled = true, token?: string | null) {
         }
 
         // Update daemon status store from SSE push
+        // Keep-alive ping — not activity
+        if (type === 'heartbeat') return;
+
         if (type === 'daemon:status') {
           setDaemonStatus(data as unknown as DaemonStatus);
           return; // Don't add status events to the activity feed

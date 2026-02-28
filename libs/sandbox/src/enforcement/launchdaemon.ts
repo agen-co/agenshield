@@ -28,20 +28,21 @@ export function generateBrokerPlist(
     nodeBinPath?: string;
     logDir?: string;
     hostHome?: string;
+    isSEABinary?: boolean;
   }
 ): string {
   const resolvedHostHome = options?.hostHome || process.env['HOME'] || '';
   const agentHome = config.agentUser.home;
-  const sharedBinDir = resolvedHostHome ? `${resolvedHostHome}/.agenshield/bin` : '/opt/agenshield/bin';
+  const sharedLibexecDir = resolvedHostHome ? `${resolvedHostHome}/.agenshield/libexec` : '/opt/agenshield/libexec';
   const nodeBinary = options?.nodeBinPath || `${agentHome}/bin/node-bin`;
-  const brokerBinary = options?.brokerPath || `${sharedBinDir}/agenshield-broker`;
+  const brokerBinary = options?.brokerPath || `${sharedLibexecDir}/agenshield-broker`;
   const configPath = options?.configPath || `${agentHome}/.agenshield/config/shield.json`;
   const socketPath = options?.socketPath || `${agentHome}/.agenshield/run/agenshield.sock`;
   const brokerUsername = config.brokerUser.username;
   const socketGroupName = config.groups.socket.name;
   const label = options?.baseName ? `${LABEL}.${options.baseName}` : LABEL;
   const resolvedLogDir = options?.logDir ?? `${agentHome}/.agenshield/logs`;
-  const baseDir = resolvedHostHome ? `${resolvedHostHome}/.agenshield` : '/opt/agenshield';
+  const baseDir = `${resolvedHostHome || '/var/root'}/.agenshield`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -57,8 +58,9 @@ export function generateBrokerPlist(
 
     <key>ProgramArguments</key>
     <array>
-        <string>${nodeBinary}</string>
-        <string>${brokerBinary}</string>
+${options?.isSEABinary
+    ? `        <string>${brokerBinary}</string>`
+    : `        <string>${nodeBinary}</string>\n        <string>${brokerBinary}</string>`}
     </array>
 
     <key>UserName</key>

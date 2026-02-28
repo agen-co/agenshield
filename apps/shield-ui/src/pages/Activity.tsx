@@ -174,12 +174,12 @@ export function Activity({
   const allFilteredEvents = useMemo(() => {
     let result = [...events] as SSEEvent[];
 
-    if (sourceFilter && sourceFilter !== 'all') {
-      result = result.filter((e) => (e.source ?? 'daemon') === sourceFilter);
-    }
-
-    if (profileIdFilter) {
-      result = result.filter((e) => e.profileId === profileIdFilter);
+    if (profileIdFilter || (sourceFilter && sourceFilter !== 'all')) {
+      result = result.filter((e) => {
+        const matchesProfile = profileIdFilter && e.profileId === profileIdFilter;
+        const matchesSource = sourceFilter && sourceFilter !== 'all' && (e.source ?? 'daemon') === sourceFilter;
+        return matchesProfile || matchesSource;
+      });
     }
 
     if (hideNoise || embedded) {

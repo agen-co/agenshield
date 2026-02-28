@@ -11,6 +11,7 @@ import { Worker } from 'node:worker_threads';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { isSEA, getSEALibDir } from '@agenshield/ipc';
 import { getLogger } from '../logger';
 
 // ESM-compatible __dirname
@@ -48,11 +49,22 @@ export class SystemCommandExecutor {
   private alive = true;
 
   constructor() {
-    // When bundled, __dirname is the bundle root (dist/) but the worker
-    // lives in dist/workers/. In unbundled dev, both files are in the same dir.
-    const candidateSubdir = path.join(__dirname, 'workers', 'system-command.worker.js');
-    const candidateSame = path.join(__dirname, 'system-command.worker.js');
-    const workerPath = fs.existsSync(candidateSubdir) ? candidateSubdir : candidateSame;
+    let workerPath: string;
+
+    if (isSEA()) {
+      // In SEA mode, the worker script is extracted to the lib directory
+      const libDir = getSEALibDir();
+      workerPath = libDir
+        ? path.join(libDir, 'workers', 'system-command.worker.js')
+        : path.join(__dirname, 'system-command.worker.js');
+    } else {
+      // When bundled, __dirname is the bundle root (dist/) but the worker
+      // lives in dist/workers/. In unbundled dev, both files are in the same dir.
+      const candidateSubdir = path.join(__dirname, 'workers', 'system-command.worker.js');
+      const candidateSame = path.join(__dirname, 'system-command.worker.js');
+      workerPath = fs.existsSync(candidateSubdir) ? candidateSubdir : candidateSame;
+    }
+
     this.worker = new Worker(workerPath);
 
     this.worker.on('message', (msg: WorkerResponse) => {

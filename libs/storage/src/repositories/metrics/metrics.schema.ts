@@ -12,6 +12,11 @@ export const MetricsSnapshotSchema = z.object({
   netUp: z.number().min(0),
   netDown: z.number().min(0),
   targetId: z.string().max(100).optional(),
+  elMin: z.number().min(0).optional(),
+  elMax: z.number().min(0).optional(),
+  elMean: z.number().min(0).optional(),
+  elP50: z.number().min(0).optional(),
+  elP99: z.number().min(0).optional(),
 });
 
 export type MetricsSnapshotInput = z.input<typeof MetricsSnapshotSchema>;

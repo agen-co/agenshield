@@ -16,6 +16,7 @@ export function mapEvent(row: DbActivityEventRow): ActivityEvent {
   return {
     id: row.id,
     profileId: row.profile_id ?? undefined,
+    source: row.source ?? undefined,
     type: row.type,
     timestamp: row.timestamp,
     data: JSON.parse(row.data),

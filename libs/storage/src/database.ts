@@ -2,6 +2,9 @@
  * Database connection management
  *
  * Wraps better-sqlite3 with pragmas, file permissions, and lifecycle management.
+ *
+ * In SEA mode, the better-sqlite3 native addon is loaded from a custom path
+ * via the BETTER_SQLITE3_BINDING env var (set by the SEA runtime setup).
  */
 
 import Database from 'better-sqlite3';

@@ -12,6 +12,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { isSEA } from '@agenshield/ipc';
 
 // ---------------------------------------------------------------------------
 // Async spawn helpers
@@ -95,11 +96,16 @@ export function getLocalCliEntry(): string {
 // Version tracking
 // ---------------------------------------------------------------------------
 
+/** Installation format */
+export type InstallFormat = 'npm' | 'sea' | 'monorepo';
+
 export interface VersionInfo {
   version: string;
   channel: string;
   installedAt: string;
   updatedAt: string;
+  /** Installation format — 'sea' for binary, 'npm' for npm-pack */
+  format?: InstallFormat;
 }
 
 /** Read version.json, returns null when missing or malformed. */
@@ -595,5 +601,166 @@ export function removePathOverrideFromShellRc(
     return { removed: true, rcFile };
   } catch {
     return { removed: false, rcFile };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Install format detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect the current installation format.
+ *
+ * - `sea`: Running as a Single Executable Application binary
+ * - `npm`: Local install via `~/.agenshield/dist/` with npm-pack
+ * - `monorepo`: Running from the development monorepo
+ */
+export function detectInstallFormat(): InstallFormat {
+  if (isSEA()) return 'sea';
+  const info = readVersionInfo();
+  if (info?.format === 'sea') return 'sea';
+  if (isLocalInstall()) return 'npm';
+  return 'monorepo';
+}
+
+// ---------------------------------------------------------------------------
+// SEA binary helpers
+// ---------------------------------------------------------------------------
+
+/** Path to the SEA binary in ~/.agenshield/bin/ */
+export function getSEABinaryPath(): string {
+  return path.join(getBinDir(), 'agenshield');
+}
+
+/**
+ * Install pre-built SEA binaries from `dist/sea/` into `~/.agenshield/`.
+ *
+ * Multi-binary layout:
+ *   ~/.agenshield/bin/agenshield              (CLI — on PATH)
+ *   ~/.agenshield/libexec/agenshield-daemon   (Daemon — internal)
+ *   ~/.agenshield/libexec/agenshield-broker   (Broker — internal)
+ *
+ * This copies already-built artifacts — it does NOT rebuild from source.
+ * The binaries must have been built beforehand (e.g. via `tools/sea/build-all.mts`).
+ */
+export async function buildAndInstallSEAFromLocal(
+  repoRoot: string,
+  onProgress?: (step: string) => void,
+): Promise<DownloadResult> {
+  try {
+    // Read version — prefer dist/sea/VERSION, fall back to libs/cli/package.json
+    let version = 'unknown';
+    const versionFilePath = path.join(repoRoot, 'dist', 'sea', 'VERSION');
+    try {
+      version = fs.readFileSync(versionFilePath, 'utf-8').trim();
+    } catch {
+      try {
+        const cliPkg = JSON.parse(
+          fs.readFileSync(path.join(repoRoot, 'libs', 'cli', 'package.json'), 'utf-8'),
+        );
+        version = cliPkg.version || 'unknown';
+      } catch { /* ignore */ }
+    }
+
+    // Validate all pre-built binaries exist
+    const binaries = [
+      { name: 'agenshield', app: 'cli-bin' },
+      { name: 'agenshield-daemon', app: 'daemon-bin' },
+      { name: 'agenshield-broker', app: 'broker-bin' },
+    ];
+
+    const distSea = path.join(repoRoot, 'dist', 'sea');
+    for (const bin of binaries) {
+      const binPath = path.join(distSea, 'apps', bin.app, bin.name);
+      if (!fs.existsSync(binPath)) {
+        return {
+          success: false,
+          version,
+          error: `Pre-built binary not found at ${binPath}. Run the SEA build first.`,
+        };
+      }
+    }
+
+    // Step 1: Copy binaries — CLI to bin/, daemon+broker to libexec/
+    const binDir = getBinDir();
+    const libexecDir = path.join(AGENSHIELD_HOME, 'libexec');
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(libexecDir, { recursive: true });
+
+    onProgress?.('Installing binaries...');
+    for (const bin of binaries) {
+      const srcBinary = path.join(distSea, 'apps', bin.app, bin.name);
+      const destDir = bin.name === 'agenshield' ? binDir : libexecDir;
+      const destBinary = path.join(destDir, bin.name);
+      fs.copyFileSync(srcBinary, destBinary);
+      fs.chmodSync(destBinary, 0o755);
+    }
+
+    // Step 2: Copy native modules
+    const libDir = path.join(os.homedir(), '.agenshield', 'lib', `v${version}`);
+    const nativeDir = path.join(libDir, 'native');
+    fs.mkdirSync(nativeDir, { recursive: true });
+
+    onProgress?.('Installing native modules...');
+    const nativeSearchPaths = [
+      path.join(repoRoot, 'node_modules/better-sqlite3/build/Release/better_sqlite3.node'),
+      path.join(repoRoot, 'node_modules/better-sqlite3/prebuilds',
+        `${process.platform}-${process.arch}`, 'better_sqlite3.node'),
+    ];
+
+    for (const searchPath of nativeSearchPaths) {
+      if (fs.existsSync(searchPath)) {
+        fs.copyFileSync(searchPath, path.join(nativeDir, 'better_sqlite3.node'));
+        break;
+      }
+    }
+
+    // Step 3: Copy worker scripts
+    const daemonDistDir = path.join(distSea, 'apps', 'daemon-bin');
+    const workersDir = path.join(daemonDistDir, 'workers');
+    if (fs.existsSync(workersDir)) {
+      const destWorkers = path.join(libDir, 'workers');
+      fs.mkdirSync(destWorkers, { recursive: true });
+      for (const file of fs.readdirSync(workersDir)) {
+        fs.copyFileSync(path.join(workersDir, file), path.join(destWorkers, file));
+      }
+      onProgress?.('Installed worker scripts');
+    }
+
+    // Step 4: Copy interceptor scripts
+    const interceptorDir = path.join(daemonDistDir, 'interceptor');
+    if (fs.existsSync(interceptorDir)) {
+      const destInterceptor = path.join(libDir, 'interceptor');
+      fs.mkdirSync(destInterceptor, { recursive: true });
+      for (const file of fs.readdirSync(interceptorDir)) {
+        fs.copyFileSync(path.join(interceptorDir, file), path.join(destInterceptor, file));
+      }
+      onProgress?.('Installed interceptor scripts');
+    }
+
+    // Step 5: Copy UI assets
+    onProgress?.('Installing UI assets...');
+    const uiTarball = path.join(distSea, 'assets', 'ui-assets.tar.gz');
+    const uiDistDir = path.join(repoRoot, 'dist', 'apps', 'shield-ui');
+    const destUiDir = path.join(libDir, 'ui-assets');
+
+    if (fs.existsSync(uiTarball)) {
+      fs.mkdirSync(destUiDir, { recursive: true });
+      execSync(`tar -xzf "${uiTarball}" -C "${destUiDir}"`, { stdio: 'pipe' });
+    } else if (fs.existsSync(uiDistDir)) {
+      fs.mkdirSync(destUiDir, { recursive: true });
+      execSync(`cp -R "${uiDistDir}/." "${destUiDir}/"`, { stdio: 'pipe' });
+    }
+
+    // Step 6: Write extraction stamp
+    fs.writeFileSync(path.join(libDir, '.extracted'), `${version}:wiu`);
+
+    return { success: true, version };
+  } catch (err) {
+    return {
+      success: false,
+      version: 'unknown',
+      error: (err as Error).message,
+    };
   }
 }

@@ -235,7 +235,7 @@ export const TargetOverlay = memo(({ targetId, tab, skipAnimation }: TargetOverl
         ) : activeTab === 'activity' ? (
           <FullHeightArea>
             <Suspense fallback={fallback}>
-              <LazyActivity embedded fillHeight sourceFilter={targetId} />
+              <LazyActivity embedded fillHeight sourceFilter={targetId} profileId={profileId ?? undefined} />
             </Suspense>
           </FullHeightArea>
         ) : (

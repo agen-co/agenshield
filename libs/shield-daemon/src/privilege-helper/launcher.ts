@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { exec } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
+import { isSEA } from '@agenshield/ipc';
 
 export interface PrivilegeHelperHandle {
   /** Path to the Unix socket for sending commands */
@@ -19,23 +20,40 @@ export interface PrivilegeHelperHandle {
   cleanup: () => Promise<void>;
 }
 
+interface HelperInvocation {
+  binary: string;
+  args: string[];
+}
+
 /**
- * Find the helper script path (compiled .js in dist, or .ts in dev mode)
+ * Find the helper script/binary invocation.
+ *
+ * In multi-binary SEA mode, the daemon binary IS the helper — invoke self with `--privilege-helper`.
+ * In normal mode, find the helper.js/.ts script on disk.
  */
-function findHelperScript(): string {
+function findHelperInvocation(): HelperInvocation {
+  // Multi-binary SEA mode: invoke self with --privilege-helper flag
+  if (isSEA()) {
+    return {
+      binary: process.execPath,
+      args: ['--privilege-helper'],
+    };
+  }
+
   const __dirname = path.dirname(new URL(import.meta.url).pathname);
+  const nodeBin = process.execPath;
 
   // Try compiled JS first (production — same directory)
   const jsPath = path.join(__dirname, 'helper.js');
-  if (fs.existsSync(jsPath)) return jsPath;
+  if (fs.existsSync(jsPath)) return { binary: nodeBin, args: [jsPath] };
 
   // Try esbuild additional entry point output (preserves directory structure)
   const nestedJsPath = path.join(__dirname, 'privilege-helper', 'helper.js');
-  if (fs.existsSync(nestedJsPath)) return nestedJsPath;
+  if (fs.existsSync(nestedJsPath)) return { binary: nodeBin, args: [nestedJsPath] };
 
   // Try TypeScript source (dev mode via tsx)
   const tsPath = path.join(__dirname, 'helper.ts');
-  if (fs.existsSync(tsPath)) return tsPath;
+  if (fs.existsSync(tsPath)) return { binary: nodeBin, args: [tsPath] };
 
   throw new Error(
     `Privilege helper script not found. Searched:\n  ${jsPath}\n  ${nestedJsPath}\n  ${tsPath}`,
@@ -56,13 +74,11 @@ export async function launchPrivilegeHelper(options?: {
 }): Promise<PrivilegeHelperHandle> {
   const timeout = options?.timeout ?? 30_000;
   const socketPath = `/tmp/agenshield-priv-${crypto.randomBytes(4).toString('hex')}.sock`;
-  const helperScript = findHelperScript();
-
-  // Determine the node binary to use
-  const nodeBin = process.execPath;
+  const helper = findHelperInvocation();
 
   // Build the shell command that osascript will run as root
-  const shellCmd = `${nodeBin} "${helperScript}" "${socketPath}" 2>/tmp/agenshield-priv-helper.log &`;
+  const helperArgs = [...helper.args, socketPath].map(a => `"${a}"`).join(' ');
+  const shellCmd = `"${helper.binary}" ${helperArgs} 2>/tmp/agenshield-priv-helper.log &`;
 
   let helperProc: ChildProcess | null = null;
 

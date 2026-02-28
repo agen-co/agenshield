@@ -1,0 +1,13 @@
+{
+  "main": "dist/sea/apps/daemon-bin/agenshield-daemon.cjs",
+  "output": "dist/sea/apps/daemon-bin/sea-prep.blob",
+  "disableExperimentalSEAWarning": true,
+  "useCodeCache": true,
+  "assets": {
+    "system-command-worker.js": "dist/sea/apps/daemon-bin/workers/system-command.worker.js",
+    "interceptor-register.cjs": "dist/sea/apps/daemon-bin/interceptor/register.cjs",
+    "interceptor-register.mjs": "dist/sea/apps/daemon-bin/interceptor/register.mjs",
+    "ui-assets.tar.gz": "dist/sea/assets/ui-assets.tar.gz",
+    "VERSION": "dist/sea/VERSION"
+  }
+}

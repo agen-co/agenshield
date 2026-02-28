@@ -17,7 +17,8 @@ export type OperationType =
   | 'open_url'
   | 'secret_inject'
   | 'ping'
-  | 'policy_check';
+  | 'policy_check'
+  | 'package_install';
 
 /**
  * JSON-RPC 2.0 request

@@ -5,6 +5,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isSEA, getSEALibDir } from '@agenshield/ipc';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,6 +15,15 @@ const __dirname = path.dirname(__filename);
  * @returns Path to UI assets or null if not found
  */
 export function getUiAssetsPath(): string | null {
+  // SEA mode: ui-assets are extracted to the lib directory
+  if (isSEA()) {
+    const libDir = getSEALibDir();
+    if (libDir) {
+      const seaPath = path.join(libDir, 'ui-assets');
+      if (fs.existsSync(seaPath)) return seaPath;
+    }
+  }
+
   // npm install: ui-assets is at the package root (sibling of dist/)
   const pkgRootPath = path.join(__dirname, '..', 'ui-assets');
   if (fs.existsSync(pkgRootPath)) {

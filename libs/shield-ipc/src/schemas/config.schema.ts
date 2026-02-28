@@ -80,7 +80,7 @@ export const PolicyConfigSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(100),
   action: z.enum(['allow', 'deny', 'approval']),
-  target: z.enum(['skill', 'command', 'url', 'filesystem', 'process']),
+  target: z.enum(['skill', 'command', 'url', 'filesystem', 'process', 'router']),
   patterns: z.array(z.string()),
   enabled: z.boolean().default(true),
   enforcement: z.enum(['alert', 'kill']).optional(),

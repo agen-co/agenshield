@@ -1,0 +1,26 @@
+{
+  "name": "broker-bin",
+  "projectType": "application",
+  "tags": ["scope:binary"],
+  "targets": {
+    "bundle": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["^build"],
+      "outputs": ["{workspaceRoot}/dist/sea/apps/broker-bin"],
+      "options": {
+        "command": "npx tsx apps/broker-bin/esbuild.config.mts"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["bundle"],
+      "options": {
+        "commands": [
+          "node --experimental-sea-config apps/broker-bin/sea-config.json",
+          "npx tsx -e \"const h = require('./tools/sea/shared/build-helpers.mts'); h.injectBlob({ binaryPath: 'dist/sea/apps/broker-bin/agenshield-broker', blobPath: 'dist/sea/apps/broker-bin/sea-prep.blob' })\""
+        ],
+        "parallel": false
+      }
+    }
+  }
+}

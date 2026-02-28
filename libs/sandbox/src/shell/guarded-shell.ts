@@ -59,7 +59,7 @@ unset SSH_ASKPASS LD_PRELOAD
 # Dynamically resolve the calling user's home for per-target ZDOTDIR
 _ASH_HOME="\$(dscl . -read /Users/\$(id -un) NFSHomeDirectory 2>/dev/null | awk '{print \$2}')"
 [ -z "\$_ASH_HOME" ] && _ASH_HOME="/Users/\$(id -un)"
-unset HOME
+export HOME="\${_ASH_HOME}"
 
 # Per-target ZDOTDIR under agent home
 export ZDOTDIR="\${_ASH_HOME}/.zdot"
@@ -87,6 +87,8 @@ export function zdotZshenvContent(agentHome: string, features: ShellFeatures = {
 export HOMEBREW_PREFIX="$HOME/homebrew"
 export HOMEBREW_CELLAR="$HOME/homebrew/Cellar"
 export HOMEBREW_REPOSITORY="$HOME/homebrew"
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_INSTALL_FROM_API=1
 ` : '';
 
   const nvmSection = nvm ? `
@@ -150,6 +152,8 @@ export function zdotZshrcContent(features: ShellFeatures = {}): string {
 export HOMEBREW_PREFIX="$HOME/homebrew"
 export HOMEBREW_CELLAR="$HOME/homebrew/Cellar"
 export HOMEBREW_REPOSITORY="$HOME/homebrew"
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_INSTALL_FROM_API=1
 ` : '';
 
   const nvmSection = nvm ? `

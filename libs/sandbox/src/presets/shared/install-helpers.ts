@@ -8,6 +8,7 @@
 import type { InstallContext } from '../types.js';
 import { InstallError, HomebrewInstallError } from '../../errors.js';
 import { HOMEBREW_VERSION } from './versions.js';
+import { isSEA, getSEALibDir } from '@agenshield/ipc';
 
 /**
  * Execute a command as root, throwing InstallError on failure.
@@ -263,7 +264,15 @@ export async function patchNvmNode(ctx: InstallContext): Promise<void> {
   ].join(' && '), 'node_backup', 15_000);
 
   // Write the interceptor wrapper (includes AGENSHIELD_NODE_BIN for sync-client)
-  const interceptorPath = `${ctx.hostHome}/.agenshield/lib/interceptor/register.cjs`;
+  let interceptorPath: string;
+  if (isSEA()) {
+    const libDir = getSEALibDir();
+    interceptorPath = libDir
+      ? `${libDir}/interceptor/register.cjs`
+      : `${ctx.hostHome}/.agenshield/lib/interceptor/register.cjs`;
+  } else {
+    interceptorPath = `${ctx.hostHome}/.agenshield/lib/interceptor/register.cjs`;
+  }
   const wrapper = `#!/bin/bash
 # AgenShield Node.js Interceptor Wrapper
 export AGENSHIELD_NODE_BIN="${ctx.agentHome}/bin/node-bin"

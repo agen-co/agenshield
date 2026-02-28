@@ -8,6 +8,7 @@ import { getStorage } from '@agenshield/storage';
 import { getLogger } from '../logger';
 import { emitMetricsSnapshot, emitEvent } from '../events/emitter';
 import { buildSnapshot, collectTargetMetrics, type FullMetricsSnapshot, type TargetMetricsEntry } from './metrics-utils';
+import { getEventLoopStats } from './event-loop-monitor';
 import { getLastTargetStatuses } from '../watchers/targets';
 
 let collectInterval: ReturnType<typeof setInterval> | null = null;
@@ -137,6 +138,7 @@ async function collectAndStore(): Promise<void> {
     const now = Date.now();
 
     const storage = getStorage();
+    const elStats = getEventLoopStats();
     storage.metrics.create({
       timestamp: now,
       cpuPercent: snap.cpuPercent,
@@ -144,6 +146,13 @@ async function collectAndStore(): Promise<void> {
       diskPercent: snap.diskPercent,
       netUp: snap.netUp,
       netDown: snap.netDown,
+      ...(elStats && {
+        elMin: elStats.min,
+        elMax: elStats.max,
+        elMean: elStats.mean,
+        elP50: elStats.p50,
+        elP99: elStats.p99,
+      }),
     });
 
     // Spike detection — check thresholds and jumps
@@ -191,7 +200,7 @@ async function collectAndStore(): Promise<void> {
 
 /**
  * Start the background metrics collector.
- * Collects every 2s, prunes entries older than 24h every 5min.
+ * Collects every 2s, prunes entries older than 15min every 2min.
  */
 export function startMetricsCollector(): void {
   if (collectInterval) return; // Already running
@@ -205,9 +214,9 @@ export function startMetricsCollector(): void {
         getLogger().debug(`Pruned ${pruned} old metrics snapshots`);
       }
     } catch { /* ignore */ }
-  }, 5 * 60 * 1000);
+  }, 2 * 60 * 1000);
 
-  getLogger().info('Metrics collector started (2s interval, 24h retention, hybrid SSE push)');
+  getLogger().info('Metrics collector started (2s interval, 15min retention, hybrid SSE push)');
 }
 
 /** Stop the metrics collector. */

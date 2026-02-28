@@ -56,6 +56,10 @@ async function main(): Promise<void> {
         await handleCheckExec(args.slice(1));
         break;
 
+      case 'check-pkg':
+        await handleCheckPkg(args.slice(1));
+        break;
+
       case 'skill':
         await handleSkill(args.slice(1));
         break;
@@ -87,6 +91,7 @@ Commands:
   open <url>                         Open a URL in the browser
   secret get <name>                  Get a secret value
   check-exec <command>               Check if a command is allowed by policy
+  check-pkg <manager> <package>      Check if a package install is allowed by policy
   skill run <name> [args...]         Run a skill with policy-enforced context
 
 Environment:
@@ -247,6 +252,27 @@ async function handleCheckExec(args: string[]): Promise<void> {
   }
 
   const result = await client.policyCheck({ operation: 'exec', target });
+  if (result.allowed) {
+    process.exit(0);
+  } else {
+    process.exit(126); // "command cannot execute" convention
+  }
+}
+
+async function handleCheckPkg(args: string[]): Promise<void> {
+  const manager = args[0];
+  const pkg = args[1];
+
+  if (!manager || !pkg) {
+    console.error('Usage: shield-client check-pkg <manager> <package>');
+    process.exit(1);
+  }
+
+  const result = await client.policyCheck({
+    operation: 'package_install' as import('@agenshield/ipc').OperationType,
+    target: `${manager}:${pkg}`,
+  });
+
   if (result.allowed) {
     process.exit(0);
   } else {

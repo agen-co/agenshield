@@ -147,6 +147,8 @@ export function discoverBrewBinaries(options: {
     const brewCmd = [
       `export HOME="${agentHome}"`,
       `export PATH="${agentHome}/homebrew/bin:$PATH"`,
+      `export HOMEBREW_NO_AUTO_UPDATE=1`,
+      `export HOMEBREW_NO_INSTALL_FROM_API=1`,
       `brew list ${formula}`,
     ].join(' && ');
 
@@ -580,6 +582,8 @@ export async function uninstallBrewBinaryWrappers(options: {
         const brewCmd = [
           `export HOME="${agentHome}"`,
           `export PATH="${agentHome}/homebrew/bin:${agentHome}/bin:${SYSTEM_PATH}:$PATH"`,
+          `export HOMEBREW_NO_AUTO_UPDATE=1`,
+          `export HOMEBREW_NO_INSTALL_FROM_API=1`,
           `brew uninstall ${formula} 2>/dev/null || true`,
         ].join(' && ');
 

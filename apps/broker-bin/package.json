@@ -1,0 +1,6 @@
+{
+  "name": "@agenshield/broker-bin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AgenShield Broker SEA binary"
+}

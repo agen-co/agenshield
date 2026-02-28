@@ -366,7 +366,9 @@ const components: ThemeOptions['components'] = {
             transform: 'translateX(14px)',
             color: '#fff',
             '& + .MuiSwitch-track': {
-              backgroundColor: theme.palette.primary.main,
+              backgroundColor: theme.palette.mode === 'light'
+                ? theme.palette.primary.main
+                : theme.palette.grey[600],
               opacity: 1,
               border: 0,
             },
@@ -382,7 +384,9 @@ const components: ThemeOptions['components'] = {
         },
         '& .MuiSwitch-track': {
           borderRadius: 10,
-          backgroundColor: theme.palette.grey[300],
+          backgroundColor: theme.palette.mode === 'light'
+            ? theme.palette.grey[300]
+            : theme.palette.grey[700],
           opacity: 1,
           transition: theme.transitions.create(['background-color'], { duration: 200 }),
         },

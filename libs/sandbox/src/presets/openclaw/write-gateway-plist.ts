@@ -144,6 +144,10 @@ exec openclaw gateway start
     <string>${ctx.agentHome}/homebrew</string>
     <key>HOMEBREW_CELLAR</key>
     <string>${ctx.agentHome}/homebrew/Cellar</string>
+    <key>HOMEBREW_NO_AUTO_UPDATE</key>
+    <string>1</string>
+    <key>HOMEBREW_NO_INSTALL_FROM_API</key>
+    <string>1</string>
     <key>AGENSHIELD_SOCKET</key>
     <string>${socketPath}</string>
   </dict>
@@ -166,6 +170,8 @@ exec openclaw gateway start
         NVM_DIR: `${ctx.agentHome}/.nvm`,
         HOMEBREW_PREFIX: `${ctx.agentHome}/homebrew`,
         HOMEBREW_CELLAR: `${ctx.agentHome}/homebrew/Cellar`,
+        HOMEBREW_NO_AUTO_UPDATE: '1',
+        HOMEBREW_NO_INSTALL_FROM_API: '1',
         AGENSHIELD_SOCKET: socketPath,
       },
     }, null, 2);

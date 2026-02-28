@@ -10,8 +10,6 @@
  */
 
 import type { Command } from 'commander';
-import React from 'react';
-import { render } from 'ink';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync, spawnSync } from 'node:child_process';
@@ -26,8 +24,6 @@ import {
   saveDevState,
   deleteDevState,
   devStateExists,
-  DevApp,
-  DevSetupApp,
   type DevState,
 } from '../dev-tui/index.js';
 import {
@@ -170,6 +166,10 @@ async function runDevMode(options: {
     let resolvedState: DevState | null = null;
     let webuiRequested = false;
 
+    const React = (await import('react')).default;
+    const { render } = await import('ink');
+    const { DevSetupApp } = await import('../dev-tui/DevSetupApp.js');
+
     const { waitUntilExit } = render(
       React.createElement(DevSetupApp, {
         options: {
@@ -217,7 +217,10 @@ async function runDevMode(options: {
   output.info('');
 
   if (options.tui) {
-    const { waitUntilExit } = render(React.createElement(DevApp, { devState: state }));
+    const ReactTui = (await import('react')).default;
+    const { render: renderTui } = await import('ink');
+    const { DevApp } = await import('../dev-tui/DevApp.js');
+    const { waitUntilExit } = renderTui(ReactTui.createElement(DevApp, { devState: state }));
     await waitUntilExit();
   } else {
     output.info('Dev environment running. Press Ctrl+C to stop.');

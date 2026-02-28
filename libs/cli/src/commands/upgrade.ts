@@ -16,18 +16,54 @@ import {
   readVersionInfo,
   writeVersionInfo,
   getDistDir,
+  getBinDir,
   queryLatestVersion,
   downloadAndExtract,
   installFromLocal,
   findMonorepoRoot,
   writeShim,
   getLocalCliEntry,
+  detectInstallFormat,
+  buildAndInstallSEAFromLocal,
 } from '../utils/home.js';
+import { isSEA } from '@agenshield/ipc';
 import { output } from '../utils/output.js';
 import { ensureSetupComplete } from '../utils/setup-guard.js';
 import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
 import type { UpdateEngineOptions } from '../update/types.js';
+
+// ---------------------------------------------------------------------------
+// Post-upgrade: reapply wrappers, guarded-shell, ZDOTDIR
+// ---------------------------------------------------------------------------
+
+async function runPostUpgrade(): Promise<void> {
+  const postUpgradeSpinner = await createSpinner('Reapplying target configurations...');
+  const maxAttempts = 5;
+  let lastError = 'Could not reach daemon for post-upgrade refresh';
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(
+        `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}/system/post-upgrade`,
+        { method: 'POST' },
+      );
+      const data = await res.json() as { success: boolean; data?: { profiles?: unknown[] }; error?: string };
+      if (data.success) {
+        postUpgradeSpinner.succeed(`Refreshed ${data.data?.profiles?.length ?? 0} target(s)`);
+        return;
+      }
+      lastError = data.error ?? 'Post-upgrade refresh failed';
+    } catch {
+      lastError = 'Could not reach daemon for post-upgrade refresh';
+    }
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  postUpgradeSpinner.fail(lastError);
+}
 
 // ---------------------------------------------------------------------------
 // Legacy update logic (inlined from former update.ts)
@@ -276,6 +312,14 @@ async function upgradeLocalInstall(options: {
     return;
   }
 
+  // Ensure sudo credentials are cached before stopping the daemon,
+  // otherwise launchctl calls may hang waiting for a password prompt.
+  const { ensureSudoAccess, startSudoKeepalive } = await import('../utils/privileges.js');
+  ensureSudoAccess();
+  const keepalive = startSudoKeepalive();
+
+  try {
+
   // Stop daemon if running
   const wasDaemonRunning = (await getDaemonStatus()).running;
   if (wasDaemonRunning) {
@@ -371,6 +415,7 @@ async function upgradeLocalInstall(options: {
       const url = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
       restartSpinner.succeed(startResult.message);
       output.info(`  URL: ${url}`);
+      await runPostUpgrade();
     } else {
       restartSpinner.fail(startResult.message);
     }
@@ -378,6 +423,178 @@ async function upgradeLocalInstall(options: {
 
   output.info('');
   output.success(`Upgrade complete! (${currentVersion} \u2192 ${targetVersion})`);
+
+  } finally {
+    clearInterval(keepalive);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SEA binary upgrade (local monorepo build → SEA binary swap)
+// ---------------------------------------------------------------------------
+
+async function upgradeSEAInstall(options: {
+  force?: boolean;
+  verbose?: boolean;
+  local?: boolean;
+  /** When true, this is a migration from npm format to SEA */
+  migration?: boolean;
+}): Promise<void> {
+  const versionInfo = readVersionInfo();
+  const currentVersion = versionInfo?.version ?? 'unknown';
+  output.info(`  Current version: ${currentVersion}`);
+  output.info(`  Install format:  ${options.migration ? 'npm → SEA migration' : 'SEA binary'}`);
+
+  if (!options.local) {
+    // TODO: Download pre-built SEA binary from GitHub Releases
+    throw new CliError(
+      'Remote SEA binary upgrades are not yet supported. Use --local to build from monorepo.',
+      'SEA_REMOTE_NOT_SUPPORTED',
+    );
+  }
+
+  const repoRoot = findMonorepoRoot();
+  if (!repoRoot) {
+    throw new CliError(
+      'Could not find monorepo root (no package.json with workspaces field).',
+      'MONOREPO_NOT_FOUND',
+    );
+  }
+
+  let targetVersion: string;
+  try {
+    const cliPkg = JSON.parse(
+      fs.readFileSync(path.join(repoRoot, 'libs', 'cli', 'package.json'), 'utf-8'),
+    );
+    targetVersion = cliPkg.version || 'unknown';
+  } catch {
+    targetVersion = 'unknown';
+  }
+
+  output.info(`  Local version:   ${targetVersion}`);
+
+  if (currentVersion === targetVersion && !options.force) {
+    output.info('');
+    output.success(`Already at latest version (${currentVersion}).`);
+    output.info('  Use --force to re-build.');
+    return;
+  }
+
+  // Ensure sudo credentials are cached before stopping the daemon,
+  // otherwise launchctl calls may hang waiting for a password prompt.
+  const { ensureSudoAccess, startSudoKeepalive } = await import('../utils/privileges.js');
+  ensureSudoAccess();
+  const keepalive = startSudoKeepalive();
+
+  try {
+
+  // Stop daemon if running
+  const wasDaemonRunning = (await getDaemonStatus()).running;
+  if (wasDaemonRunning) {
+    const stopSpinner = await createSpinner('Stopping daemon...');
+    const stopResult = await stopDaemon();
+    if (!stopResult.success && stopResult.message !== 'Daemon is not running') {
+      stopSpinner.fail(stopResult.message);
+      throw new CliError(stopResult.message, 'DAEMON_STOP_FAILED');
+    }
+    stopSpinner.succeed(stopResult.message);
+  }
+
+  // Backup current binaries (multi-binary layout)
+  const binDir = getBinDir();
+  const binaryNames = ['agenshield', 'agenshield-daemon', 'agenshield-broker'];
+  for (const name of binaryNames) {
+    const binPath = path.join(binDir, name);
+    const backupPath = `${binPath}.bak`;
+    if (fs.existsSync(binPath)) {
+      try {
+        fs.copyFileSync(binPath, backupPath);
+      } catch { /* best effort */ }
+    }
+  }
+
+  const dlSpinner = await createSpinner(`Installing agenshield@${targetVersion} SEA binaries from local build...`);
+  const result = await buildAndInstallSEAFromLocal(repoRoot, (step) => dlSpinner.update(step));
+
+  if (!result.success) {
+    dlSpinner.fail(`SEA build failed: ${result.error}`);
+
+    // Restore backups
+    let restored = false;
+    for (const name of binaryNames) {
+      const binPath = path.join(binDir, name);
+      const bkPath = `${binPath}.bak`;
+      if (fs.existsSync(bkPath)) {
+        fs.copyFileSync(bkPath, binPath);
+        fs.chmodSync(binPath, 0o755);
+        restored = true;
+      }
+    }
+    if (restored) {
+      output.info('  Restoring previous binaries...');
+      output.success('Restored successfully.');
+    }
+
+    if (wasDaemonRunning) {
+      output.info('  Restarting daemon with previous version...');
+      await startDaemon();
+    }
+    throw new CliError(`SEA build failed: ${result.error}`, 'SEA_BUILD_FAILED');
+  }
+
+  dlSpinner.succeed(`Built agenshield@${targetVersion} SEA binary`);
+
+  // Clean up backups
+  for (const name of binaryNames) {
+    const bkPath = path.join(binDir, name) + '.bak';
+    try {
+      if (fs.existsSync(bkPath)) fs.unlinkSync(bkPath);
+    } catch { /* ignore */ }
+  }
+
+  // Update version.json
+  writeVersionInfo({
+    version: targetVersion,
+    channel: versionInfo?.channel ?? 'local',
+    installedAt: versionInfo?.installedAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    format: 'sea',
+  });
+  output.success(`Updated version.json (${currentVersion} → ${targetVersion})`);
+
+  // If migrating from npm, clean up old dist directory
+  if (options.migration) {
+    const distDir = getDistDir();
+    if (fs.existsSync(distDir)) {
+      output.info('  Cleaning up old npm installation...');
+      try {
+        fs.rmSync(distDir, { recursive: true, force: true });
+        output.success('Removed ~/.agenshield/dist/ (no longer needed with SEA binary)');
+      } catch {
+        output.warn('Could not remove old dist directory — you can delete it manually');
+      }
+    }
+  }
+
+  if (wasDaemonRunning) {
+    const restartSpinner = await createSpinner('Restarting daemon...');
+    const startResult = await startDaemon();
+    if (startResult.success) {
+      const url = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
+      restartSpinner.succeed(startResult.message);
+      output.info(`  URL: ${url}`);
+      await runPostUpgrade();
+    } else {
+      restartSpinner.fail(startResult.message);
+    }
+  }
+
+  output.info('');
+  output.success(`Upgrade complete! (${currentVersion} → ${targetVersion})`);
+
+  } finally {
+    clearInterval(keepalive);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +637,7 @@ async function upgradeLegacy(options: {
         const url = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
         output.success(startResult.message);
         output.info(`  URL: ${url}`);
+        await runPostUpgrade();
       } else {
         output.error(startResult.message);
       }
@@ -440,9 +658,39 @@ export function registerUpgradeCommand(program: Command): void {
     .option('--force', 'Re-apply even if already at latest version', false)
     .option('--local', 'Upgrade from local monorepo build output instead of npm', false)
     .option('--cli', 'Use terminal mode instead of web browser', false)
+    .option('--sea', 'Migrate to Single Executable Application binary format', false)
     .action(withGlobals(async (opts) => {
       ensureSetupComplete();
-      if (isLocalInstall()) {
+
+      const format = detectInstallFormat();
+      const requestSEA = opts['sea'] as boolean;
+
+      // If --sea flag is set and current format is npm, migrate to SEA
+      if (requestSEA && format !== 'sea') {
+        output.info('');
+        output.info('  AgenShield Upgrade (npm \u2192 SEA migration)');
+        output.info('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
+        output.info('');
+        await upgradeSEAInstall({
+          force: opts['force'] as boolean,
+          verbose: opts['verbose'] as boolean,
+          local: opts['local'] as boolean,
+          migration: true,
+        });
+        return;
+      }
+
+      if (format === 'sea') {
+        output.info('');
+        output.info('  AgenShield Upgrade (SEA binary)');
+        output.info('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
+        output.info('');
+        await upgradeSEAInstall({
+          force: opts['force'] as boolean,
+          verbose: opts['verbose'] as boolean,
+          local: opts['local'] as boolean,
+        });
+      } else if (isLocalInstall()) {
         output.info('');
         output.info('  AgenShield Upgrade (local install)');
         output.info('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');

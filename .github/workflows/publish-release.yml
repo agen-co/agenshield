@@ -272,11 +272,84 @@ jobs:
           echo "- **NPM tag:** \`${{ needs.prepare.outputs.npm_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   # =============================================================================
+  # JOB 2.5: BUILD-SEA (Matrix)
+  # - Build platform-specific SEA binaries
+  # =============================================================================
+  build-sea:
+    needs: prepare
+    if: ${{ inputs.dry_run != true && inputs.dry_run != 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            platform: darwin
+            arch: arm64
+          - runner: macos-13
+            platform: darwin
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    environment: release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get Node version
+        id: node-version
+        run: echo "version=$(cat .nvmrc)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ steps.node-version.outputs.version }}
+          cache: "yarn"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-packages
+          path: libs/
+
+      - name: Build UI
+        run: npx nx build shield-ui
+
+      - name: Build multi-binary SEA
+        run: node --experimental-strip-types tools/sea/build-all.mts --skip-nx --minify --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+
+      - name: Upload SEA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sea-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            dist/sea/agenshield-*.tar.gz
+            dist/sea/checksums.sha256
+          retention-days: 1
+
+      - name: Job summary
+        if: success()
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          echo "## Built SEA binary (${{ matrix.platform }}-${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version:** \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Platform:** ${{ matrix.platform }}/${{ matrix.arch }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f dist/sea/checksums.sha256 ]; then
+            echo "- **Checksum:**" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat dist/sea/checksums.sha256 >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # =============================================================================
   # JOB 3: FINALIZE
   # - Create git tag and GitHub release after all publishes succeed
   # =============================================================================
   finalize:
-    needs: [prepare, publish]
+    needs: [prepare, publish, build-sea]
     if: ${{ inputs.dry_run != true && inputs.dry_run != 'true' }}
     runs-on: ubuntu-latest
     environment: release
@@ -291,6 +364,24 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Download SEA artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sea-*
+          path: /tmp/sea-artifacts
+          merge-multiple: true
+
+      - name: Merge SEA checksums
+        run: |
+          MERGED="/tmp/sea-artifacts/checksums.sha256"
+          # Collect all individual checksum files and merge
+          find /tmp/sea-artifacts -name 'checksums.sha256' -exec cat {} \; | sort -u > "$MERGED.merged" || true
+          if [ -s "$MERGED.merged" ]; then
+            mv "$MERGED.merged" "$MERGED"
+            echo "Merged checksums:"
+            cat "$MERGED"
+          fi
 
       - name: Get previous version
         id: prev_version
@@ -425,6 +516,12 @@ jobs:
 
           ### Installation
 
+          **Binary (recommended):**
+          \`\`\`bash
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/v$VERSION/install.sh | sh
+          \`\`\`
+
+          **npm:**
           \`\`\`bash
           npm install agenshield@$VERSION
           \`\`\`
@@ -471,6 +568,10 @@ jobs:
           prerelease: ${{ needs.prepare.outputs.is_prerelease }}
           generate_release_notes: true
           body_path: /tmp/release-body.md
+          files: |
+            /tmp/sea-artifacts/agenshield-*.tar.gz
+            /tmp/sea-artifacts/checksums.sha256
+            tools/sea/install.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

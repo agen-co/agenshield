@@ -18,6 +18,7 @@ export default {
     '^@agenshield/seatbelt$': '<rootDir>/../seatbelt/src/index.ts',
     '^@agenshield/ipc$': '<rootDir>/../shield-ipc/src/index.ts',
     '^@agenshield/storage$': '<rootDir>/../storage/src/index.ts',
+    '^@agenshield/sandbox$': '<rootDir>/../sandbox/src/index.ts',
     '^(.*)\\.js$': '$1',
   },
   testMatch: ['<rootDir>/src/__tests__/**/*.spec.ts'],

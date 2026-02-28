@@ -113,7 +113,29 @@ describe('generateBrokerPlist', () => {
     const plist = generateBrokerPlist(mockUserConfig, { hostHome: '/Users/testuser' });
 
     expect(plist).toContain('/Users/ash_test_agent/bin/node-bin');
-    expect(plist).toContain('/Users/testuser/.agenshield/bin/agenshield-broker');
+    expect(plist).toContain('/Users/testuser/.agenshield/libexec/agenshield-broker');
+  });
+
+  it('omits node-bin from ProgramArguments when isSEABinary is true', () => {
+    const plist = generateBrokerPlist(mockUserConfig, {
+      hostHome: '/Users/testuser',
+      isSEABinary: true,
+    });
+
+    // Should contain the broker binary path
+    expect(plist).toContain('/Users/testuser/.agenshield/libexec/agenshield-broker');
+    // Should NOT contain node-bin in ProgramArguments
+    expect(plist).not.toContain('node-bin');
+  });
+
+  it('includes node-bin in ProgramArguments when isSEABinary is false', () => {
+    const plist = generateBrokerPlist(mockUserConfig, {
+      hostHome: '/Users/testuser',
+      isSEABinary: false,
+    });
+
+    expect(plist).toContain('/Users/ash_test_agent/bin/node-bin');
+    expect(plist).toContain('/Users/testuser/.agenshield/libexec/agenshield-broker');
   });
 });
 

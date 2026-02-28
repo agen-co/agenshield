@@ -85,7 +85,10 @@ export function registerStartCommand(program: Command): void {
         output.info('');
       } else {
         spinner.fail('Failed to start daemon');
-        throw new DaemonStartError(result.message);
+        output.info('');
+        output.info(result.message);
+        output.info('');
+        throw new DaemonStartError('Daemon failed to start');
       }
     }));
 }

@@ -27,12 +27,14 @@ export class ActivityRepository extends BaseRepository {
       type: data.type,
       timestamp: data.timestamp,
       data: JSON.stringify(redactedData),
+      source: data.source ?? null,
       createdAt: now,
     });
 
     return {
       id: Number(result.lastInsertRowid),
       profileId: data.profileId,
+      source: data.source,
       type: data.type,
       timestamp: data.timestamp,
       data: redactedData,

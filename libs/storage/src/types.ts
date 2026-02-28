@@ -163,6 +163,7 @@ export interface DbSkillInstallationRow {
 export interface DbActivityEventRow {
   id: number;
   profile_id: string | null;
+  source: string | null;
   type: string;
   timestamp: string;
   data: string;

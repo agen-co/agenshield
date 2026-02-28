@@ -2,16 +2,19 @@
  * Vault Key Manager
  *
  * Manages the raw encryption key for the storage vault.
- * The key is stored at /var/run/agenshield/.vault-key (32 bytes random, mode 0o600).
+ * The key is stored at ~/.agenshield/.vault-key (32 bytes random, mode 0o600).
  * Generated at daemon startup if missing, used to unlock vault immediately.
  */
 
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
-/** Default key file location */
-const DEFAULT_KEY_DIR = '/var/run/agenshield';
+/** Default key file location — under ~/.agenshield/ */
+function getDefaultKeyDir(): string {
+  return path.join(os.homedir(), '.agenshield');
+}
 const DEFAULT_KEY_FILENAME = '.vault-key';
 
 /** Key size in bytes (256-bit for AES-256) */
@@ -24,7 +27,7 @@ let cachedKey: Buffer | null = null;
  * Get the path to the vault key file
  */
 export function getVaultKeyPath(
-  keyDir = DEFAULT_KEY_DIR,
+  keyDir = getDefaultKeyDir(),
   keyFilename = DEFAULT_KEY_FILENAME,
 ): string {
   return path.join(keyDir, keyFilename);
@@ -37,7 +40,7 @@ export function getVaultKeyPath(
  * - If not, generates a new 32-byte random key, writes to disk (mode 0o600), and caches it.
  */
 export function loadOrCreateVaultKey(
-  keyDir = DEFAULT_KEY_DIR,
+  keyDir = getDefaultKeyDir(),
   keyFilename = DEFAULT_KEY_FILENAME,
 ): Buffer {
   if (cachedKey) {

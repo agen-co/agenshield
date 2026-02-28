@@ -3,19 +3,27 @@
  * and merges it into the valtio systemStore on mount.
  *
  * Runs once at app level (staleTime: Infinity) so all pages see full
- * 30-minute history immediately, regardless of which route the user visits.
+ * 15-minute history immediately, regardless of which route the user visits.
  */
 
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useHealthGate } from '../api/hooks';
 import { authFetch } from '../api/client';
-import { systemStore, type MetricsSnapshot } from '../state/system-store';
+import { systemStore, pushEventLoopSnapshot, type MetricsSnapshot } from '../state/system-store';
 
-const BACKFILL_LIMIT = 900; // 900 * 2s = 30 min
+const BACKFILL_LIMIT = 450; // 450 * 2s = 15 min
 
 export function useMetricsBackfill(): void {
   const healthy = useHealthGate();
+
+  interface BackfillSnapshot extends MetricsSnapshot {
+    elMin?: number;
+    elMax?: number;
+    elMean?: number;
+    elP50?: number;
+    elP99?: number;
+  }
 
   const { data } = useQuery({
     queryKey: ['metrics-backfill'] as const,
@@ -23,7 +31,7 @@ export function useMetricsBackfill(): void {
       const res = await authFetch(`/api/metrics/history?limit=${BACKFILL_LIMIT}`);
       if (!res.ok) return [];
       const json = await res.json();
-      return (json.data ?? []) as MetricsSnapshot[];
+      return (json.data ?? []) as BackfillSnapshot[];
     },
     enabled: healthy,
     staleTime: Infinity, // Only fetch once per session
@@ -38,6 +46,21 @@ export function useMetricsBackfill(): void {
     const newSnapshots = data.filter((s) => !existing.has(s.timestamp));
     if (newSnapshots.length > 0) {
       systemStore.metricsHistory.unshift(...newSnapshots);
+    }
+
+    // Backfill event loop history from persisted snapshots
+    if (systemStore.eventLoopHistory.length === 0) {
+      const elSnapshots = data.filter((s) => s.elMin != null);
+      for (const s of elSnapshots) {
+        pushEventLoopSnapshot({
+          timestamp: s.timestamp,
+          min: s.elMin!,
+          max: s.elMax!,
+          mean: s.elMean!,
+          p50: s.elP50!,
+          p99: s.elP99!,
+        });
+      }
     }
   }, [data]);
 }

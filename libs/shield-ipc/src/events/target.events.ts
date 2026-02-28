@@ -8,6 +8,7 @@ export interface AgentProcessInfo {
   pid: number;
   elapsed: string;
   command: string;
+  startedAtMs?: number;
 }
 
 export interface TargetStatusInfo {

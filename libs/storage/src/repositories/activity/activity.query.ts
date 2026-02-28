@@ -6,8 +6,8 @@ const TABLE = 'activity_events';
 
 export const Q = {
   insert: `
-    INSERT INTO ${TABLE} (profile_id, type, timestamp, data, created_at)
-    VALUES (@profileId, @type, @timestamp, @data, @createdAt)`,
+    INSERT INTO ${TABLE} (profile_id, type, timestamp, data, source, created_at)
+    VALUES (@profileId, @type, @timestamp, @data, @source, @createdAt)`,
 
   deleteAll: `DELETE FROM ${TABLE}`,
 

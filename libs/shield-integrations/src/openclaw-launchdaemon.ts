@@ -86,6 +86,8 @@ export NVM_DIR="${config.agentHome}/.nvm"
 # Match guarded-shell PATH: wrappers first, then homebrew
 export PATH="$HOME/bin:$HOME/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export SHELL="/usr/local/bin/guarded-shell"
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_INSTALL_FROM_API=1
 
 # Load NVM to get correct node/npm/openclaw in PATH (prepends NVM paths)
 NVM_LOADED=false
@@ -181,6 +183,10 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
         <string>${config.agentHome}/homebrew</string>
         <key>HOMEBREW_CELLAR</key>
         <string>${config.agentHome}/homebrew/Cellar</string>
+        <key>HOMEBREW_NO_AUTO_UPDATE</key>
+        <string>1</string>
+        <key>HOMEBREW_NO_INSTALL_FROM_API</key>
+        <string>1</string>
         <key>NODE_OPTIONS</key>
         <string>--disable-warning=ExperimentalWarning --require ${interceptorPath}</string>
         <key>AGENSHIELD_SOCKET</key>
@@ -280,6 +286,10 @@ export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): stri
         <string>${config.agentHome}/homebrew</string>
         <key>HOMEBREW_CELLAR</key>
         <string>${config.agentHome}/homebrew/Cellar</string>
+        <key>HOMEBREW_NO_AUTO_UPDATE</key>
+        <string>1</string>
+        <key>HOMEBREW_NO_INSTALL_FROM_API</key>
+        <string>1</string>
         <key>NODE_OPTIONS</key>
         <string>--disable-warning=ExperimentalWarning --require ${interceptorPath}</string>
         <key>AGENSHIELD_SOCKET</key>
@@ -448,9 +458,9 @@ export async function stopOpenClawServices(): Promise<OpenClawDaemonResult> {
   try {
     // Disable the job first to prevent KeepAlive auto-restart
     try {
-      await execAsync(`sudo launchctl disable system/${OPENCLAW_GATEWAY_LABEL}`);
+      await execAsync(`sudo launchctl disable system/${OPENCLAW_GATEWAY_LABEL}`, { timeout: 10_000 });
     } catch { /* may already be disabled */ }
-    await execAsync(`sudo launchctl kill SIGTERM system/${OPENCLAW_GATEWAY_LABEL}`);
+    await execAsync(`sudo launchctl kill SIGTERM system/${OPENCLAW_GATEWAY_LABEL}`, { timeout: 10_000 });
     return {
       success: true,
       message: 'OpenClaw gateway stopped',

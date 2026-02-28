@@ -8,15 +8,22 @@ import { VERSION, loadConfig } from '../config/index';
 import { loadState } from '../state/index';
 import { getCloudConnector } from '../services/cloud-connector';
 
-// Dynamic import — openclaw-launchdaemon may not be built yet
+// Lazy-loaded integrations — avoids top-level await (TLA) which breaks CJS bundles
 let getOpenClawStatusSync: (() => unknown) | undefined;
 let detectHostOpenClawVersion: (() => string | null) | undefined;
-try {
-  const integrations = await import('@agenshield/integrations');
-  getOpenClawStatusSync = (integrations as Record<string, unknown>)['getOpenClawStatusSync'] as typeof getOpenClawStatusSync;
-  detectHostOpenClawVersion = (integrations as Record<string, unknown>)['detectHostOpenClawVersion'] as typeof detectHostOpenClawVersion;
-} catch {
-  // @agenshield/sandbox may not export this yet
+let _integrationsLoaded = false;
+
+function ensureIntegrations(): void {
+  if (_integrationsLoaded) return;
+  _integrationsLoaded = true;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const integrations = require('@agenshield/integrations') as Record<string, unknown>;
+    getOpenClawStatusSync = integrations['getOpenClawStatusSync'] as typeof getOpenClawStatusSync;
+    detectHostOpenClawVersion = integrations['detectHostOpenClawVersion'] as typeof detectHostOpenClawVersion;
+  } catch {
+    // @agenshield/integrations may not be available
+  }
 }
 
 // Cached OpenClaw version (detected once, doesn't change at runtime)
@@ -25,6 +32,7 @@ let cachedOpenClawVersion: string | null | undefined;
 export const startedAt = new Date();
 
 export function buildDaemonStatus(): DaemonStatus {
+  ensureIntegrations();
   const config = loadConfig();
   const state = loadState();
   const uptimeMs = Date.now() - startedAt.getTime();

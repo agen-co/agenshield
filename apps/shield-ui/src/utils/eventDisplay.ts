@@ -222,6 +222,7 @@ const NOISE_API_PATHS = ['/api/metrics', '/api/security', '/api/health', '/api/s
 /** Returns true for low-value system probe events (allowed exec of arp, networksetup, etc.) */
 export function isNoiseEvent(event: SSEEvent): boolean {
   // Hide low-signal system events
+  if (event.type === 'heartbeat') return true;
   if (event.type === 'skills:approved') return true;
   if (event.type === 'daemon:status') return true;
   if (event.type === 'metrics:eventloop') return true;

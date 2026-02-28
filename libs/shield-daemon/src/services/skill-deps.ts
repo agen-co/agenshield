@@ -128,6 +128,8 @@ export async function executeSkillInstallSteps(options: {
           const brewCmd = [
             `export HOME="${agentHome}"`,
             `export PATH="${agentHome}/homebrew/bin:${agentHome}/bin:${SYSTEM_PATH}:$PATH"`,
+            `export HOMEBREW_NO_AUTO_UPDATE=1`,
+            `export HOMEBREW_NO_INSTALL_FROM_API=1`,
             `brew install ${formula}`,
           ].join(' && ');
 

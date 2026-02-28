@@ -4,13 +4,18 @@
 
 import { createRequire } from 'node:module';
 
-import { DEFAULT_PORT, DEFAULT_HOST } from '@agenshield/ipc';
+import { DEFAULT_PORT, DEFAULT_HOST, getSEAVersion } from '@agenshield/ipc';
 import type { ShieldConfig } from '@agenshield/ipc';
 
-const require = createRequire(import.meta.url);
-const pkg = require('./package.json') as { version: string };
+function resolveVersion(): string {
+  const seaVersion = getSEAVersion();
+  if (seaVersion) return seaVersion;
+  const require = createRequire(import.meta.url);
+  const pkg = require('./package.json') as { version: string };
+  return pkg.version;
+}
 
-export const VERSION = pkg.version;
+export const VERSION = resolveVersion();
 
 /**
  * Get default configuration

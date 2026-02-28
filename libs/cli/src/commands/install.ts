@@ -30,6 +30,7 @@ import {
   writeVersionInfo,
   readVersionInfo,
   ensurePathInShellRc,
+  buildAndInstallSEAFromLocal,
 } from '../utils/home.js';
 import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
@@ -61,9 +62,12 @@ export function registerInstallCommand(program: Command): void {
     .option('--channel <ch>', 'Release channel', 'stable')
     .option('--force', 'Overwrite existing installation', false)
     .option('--local', 'Install from local monorepo build output instead of npm', false)
+    .option('--sea', 'Build and install as a Single Executable Application binary', false)
     .action(withGlobals(async (opts) => {
+      const useSEA = opts['sea'] as boolean;
+
       output.info('');
-      output.info('  AgenShield Local Install');
+      output.info(`  AgenShield ${useSEA ? 'SEA Binary' : 'Local'} Install`);
       output.info('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
       output.info('');
 
@@ -87,11 +91,100 @@ export function registerInstallCommand(program: Command): void {
       const dirs = [
         getBinDir(),
         path.join(AGENSHIELD_HOME, 'logs'),
-        getDistDir(),
       ];
+      if (!useSEA) {
+        dirs.push(getDistDir());
+      }
       for (const dir of dirs) {
         fs.mkdirSync(dir, { recursive: true });
       }
+
+      // -- SEA binary install path --
+      if (useSEA) {
+        if (!opts['local']) {
+          // TODO: Download pre-built SEA binary from GitHub Releases
+          throw new CliError(
+            'Remote SEA binary installs are not yet supported. Use --local --sea to build from monorepo.',
+            'SEA_REMOTE_NOT_SUPPORTED',
+          );
+        }
+
+        const repoRoot = findMonorepoRoot();
+        if (!repoRoot) {
+          throw new CliError(
+            'Could not find monorepo root (no package.json with workspaces field).',
+            'MONOREPO_NOT_FOUND',
+          );
+        }
+
+        const spinner = await createSpinner('Installing SEA binaries from local build...');
+        const result = await buildAndInstallSEAFromLocal(
+          repoRoot,
+          (step) => spinner.update(step),
+        );
+
+        if (!result.success) {
+          spinner.fail(`SEA build failed: ${result.error}`);
+          throw new CliError(`SEA build failed: ${result.error}`, 'SEA_BUILD_FAILED');
+        }
+        spinner.succeed(`Built agenshield@${result.version} SEA binary`);
+
+        // Write version.json with SEA format
+        const now = new Date().toISOString();
+        writeVersionInfo({
+          version: result.version,
+          channel: 'local',
+          installedAt: existing?.installedAt ?? now,
+          updatedAt: now,
+          format: 'sea',
+        });
+        output.success(`Wrote ${getVersionFilePath()}`);
+
+        // Verify all binaries exist
+        const binDir = getBinDir();
+        const libexecDir = path.join(path.dirname(binDir), 'libexec');
+        const expectedBinaries: Array<{ name: string; dir: string }> = [
+          { name: 'agenshield', dir: binDir },
+          { name: 'agenshield-daemon', dir: libexecDir },
+          { name: 'agenshield-broker', dir: libexecDir },
+        ];
+        for (const { name, dir } of expectedBinaries) {
+          const binPath = path.join(dir, name);
+          if (!fs.existsSync(binPath)) {
+            throw new CliError(
+              `SEA binary not found at ${binPath}.`,
+              'BINARY_MISSING',
+            );
+          }
+        }
+        output.success(`SEA binaries installed in ${binDir}`);
+
+        // Auto-add PATH
+        const { added, rcFile } = ensurePathInShellRc();
+        if (added) {
+          output.success(`Added PATH to ${rcFile}`);
+          output.info(`    Run: source ${rcFile}`);
+        } else {
+          output.success(`PATH already configured in ${rcFile}`);
+        }
+
+        output.info('');
+        output.success('SEA installation complete!');
+        output.info('');
+        output.info('  Verify with:');
+        output.info('');
+        output.info('    agenshield --version');
+        output.info('');
+        output.info(`  Installation directory: ${AGENSHIELD_HOME}`);
+        output.info(`  Binaries:              ${binDir}/`);
+        for (const { name } of expectedBinaries) {
+          output.info(`    - ${name}`);
+        }
+        output.info('');
+        return;
+      }
+
+      // -- Standard npm-pack install path --
 
       // 4. Clear dist dir if --force and it already exists
       const distDir = getDistDir();

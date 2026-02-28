@@ -28,8 +28,8 @@ export const openclawPreset: TargetPreset = {
   name: 'OpenClaw',
   description: 'AI coding agent (auto-detected via npm or git)',
 
-  requiredBins: ['node', 'npm', 'npx', 'git', 'curl', 'bash', 'shieldctl'],
-  optionalBins: ['wget', 'ssh', 'scp', 'python3', 'pip', 'brew'],
+  requiredBins: ['node', 'npm', 'npx', 'git', 'curl', 'bash', 'shieldctl', 'python3', 'pip', 'brew'],
+  optionalBins: ['wget', 'ssh', 'scp', 'yarn', 'pnpm'],
   policyPresetIds: ['openclaw'],
   shellFeatures: { homebrew: true, nvm: true },
   seatbeltDenyPaths: ['.openclaw'],

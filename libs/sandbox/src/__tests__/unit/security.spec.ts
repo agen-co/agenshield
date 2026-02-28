@@ -131,9 +131,149 @@ describe('checkSecurityStatus', () => {
     );
   });
 
-  it('includes recommendations when sandbox user is missing', async () => {
-    const status = await checkSecurityStatus({ env: {} });
+  it('includes recommendations when sandbox user is missing and targets are configured', async () => {
+    const status = await checkSecurityStatus({
+      env: {},
+      knownTargets: [{ targetName: 'openclaw', users: ['ash_default_agent'], processPatterns: ['openclaw'] }],
+    });
 
     expect(status.recommendations.length).toBeGreaterThan(0);
+  });
+
+  it('suppresses sandbox user warning when no targets are configured', async () => {
+    const status = await checkSecurityStatus({ env: {} });
+
+    expect(status.warnings).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('No sandbox user found')]),
+    );
+  });
+
+  describe('agenshield management command filtering', () => {
+    const { exec } = require('node:child_process') as { exec: jest.Mock };
+    const { userExistsSync } = require('../../legacy') as { userExistsSync: jest.Mock };
+
+    // Helper to build a ps aux line with correct column count (11+ fields)
+    // USER PID %CPU %MEM VSZ RSS TT STAT STARTED TIME COMMAND...
+    function psLine(user: string, pid: number, command: string): string {
+      return `${user} ${pid} 0.0 0.1 1000 500 ?? Ss 10:00AM 0:00.01 ${command}`;
+    }
+
+    function mockPsOutput(lines: string[]) {
+      exec.mockImplementation((cmd: string, _opts: unknown, cb: (err: null, res: { stdout: string }) => void) => {
+        if (cmd.startsWith('ps aux')) {
+          cb(null, { stdout: lines.join('\n') } as never);
+        } else if (cmd.includes('dscl')) {
+          cb(null, { stdout: '' } as never);
+        } else {
+          cb(null, { stdout: '' } as never);
+        }
+      });
+    }
+
+    afterEach(() => {
+      exec.mockImplementation((_cmd: string, _opts: unknown, cb: (err: null, stdout: string, stderr: string) => void) => {
+        cb(null, '', '');
+      });
+      userExistsSync.mockReturnValue(false);
+    });
+
+    it('excludes launchctl commands managing com.agenshield.* services', async () => {
+      userExistsSync.mockReturnValue(true);
+      mockPsOutput([
+        psLine('root', 100, 'launchctl kickstart -k system/com.agenshield.broker.openclaw'),
+        psLine('root', 101, '/bin/bash -c launchctl kickstart -k system/com.agenshield.broker.openclaw 2>/dev/null; true'),
+      ]);
+
+      const status = await checkSecurityStatus({
+        env: {},
+        knownSandboxUsers: ['ash_default_agent'],
+        knownTargets: [{ targetName: 'openclaw', users: ['ash_default_agent'], processPatterns: ['openclaw'] }],
+      });
+
+      expect(status.warnings).not.toEqual(
+        expect.arrayContaining([expect.stringContaining('launchctl')]),
+      );
+    });
+
+    it('excludes lifecycle delegation via sudo -u <hostUser>', async () => {
+      userExistsSync.mockReturnValue(true);
+      mockPsOutput([
+        psLine('root', 200, 'sudo -H -u testuser openclaw gateway stop --force'),
+        psLine('root', 201, '/bin/bash -c sudo -H -u testuser openclaw gateway stop 2>/dev/null; pkill -u testuser openclaw'),
+      ]);
+
+      const status = await checkSecurityStatus({
+        env: {},
+        knownTargets: [{ targetName: 'openclaw', users: ['ash_default_agent'], processPatterns: ['openclaw'] }],
+      });
+
+      expect(status.warnings).not.toEqual(
+        expect.arrayContaining([expect.stringContaining('gateway stop')]),
+      );
+    });
+
+    it('excludes pkill cleanup commands targeting process patterns', async () => {
+      userExistsSync.mockReturnValue(true);
+      mockPsOutput([
+        psLine('root', 300, 'pkill -u testuser openclaw'),
+      ]);
+
+      const status = await checkSecurityStatus({
+        env: {},
+        knownTargets: [{ targetName: 'openclaw', users: ['ash_default_agent'], processPatterns: ['openclaw'] }],
+      });
+
+      expect(status.warnings).not.toEqual(
+        expect.arrayContaining([expect.stringContaining('pkill')]),
+      );
+    });
+
+    it('still flags launchctl commands with non-agenshield labels', async () => {
+      userExistsSync.mockReturnValue(true);
+      mockPsOutput([
+        psLine('root', 400, 'launchctl kickstart -k system/com.malicious.openclaw'),
+      ]);
+
+      const status = await checkSecurityStatus({
+        env: {},
+        knownTargets: [{ targetName: 'openclaw', users: ['ash_default_agent'], processPatterns: ['openclaw'] }],
+      });
+
+      expect(status.warnings).toEqual(
+        expect.arrayContaining([expect.stringContaining('launchctl')]),
+      );
+    });
+
+    it('still flags unknown root processes running target patterns', async () => {
+      userExistsSync.mockReturnValue(true);
+      mockPsOutput([
+        psLine('root', 500, 'openclaw gateway serve --port 8080'),
+      ]);
+
+      const status = await checkSecurityStatus({
+        env: {},
+        knownTargets: [{ targetName: 'openclaw', users: ['ash_default_agent'], processPatterns: ['openclaw'] }],
+      });
+
+      expect(status.warnings).toEqual(
+        expect.arrayContaining([expect.stringContaining('PID 500')]),
+      );
+    });
+
+    it('still flags sudo delegation to unknown users', async () => {
+      userExistsSync.mockReturnValue(true);
+      mockPsOutput([
+        psLine('root', 600, 'sudo -H -u attacker openclaw gateway stop'),
+      ]);
+
+      const status = await checkSecurityStatus({
+        env: {},
+        knownTargets: [{ targetName: 'openclaw', users: ['ash_default_agent'], processPatterns: ['openclaw'] }],
+      });
+
+      expect(status.warnings).toEqual(
+        expect.arrayContaining([expect.stringContaining('PID 600')]),
+      );
+    });
   });
 });

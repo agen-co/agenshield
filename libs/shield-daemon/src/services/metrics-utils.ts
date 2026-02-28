@@ -34,6 +34,43 @@ export async function measureCpuPercent(): Promise<number> {
   return Math.round((1 - idleDelta / totalDelta) * 10000) / 100;
 }
 
+/* ---- Memory usage ---- */
+
+/**
+ * Get memory usage percentage.
+ * On macOS, os.freemem() only returns truly "free" pages, ignoring inactive/purgeable/speculative
+ * memory that is effectively available. This inflates reported usage (e.g. 97% vs actual 73%).
+ * We use vm_stat to compute a more accurate "available" figure on macOS.
+ */
+export async function getMemPercent(): Promise<number> {
+  const totalMem = os.totalmem();
+  if (process.platform !== 'darwin') {
+    const freeMem = os.freemem();
+    return Math.round((1 - freeMem / totalMem) * 10000) / 100;
+  }
+  try {
+    const executor = getSystemExecutor();
+    const output = await executor.exec('vm_stat', { timeout: 3000 });
+    // Parse page size from header: "Mach Virtual Memory Statistics: (page size of 16384 bytes)"
+    const psMatch = output.match(/page size of (\d+)/);
+    const pageSize = psMatch ? Number(psMatch[1]) : 16384;
+    const parse = (label: string): number => {
+      const m = output.match(new RegExp(`^${label}:\\s+(\\d+)`, 'm'));
+      return m ? Number(m[1]) * pageSize : 0;
+    };
+    const free = parse('Pages free');
+    const inactive = parse('Pages inactive');
+    const purgeable = parse('Pages purgeable');
+    const speculative = parse('Pages speculative');
+    const available = free + inactive + purgeable + speculative;
+    return Math.round((1 - available / totalMem) * 10000) / 100;
+  } catch {
+    // Fallback to os.freemem()
+    const freeMem = os.freemem();
+    return Math.round((1 - freeMem / totalMem) * 10000) / 100;
+  }
+}
+
 /* ---- Disk usage (df -k /) ---- */
 
 export async function getDiskPercent(): Promise<number> {
@@ -235,10 +272,9 @@ export async function buildSnapshot(): Promise<FullMetricsSnapshot> {
   const cpuPercent = snap.total === 0 ? 0 : Math.round((1 - snap.idle / snap.total) * 10000) / 100;
 
   const totalMem = os.totalmem();
-  const freeMem = os.freemem();
-  const memPercent = Math.round((1 - freeMem / totalMem) * 10000) / 100;
 
-  const [diskPercent, net, activeUser] = await Promise.all([
+  const [memPercent, diskPercent, net, activeUser] = await Promise.all([
+    getMemPercent(),
     getDiskPercent(),
     getNetThroughput(),
     getActiveUser(),

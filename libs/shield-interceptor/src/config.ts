@@ -4,6 +4,8 @@
  * Configuration management for the interceptor.
  */
 
+import { homedir } from 'node:os';
+
 export interface InterceptorConfig {
   /** Unix socket path for broker communication */
   socketPath: string;
@@ -65,9 +67,10 @@ export interface InterceptorConfig {
  */
 export function createConfig(overrides?: Partial<InterceptorConfig>): InterceptorConfig {
   const env = process.env;
+  const home = env['HOME'] || homedir();
 
   return {
-    socketPath: env['AGENSHIELD_SOCKET'] || '/var/run/agenshield/agenshield.sock',
+    socketPath: env['AGENSHIELD_SOCKET'] || `${home}/.agenshield/run/agenshield.sock`,
     httpHost: env['AGENSHIELD_HOST'] || 'localhost',
     httpPort: parseInt(env['AGENSHIELD_PORT'] || '5201', 10),
     failOpen: env['AGENSHIELD_FAIL_OPEN'] === 'true',

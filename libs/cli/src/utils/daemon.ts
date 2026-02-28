@@ -11,6 +11,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { isSEA } from '@agenshield/ipc';
 import { isSecretEnvVar } from '@agenshield/sandbox';
 import { isOpenClawInstalled, stopOpenClawServices } from '@agenshield/integrations';
 import { captureCallingUserEnv } from './sudo-env.js';
@@ -26,12 +27,12 @@ const __dirname = path.dirname(__filename);
  * Respects AGENSHIELD_PORT and AGENSHIELD_HOST env vars for overrides.
  */
 export const DAEMON_CONFIG = {
-  PID_FILE: '/var/run/agenshield/agenshield.pid',
+  PID_FILE: path.join(os.homedir(), '.agenshield', 'daemon.pid'),
   PORT: Number(process.env['AGENSHIELD_PORT']) || 5200,
   HOST: process.env['AGENSHIELD_HOST'] || '127.0.0.1', // Use IPv4 for actual connections (avoids IPv6 issues)
   DISPLAY_HOST: 'localhost', // Use localhost for user-facing URLs
-  LOG_DIR: '/var/log/agenshield',
-  SOCKET_DIR: '/var/run/agenshield',
+  LOG_DIR: path.join(os.homedir(), '.agenshield', 'logs'),
+  SOCKET_DIR: path.join(os.homedir(), '.agenshield', 'run'),
 };
 
 /**
@@ -84,9 +85,27 @@ export async function getDaemonStatus(): Promise<DaemonStatus> {
 }
 
 /**
- * Find the daemon executable path
+ * Find the daemon executable path.
+ *
+ * In multi-binary SEA mode, look for the separate `agenshield-daemon` binary
+ * in `libexec/` relative to the CLI binary or in `~/.agenshield/libexec/`.
  */
 export function findDaemonExecutable(): string | null {
+  // Multi-binary SEA mode: look for agenshield-daemon in libexec/
+  if (isSEA()) {
+    const binDir = path.dirname(process.execPath);
+    // Primary: ../libexec/ relative to bin/ (standard layout)
+    const libexecBin = path.join(binDir, '..', 'libexec', 'agenshield-daemon');
+    if (fs.existsSync(libexecBin)) return libexecBin;
+    // Fallback: check ~/.agenshield/libexec/
+    const homeLibexec = path.join(os.homedir(), '.agenshield', 'libexec', 'agenshield-daemon');
+    if (fs.existsSync(homeLibexec)) return homeLibexec;
+    // Legacy: alongside the CLI binary (pre-libexec layout)
+    const legacyBin = path.join(binDir, 'agenshield-daemon');
+    if (fs.existsSync(legacyBin)) return legacyBin;
+    return null;
+  }
+
   // Check local installation first (~/.agenshield/dist/)
   const localDaemonPkgPath = path.join(
     os.homedir(), '.agenshield', 'dist', 'node_modules',
@@ -122,8 +141,6 @@ export function findDaemonExecutable(): string | null {
   const searchPaths = [
     // Monorepo: relative to CLI dist
     path.join(__dirname, '../../../shield-daemon/dist/main.js'),
-    // System-installed location
-    '/opt/agenshield/bin/agenshield-daemon',
     // Development from CWD
     path.join(process.cwd(), 'libs/shield-daemon/dist/main.js'),
   ];
@@ -303,6 +320,21 @@ function findDaemonPidByPort(port: number): number | null {
 }
 
 /**
+ * Read the last N lines of a log file for diagnostics.
+ * Returns empty string if the file is empty or unreadable.
+ */
+function readLogTail(logFile: string, maxLines = 20): string {
+  try {
+    const content = fs.readFileSync(logFile, 'utf-8');
+    if (!content.trim()) return '';
+    const lines = content.trimEnd().split('\n');
+    return lines.slice(-maxLines).join('\n');
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Start the daemon
  */
 export async function startDaemon(options: { foreground?: boolean; sudo?: boolean } = {}): Promise<{
@@ -323,8 +355,14 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
   // Find daemon executable
   let daemonPath = findDaemonExecutable();
   let runner = 'node';
+  let daemonArgs: string[] = [];
 
-  if (!daemonPath) {
+  // In multi-binary SEA mode, the daemon is a separate binary
+  const seaMode = isSEA();
+  if (seaMode && daemonPath) {
+    runner = daemonPath;
+    daemonArgs = [];
+  } else if (!daemonPath) {
     // Fallback: run from TypeScript source via tsx
     const source = findDaemonSource();
     const tsx = findTsx();
@@ -401,9 +439,10 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
       stdio: 'inherit',
       env,
     };
+    const fgArgs = seaMode ? daemonArgs : [daemonPath!];
     const child = useSudo
-      ? spawn('sudo', ['-E', runner, daemonPath], spawnOpts)
-      : spawn(runner, [daemonPath], spawnOpts);
+      ? spawn('sudo', ['-E', runner, ...fgArgs], spawnOpts)
+      : spawn(runner, fgArgs, spawnOpts);
 
     return new Promise((resolve) => {
       child.on('exit', (code) => {
@@ -443,6 +482,10 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
     }
 
     let daemonPid: number | undefined;
+    let earlyExit = false;
+    let earlyExitCode: number | null = null;
+
+    const bgArgs = seaMode ? daemonArgs : [daemonPath!];
 
     if (useSudo) {
       // sudo credentials are session-scoped — detached: true creates a new
@@ -451,8 +494,9 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
       // sudo -E preserves the environment from the execSync env option.
       fs.closeSync(logFd);
 
+      const argsStr = bgArgs.map(a => `"${a}"`).join(' ');
       const output = execSync(
-        `sudo -E nohup "${runner}" "${daemonPath}" >> "${logFile}" 2>&1 & echo $!`,
+        `sudo -E nohup "${runner}" ${argsStr} >> "${logFile}" 2>&1 & echo $!`,
         { encoding: 'utf-8', env, timeout: 15_000 },
       ).trim();
       const pid = parseInt(output, 10);
@@ -463,9 +507,11 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
         stdio: ['ignore', logFd, logFd],
         env,
       };
-      const child = spawn(runner, [daemonPath], bgSpawnOpts);
+      const child = spawn(runner, bgArgs, bgSpawnOpts);
+      child.on('exit', (code) => { earlyExit = true; earlyExitCode = code; });
       child.unref();
       daemonPid = child.pid;
+      fs.closeSync(logFd);
     }
 
     // Write PID file
@@ -481,6 +527,7 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
     const deadline = Date.now() + 5000;
     let newStatus: DaemonStatus = { running: false };
     while (Date.now() < deadline) {
+      if (earlyExit) break;
       await new Promise((resolve) => setTimeout(resolve, 500));
       newStatus = await getDaemonStatus();
       if (newStatus.running) break;
@@ -493,9 +540,22 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
         pid: daemonPid,
       };
     } else {
+      const tail = readLogTail(logFile);
+      const parts: string[] = [];
+      if (earlyExit) {
+        parts.push(`Daemon process exited immediately${earlyExitCode !== null ? ` with code ${earlyExitCode}` : ''}.`);
+      } else {
+        parts.push('Daemon failed to start (health check timed out).');
+      }
+      if (tail) {
+        parts.push(`\nLast log output (${logFile}):\n${tail}`);
+      } else {
+        parts.push(`\nLog file is empty: ${logFile}`);
+        parts.push('Try running in foreground for full output: agenshield start --foreground');
+      }
       return {
         success: false,
-        message: `Daemon failed to start. Check logs at ${logFile}`,
+        message: parts.join('\n'),
       };
     }
   } catch (err) {
@@ -824,7 +884,6 @@ export async function stopDaemon(): Promise<{
 export function readAdminToken(): string | null {
   const paths = [
     path.join(os.homedir(), '.agenshield', '.admin-token'),
-    '/var/run/agenshield/.admin-token',
   ];
   for (const tokenPath of paths) {
     try {

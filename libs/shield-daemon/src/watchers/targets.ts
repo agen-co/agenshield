@@ -34,6 +34,36 @@ export function setProcessManager(pm: ProcessManager): void {
 const SYSTEM_PROCESS_RE = /\b(cfprefsd|lsd|trustd|diskarbitrationd|secinitd|tccd|nsurlsessiond|mdworker|distnoted|smd|pboard)\b/i;
 
 /**
+ * Parse ps `etime` format into milliseconds.
+ * Formats: `DD-HH:MM:SS`, `HH:MM:SS`, `MM:SS`, `SS`
+ */
+export function parseEtime(etime: string): number {
+  const trimmed = etime.trim();
+  let days = 0;
+  let rest = trimmed;
+
+  // Handle DD- prefix
+  const dashIdx = rest.indexOf('-');
+  if (dashIdx !== -1) {
+    days = parseInt(rest.slice(0, dashIdx), 10) || 0;
+    rest = rest.slice(dashIdx + 1);
+  }
+
+  const parts = rest.split(':').map((p) => parseInt(p, 10) || 0);
+  let hours = 0, minutes = 0, seconds = 0;
+
+  if (parts.length === 3) {
+    [hours, minutes, seconds] = parts;
+  } else if (parts.length === 2) {
+    [minutes, seconds] = parts;
+  } else if (parts.length === 1) {
+    [seconds] = parts;
+  }
+
+  return ((days * 24 + hours) * 3600 + minutes * 60 + seconds) * 1000;
+}
+
+/**
  * Check if an agent user has any running processes.
  * Uses `ps -U <agentUsername>` as the primary signal for target running status.
  * @deprecated Use type-specific helpers (checkOpenClawRunning / listClaudeProcesses) instead.
@@ -93,8 +123,10 @@ export async function checkOpenClawRunning(
       const trimmed = line.trim();
       if (!trimmed) continue;
       if (SYSTEM_PROCESS_RE.test(trimmed)) continue;
-      // Match openclaw binary or node running gateway commands
-      if (/openclaw|node/i.test(trimmed)) return true;
+      // Match openclaw binary directly, or node only when running gateway
+      const isOpenclaw = /openclaw/i.test(trimmed);
+      const isNodeGateway = /\bnode\b/i.test(trimmed) && /gateway/i.test(trimmed);
+      if (isOpenclaw || isNodeGateway) return true;
     }
   } catch {
     // ps failed
@@ -128,6 +160,7 @@ export async function listClaudeProcesses(agentUsername: string): Promise<AgentP
           pid: parseInt(match[1], 10),
           elapsed: match[2],
           command: match[3],
+          startedAtMs: Date.now() - parseEtime(match[2]),
         });
       }
     }
@@ -156,8 +189,10 @@ export async function listOpenClawProcesses(agentUsername: string): Promise<Agen
       if (SYSTEM_PROCESS_RE.test(trimmed)) continue;
       // Skip guarded-shell wrappers — we want actual openclaw/node processes
       if (/guarded-shell/i.test(trimmed)) continue;
-      // Match openclaw binary or node running gateway/openclaw commands
-      if (!/openclaw|node/i.test(trimmed)) continue;
+      // Match openclaw binary directly, or node only when running gateway
+      const isOpenclaw = /openclaw/i.test(trimmed);
+      const isNodeGateway = /\bnode\b/i.test(trimmed) && /gateway/i.test(trimmed);
+      if (!isOpenclaw && !isNodeGateway) continue;
 
       const match = trimmed.match(/^\s*(\d+)\s+([\d:.-]+)\s+(.+)$/);
       if (match) {
@@ -165,6 +200,7 @@ export async function listOpenClawProcesses(agentUsername: string): Promise<Agen
           pid: parseInt(match[1], 10),
           elapsed: match[2],
           command: match[3],
+          startedAtMs: Date.now() - parseEtime(match[2]),
         });
       }
     }

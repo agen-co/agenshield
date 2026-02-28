@@ -1,0 +1,9 @@
+{
+  "main": "dist/sea/apps/cli-bin/agenshield.cjs",
+  "output": "dist/sea/apps/cli-bin/sea-prep.blob",
+  "disableExperimentalSEAWarning": true,
+  "useCodeCache": true,
+  "assets": {
+    "VERSION": "dist/sea/VERSION"
+  }
+}

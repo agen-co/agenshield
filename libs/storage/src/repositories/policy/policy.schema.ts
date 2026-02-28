@@ -15,7 +15,7 @@ export { PolicyConfigSchema };
 export const UpdatePolicySchema = z.object({
   name: z.string().min(1).optional(),
   action: z.enum(['allow', 'deny', 'approval']).optional(),
-  target: z.enum(['skill', 'command', 'url', 'filesystem', 'process']).optional(),
+  target: z.enum(['skill', 'command', 'url', 'filesystem', 'process', 'router']).optional(),
   patterns: z.array(z.string()).optional(),
   enabled: z.boolean().optional(),
   priority: z.number().optional(),

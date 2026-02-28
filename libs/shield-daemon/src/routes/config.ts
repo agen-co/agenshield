@@ -26,6 +26,13 @@ import { syncSecrets } from '../secret-sync';
 import { syncOpenClawFromPolicies } from '../services/openclaw-config';
 import { installShieldExec, createUserConfig } from '@agenshield/sandbox';
 import { generatePolicyMarkdown } from '../services/policy-markdown';
+import { syncAndWriteRouterHostPassthrough } from '../services/router-sync';
+import {
+  readPathRegistry,
+  generateRouterWrapper,
+  buildInstallRouterCommands,
+  buildInstallUserLocalRouterCommands,
+} from '@agenshield/sandbox';
 
 /**
  * Resolve the agent username from state, falling back to AGENSHIELD_AGENT_HOME env.
@@ -82,6 +89,37 @@ async function syncPoliciesAfterChange(
     fs.mkdirSync(path.dirname(instructionsPath), { recursive: true });
     fs.writeFileSync(instructionsPath, markdown, 'utf-8');
   } catch { /* non-fatal */ }
+}
+
+/**
+ * After a managed policy mutation that may affect router target policies,
+ * sync the allowHostPassthrough flag in path-registry.json and regenerate
+ * wrapper scripts so existing wrappers pick up the new awk logic.
+ */
+async function syncRouterAfterManagedChange(app: FastifyInstance): Promise<void> {
+  try {
+    const storage = getStorage();
+    const allPolicies = storage.for({ profileId: null }).policies.getAll();
+    const hostHome = process.env['HOME'];
+
+    const result = syncAndWriteRouterHostPassthrough(allPolicies, hostHome, app.log);
+    if (!result.updated) return;
+
+    // Regenerate and reinstall wrapper scripts so awk parser includes new fields
+    const registry = readPathRegistry(hostHome);
+    for (const binName of Object.keys(registry)) {
+      const wrapperContent = generateRouterWrapper(binName);
+      const installCmd = buildInstallRouterCommands(binName, wrapperContent);
+      const userLocalCmd = buildInstallUserLocalRouterCommands(binName, wrapperContent, hostHome);
+
+      if (app.privilegeExecutor) {
+        await app.privilegeExecutor.execAsRoot(installCmd, { timeout: 15_000 });
+        await app.privilegeExecutor.execAsRoot(userLocalCmd, { timeout: 15_000 });
+      }
+    }
+  } catch (err) {
+    app.log.warn(`[router-sync] Failed to sync router after managed policy change: ${(err as Error).message}`);
+  }
 }
 
 export async function configRoutes(app: FastifyInstance): Promise<void> {
@@ -288,6 +326,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
           request.body,
           request.body.preset ?? 'admin',
         );
+        if (policy.target === 'router') {
+          await syncRouterAfterManagedChange(app);
+        }
         return { success: true, data: policy };
       } catch (error) {
         return {
@@ -327,6 +368,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
             error: { code: 'UPDATE_FAILED', message: 'Failed to update managed policy' },
           };
         }
+        if (existing.target === 'router' || updated.target === 'router') {
+          await syncRouterAfterManagedChange(app);
+        }
         return { success: true, data: updated };
       } catch (error) {
         return {
@@ -357,6 +401,9 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         }
 
         const deleted = storage.for({ profileId: null }).policies.delete(request.params.id);
+        if (existing.target === 'router') {
+          await syncRouterAfterManagedChange(app);
+        }
         return { success: true, data: { deleted } };
       } catch (error) {
         return {
@@ -387,11 +434,16 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
 
         // Insert new managed policies
         let synced = 0;
+        let hasRouterPolicy = false;
         for (const p of policies) {
           repo.createManaged(p, source);
           synced++;
+          if (p.target === 'router') hasRouterPolicy = true;
         }
 
+        if (hasRouterPolicy) {
+          await syncRouterAfterManagedChange(app);
+        }
         return { success: true, data: { synced } };
       } catch (error) {
         return {

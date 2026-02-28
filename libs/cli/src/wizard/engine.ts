@@ -56,6 +56,7 @@ import {
   OPENCLAW_GATEWAY_PLIST,
 } from '@agenshield/integrations';
 import type { OriginalInstallation, MigratedPaths, SandboxUserInfo, UserConfig } from '@agenshield/ipc';
+import { isSEA } from '@agenshield/ipc';
 import type {
   WizardStep,
   WizardState,
@@ -1406,6 +1407,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       // Generate plist
       const plist = generateBrokerPlist(context.userConfig, {
         brokerPath: context.brokerInstalled.binaryPath,
+        isSEABinary: isSEA(),
       });
 
       // Install and load

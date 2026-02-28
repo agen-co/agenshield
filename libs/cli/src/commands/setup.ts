@@ -36,6 +36,31 @@ import {
 import { inkSelect, inkInput, inkBrowserLink } from '../prompts/index.js';
 
 // ---------------------------------------------------------------------------
+// Shield ASCII logo
+// ---------------------------------------------------------------------------
+
+function printShieldLogo(): void {
+  const b = (s: string) => output.bold(output.green(s));
+
+  const lines = [
+    '   ___                       _____  _      _        _      _ ',
+    '  / _ \\                     /  ___|| |    (_)      | |    | |',
+    ' / /_\\ \\  __ _   ___  _ __  \\ `--. | |__   _   ___ | |  __| |',
+    ' |  _  | / _` | / _ \\| \'_ \\  `--. \\| \'_ \\ | | / _ \\| | / _` |',
+    ' | | | || (_| ||  __/| | | |/\\__/ /| | | || ||  __/| || (_| |',
+    ' \\_| |_/ \\__, | \\___||_| |_|\\____/ |_| |_||_| \\___||_| \\__,_|',
+    '          __/ |',
+    '         |___/',
+  ];
+
+  output.info('');
+  for (const line of lines) {
+    output.info(b(line));
+  }
+  output.info('');
+}
+
+// ---------------------------------------------------------------------------
 // Local setup flow
 // ---------------------------------------------------------------------------
 
@@ -220,7 +245,7 @@ export function registerSetupCommand(program: Command): void {
     .option('--mode <mode>', 'Skip mode prompt: "local" or "cloud"')
     .option('--cloud-url <url>', 'Cloud API URL (skips prompt, implies --mode cloud)')
     .action(withGlobals(async (opts) => {
-      output.info('');
+      printShieldLogo();
       output.info(`  ${output.bold('Welcome to AgenShield Setup')}`);
       output.info('');
 

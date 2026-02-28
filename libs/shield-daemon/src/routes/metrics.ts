@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import { getStorage } from '@agenshield/storage';
 import {
   measureCpuPercent,
+  getMemPercent,
   getDiskPercent,
   getNetThroughput,
   getActiveUser,
@@ -18,16 +19,13 @@ import {
 
 export async function metricsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/metrics', async () => {
-    const [cpuPercent, diskPercent, net, activeUser] = await Promise.all([
+    const [cpuPercent, memPercent, diskPercent, net, activeUser] = await Promise.all([
       measureCpuPercent(),
+      getMemPercent(),
       getDiskPercent(),
       getNetThroughput(),
       getActiveUser(),
     ]);
-
-    const total = os.totalmem();
-    const free = os.freemem();
-    const memPercent = Math.round((1 - free / total) * 10000) / 100;
 
     return {
       success: true,
@@ -44,7 +42,7 @@ export async function metricsRoutes(app: FastifyInstance): Promise<void> {
         uptime: Math.floor(os.uptime()),
         activeUser,
         cpuModel: os.cpus()[0]?.model ?? 'unknown',
-        totalMemory: total,
+        totalMemory: os.totalmem(),
         nodeVersion: process.version,
       },
     };

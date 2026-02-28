@@ -271,6 +271,8 @@ export {
   writePathRegistry,
   addRegistryInstance,
   removeRegistryInstance,
+  updateRegistryHostPassthrough,
+  updateAllRegistryHostPassthrough,
   pathRegistryPath,
   ROUTER_MARKER,
   type PathRegistry,

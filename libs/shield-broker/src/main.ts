@@ -21,6 +21,7 @@ import {
   stopOpenClawServices,
 } from '@agenshield/integrations';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 const TOKEN_FILENAME = '.agenshield-token';
@@ -43,7 +44,7 @@ function loadConfig(): BrokerConfig {
 
   const configPath =
     process.env['AGENSHIELD_CONFIG'] ||
-    (agentHome ? `${agentHome}/.agenshield/config/shield.json` : '/opt/agenshield/config/shield.json');
+    (agentHome ? `${agentHome}/.agenshield/config/shield.json` : `${os.homedir()}/.agenshield/config/shield.json`);
 
   let fileConfig: Partial<BrokerConfig> = {};
   if (fs.existsSync(configPath)) {
@@ -59,7 +60,7 @@ function loadConfig(): BrokerConfig {
     socketPath:
       process.env['AGENSHIELD_SOCKET'] ||
       fileConfig.socketPath ||
-      (agentHome ? `${agentHome}/.agenshield/run/agenshield.sock` : '/var/run/agenshield/agenshield.sock'),
+      (agentHome ? `${agentHome}/.agenshield/run/agenshield.sock` : `${os.homedir()}/.agenshield/run/agenshield.sock`),
     httpEnabled:
       process.env['AGENSHIELD_HTTP_ENABLED'] !== 'false' &&
       (fileConfig.httpEnabled ?? true),
@@ -73,11 +74,11 @@ function loadConfig(): BrokerConfig {
     policiesPath:
       process.env['AGENSHIELD_POLICIES'] ||
       fileConfig.policiesPath ||
-      (agentHome ? `${agentHome}/.agenshield/policies` : '/opt/agenshield/policies'),
+      (agentHome ? `${agentHome}/.agenshield/policies` : `${os.homedir()}/.agenshield/policies`),
     auditLogPath:
       process.env['AGENSHIELD_AUDIT_LOG'] ||
       fileConfig.auditLogPath ||
-      (agentHome ? `${agentHome}/.agenshield/logs/audit.log` : '/var/log/agenshield/audit.log'),
+      (agentHome ? `${agentHome}/.agenshield/logs/audit.log` : `${os.homedir()}/.agenshield/logs/audit.log`),
     logLevel:
       (process.env['AGENSHIELD_LOG_LEVEL'] as BrokerConfig['logLevel']) ||
       fileConfig.logLevel ||
@@ -180,9 +181,9 @@ function ensureProxiedCommandWrappers(binDir: string): void {
     }
   }
 
-  // Resolve shared binary dir: AGENSHIELD_HOST_HOME > /opt/agenshield (legacy)
+  // Resolve shared binary dir: AGENSHIELD_HOST_HOME > ~/.agenshield
   const hostHome = process.env['AGENSHIELD_HOST_HOME'] || '';
-  const sharedBinDir = hostHome ? `${hostHome}/.agenshield/bin` : '/opt/agenshield/bin';
+  const sharedBinDir = hostHome ? `${hostHome}/.agenshield/bin` : `${os.homedir()}/.agenshield/bin`;
   const shieldExecPath = `${sharedBinDir}/shield-exec`;
   const shieldClientPath = `${sharedBinDir}/shield-client`;
   const hasShieldExec = fs.existsSync(shieldExecPath);
@@ -270,11 +271,11 @@ async function main(): Promise<void> {
   });
 
   const secretVault = new SecretVault({
-    vaultPath: '/etc/agenshield/vault.enc',
+    vaultPath: `${os.homedir()}/.agenshield/vault.enc`,
   });
 
   const commandAllowlist = new CommandAllowlist(
-    '/opt/agenshield/config/allowed-commands.json'
+    `${os.homedir()}/.agenshield/config/allowed-commands.json`
   );
 
   // SecretResolver holds secrets in memory — populated via secrets_sync IPC push from daemon

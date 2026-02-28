@@ -1,0 +1,6 @@
+{
+  "name": "@agenshield/daemon-bin",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AgenShield Daemon SEA binary (also handles privilege-helper via --privilege-helper flag)"
+}

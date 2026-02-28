@@ -3,9 +3,14 @@
  *
  * Receives a `tab` prop ('cpu' | 'memory' | 'disk' | 'network') and renders
  * an AreaChart from the rolling metricsHistory buffer in systemStore.
+ *
+ * When `targets` are provided, CPU/Memory charts show each shielded target
+ * as a separate colored series overlaid on the system metrics.
+ * Percentage-based charts (cpu, memory, disk) use auto-scaled Y-axis with
+ * ±10% padding around the visible data range, clamped to [0, 100].
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { useMemo, useEffect } from 'react';
 import { useSnapshot } from 'valtio';
 import {
   AreaChart,
@@ -33,7 +38,7 @@ interface Series {
 
 interface TabConfig {
   series: Series[];
-  yDomain: [number, number] | ['auto', 'auto'];
+  yDomainMode: 'padded' | 'auto';
   formatter: (v: number) => string;
   unit: string;
 }
@@ -41,19 +46,19 @@ interface TabConfig {
 const TAB_CONFIG: Record<MetricsTab, TabConfig> = {
   cpu: {
     series: [{ dataKey: 'cpuPercent', label: 'CPU', color: pcb.component.ledGreen }],
-    yDomain: [0, 100],
+    yDomainMode: 'padded',
     formatter: (v) => `${v.toFixed(1)}%`,
     unit: '%',
   },
   memory: {
     series: [{ dataKey: 'memPercent', label: 'Memory', color: pcb.signal.cyan }],
-    yDomain: [0, 100],
+    yDomainMode: 'padded',
     formatter: (v) => `${v.toFixed(1)}%`,
     unit: '%',
   },
   disk: {
     series: [{ dataKey: 'diskPercent', label: 'Disk', color: pcb.component.ledAmber }],
-    yDomain: [0, 100],
+    yDomainMode: 'padded',
     formatter: (v) => `${v.toFixed(1)}%`,
     unit: '%',
   },
@@ -62,7 +67,7 @@ const TAB_CONFIG: Record<MetricsTab, TabConfig> = {
       { dataKey: 'netUp', label: 'Upload', color: pcb.component.ledGreen },
       { dataKey: 'netDown', label: 'Download', color: pcb.signal.cyan },
     ],
-    yDomain: ['auto', 'auto'],
+    yDomainMode: 'auto',
     formatter: (v) => {
       if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)} MB/s`;
       if (v >= 1_000) return `${(v / 1_000).toFixed(0)} KB/s`;
@@ -77,69 +82,109 @@ function formatTime(ts: number): string {
   return `${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
 }
 
-/** Target-specific data keys added to merged chart data */
-const TARGET_DATA_KEYS = {
-  cpu: 'targetCpuPercent',
-  memory: 'targetMemPercent',
-} as const;
+export interface TargetOverlayEntry {
+  id: string;
+  name: string;
+}
 
-const TARGET_OVERLAY_COLOR = '#FF6B6B';
+const TARGET_COLORS = ['#FF6B6B', '#6BAEF2', '#EEA45F', '#6CB685', '#FFDF5E'];
 
 interface CoreMetricsViewProps {
   tab: MetricsTab;
   compact?: boolean;
   syncId?: string;
-  targetId?: string | null;
-  targetName?: string;
+  targets?: TargetOverlayEntry[];
 }
 
-export default function CoreMetricsView({ tab, compact, syncId, targetId, targetName }: CoreMetricsViewProps) {
+export default function CoreMetricsView({ tab, compact, syncId, targets }: CoreMetricsViewProps) {
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const { metricsHistory, targetMetricsHistory } = useSnapshot(systemStore);
 
   const config = TAB_CONFIG[tab];
-  const hasTargetOverlay = !!targetId && (tab === 'cpu' || tab === 'memory');
+  const visibleTargets = targets && targets.length > 0 && (tab === 'cpu' || tab === 'memory') ? targets : [];
+  const hasTargetOverlay = visibleTargets.length > 0;
 
   const chartData = useMemo(() => {
     const base = metricsHistory.map((snap) => ({ ...snap }));
-    if (!hasTargetOverlay || !targetId) return base;
+    if (!hasTargetOverlay) return base;
 
-    // Merge target data by closest timestamp
-    const targetData = targetMetricsHistory[targetId] ?? [];
-    if (targetData.length === 0) return base;
-
-    const targetKey = tab === 'cpu' ? TARGET_DATA_KEYS.cpu : TARGET_DATA_KEYS.memory;
     const targetField = tab === 'cpu' ? 'cpuPercent' : 'memPercent';
-    const targetMap = new Map(targetData.map((t) => [t.timestamp, t[targetField]]));
+
+    // Build timestamp maps for each target
+    const targetMaps = new Map<string, Map<number, number>>();
+    for (const t of visibleTargets) {
+      const history = targetMetricsHistory[t.id] ?? [];
+      if (history.length > 0) {
+        targetMaps.set(t.id, new Map(history.map((s) => [s.timestamp, s[targetField]])));
+      }
+    }
+
+    if (targetMaps.size === 0) return base;
 
     return base.map((point) => {
-      const exact = targetMap.get(point.timestamp);
-      if (exact !== undefined) {
-        return { ...point, [targetKey]: exact };
-      }
-      // Find closest target point within 3s
-      let closest: number | undefined;
-      let minDelta = Infinity;
-      for (const [ts, val] of targetMap) {
-        const delta = Math.abs(ts - point.timestamp);
-        if (delta < minDelta && delta < 3000) {
-          minDelta = delta;
-          closest = val;
+      const merged: Record<string, unknown> = { ...point };
+      for (const [targetId, tMap] of targetMaps) {
+        const exact = tMap.get(point.timestamp);
+        if (exact !== undefined) {
+          merged[`target_${targetId}`] = exact;
+          continue;
+        }
+        // Find closest target point within 3s
+        let closest: number | undefined;
+        let minDelta = Infinity;
+        for (const [ts, val] of tMap) {
+          const delta = Math.abs(ts - point.timestamp);
+          if (delta < minDelta && delta < 3000) {
+            minDelta = delta;
+            closest = val;
+          }
+        }
+        if (closest !== undefined) {
+          merged[`target_${targetId}`] = closest;
         }
       }
-      return closest !== undefined ? { ...point, [targetKey]: closest } : point;
+      return merged;
     });
-  }, [metricsHistory, targetMetricsHistory, targetId, hasTargetOverlay, tab]);
+  }, [metricsHistory, targetMetricsHistory, visibleTargets, hasTargetOverlay, tab]);
+
+  // Auto-scaled Y-axis with ±10% padding for percentage metrics
+  const yDomain = useMemo<[number, number] | ['auto', 'auto']>(() => {
+    if (config.yDomainMode === 'auto') return ['auto', 'auto'];
+    if (chartData.length === 0) return [0, 100];
+
+    // Gather all data keys we need to inspect
+    const allKeys: string[] = config.series.map((s) => s.dataKey as string);
+    for (const t of visibleTargets) {
+      allKeys.push(`target_${t.id}`);
+    }
+
+    let min = Infinity;
+    let max = -Infinity;
+    for (const point of chartData) {
+      for (const key of allKeys) {
+        const val = (point as Record<string, number>)[key];
+        if (val !== undefined && val !== null && isFinite(val)) {
+          if (val < min) min = val;
+          if (val > max) max = val;
+        }
+      }
+    }
+
+    if (!isFinite(min) || !isFinite(max)) return [0, 100];
+
+    const range = max - min;
+    const padding = Math.max(range * 0.1, 2);
+    const lo = Math.max(0, Math.floor(min - padding));
+    const hi = Math.min(100, Math.ceil(max + padding));
+    return [lo, hi];
+  }, [chartData, config, visibleTargets]);
 
   // Latest values for live indicator
   const latest = chartData.length > 0 ? chartData[chartData.length - 1] : null;
 
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
   const axisColor = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)';
-
-  const targetKey = tab === 'cpu' ? TARGET_DATA_KEYS.cpu : TARGET_DATA_KEYS.memory;
-  const targetLabel = targetName ? `${targetName} ${tab === 'cpu' ? 'CPU' : 'Mem'}` : `Target ${tab === 'cpu' ? 'CPU' : 'Mem'}`;
 
   return (
     <div style={{ padding: '16px 0' }}>
@@ -156,7 +201,7 @@ export default function CoreMetricsView({ tab, compact, syncId, targetId, target
               minTickGap={40}
             />
             <YAxis
-              domain={config.yDomain}
+              domain={yDomain}
               tick={{ fontSize: 11, fontFamily: "'IBM Plex Mono', monospace", fill: axisColor }}
               stroke={gridColor}
               width={52}
@@ -172,8 +217,14 @@ export default function CoreMetricsView({ tab, compact, syncId, targetId, target
               }}
               labelFormatter={(v) => formatTime(v as number)}
               formatter={(value, name) => {
-                if (name === targetKey) {
-                  return [config.formatter(value as number), targetLabel];
+                // Target series keys are prefixed with "target_"
+                if (typeof name === 'string' && name.startsWith('target_')) {
+                  const targetId = name.slice('target_'.length);
+                  const target = visibleTargets.find((t) => t.id === targetId);
+                  const label = target
+                    ? `${target.name} ${tab === 'cpu' ? 'CPU' : 'Mem'}`
+                    : name;
+                  return [config.formatter(value as number), label];
                 }
                 const s = config.series.find((s) => s.dataKey === name);
                 const label = hasTargetOverlay ? `System ${s?.label ?? name}` : (s?.label ?? name);
@@ -194,18 +245,19 @@ export default function CoreMetricsView({ tab, compact, syncId, targetId, target
                 isAnimationActive={false}
               />
             ))}
-            {hasTargetOverlay && (
+            {visibleTargets.map((t, i) => (
               <Area
+                key={`target_${t.id}`}
                 type="monotone"
-                dataKey={targetKey}
-                stroke={TARGET_OVERLAY_COLOR}
+                dataKey={`target_${t.id}`}
+                stroke={TARGET_COLORS[i % TARGET_COLORS.length]}
                 fill="none"
                 strokeWidth={2}
                 dot={false}
                 isAnimationActive={false}
                 connectNulls={false}
               />
-            )}
+            ))}
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -238,21 +290,28 @@ export default function CoreMetricsView({ tab, compact, syncId, targetId, target
               </span>
             </div>
           ))}
-          {hasTargetOverlay && (latest as Record<string, number>)[targetKey] !== undefined && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                backgroundColor: TARGET_OVERLAY_COLOR,
-                boxShadow: `0 0 6px ${TARGET_OVERLAY_COLOR}`,
-              }} />
-              <span style={{ color: theme.palette.text.secondary }}>{targetLabel}</span>
-              <span style={{ color: theme.palette.text.primary, fontWeight: 600 }}>
-                {config.formatter((latest as Record<string, number>)[targetKey] ?? 0)}
-              </span>
-            </div>
-          )}
+          {visibleTargets.map((t, i) => {
+            const val = (latest as Record<string, number>)[`target_${t.id}`];
+            if (val === undefined) return null;
+            const color = TARGET_COLORS[i % TARGET_COLORS.length];
+            return (
+              <div key={`target_${t.id}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  backgroundColor: color,
+                  boxShadow: `0 0 6px ${color}`,
+                }} />
+                <span style={{ color: theme.palette.text.secondary }}>
+                  {t.name} {tab === 'cpu' ? 'CPU' : 'Mem'}
+                </span>
+                <span style={{ color: theme.palette.text.primary, fontWeight: 600 }}>
+                  {config.formatter(val)}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -337,6 +396,30 @@ function formatMemory(bytes: number): string {
   return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
 }
 
+/* ---- Backfill helper: fetches target metrics history via REST ---- */
+
+function TargetMetricsBackfill({ targetId }: { targetId: string }) {
+  const { data } = useTargetMetricsHistory(targetId);
+
+  useEffect(() => {
+    if (!data || data.length === 0) return;
+    const existing = systemStore.targetMetricsHistory[targetId] ?? [];
+    const existingTs = new Set(existing.map((s) => s.timestamp));
+    const newSnaps = data.filter((s) => !existingTs.has(s.timestamp));
+    if (newSnaps.length > 0) {
+      for (const s of newSnaps) {
+        pushTargetMetricsSnapshot(targetId, {
+          timestamp: s.timestamp,
+          cpuPercent: s.cpuPercent,
+          memPercent: s.memPercent,
+        });
+      }
+    }
+  }, [data, targetId]);
+
+  return null;
+}
+
 /* ---- AllMetricsView: 4 charts + status cards ---- */
 
 const METRICS_TABS: MetricsTab[] = ['cpu', 'memory', 'disk', 'network'];
@@ -355,44 +438,25 @@ export function AllMetricsView() {
   const sysInfo = snap.systemInfo;
   const loaded = snap.metricsLoaded;
 
-  // Target selection state
-  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const { targets } = useSnapshot(targetsStore);
   const activeTargets = useMemo(
     () => targets.filter((t) => t.shielded && t.running),
     [targets],
   );
-  const selectedTarget = activeTargets.find((t) => t.id === selectedTargetId);
 
-  // Clear selection if target is no longer active
-  useEffect(() => {
-    if (selectedTargetId && !activeTargets.some((t) => t.id === selectedTargetId)) {
-      setSelectedTargetId(null);
-    }
-  }, [activeTargets, selectedTargetId]);
-
-  // Backfill target metrics history when a target is selected
-  const { data: targetHistoryData } = useTargetMetricsHistory(selectedTargetId);
-
-  // Backfill target metrics from REST into the valtio store
-  useEffect(() => {
-    if (!targetHistoryData || !selectedTargetId || targetHistoryData.length === 0) return;
-    const existing = systemStore.targetMetricsHistory[selectedTargetId] ?? [];
-    const existingTs = new Set(existing.map((s) => s.timestamp));
-    const newSnaps = targetHistoryData.filter((s) => !existingTs.has(s.timestamp));
-    if (newSnaps.length > 0) {
-      for (const s of newSnaps) {
-        pushTargetMetricsSnapshot(selectedTargetId, {
-          timestamp: s.timestamp,
-          cpuPercent: s.cpuPercent,
-          memPercent: s.memPercent,
-        });
-      }
-    }
-  }, [targetHistoryData, selectedTargetId]);
+  // Build overlay entries for CoreMetricsView
+  const targetOverlays: TargetOverlayEntry[] = useMemo(
+    () => activeTargets.map((t) => ({ id: t.id, name: t.name })),
+    [activeTargets],
+  );
 
   return (
     <div style={{ padding: '8px 16px 16px' }}>
+      {/* Backfill target metrics for all active targets */}
+      {activeTargets.map((t) => (
+        <TargetMetricsBackfill key={t.id} targetId={t.id} />
+      ))}
+
       {/* Status cards row */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
         <StatusCard
@@ -420,44 +484,6 @@ export function AllMetricsView() {
           isDark={isDark}
         />
       </div>
-
-      {/* Target filter row */}
-      {activeTargets.length > 0 && (
-        <div style={{
-          display: 'flex',
-          gap: 8,
-          marginBottom: 16,
-          flexWrap: 'wrap',
-          alignItems: 'center',
-        }}>
-          <span style={{
-            fontSize: 10,
-            fontFamily: "'IBM Plex Mono', monospace",
-            color: isDark ? pcb.silk.dim : pcb.light.silkDim,
-            textTransform: 'uppercase',
-            letterSpacing: 0.5,
-            marginRight: 4,
-          }}>
-            Filter:
-          </span>
-          <TargetChip
-            label="System"
-            active={selectedTargetId === null}
-            isDark={isDark}
-            onClick={() => setSelectedTargetId(null)}
-          />
-          {activeTargets.map((t) => (
-            <TargetChip
-              key={t.id}
-              label={t.name}
-              active={selectedTargetId === t.id}
-              isDark={isDark}
-              accentColor={TARGET_OVERLAY_COLOR}
-              onClick={() => setSelectedTargetId(selectedTargetId === t.id ? null : t.id)}
-            />
-          ))}
-        </div>
-      )}
 
       {/* 2x2 charts grid */}
       <div style={{
@@ -527,8 +553,7 @@ export function AllMetricsView() {
                 tab={tab}
                 compact
                 syncId="system-metrics"
-                targetId={selectedTargetId}
-                targetName={selectedTarget?.name}
+                targets={targetOverlays}
               />
             </div>
           );
@@ -721,64 +746,5 @@ function EventLoopChart() {
         </div>
       )}
     </div>
-  );
-}
-
-/* ---- Target filter chip ---- */
-
-interface TargetChipProps {
-  label: string;
-  active: boolean;
-  isDark: boolean;
-  accentColor?: string;
-  onClick: () => void;
-}
-
-function TargetChip({ label, active, isDark, accentColor, onClick }: TargetChipProps) {
-  const bgActive = accentColor
-    ? `${accentColor}22`
-    : isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
-  const bgHover = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
-
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '4px 10px',
-        borderRadius: 12,
-        border: `1px solid ${active
-          ? (accentColor ?? (isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)'))
-          : (isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)')}`,
-        background: active ? bgActive : 'transparent',
-        cursor: 'pointer',
-        fontSize: 11,
-        fontFamily: "'IBM Plex Mono', monospace",
-        fontWeight: active ? 600 : 400,
-        color: active
-          ? (accentColor ?? (isDark ? pcb.silk.primary : pcb.light.silk))
-          : (isDark ? pcb.silk.dim : pcb.light.silkDim),
-        transition: 'all 0.15s ease',
-      }}
-      onMouseEnter={(e) => {
-        if (!active) e.currentTarget.style.background = bgHover;
-      }}
-      onMouseLeave={(e) => {
-        if (!active) e.currentTarget.style.background = 'transparent';
-      }}
-    >
-      {accentColor && (
-        <div style={{
-          width: 6,
-          height: 6,
-          borderRadius: '50%',
-          background: accentColor,
-          opacity: active ? 1 : 0.4,
-        }} />
-      )}
-      {label}
-    </button>
   );
 }

@@ -29,6 +29,8 @@ export interface PathRegistryInstance {
 export interface PathRegistryEntry {
   originalBinary: string;
   instances: PathRegistryInstance[];
+  /** Whether the host user's original (unshielded) binary is offered as a routing option */
+  allowHostPassthrough?: boolean;
 }
 
 export interface PathRegistry {
@@ -137,6 +139,40 @@ export function removeRegistryInstance(
   };
 }
 
+// ── Host passthrough helpers ─────────────────────────────────────
+
+/**
+ * Update the allowHostPassthrough flag for a single binary in the registry.
+ * Returns the updated registry (caller is responsible for writing to disk).
+ */
+export function updateRegistryHostPassthrough(
+  binName: string,
+  allow: boolean,
+  hostHome?: string,
+): PathRegistry {
+  const registry = readPathRegistry(hostHome);
+  const entry = registry[binName];
+  if (entry) {
+    entry.allowHostPassthrough = allow;
+  }
+  return registry;
+}
+
+/**
+ * Update the allowHostPassthrough flag for ALL binaries in the registry.
+ * Returns the updated registry (caller is responsible for writing to disk).
+ */
+export function updateAllRegistryHostPassthrough(
+  allow: boolean,
+  hostHome?: string,
+): PathRegistry {
+  const registry = readPathRegistry(hostHome);
+  for (const binName of Object.keys(registry)) {
+    registry[binName].allowHostPassthrough = allow;
+  }
+  return registry;
+}
+
 // ── Binary discovery ─────────────────────────────────────────────
 
 /**
@@ -189,7 +225,7 @@ export function isRouterWrapper(filePath: string): boolean {
  */
 export function generateRouterWrapper(binName: string): string {
   // Pure awk JSON parser — no python3 dependency, fast startup.
-  // Output format: EXEC:<username>:<binPath>:<agentHome> for sudo delegation
+  // Structured output: META:<allowHostPassthrough>:<origBin> + INST:<user>:<bin>:<home>:<name>:<baseName>
   // $HOME resolves to the invoking user's home at runtime.
   return `#!/bin/bash
 # ${ROUTER_MARKER} — Do not edit. Managed by AgenShield.
@@ -211,22 +247,38 @@ _agenshield_exec() {
   if [ -n "$AGENT_HOME" ]; then
     local GUARDED_SHELL="$AGENT_HOME/.agenshield/bin/guarded-shell"
     if [ -x "$GUARDED_SHELL" ]; then
-      exec sudo -H -u "$AGENT_USER" "$GUARDED_SHELL" -c \
-        'export AGENSHIELD_HOST_CWD="'"$PWD"'"; exec "'"$BIN"'" "$@"' -- "$@"
+      exec sudo -H -u "$AGENT_USER" \
+        env "HOME=$AGENT_HOME" "AGENSHIELD_HOST_HOME=$HOME" "AGENSHIELD_HOST_CWD=$PWD" \
+        "$GUARDED_SHELL" -c \
+        'cd "$AGENSHIELD_HOST_CWD" 2>/dev/null || cd "$HOME" 2>/dev/null || cd /; unset AGENSHIELD_HOST_CWD; exec "'"$BIN"'" "$@"' -- "$@"
     else
       # Fallback if guarded shell not installed
-      exec sudo -H -u "$AGENT_USER" env "AGENSHIELD_HOST_CWD=$PWD" "$BIN" "$@"
+      exec sudo -H -u "$AGENT_USER" \
+        env "HOME=$AGENT_HOME" "AGENSHIELD_HOST_HOME=$HOME" "AGENSHIELD_HOST_CWD=$PWD" \
+        "$BIN" "$@"
     fi
   else
-    exec sudo -H -u "$AGENT_USER" env "AGENSHIELD_HOST_CWD=$PWD" "$BIN" "$@"
+    exec sudo -H -u "$AGENT_USER" env "AGENSHIELD_HOST_HOME=$HOME" "AGENSHIELD_HOST_CWD=$PWD" "$BIN" "$@"
   fi
 }
 
-# Parse registry with awk (no python3 dependency)
-RESULT=$(awk -v bn="${binName}" '
-BEGIN { ib=0; ii=0; ic=0; orig="" }
+# Helper: exec the host user's original (unshielded) binary directly
+_agenshield_exec_host() {
+  local BIN="$1"
+  shift
+  exec "$BIN" "$@"
+}
+
+# Parse registry with awk — structured output:
+#   META:<allowHostPassthrough 0|1>:<originalBinary>
+#   INST:<user>:<bin>:<home>:<name>:<baseName>
+PARSED=$(awk -v bn="${binName}" '
+BEGIN { ib=0; ii=0; ic=0; orig=""; allow=0 }
 $0 ~ "\\"" bn "\\"[[:space:]]*:" { ib=1; next }
 ib && /\\"originalBinary\\"/ { gsub(/.*: \\"/, ""); gsub(/\\".*/, ""); orig=$0 }
+ib && /\\"allowHostPassthrough\\"/ {
+  if ($0 ~ /true/) allow=1; else allow=0
+}
 ib && /\\"instances\\"/ { ii=1; next }
 ii && /\\{/ { ic++ }
 ii && /\\"agentUsername\\"/ { gsub(/.*: \\"/, ""); gsub(/\\".*/, ""); u[ic]=$0 }
@@ -237,40 +289,71 @@ ii && /\\"baseName\\"/ { gsub(/.*: \\"/, ""); gsub(/\\".*/, ""); bn2[ic]=$0 }
 ii && /\\]/ { ii=0 }
 ib && !ii && /\\}/ { ib=0 }
 END {
-  if (ic==0) { if (orig!="") print "ORIG:" orig; else print "NONE" }
-  else if (ic==1) print "EXEC:" u[1] ":" b[1] ":" h[1]
-  else { for(i=1;i<=ic;i++) print i") " n[i] " [" bn2[i] "]|" u[i] ":" b[i] ":" h[i]; print "CHOOSE" }
+  print "META:" allow ":" orig
+  for(i=1;i<=ic;i++) print "INST:" u[i] ":" b[i] ":" h[i] ":" n[i] ":" bn2[i]
 }' "$REGISTRY" 2>/dev/null)
 
-if [[ -z "$RESULT" ]]; then
+if [[ -z "$PARSED" ]]; then
   echo "AgenShield: Failed to read registry." >&2
   exit 1
-elif [[ "$RESULT" == ORIG:* ]]; then
-  BIN="\${RESULT#ORIG:}"
-  exec "$BIN" "$@"
-elif [[ "$RESULT" == EXEC:* ]]; then
-  PAYLOAD="\${RESULT#EXEC:}"
-  AGENT_USER="\${PAYLOAD%%:*}"
-  REST="\${PAYLOAD#*:}"
-  BIN="\${REST%%:*}"
-  AGENT_HOME="\${REST#*:}"
-  _agenshield_exec "$AGENT_USER" "$BIN" "$AGENT_HOME" "$@"
-elif [[ "$RESULT" == "NONE" ]]; then
+fi
+
+# Extract metadata
+META_LINE=$(echo "$PARSED" | head -1)
+ALLOW_HOST="\${META_LINE#META:}"
+ALLOW_HOST_FLAG="\${ALLOW_HOST%%:*}"
+ORIG_BIN="\${ALLOW_HOST#*:}"
+
+# Collect shielded instances into arrays
+declare -a INST_USERS INST_BINS INST_HOMES INST_NAMES INST_BASES
+INST_COUNT=0
+while IFS= read -r line; do
+  [[ "$line" != INST:* ]] && continue
+  INST_COUNT=$((INST_COUNT + 1))
+  PAYLOAD="\${line#INST:}"
+  INST_USERS[$INST_COUNT]="\${PAYLOAD%%:*}"; PAYLOAD="\${PAYLOAD#*:}"
+  INST_BINS[$INST_COUNT]="\${PAYLOAD%%:*}"; PAYLOAD="\${PAYLOAD#*:}"
+  INST_HOMES[$INST_COUNT]="\${PAYLOAD%%:*}"; PAYLOAD="\${PAYLOAD#*:}"
+  INST_NAMES[$INST_COUNT]="\${PAYLOAD%%:*}"; PAYLOAD="\${PAYLOAD#*:}"
+  INST_BASES[$INST_COUNT]="$PAYLOAD"
+done <<< "$PARSED"
+
+# Determine if host option is available
+HOST_AVAILABLE=0
+if [[ "$ALLOW_HOST_FLAG" == "1" ]] && [[ -n "$ORIG_BIN" ]] && [[ -x "$ORIG_BIN" ]]; then
+  HOST_AVAILABLE=1
+fi
+
+TOTAL_OPTIONS=$((INST_COUNT + HOST_AVAILABLE))
+
+if [[ $TOTAL_OPTIONS -eq 0 ]]; then
   echo "AgenShield: No shielded instances configured." >&2
   exit 1
-elif [[ "$RESULT" == *"CHOOSE" ]]; then
-  echo "AgenShield: Multiple shielded instances found:" >&2
-  echo "$RESULT" | grep -v CHOOSE | sed 's/|.*//' >&2
+elif [[ $TOTAL_OPTIONS -eq 1 ]]; then
+  # Single option — direct exec (no prompt)
+  if [[ $INST_COUNT -eq 1 ]]; then
+    _agenshield_exec "\${INST_USERS[1]}" "\${INST_BINS[1]}" "\${INST_HOMES[1]}" "$@"
+  else
+    _agenshield_exec_host "$ORIG_BIN" "$@"
+  fi
+else
+  # Multiple options — prompt user to select
+  echo "AgenShield: Multiple instances available:" >&2
+  for i in $(seq 1 $INST_COUNT); do
+    echo "  $i) \${INST_NAMES[$i]} [\${INST_BASES[$i]}] (shielded)" >&2
+  done
+  if [[ $HOST_AVAILABLE -eq 1 ]]; then
+    HOST_NUM=$((INST_COUNT + 1))
+    echo "  $HOST_NUM) Host User (unshielded)" >&2
+  fi
   printf "Select instance (number): " >&2
   read -r CHOICE
-  SELECTED=$(echo "$RESULT" | grep "^\${CHOICE}) " | sed 's/.*|//')
-  if [ -n "$SELECTED" ]; then
-    AGENT_USER="\${SELECTED%%:*}"
-    REST="\${SELECTED#*:}"
-    BIN="\${REST%%:*}"
-    AGENT_HOME="\${REST#*:}"
-    if [ -n "$AGENT_USER" ] && [ -n "$BIN" ]; then
-      _agenshield_exec "$AGENT_USER" "$BIN" "$AGENT_HOME" "$@"
+
+  if [[ "$CHOICE" =~ ^[0-9]+$ ]] && [[ $CHOICE -ge 1 ]] && [[ $CHOICE -le $TOTAL_OPTIONS ]]; then
+    if [[ $CHOICE -le $INST_COUNT ]]; then
+      _agenshield_exec "\${INST_USERS[$CHOICE]}" "\${INST_BINS[$CHOICE]}" "\${INST_HOMES[$CHOICE]}" "$@"
+    else
+      _agenshield_exec_host "$ORIG_BIN" "$@"
     fi
   fi
   echo "Invalid selection." >&2

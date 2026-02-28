@@ -14,20 +14,26 @@ export class MetricsRepository {
     this.db.exec(Q.createTable);
     this.db.exec(Q.createIndex);
     this.db.exec(Q.createTargetIndex);
-    this.ensureTargetIdColumn();
+    this.migrateColumns();
   }
 
   /**
-   * Ensure target_id column exists on existing databases.
-   * New databases get it from CREATE TABLE; this handles migration for old ones.
+   * Ensure all columns exist on existing databases.
+   * New databases get them from CREATE TABLE; this handles migration for old ones.
    */
-  private ensureTargetIdColumn(): void {
-    const columns = this.db.prepare(Q.checkTargetIdColumn).all() as Array<{ name: string }>;
-    const hasTargetId = columns.some((c) => c.name === 'target_id');
-    if (!hasTargetId) {
+  private migrateColumns(): void {
+    const columns = this.db.prepare(Q.checkColumns).all() as Array<{ name: string }>;
+    const colNames = new Set(columns.map((c) => c.name));
+
+    if (!colNames.has('target_id')) {
       this.db.exec(Q.addTargetIdColumn);
       this.db.exec(Q.createTargetIndex);
     }
+    if (!colNames.has('el_min')) this.db.exec(Q.addElMinColumn);
+    if (!colNames.has('el_max')) this.db.exec(Q.addElMaxColumn);
+    if (!colNames.has('el_mean')) this.db.exec(Q.addElMeanColumn);
+    if (!colNames.has('el_p50')) this.db.exec(Q.addElP50Column);
+    if (!colNames.has('el_p99')) this.db.exec(Q.addElP99Column);
   }
 
   /** Insert a metrics snapshot. */
@@ -41,6 +47,11 @@ export class MetricsRepository {
       netUp: data.netUp,
       netDown: data.netDown,
       targetId: data.targetId ?? null,
+      elMin: data.elMin ?? null,
+      elMax: data.elMax ?? null,
+      elMean: data.elMean ?? null,
+      elP50: data.elP50 ?? null,
+      elP99: data.elP99 ?? null,
     });
   }
 
@@ -69,7 +80,7 @@ export class MetricsRepository {
   }
 
   /** Delete snapshots older than maxAgeMs. Returns number of deleted rows. */
-  prune(maxAgeMs = 24 * 60 * 60 * 1000): number {
+  prune(maxAgeMs = 15 * 60 * 1000): number {
     const cutoff = Date.now() - maxAgeMs;
     const result = this.db.prepare(Q.prune).run(cutoff);
     return result.changes;

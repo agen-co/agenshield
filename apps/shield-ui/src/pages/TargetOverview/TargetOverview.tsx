@@ -10,6 +10,7 @@ import {
   Box,
   Card,
   Chip,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import {
@@ -33,6 +34,7 @@ import SecondaryButton from '../../elements/buttons/SecondaryButton';
 import { PageGrid, HeaderCard, InfoRow, StatRow } from './TargetOverview.styles';
 import { OpenClawTokenDialog } from '../../components/shared/OpenClawTokenDialog';
 import type { TargetOverviewProps } from './TargetOverview.types';
+import { ElapsedTimer } from './ElapsedTimer';
 
 const LazyActivity = lazy(() => import('../Activity').then(m => ({ default: m.Activity })));
 
@@ -341,16 +343,37 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
               </Typography>
             ) : (
               targetInfo.processes.map((proc) => (
-                <InfoRow key={proc.pid}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                    <Typography variant="body2" fontWeight={500} sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
-                      PID {proc.pid}
-                    </Typography>
-                  </Box>
-                  <Typography variant="caption" color="text.secondary">
-                    {proc.elapsed}
-                  </Typography>
-                </InfoRow>
+                <Tooltip
+                  key={proc.pid}
+                  title={proc.command}
+                  placement="left"
+                  arrow
+                  slotProps={{
+                    tooltip: {
+                      sx: {
+                        fontFamily: "'IBM Plex Mono', monospace",
+                        fontSize: 11,
+                        maxWidth: 400,
+                        wordBreak: 'break-all',
+                      },
+                    },
+                  }}
+                >
+                  <InfoRow>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={500} sx={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
+                        PID {proc.pid}
+                      </Typography>
+                    </Box>
+                    {proc.startedAtMs ? (
+                      <ElapsedTimer startedAtMs={proc.startedAtMs} />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        {proc.elapsed}
+                      </Typography>
+                    )}
+                  </InfoRow>
+                </Tooltip>
               ))
             )}
           </Card>
