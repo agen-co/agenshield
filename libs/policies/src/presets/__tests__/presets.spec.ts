@@ -111,6 +111,7 @@ describe('OPENCLAW_PRESET', () => {
     expect(commands!.target).toBe('command');
     expect(commands!.patterns).toContain('node:*');
     expect(commands!.patterns).toContain('git:*');
+    expect(commands!.patterns).toContain('launchctl:*');
   });
 });
 

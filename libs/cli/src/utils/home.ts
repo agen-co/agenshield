@@ -460,6 +460,8 @@ export async function installFromLocal(
 // Shell rc PATH management
 // ---------------------------------------------------------------------------
 
+const CLI_PATH_COMMENT = '# AgenShield CLI';
+
 /**
  * Ensure the AgenShield bin directory is on PATH by appending an export line
  * to the user's shell rc file (if not already present).
@@ -497,6 +499,53 @@ export function ensurePathInShellRc(): { added: boolean; rcFile: string } {
   // Append
   fs.appendFileSync(rcFile, `\n# AgenShield CLI\n${exportLine}\n`);
   return { added: true, rcFile };
+}
+
+/**
+ * Remove the `# AgenShield CLI` PATH block injected by `ensurePathInShellRc()`.
+ * The block consists of a comment line followed by an export line containing
+ * `.agenshield/bin`. Both lines are removed together.
+ */
+export function removeCliPathFromShellRc(
+  hostHome?: string,
+  hostShell?: string,
+): { removed: boolean; rcFile: string } {
+  const rcFile = resolveShellRcPath(hostHome, hostShell);
+
+  try {
+    const content = fs.readFileSync(rcFile, 'utf-8');
+    if (!content.includes(CLI_PATH_COMMENT)) {
+      return { removed: false, rcFile };
+    }
+
+    const lines = content.split('\n');
+    const filtered: string[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      if (
+        lines[i].trim() === CLI_PATH_COMMENT &&
+        i + 1 < lines.length &&
+        lines[i + 1].includes('.agenshield/bin')
+      ) {
+        i++; // skip the export line too
+        continue;
+      }
+      filtered.push(lines[i]);
+    }
+
+    if (filtered.length === lines.length) {
+      return { removed: false, rcFile };
+    }
+
+    // Remove trailing empty lines left by the block removal
+    while (filtered.length > 0 && filtered[filtered.length - 1] === '') {
+      filtered.pop();
+    }
+    fs.writeFileSync(rcFile, filtered.join('\n') + '\n');
+    return { removed: true, rcFile };
+  } catch {
+    return { removed: false, rcFile };
+  }
 }
 
 // ---------------------------------------------------------------------------

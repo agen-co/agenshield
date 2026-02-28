@@ -19,6 +19,7 @@ import type { SharedCapabilities } from '@agenshield/seatbelt';
 import { loadConfig } from '../config/index';
 import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning, emitEvent, emitResourceWarning, emitResourceLimitEnforced } from '../events/emitter';
 import { resolveProfileByToken } from '../services/profile-token';
+import { resolveTargetContext } from '../services/target-context';
 import { getPolicyManager } from '../services/policy-manager';
 import { getProxyPool } from '../proxy/pool';
 import { getTraceStore } from '../services/trace-store';
@@ -289,7 +290,7 @@ export async function evaluatePolicyCheck(
           return config.policies || [];
         },
         defaultAction: config.defaultAction ?? 'deny',
-        agentHome: process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent',
+        agentHome: resolveTargetContext(profileId).agentHome,
         brokerHttpPort: config.broker?.httpPort,
         resourceMonitoring: config.resourceMonitoring,
       },

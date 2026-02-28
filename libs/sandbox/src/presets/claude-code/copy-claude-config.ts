@@ -82,7 +82,7 @@ export const copyClaudeConfigStep: InstallStep = {
     const agentConfigDir = `${ctx.agentHome}/.claude`;
 
     // Resolve categories — always include 'settings', fall back to defaults
-    const requested = ctx.configCopyCategories ?? DEFAULT_CLAUDE_CONFIG_CATEGORIES;
+    const requested = (ctx.configCopyCategories as ClaudeConfigCategory[] | undefined) ?? DEFAULT_CLAUDE_CONFIG_CATEGORIES;
     const categories = new Set<ClaudeConfigCategory>(requested);
     categories.add('settings'); // always forced
 

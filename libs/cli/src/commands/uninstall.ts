@@ -94,6 +94,71 @@ function resolveHostInfo(): { hostHome: string; hostUsername: string } {
 }
 
 /**
+ * Kill all processes and unload all LaunchDaemons for a profile.
+ * Must run BEFORE manifest-driven rollback to prevent respawning
+ * and ensure file handles are released before directory cleanup.
+ */
+async function killAllProfileProcesses(
+  execAsRoot: (cmd: string, opts?: { timeout?: number }) => Promise<{ success: boolean; output: string; error?: string }>,
+  manifest: { entries: Array<{ stepId: string; status: string; changed: boolean; outputs: Record<string, string> }> },
+  agentUsername: string | undefined,
+  brokerUsername: string | undefined,
+  profileBaseName: string,
+): Promise<void> {
+  // 1. Collect service labels from manifest entries + well-known patterns
+  const labels = new Set<string>();
+
+  for (const entry of manifest.entries) {
+    if (entry.stepId === 'start_gateway' && entry.outputs['gatewayLabel']) {
+      labels.add(entry.outputs['gatewayLabel']);
+    }
+    if (entry.stepId === 'write_gateway_plist' && entry.outputs['gatewayPlistPath']) {
+      const label = entry.outputs['gatewayPlistPath'].replace('/Library/LaunchDaemons/', '').replace('.plist', '');
+      if (label) labels.add(label);
+    }
+    if (entry.stepId === 'install_broker_daemon' && entry.outputs['brokerLabel']) {
+      labels.add(entry.outputs['brokerLabel']);
+    }
+  }
+
+  // Fallback well-known patterns
+  labels.add(`com.agenshield.${profileBaseName}.gateway`);
+  labels.add(`com.agenshield.broker.${profileBaseName}`);
+
+  // 2. Unload all LaunchDaemons (prevents KeepAlive from respawning killed processes)
+  for (const label of labels) {
+    await execAsRoot(`launchctl bootout system/${label} 2>/dev/null; true`, { timeout: 15_000 });
+  }
+
+  // 3. Resolve UIDs early (before any user records get deleted)
+  const usernames = [agentUsername, brokerUsername].filter(Boolean) as string[];
+
+  // 4. Force-kill all processes owned by these users: SIGTERM → wait → SIGKILL → verify
+  for (const username of usernames) {
+    // Check if user exists before attempting pkill
+    const uidCheck = await execAsRoot(`id -u ${username} 2>/dev/null`, { timeout: 5_000 });
+    if (!uidCheck.success) continue;
+
+    // SIGTERM first (graceful)
+    await execAsRoot(`pkill -u ${username} 2>/dev/null; true`, { timeout: 5_000 });
+    // Brief grace period
+    await execAsRoot(`sleep 1`, { timeout: 5_000 });
+    // SIGKILL (force)
+    await execAsRoot(`pkill -9 -u ${username} 2>/dev/null; true`, { timeout: 5_000 });
+    // Wait for processes to exit
+    await execAsRoot(`sleep 2`, { timeout: 5_000 });
+
+    // Verify no processes remain
+    const psCheck = await execAsRoot(`ps -u ${username} -o pid= 2>/dev/null`, { timeout: 5_000 });
+    if (psCheck.success && psCheck.output.trim()) {
+      // One more SIGKILL attempt
+      await execAsRoot(`pkill -9 -u ${username} 2>/dev/null; true`, { timeout: 5_000 });
+      await execAsRoot(`sleep 1`, { timeout: 5_000 });
+    }
+  }
+}
+
+/**
  * Unshield a single profile using manifest-driven rollback.
  */
 async function unshieldProfile(
@@ -129,6 +194,17 @@ async function unshieldProfile(
       hostUsername,
     };
 
+    // Pre-rollback: kill all processes and unload services BEFORE any rollback steps
+    output.info('  Stopping all services and processes...');
+    await killAllProfileProcesses(
+      rollbackCtx.execAsRoot,
+      profile.installManifest,
+      agentUsername,
+      profile.brokerUsername,
+      profileBaseName,
+    );
+    output.success('  All profile processes stopped');
+
     const entries = profile.installManifest.entries
       .filter(e => e.status === 'completed' && e.changed)
       .reverse();
@@ -163,6 +239,23 @@ async function unshieldProfile(
         } else {
           output.success(`User ${username} removed on retry`);
         }
+      }
+    }
+
+    // Post-rollback: verify home directory was deleted, retry if needed
+    if (agentHomeDir) {
+      try {
+        if (fs.existsSync(agentHomeDir)) {
+          output.warn(`Home directory ${agentHomeDir} still exists — retrying cleanup...`);
+          const retryRm = await execAsRoot(`rm -rf "${agentHomeDir}"`, { timeout: 60_000 });
+          if (fs.existsSync(agentHomeDir)) {
+            output.error(`Could not delete ${agentHomeDir}: ${retryRm.error ?? 'unknown error'}`);
+          } else {
+            output.success(`Home directory ${agentHomeDir} removed on retry`);
+          }
+        }
+      } catch {
+        // Best-effort
       }
     }
 
@@ -301,11 +394,15 @@ async function systemCleanup(dataDir: string): Promise<void> {
     }
 
     try {
-      const { removePathOverrideFromShellRc } = await import('../utils/home.js');
+      const { removePathOverrideFromShellRc, removeCliPathFromShellRc } = await import('../utils/home.js');
       const hostShell = process.env['SHELL'] || '';
       const { removed, rcFile } = removePathOverrideFromShellRc(hostHome, hostShell);
       if (removed) {
         output.success(`Removed PATH override from ${rcFile}`);
+      }
+      const cli = removeCliPathFromShellRc(hostHome, hostShell);
+      if (cli.removed) {
+        output.success(`Removed CLI PATH entry from ${cli.rcFile}`);
       }
     } catch {
       // Best effort
@@ -475,12 +572,21 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
     }
   }
 
+  // Collect entity names that were just unshielded so the orphan scan can skip them
+  const unshieldedNames = new Set<string>();
+  for (const profile of profiles) {
+    if (profile.agentUsername) unshieldedNames.add(profile.agentUsername);
+    if (profile.brokerUsername) unshieldedNames.add(profile.brokerUsername);
+    const baseName = profile.agentUsername?.replace(/^ash_/, '').replace(/_agent$/, '') ?? profile.id;
+    unshieldedNames.add(`ash_${baseName}`); // socket group
+  }
+
   storage.close();
   await systemCleanup(dataDir);
 
   // Orphan cleanup — best-effort, failure doesn't affect main uninstall
   try {
-    await cleanupOrphanedEntities(options);
+    await cleanupOrphanedEntities(options, unshieldedNames);
   } catch (err) {
     output.warn(`Orphan cleanup encountered an error: ${(err as Error).message}`);
   }
@@ -572,9 +678,13 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
  * to remove. In force mode (or non-TTY), auto-removes only verified entities
  * (those with `.agenshield/meta.json`).
  */
-async function cleanupOrphanedEntities(options: { force?: boolean }): Promise<void> {
+async function cleanupOrphanedEntities(
+  options: { force?: boolean },
+  exclude?: Set<string>,
+): Promise<void> {
   const { discoverOrphanedEntities } = await import('@agenshield/sandbox');
-  const orphans = discoverOrphanedEntities();
+  const allOrphans = discoverOrphanedEntities();
+  const orphans = exclude ? allOrphans.filter(e => !exclude.has(e.name)) : allOrphans;
 
   if (orphans.length === 0) {
     return;

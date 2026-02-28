@@ -22,6 +22,7 @@ import { installOpenclawStep } from './install-openclaw.js';
 import { onboardOpenclawStep } from './onboard-openclaw.js';
 import { ensureWorkspacePathsStep } from './ensure-workspace-paths.js';
 import { detectHostOpenclawStep } from './detect-host-openclaw.js';
+import { enforceOpenclawConfigStep } from './enforce-openclaw-config.js';
 import { verifyOpenclawStep } from './verify-openclaw.js';
 import { writeGatewayPlistStep } from './write-gateway-plist.js';
 import { injectSkillsStep } from './inject-skills.js';
@@ -44,7 +45,8 @@ export function getOpenclawPipeline(): InstallStep[] {
     onboardOpenclawStep,                                        // weight 5, creates openclaw.json if missing
     ensureWorkspacePathsStep,                                   // weight 2, always rewrites host paths
     createRestoreShellConfigStep('openclaw'),                   // weight 1
-    detectHostOpenclawStep,                                     // weight 2, resolve() → injects copy steps
+    detectHostOpenclawStep,                                     // weight 2, resolve() → injects copy + enforce steps
+    enforceOpenclawConfigStep,                                   // weight 2, applies managed config enforcements
     createStopHostProcessesStep('openclaw', 'node.*openclaw'),  // weight 3
 
     // Phase 9: Configuration

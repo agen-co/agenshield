@@ -25,6 +25,7 @@ const MAX_FEED_EVENTS = 50;
 
 interface ActivityFeedSectionProps {
   events: SSEEvent[];
+  profileId?: string;
 }
 
 function isSecurityEvent(event: SSEEvent): boolean {
@@ -64,12 +65,16 @@ const EventRowItem = memo(function EventRowItem({ event }: { event: SSEEvent }) 
   );
 });
 
-export function ActivityFeedSection({ events }: ActivityFeedSectionProps) {
+export function ActivityFeedSection({ events, profileId }: ActivityFeedSectionProps) {
   const [tab, setTab] = useState(0);
 
   const allEvents = useMemo(() => {
-    return events.filter((e) => !isNoiseEvent(e)).slice(0, MAX_FEED_EVENTS);
-  }, [events]);
+    let filtered = events.filter((e) => !isNoiseEvent(e));
+    if (profileId) {
+      filtered = filtered.filter((e) => e.profileId === profileId);
+    }
+    return filtered.slice(0, MAX_FEED_EVENTS);
+  }, [events, profileId]);
 
   const filteredEvents = useMemo(() => {
     if (tab === 1) return allEvents.filter(isSecurityEvent);

@@ -45,7 +45,7 @@ async function runPostUpgrade(): Promise<void> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const res = await fetch(
-        `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}/system/post-upgrade`,
+        `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}/api/system/post-upgrade`,
         { method: 'POST' },
       );
       const data = await res.json() as { success: boolean; data?: { profiles?: unknown[] }; error?: string };

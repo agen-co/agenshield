@@ -398,7 +398,7 @@ export class SkillManager extends EventEmitter {
     const activeInst = installations.find((i) => {
       if (!versionIds.has(i.skillVersionId) || i.status !== 'active') return false;
       if (opts?.profileId !== undefined) return i.profileId === opts.profileId;
-      return i.profileId == null;
+      return true; // Find ANY active installation when no profileId specified
     });
 
     if (activeInst) {

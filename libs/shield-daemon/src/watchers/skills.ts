@@ -23,6 +23,7 @@ import { setCachedAnalysis } from '../services/skill-analyzer';
 import { addSkillPolicy, createSkillWrapper } from '../services/skill-lifecycle';
 import { emitSkillAnalyzed, emitSkillAnalysisFailed } from '../events/emitter';
 import { getConfigDir } from '../config/paths';
+import { resolveTargetContext } from '../services/target-context';
 import { extractTagsFromSkillMd } from '../services/skill-tag-injector';
 import { hasValidInstallationTagSync } from '../vault/installation-key';
 
@@ -131,6 +132,7 @@ function readSkillFiles(dir: string, prefix = ''): Array<{ name: string; type: s
   try {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         files.push(...readSkillFiles(path.join(dir, entry.name), rel));
@@ -256,6 +258,7 @@ function getDirMtime(dir: string): number {
   try {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         latest = Math.max(latest, getDirMtime(fullPath));
@@ -340,8 +343,8 @@ function scanSkills(): void {
                 addToApprovedList(skillName, undefined, hash ?? undefined);
                 addSkillPolicy(skillName);
                 // Create wrapper so the skill is actually invocable
-                const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-                const binDir = path.join(agentHome, 'bin');
+                const { agentHome: resolvedHome } = resolveTargetContext();
+                const binDir = path.join(resolvedHome, 'bin');
                 createSkillWrapper(skillName, binDir).catch((err) => {
                   console.warn(`[SkillsWatcher] Failed to create wrapper for ${skillName}:`, (err as Error).message);
                 });
@@ -658,8 +661,8 @@ export async function ensureSkillWrappers(): Promise<void> {
   const approved = loadApprovedSkills();
   if (approved.length === 0) return;
 
-  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-  const binDir = path.join(agentHome, 'bin');
+  const { agentHome: resolvedHome } = resolveTargetContext();
+  const binDir = path.join(resolvedHome, 'bin');
   const dir = getSkillsDir();
 
   for (const entry of approved) {
@@ -667,12 +670,11 @@ export async function ensureSkillWrappers(): Promise<void> {
     const skillPath = dir ? path.join(dir, entry.name) : '';
     if (!skillPath || !fs.existsSync(skillPath)) continue;
 
-    const wrapperPath = path.join(binDir, entry.name);
-    if (fs.existsSync(wrapperPath)) continue;
-
+    // Always regenerate wrappers at boot to apply latest wrapper logic
+    // (e.g. brew-aware wrappers for prefixed skills)
     try {
       await createSkillWrapper(entry.name, binDir);
-      console.log(`[SkillsWatcher] Created missing wrapper for approved skill: ${entry.name}`);
+      console.log(`[SkillsWatcher] Ensured wrapper for approved skill: ${entry.name}`);
     } catch (err) {
       console.warn(`[SkillsWatcher] Failed to create wrapper for ${entry.name}:`, (err as Error).message);
     }

@@ -28,6 +28,14 @@ registerRollback('create_socket_group', async (ctx, entry) => {
 registerRollback('create_agent_user', async (ctx, entry) => {
   const username = entry.outputs['agentUsername'] || ctx.agentUsername;
   if (!username) return;
+
+  // Check if user still exists (may have been cleaned up by pre-rollback step)
+  const exists = await ctx.execAsRoot(`id -u ${username} 2>/dev/null`, { timeout: 5_000 });
+  if (!exists.success) {
+    ctx.onLog(`Rollback: agent user ${username} already removed — skipping`);
+    return;
+  }
+
   ctx.onLog(`Rollback: deleting agent user ${username}`);
   // Kill processes owned by the user (best-effort — may fail if no processes)
   await ctx.execAsRoot(`pkill -u ${username} 2>/dev/null; true`, { timeout: 5_000 });
@@ -47,6 +55,14 @@ registerRollback('create_agent_user', async (ctx, entry) => {
 registerRollback('create_broker_user', async (ctx, entry) => {
   const username = entry.outputs['brokerUsername'];
   if (!username) return;
+
+  // Check if user still exists (may have been cleaned up by pre-rollback step)
+  const exists = await ctx.execAsRoot(`id -u ${username} 2>/dev/null`, { timeout: 5_000 });
+  if (!exists.success) {
+    ctx.onLog(`Rollback: broker user ${username} already removed — skipping`);
+    return;
+  }
+
   ctx.onLog(`Rollback: deleting broker user ${username}`);
   // Kill processes owned by the user (best-effort — may fail if no processes)
   await ctx.execAsRoot(`pkill -u ${username} 2>/dev/null; true`, { timeout: 5_000 });
@@ -159,10 +175,15 @@ registerRollback('install_broker_daemon', async (ctx, entry) => {
   const plistPath = entry.outputs['plistPath'];
   if (!brokerLabel) return;
   ctx.onLog(`Rollback: unloading broker daemon ${brokerLabel}`);
-  await ctx.execAsRoot(
-    `launchctl bootout system/${brokerLabel} 2>/dev/null; rm -f "${plistPath}" 2>/dev/null; true`,
-    { timeout: 15_000 },
-  );
+  // Check if service is still loaded before attempting bootout
+  const loaded = await ctx.execAsRoot(`launchctl print system/${brokerLabel} 2>/dev/null`, { timeout: 5_000 });
+  if (loaded.success) {
+    await ctx.execAsRoot(`launchctl bootout system/${brokerLabel} 2>/dev/null; true`, { timeout: 15_000 });
+  }
+  // Always attempt plist removal
+  if (plistPath) {
+    await ctx.execAsRoot(`rm -f "${plistPath}" 2>/dev/null; true`, { timeout: 5_000 });
+  }
 });
 
 // ── Gateway ──────────────────────────────────────────────────
@@ -172,8 +193,13 @@ registerRollback('start_gateway', async (ctx, entry) => {
   const gatewayPlistPath = entry.outputs['gatewayPlistPath'];
   if (!gatewayLabel) return;
   ctx.onLog(`Rollback: unloading gateway ${gatewayLabel}`);
-  await ctx.execAsRoot(
-    `launchctl bootout system/${gatewayLabel} 2>/dev/null; rm -f "${gatewayPlistPath}" 2>/dev/null; true`,
-    { timeout: 15_000 },
-  );
+  // Check if service is still loaded before attempting bootout
+  const loaded = await ctx.execAsRoot(`launchctl print system/${gatewayLabel} 2>/dev/null`, { timeout: 5_000 });
+  if (loaded.success) {
+    await ctx.execAsRoot(`launchctl bootout system/${gatewayLabel} 2>/dev/null; true`, { timeout: 15_000 });
+  }
+  // Always attempt plist removal
+  if (gatewayPlistPath) {
+    await ctx.execAsRoot(`rm -f "${gatewayPlistPath}" 2>/dev/null; true`, { timeout: 5_000 });
+  }
 });

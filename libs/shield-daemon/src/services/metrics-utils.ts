@@ -187,23 +187,23 @@ export interface TargetMetricsEntry {
 }
 
 /**
- * Get aggregated CPU and memory usage for all processes owned by a given username.
- * Uses `ps -u <username> -o %cpu,%mem` and sums all rows.
+ * Get aggregated CPU and memory usage for all processes owned by a given UID.
+ * Uses generic `ps -A` with in-process UID filtering to avoid exposing
+ * agent usernames in the process table.
  */
-export async function getPerUserCpuMem(username: string): Promise<{ cpuPercent: number; memPercent: number }> {
+export async function getPerUserCpuMem(uid: number): Promise<{ cpuPercent: number; memPercent: number }> {
   try {
     const executor = getSystemExecutor();
-    const output = await executor.exec(`ps -u ${username} -o %cpu,%mem`, { timeout: 3000 });
+    const output = await executor.exec(`ps -A -o uid=,%cpu=,%mem= 2>/dev/null`, { timeout: 3000 });
     const lines = output.trim().split('\n');
     let cpu = 0;
     let mem = 0;
-    // Skip header line
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].trim().split(/\s+/);
-      if (cols.length >= 2) {
-        cpu += parseFloat(cols[0]) || 0;
-        mem += parseFloat(cols[1]) || 0;
-      }
+    const uidStr = String(uid);
+    for (const line of lines) {
+      const match = line.trim().match(/^\s*(\d+)\s+([\d.]+)\s+([\d.]+)\s*$/);
+      if (!match || match[1] !== uidStr) continue;
+      cpu += parseFloat(match[2]) || 0;
+      mem += parseFloat(match[3]) || 0;
     }
     return {
       cpuPercent: Math.round(cpu * 100) / 100,
@@ -218,11 +218,11 @@ export async function getPerUserCpuMem(username: string): Promise<{ cpuPercent: 
  * Collect per-target CPU/memory metrics for all running+shielded targets.
  *
  * @param targets - Current target status list (from target watcher cache)
- * @param profiles - All profiles (for agentUsername lookup)
+ * @param profiles - All profiles (for agentUsername/agentUid lookup)
  */
 export async function collectTargetMetrics(
   targets: Array<{ id: string; name: string; shielded: boolean; running: boolean }>,
-  profiles: Array<{ id: string; agentUsername?: string }>,
+  profiles: Array<{ id: string; agentUsername?: string; agentUid?: number }>,
 ): Promise<TargetMetricsEntry[]> {
   const results: TargetMetricsEntry[] = [];
 
@@ -233,7 +233,10 @@ export async function collectTargetMetrics(
     const username = profile?.agentUsername;
     if (!username) continue;
 
-    const { cpuPercent, memPercent } = await getPerUserCpuMem(username);
+    const uid = profile?.agentUid ?? await resolveUidFallback(username);
+    if (uid == null) continue;
+
+    const { cpuPercent, memPercent } = await getPerUserCpuMem(uid);
     results.push({
       targetId: target.id,
       targetName: target.name,
@@ -243,6 +246,26 @@ export async function collectTargetMetrics(
   }
 
   return results;
+}
+
+/** Module-level UID cache for metrics fallback resolution. */
+const metricsUidCache = new Map<string, number>();
+
+async function resolveUidFallback(username: string): Promise<number | null> {
+  const cached = metricsUidCache.get(username);
+  if (cached != null) return cached;
+  try {
+    const executor = getSystemExecutor();
+    const raw = await executor.exec(`id -u ${username}`, { timeout: 3_000 });
+    const uid = parseInt(raw.trim(), 10);
+    if (!isNaN(uid)) {
+      metricsUidCache.set(username, uid);
+      return uid;
+    }
+  } catch {
+    // user doesn't exist
+  }
+  return null;
 }
 
 /* ---- Full snapshot builder ---- */

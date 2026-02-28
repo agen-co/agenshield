@@ -10,6 +10,8 @@ export interface SimulateRequest {
   command: string;
   /** Timeout in ms (default: 30000, max: 60000) */
   timeout?: number;
+  /** Target profile scope — loads profile-specific policies and runs in target context */
+  profileId?: string;
 }
 
 export interface SimulatedOperation {

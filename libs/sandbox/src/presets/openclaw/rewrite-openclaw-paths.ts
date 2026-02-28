@@ -19,10 +19,15 @@ export const rewriteOpenclawPathsStep: InstallStep = {
 
   async run(ctx) {
     const agentConfigDir = `${ctx.agentHome}/.openclaw`;
+    // Extract basename for escaped-path replacement (e.g. 'ash_openclaw_agent')
+    const agentBasename = ctx.agentHome.split('/').pop()!;
 
     await ctx.execAsRoot([
       `if [ -f "${agentConfigDir}/openclaw.json" ]; then`,
+      // Pass 1: unescaped paths (e.g. /Users/david → /Users/ash_openclaw_agent)
       `  sed -i '' 's|/Users/${ctx.hostUsername}|${ctx.agentHome}|g' "${agentConfigDir}/openclaw.json"`,
+      // Pass 2: escaped paths — OpenClaw's JSON serializer uses \/ (e.g. \/Users\/david → \/Users\/ash_openclaw_agent)
+      `  sed -i '' 's|\\/Users\\/${ctx.hostUsername}|\\/Users\\/${agentBasename}|g' "${agentConfigDir}/openclaw.json"`,
       '  echo "PATHS_REWRITTEN"',
       'else',
       '  echo "NO_CONFIG_FILE"',

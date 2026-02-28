@@ -30,12 +30,20 @@ interface ConfigCategoryOption {
   forced: boolean;
 }
 
-const CONFIG_CATEGORIES: ConfigCategoryOption[] = [
+const CLAUDE_CONFIG_CATEGORIES: ConfigCategoryOption[] = [
   { id: 'settings', label: 'Settings', description: 'settings.json (MCP servers, preferences)', defaultOn: true, forced: true },
   { id: 'plugins', label: 'Plugins', description: 'Installed plugins and marketplace config', defaultOn: true, forced: false },
   { id: 'memory', label: 'Memory', description: 'Project memory files (MEMORY.md)', defaultOn: true, forced: false },
   { id: 'statsig', label: 'Feature flags', description: 'Statsig feature flag cache', defaultOn: true, forced: false },
   { id: 'plans', label: 'Plans', description: 'Plan mode files', defaultOn: false, forced: false },
+];
+
+const OPENCLAW_CONFIG_CATEGORIES: ConfigCategoryOption[] = [
+  { id: 'config', label: 'Config', description: 'openclaw.json (settings, preferences)', defaultOn: true, forced: false },
+  { id: 'skills', label: 'Skills', description: 'Installed skills directory', defaultOn: true, forced: false },
+  { id: 'plugins', label: 'Plugins', description: 'Installed plugins directory', defaultOn: true, forced: false },
+  { id: 'workspace', label: 'Workspace', description: 'Workspace directory (may be large)', defaultOn: false, forced: false },
+  { id: 'cache', label: 'Cache', description: 'Cache directory', defaultOn: false, forced: false },
 ];
 
 function deriveDefaultBaseName(targetType: string, targetId: string): string {
@@ -70,10 +78,13 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
   const [versionChoice, setVersionChoice] = useState<VersionChoice>(detectedVersion ? 'detected' : 'latest');
   const [customVersion, setCustomVersion] = useState('');
 
-  // Config copy categories (claude-code targets only)
+  // Config copy categories (claude-code and openclaw targets)
   const isClaudeCode = target?.type === 'claude-code';
+  const isOpenClaw = target?.type === 'openclaw';
+  const configCategories = isOpenClaw ? OPENCLAW_CONFIG_CATEGORIES : CLAUDE_CONFIG_CATEGORIES;
+  const hasConfigCategories = isClaudeCode || isOpenClaw;
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(
-    () => new Set(CONFIG_CATEGORIES.filter(c => c.defaultOn).map(c => c.id)),
+    () => new Set(configCategories.filter(c => c.defaultOn).map(c => c.id)),
   );
 
   useEffect(() => {
@@ -81,8 +92,9 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
     setTouched(false);
     setVersionChoice(detectedVersion ? 'detected' : 'latest');
     setCustomVersion('');
-    setSelectedCategories(new Set(CONFIG_CATEGORIES.filter(c => c.defaultOn).map(c => c.id)));
-  }, [defaultBaseName, detectedVersion]);
+    const cats = target?.type === 'openclaw' ? OPENCLAW_CONFIG_CATEGORIES : CLAUDE_CONFIG_CATEGORIES;
+    setSelectedCategories(new Set(cats.filter(c => c.defaultOn).map(c => c.id)));
+  }, [defaultBaseName, detectedVersion, target?.type]);
 
   if (!target) return null;
 
@@ -192,8 +204,8 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
         </div>
       </div>
 
-      {/* Config copy categories (claude-code only) */}
-      {isClaudeCode && (
+      {/* Config copy categories (claude-code and openclaw) */}
+      {hasConfigCategories && (
         <div style={{ marginBottom: 16 }}>
           <label style={{
             display: 'block',
@@ -209,9 +221,9 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
             marginBottom: 6,
             color: theme.palette.text.secondary,
           }}>
-            Select which parts of ~/.claude to copy into the sandbox
+            Select which parts of {isOpenClaw ? '~/.openclaw' : '~/.claude'} to copy into the sandbox
           </div>
-          {CONFIG_CATEGORIES.map((cat) => (
+          {configCategories.map((cat) => (
             <label key={cat.id} style={{
               display: 'flex',
               alignItems: 'flex-start',
@@ -349,7 +361,7 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <ActionButton onClick={() => onShield(baseName, resolvedVersion, isClaudeCode ? Array.from(selectedCategories) : undefined)} disabled={!isValid || !isCustomVersionValid}>
+        <ActionButton onClick={() => onShield(baseName, resolvedVersion, hasConfigCategories ? Array.from(selectedCategories) : undefined)} disabled={!isValid || !isCustomVersionValid}>
           Shield {target.name}
         </ActionButton>
         <SecondaryButton onClick={onBack}>

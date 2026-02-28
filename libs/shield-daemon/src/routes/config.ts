@@ -26,6 +26,7 @@ import { syncSecrets } from '../secret-sync';
 import { syncOpenClawFromPolicies } from '../services/openclaw-config';
 import { installShieldExec, createUserConfig } from '@agenshield/sandbox';
 import { generatePolicyMarkdown } from '../services/policy-markdown';
+import { resolveTargetContext } from '../services/target-context';
 import { syncAndWriteRouterHostPassthrough } from '../services/router-sync';
 import {
   readPathRegistry,
@@ -83,7 +84,7 @@ async function syncPoliciesAfterChange(
   syncOpenClawFromPolicies(newPolicies);
 
   try {
-    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const { agentHome } = resolveTargetContext();
     const instructionsPath = path.join(agentHome, '.openclaw', 'policy-instructions.md');
     const markdown = generatePolicyMarkdown(newPolicies, getKnownSkillNames(app));
     fs.mkdirSync(path.dirname(instructionsPath), { recursive: true });
@@ -664,7 +665,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
    * Returns all config files from $AGENT_HOME/.openclaw/
    */
   app.get('/config/openclaw', async (_request: FastifyRequest, reply: FastifyReply) => {
-    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const { agentHome } = resolveTargetContext();
     const configDir = path.join(agentHome, '.openclaw');
     const configFiles = readConfigDir(configDir);
     return reply.send({ configDir, files: configFiles });
@@ -684,8 +685,8 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       if (!original) {
         return reply.code(400).send({ error: 'original query param required' });
       }
-      const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-      const agentConfigDir = path.join(agentHome, '.openclaw');
+      const { agentHome: resolvedHome } = resolveTargetContext();
+      const agentConfigDir = path.join(resolvedHome, '.openclaw');
       const diff = diffConfigDirs(original, agentConfigDir);
       return reply.send({ diff });
     }

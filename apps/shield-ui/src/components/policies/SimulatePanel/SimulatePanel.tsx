@@ -1,20 +1,26 @@
 import { useState, useCallback } from 'react';
 import { TextField, Typography, Box, Alert } from '@mui/material';
 import { Play } from 'lucide-react';
+import { useSnapshot } from 'valtio';
 import { PrimaryButton } from '../../../elements';
 import { CircularLoader } from '../../../elements';
 import { useSimulate } from '../../../api/hooks';
 import { SimulationResults } from '../SimulationResults';
+import { scopeStore } from '../../../state/scope';
 import { CommandInputBox, ActionsRow } from './SimulatePanel.styles';
 
 export function SimulatePanel() {
   const [command, setCommand] = useState('');
+  const { profileId } = useSnapshot(scopeStore);
   const simulate = useSimulate();
 
   const handleRun = useCallback(() => {
     if (!command.trim()) return;
-    simulate.mutate({ command: command.trim() });
-  }, [command, simulate]);
+    simulate.mutate({
+      command: command.trim(),
+      ...(profileId ? { profileId } : {}),
+    });
+  }, [command, profileId, simulate]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

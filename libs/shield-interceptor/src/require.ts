@@ -11,4 +11,8 @@ import { installInterceptors } from './installer.js';
 // Install interceptors immediately
 installInterceptors();
 
-console.log('[AgenShield] Interceptors registered via CJS preload');
+// Only log once — child processes inherit NODE_OPTIONS and would re-register
+if (!process.env['AGENSHIELD_INTERCEPTOR_REGISTERED']) {
+  process.env['AGENSHIELD_INTERCEPTOR_REGISTERED'] = '1';
+  console.log('[AgenShield] Interceptors registered via CJS preload');
+}

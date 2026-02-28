@@ -29,7 +29,7 @@ export const onboardOpenclawStep: InstallStep = {
       `if [ -f "${ctx.agentHome}/.openclaw/openclaw.json" ]; then echo "ONBOARD_SKIP"; else`,
       'export BROWSER=none &&',
       'openclaw onboard --non-interactive --accept-risk --flow quickstart --mode local',
-      '--no-install-daemon --daemon-runtime node --skip-channels --skip-skills',
+      '--no-install-daemon --daemon-runtime node',
       '--skip-health --skip-ui --node-manager npm; fi',
     ].join(' '), 'onboard_openclaw', 120_000);
 

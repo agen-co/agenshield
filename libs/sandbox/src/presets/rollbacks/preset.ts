@@ -60,10 +60,15 @@ registerRollback('write_gateway_plist', async (ctx, entry) => {
   if (!gatewayPlistPath) return;
   const label = gatewayPlistPath.replace('/Library/LaunchDaemons/', '').replace('.plist', '');
   ctx.onLog(`Rollback: removing gateway plist ${gatewayPlistPath}`);
-  await ctx.execAsRoot(
-    `launchctl bootout system/${label} 2>/dev/null; rm -f "${gatewayPlistPath}" 2>/dev/null; true`,
-    { timeout: 15_000 },
-  );
+  // Check if service is still loaded before attempting bootout
+  if (label) {
+    const loaded = await ctx.execAsRoot(`launchctl print system/${label} 2>/dev/null`, { timeout: 5_000 });
+    if (loaded.success) {
+      await ctx.execAsRoot(`launchctl bootout system/${label} 2>/dev/null; true`, { timeout: 15_000 });
+    }
+  }
+  // Always attempt plist file removal
+  await ctx.execAsRoot(`rm -f "${gatewayPlistPath}" 2>/dev/null; true`, { timeout: 5_000 });
 });
 
 // ── Copy config ──────────────────────────────────────────────

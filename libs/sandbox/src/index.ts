@@ -209,6 +209,8 @@ export {
   type InstallResult,
   type ClaudeConfigCategory,
   DEFAULT_CLAUDE_CONFIG_CATEGORIES,
+  type OpenclawConfigCategory,
+  DEFAULT_OPENCLAW_CONFIG_CATEGORIES,
 } from './presets/index.js';
 
 // Install Pipeline (step-based)

@@ -85,8 +85,9 @@ export class DaemonDeployAdapter implements DeployAdapter {
 
   async deploy(context: DeployContext): Promise<DeployResult> {
     const { skill, version, files, fileContents } = context;
-    const destDir = path.join(this.skillsDir, skill.slug);
-    const agentUsername = path.basename(this.agentHome);
+    const resolvedPaths = this.resolvePathsForProfile(context.installation.profileId);
+    const destDir = path.join(resolvedPaths.skillsDir, skill.slug);
+    const agentUsername = path.basename(resolvedPaths.agentHome);
 
     // 1. Process files: strip env vars and inject installation tags
     const processedFiles = await this.processFiles(files, version, fileContents);
@@ -102,22 +103,28 @@ export class DaemonDeployAdapter implements DeployAdapter {
       this.createDevWrapper(skill.slug);
     } else {
       const targetSocket = this.resolveSocketForProfile(context.installation.profileId);
-      const brokerAvailable = await isBrokerAvailable(targetSocket);
+      let deployed = false;
 
-      if (brokerAvailable) {
-        const brokerResult = await installSkillViaBroker(
-          skill.slug,
-          processedFiles.map((f) => ({ name: f.relativePath, content: f.content })),
-          { createWrapper: true, agentHome: this.agentHome, socketGroup: this.socketGroup, socketPath: targetSocket },
-        );
-        if (!brokerResult.installed) {
-          throw new Error('Broker failed to install skill files');
+      // Tier 1: Broker-based deployment
+      try {
+        const brokerAvailable = await isBrokerAvailable(targetSocket);
+        if (brokerAvailable) {
+          const brokerResult = await installSkillViaBroker(
+            skill.slug,
+            processedFiles.map((f) => ({ name: f.relativePath, content: f.content })),
+            { createWrapper: true, agentHome: resolvedPaths.agentHome, socketGroup: resolvedPaths.socketGroup, socketPath: targetSocket },
+          );
+          if (!brokerResult.installed) {
+            throw new Error('Broker failed to install skill files');
+          }
+          deployed = true;
         }
-      } else {
-        // Fallback: try sudo first, then direct filesystem writes
-        let deployed = false;
+      } catch {
+        // Broker unavailable or socket error — fall through to next tier
+      }
 
-        // Attempt sudo-based deployment
+      // Tier 2: sudo-based deployment
+      if (!deployed) {
         try {
           await sudoMkdir(destDir, agentUsername);
           for (const file of processedFiles) {
@@ -129,33 +136,34 @@ export class DaemonDeployAdapter implements DeployAdapter {
 
           // Set ownership
           try {
-            execSync(`chown -R root:${this.socketGroup} "${destDir}"`, { stdio: 'pipe' });
+            execSync(`chown -R root:${resolvedPaths.socketGroup} "${destDir}"`, { stdio: 'pipe' });
             execSync(`chmod -R a+rX,go-w "${destDir}"`, { stdio: 'pipe' });
           } catch {
             // May fail if not root — acceptable in development
           }
 
-          await createSkillWrapper(skill.slug, this.binDir);
+          await createSkillWrapper(skill.slug, resolvedPaths.binDir).catch(() => {});
         } catch {
           // sudo not available or failed
         }
+      }
 
-        // Last resort: direct filesystem writes (daemon process user permissions)
-        if (!deployed) {
-          try {
-            fs.mkdirSync(destDir, { recursive: true });
-            for (const file of processedFiles) {
-              const filePath = path.join(destDir, file.relativePath);
-              fs.mkdirSync(path.dirname(filePath), { recursive: true });
-              fs.writeFileSync(filePath, file.content, 'utf-8');
-            }
-            this.createDevWrapper(skill.slug);
-          } catch (err) {
-            throw new Error(
-              `Cannot deploy skill "${skill.slug}": broker socket not found, sudo failed, and no direct filesystem access to ${destDir}`,
-              { cause: err },
-            );
+      // Tier 3: direct filesystem writes (daemon process user permissions)
+      if (!deployed) {
+        try {
+          fs.mkdirSync(destDir, { recursive: true });
+          for (const file of processedFiles) {
+            const filePath = path.join(destDir, file.relativePath);
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            fs.writeFileSync(filePath, file.content, 'utf-8');
           }
+          this.createDevWrapper(skill.slug);
+          deployed = true;
+        } catch (err) {
+          throw new Error(
+            `Cannot deploy skill "${skill.slug}": broker socket not found, sudo failed, and no direct filesystem access to ${destDir}`,
+            { cause: err },
+          );
         }
       }
     }
@@ -179,13 +187,14 @@ export class DaemonDeployAdapter implements DeployAdapter {
     return {
       deployedPath: destDir,
       deployedHash,
-      wrapperPath: path.join(this.binDir, skill.slug),
+      wrapperPath: path.join(resolvedPaths.binDir, skill.slug),
     };
   }
 
   async undeploy(installation: SkillInstallation, version: SkillVersion, skill: Skill): Promise<void> {
-    const destDir = path.join(this.skillsDir, skill.slug);
-    const agentUsername = path.basename(this.agentHome);
+    const resolvedPaths = this.resolvePathsForProfile(installation.profileId);
+    const destDir = path.join(resolvedPaths.skillsDir, skill.slug);
+    const agentUsername = path.basename(resolvedPaths.agentHome);
 
     // 1. Remove files via dev fs, broker, or sudo fallback
     if (this.devMode) {
@@ -200,7 +209,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
         try {
           await uninstallSkillViaBroker(skill.slug, {
             removeWrapper: true,
-            agentHome: this.agentHome,
+            agentHome: resolvedPaths.agentHome,
             socketPath: targetSocket,
           });
         } catch {
@@ -208,13 +217,13 @@ export class DaemonDeployAdapter implements DeployAdapter {
           if (fs.existsSync(destDir)) {
             await sudoRm(destDir, agentUsername);
           }
-          removeSkillWrapper(skill.slug, this.binDir);
+          removeSkillWrapper(skill.slug, resolvedPaths.binDir);
         }
       } else {
         if (fs.existsSync(destDir)) {
           await sudoRm(destDir, agentUsername);
         }
-        removeSkillWrapper(skill.slug, this.binDir);
+        removeSkillWrapper(skill.slug, resolvedPaths.binDir);
       }
     }
 
@@ -287,6 +296,40 @@ export class DaemonDeployAdapter implements DeployAdapter {
   }
 
   // ─── Private Helpers ────────────────────────────────────────
+
+  /**
+   * Resolve per-profile paths (agentHome, skillsDir, binDir, socketGroup).
+   * When a profileId is given and the profile has `agentHomeDir`, derives
+   * target-specific paths. Otherwise falls back to the global constructor values.
+   */
+  private resolvePathsForProfile(profileId?: string): {
+    agentHome: string;
+    skillsDir: string;
+    binDir: string;
+    socketGroup: string;
+  } {
+    if (profileId && this.profiles) {
+      const profile = this.profiles.getById(profileId);
+      if (profile?.agentHomeDir) {
+        const agentHome = profile.agentHomeDir;
+        const baseName = (profile.agentUsername ?? path.basename(agentHome))
+          .replace(/^ash_/, '')
+          .replace(/_agent$/, '');
+        return {
+          agentHome,
+          skillsDir: path.join(agentHome, '.openclaw', 'workspace', 'skills'),
+          binDir: path.join(agentHome, 'bin'),
+          socketGroup: `ash_${baseName}`,
+        };
+      }
+    }
+    return {
+      agentHome: this.agentHome,
+      skillsDir: this.skillsDir,
+      binDir: this.binDir,
+      socketGroup: this.socketGroup,
+    };
+  }
 
   /**
    * Resolve the broker socket path for a specific profile.

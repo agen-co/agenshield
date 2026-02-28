@@ -71,6 +71,7 @@ export const OPENCLAW_PRESET: PolicyPreset = {
         'sed:*', 'awk:*', 'xargs:*',
         'tar:*', 'tee:*',
         'networksetup:*',
+        'launchctl:*',
         'arp -a -n -l:*',
         'defaults read:*',
         'sysctl -n hw.model',

@@ -27,7 +27,7 @@ export function InstallTargetDialog({
   onClose,
 }: InstallTargetDialogProps) {
   const { data: targetsData } = useTargets();
-  const targets = targetsData?.data ?? [];
+  const targets = (targetsData?.data ?? []).filter((t) => t.shielded);
 
   const [loading, setLoading] = useState<Map<string, boolean>>(new Map());
 
@@ -126,7 +126,7 @@ export function InstallTargetDialog({
 
         {targets.length === 0 && (
           <Typography variant="body2" color="text.disabled" sx={{ textAlign: 'center', py: 2 }}>
-            No targets detected. Use "Global" to install for all targets.
+            No shielded targets found. Shield a target first, or use "Global" to install for all targets.
           </Typography>
         )}
       </DialogContent>

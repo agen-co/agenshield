@@ -15,6 +15,31 @@ import { getLogger } from '../logger';
 import type { ProcessManager } from '../services/process-manager';
 import { getSystemExecutor } from '../workers/system-command';
 
+/** Cache resolved UIDs to avoid repeated `id -u` lookups. */
+const uidCache = new Map<string, number>();
+
+/**
+ * Resolve the numeric UID for an agent username.
+ * Uses `profile.agentUid` when available, otherwise falls back to `id -u`.
+ */
+export async function resolveAgentUid(agentUsername: string, profileUid?: number): Promise<number | null> {
+  if (profileUid != null) return profileUid;
+  const cached = uidCache.get(agentUsername);
+  if (cached != null) return cached;
+  try {
+    const executor = getSystemExecutor();
+    const raw = await executor.exec(`id -u ${agentUsername}`, { timeout: 3_000 });
+    const uid = parseInt(raw.trim(), 10);
+    if (!isNaN(uid)) {
+      uidCache.set(agentUsername, uid);
+      return uid;
+    }
+  } catch {
+    // user doesn't exist or lookup failed
+  }
+  return null;
+}
+
 let watcherInterval: NodeJS.Timeout | null = null;
 let lastTargetsHash: string | null = null;
 let pendingImmediate = false;
@@ -65,17 +90,23 @@ export function parseEtime(etime: string): number {
 
 /**
  * Check if an agent user has any running processes.
- * Uses `ps -U <agentUsername>` as the primary signal for target running status.
+ * Uses generic `ps -A` with in-process UID filtering to avoid exposing agent
+ * usernames in the process table.
  * @deprecated Use type-specific helpers (checkOpenClawRunning / listClaudeProcesses) instead.
  */
-export async function checkProcessesRunning(agentUsername: string): Promise<boolean> {
+export async function checkProcessesRunning(agentUid: number): Promise<boolean> {
   try {
     const executor = getSystemExecutor();
     const output = await executor.exec(
-      `ps -U ${agentUsername} -ax -o pid= 2>/dev/null`,
+      `ps -A -o uid=,pid= 2>/dev/null`,
       { timeout: 5_000 },
     );
-    return output.trim().length > 0;
+    const uidStr = String(agentUid);
+    for (const line of output.trim().split('\n')) {
+      const cols = line.trim().split(/\s+/);
+      if (cols[0] === uidStr) return true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -85,11 +116,11 @@ export async function checkProcessesRunning(agentUsername: string): Promise<bool
  * Check whether an OpenClaw target is actually running.
  *
  * Priority 1: ProcessManager status (in-memory managed processes)
- * Priority 2: launchctl broker plist
- * Priority 3: Filtered ps for openclaw/node processes (excludes macOS system daemons)
+ * Priority 2: launchctl broker plist (direct lookup, no grep)
+ * Priority 3: Generic ps with in-process UID filtering (no agent username in command line)
  */
 export async function checkOpenClawRunning(
-  agentUsername: string,
+  agentUid: number,
   runBaseName: string,
   processManager?: ProcessManager | null,
   targetId?: string,
@@ -102,30 +133,37 @@ export async function checkOpenClawRunning(
 
   const executor = getSystemExecutor();
 
-  // Priority 2: launchctl broker
+  // Priority 2: launchctl broker — direct lookup instead of grep to avoid exposing names
   try {
     const brokerOutput = await executor.exec(
-      `launchctl list | grep com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
+      `launchctl list com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
       { timeout: 5_000 },
     );
-    if (brokerOutput.trim().length > 0) return true;
+    // Direct lookup returns multi-line output with PID/status when service exists,
+    // or an error message when it doesn't. Check for a PID or "PID" header line.
+    const trimmed = brokerOutput.trim();
+    if (trimmed.length > 0 && !trimmed.includes('Could not find service')) return true;
   } catch {
     // launchctl check failed
   }
 
-  // Priority 3: Filtered process list — look for openclaw or node gateway processes
+  // Priority 3: Generic process list — filter by UID in-process
   try {
     const output = await executor.exec(
-      `ps -U ${agentUsername} -ax -o pid,comm= 2>/dev/null`,
+      `ps -A -o uid=,pid=,comm= 2>/dev/null`,
       { timeout: 5_000 },
     );
+    const uidStr = String(agentUid);
     for (const line of output.trim().split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      if (SYSTEM_PROCESS_RE.test(trimmed)) continue;
-      // Match openclaw binary directly, or node only when running gateway
-      const isOpenclaw = /openclaw/i.test(trimmed);
-      const isNodeGateway = /\bnode\b/i.test(trimmed) && /gateway/i.test(trimmed);
+      // Parse: UID PID COMM
+      const match = trimmed.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+      if (!match || match[1] !== uidStr) continue;
+      const comm = match[3];
+      if (SYSTEM_PROCESS_RE.test(comm)) continue;
+      const isOpenclaw = /openclaw/i.test(comm);
+      const isNodeGateway = /\bnode\b/i.test(comm) && /gateway/i.test(comm);
       if (isOpenclaw || isNodeGateway) return true;
     }
   } catch {
@@ -137,32 +175,36 @@ export async function checkOpenClawRunning(
 
 /**
  * List active `claude` CLI sessions running under the agent user.
- * Returns process info for each matching session.
+ * Uses generic `ps -A` with in-process UID filtering to avoid exposing
+ * agent usernames in the process table.
  */
-export async function listClaudeProcesses(agentUsername: string): Promise<AgentProcessInfo[]> {
+export async function listClaudeProcesses(agentUid: number): Promise<AgentProcessInfo[]> {
   const results: AgentProcessInfo[] = [];
   try {
     const executor = getSystemExecutor();
     const output = await executor.exec(
-      `ps -U ${agentUsername} -ax -o pid,etime,command= 2>/dev/null`,
+      `ps -A -o uid=,pid=,etime=,command= 2>/dev/null`,
       { timeout: 5_000 },
     );
+    const uidStr = String(agentUid);
     for (const line of output.trim().split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      if (SYSTEM_PROCESS_RE.test(trimmed)) continue;
-      if (!/claude/i.test(trimmed)) continue;
 
-      // Parse: PID ELAPSED COMMAND...
-      const match = trimmed.match(/^\s*(\d+)\s+([\d:.-]+)\s+(.+)$/);
-      if (match) {
-        results.push({
-          pid: parseInt(match[1], 10),
-          elapsed: match[2],
-          command: match[3],
-          startedAtMs: Date.now() - parseEtime(match[2]),
-        });
-      }
+      // Parse: UID PID ELAPSED COMMAND...
+      const match = trimmed.match(/^\s*(\d+)\s+(\d+)\s+([\d:.-]+)\s+(.+)$/);
+      if (!match || match[1] !== uidStr) continue;
+
+      const command = match[4];
+      if (SYSTEM_PROCESS_RE.test(command)) continue;
+      if (!/claude/i.test(command)) continue;
+
+      results.push({
+        pid: parseInt(match[2], 10),
+        elapsed: match[3],
+        command,
+        startedAtMs: Date.now() - parseEtime(match[3]),
+      });
     }
   } catch {
     // ps failed — return empty
@@ -172,37 +214,40 @@ export async function listClaudeProcesses(agentUsername: string): Promise<AgentP
 
 /**
  * List active OpenClaw gateway processes running under the agent user.
- * Follows the same pattern as `listClaudeProcesses()` but filters for
- * openclaw/node processes, excluding guarded-shell wrappers and system daemons.
+ * Uses generic `ps -A` with in-process UID filtering to avoid exposing
+ * agent usernames in the process table.
  */
-export async function listOpenClawProcesses(agentUsername: string): Promise<AgentProcessInfo[]> {
+export async function listOpenClawProcesses(agentUid: number): Promise<AgentProcessInfo[]> {
   const results: AgentProcessInfo[] = [];
   try {
     const executor = getSystemExecutor();
     const output = await executor.exec(
-      `ps -U ${agentUsername} -ax -o pid,etime,command= 2>/dev/null`,
+      `ps -A -o uid=,pid=,etime=,command= 2>/dev/null`,
       { timeout: 5_000 },
     );
+    const uidStr = String(agentUid);
     for (const line of output.trim().split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      if (SYSTEM_PROCESS_RE.test(trimmed)) continue;
-      // Skip guarded-shell wrappers — we want actual openclaw/node processes
-      if (/guarded-shell/i.test(trimmed)) continue;
-      // Match openclaw binary directly, or node only when running gateway
-      const isOpenclaw = /openclaw/i.test(trimmed);
-      const isNodeGateway = /\bnode\b/i.test(trimmed) && /gateway/i.test(trimmed);
+
+      // Parse: UID PID ELAPSED COMMAND...
+      const match = trimmed.match(/^\s*(\d+)\s+(\d+)\s+([\d:.-]+)\s+(.+)$/);
+      if (!match || match[1] !== uidStr) continue;
+
+      const command = match[4];
+      if (SYSTEM_PROCESS_RE.test(command)) continue;
+      if (/guarded-shell/i.test(command)) continue;
+
+      const isOpenclaw = /openclaw/i.test(command);
+      const isNodeGateway = /\bnode\b/i.test(command) && /gateway/i.test(command);
       if (!isOpenclaw && !isNodeGateway) continue;
 
-      const match = trimmed.match(/^\s*(\d+)\s+([\d:.-]+)\s+(.+)$/);
-      if (match) {
-        results.push({
-          pid: parseInt(match[1], 10),
-          elapsed: match[2],
-          command: match[3],
-          startedAtMs: Date.now() - parseEtime(match[2]),
-        });
-      }
+      results.push({
+        pid: parseInt(match[2], 10),
+        elapsed: match[3],
+        command,
+        startedAtMs: Date.now() - parseEtime(match[3]),
+      });
     }
   } catch {
     // ps failed — return empty
@@ -260,29 +305,33 @@ async function getTargetStatuses(): Promise<TargetStatusInfo[]> {
         const agentUsername = matchedProfile?.agentUsername;
         if (!agentUsername) continue;
 
+        const agentUid = await resolveAgentUid(agentUsername, (matchedProfile as { agentUid?: number }).agentUid);
+        if (agentUid == null) continue;
+
         const runBaseName = agentUsername.replace(/^ash_/, '').replace(/_agent$/, '');
 
         if (target.type === 'openclaw') {
           target.running = await checkOpenClawRunning(
-            agentUsername,
+            agentUid,
             runBaseName,
             _processManager,
             target.id,
           );
-          target.processes = await listOpenClawProcesses(agentUsername);
+          target.processes = await listOpenClawProcesses(agentUid);
         } else if (target.type === 'claude-code') {
-          const procs = await listClaudeProcesses(agentUsername);
+          const procs = await listClaudeProcesses(agentUid);
           target.running = procs.length > 0;
           target.processes = procs;
         } else {
-          // Fallback: launchctl broker check only
+          // Fallback: launchctl broker check only (direct lookup, no grep)
           try {
             const executor = getSystemExecutor();
             const brokerOutput = await executor.exec(
-              `launchctl list | grep com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
+              `launchctl list com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
               { timeout: 5_000 },
             );
-            target.running = brokerOutput.trim().length > 0;
+            const trimmed = brokerOutput.trim();
+            target.running = trimmed.length > 0 && !trimmed.includes('Could not find service');
           } catch {
             // leave as false
           }

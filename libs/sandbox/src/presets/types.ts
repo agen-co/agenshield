@@ -110,8 +110,8 @@ export interface InstallContext {
   profileBaseName: string;
   /** When true, skip host config copy and allow onboarding (fresh OpenClaw install) */
   freshInstall?: boolean;
-  /** Which Claude config categories to copy from host (defaults to DEFAULT_CLAUDE_CONFIG_CATEGORIES) */
-  configCopyCategories?: ClaudeConfigCategory[];
+  /** Which config categories to copy from host (each preset validates its own categories) */
+  configCopyCategories?: string[];
 }
 
 /**
@@ -214,6 +214,14 @@ export type ClaudeConfigCategory = 'settings' | 'plugins' | 'memory' | 'statsig'
 
 /** Default categories copied when no explicit selection is provided */
 export const DEFAULT_CLAUDE_CONFIG_CATEGORIES: ClaudeConfigCategory[] = ['settings', 'plugins', 'memory', 'statsig'];
+
+// ── OpenClaw Config Copy Categories ─────────────────────────────
+
+/** Categories of host OpenClaw config that can be selectively copied */
+export type OpenclawConfigCategory = 'config' | 'workspace' | 'skills' | 'plugins' | 'cache';
+
+/** Default OpenClaw categories copied when no explicit selection is provided */
+export const DEFAULT_OPENCLAW_CONFIG_CATEGORIES: OpenclawConfigCategory[] = ['config', 'skills', 'plugins'];
 
 // ── Pipeline Step Types (merged from actions/types.ts) ──────────
 

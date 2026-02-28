@@ -898,7 +898,7 @@ sudo -u ash_openclaw_agent $GUARDED_SHELL_PATH -c 'source "$HOME/.nvm/nvm.sh" &&
   if [ -f "$HOME/.openclaw/openclaw.json" ]; then echo "ONBOARD_SKIP"; else \
   export BROWSER=none && \
   openclaw onboard --non-interactive --accept-risk --flow quickstart --mode local \
-  --no-install-daemon --daemon-runtime node --skip-channels --skip-skills \
+  --no-install-daemon --daemon-runtime node \
   --skip-health --skip-ui --node-manager npm; fi'
 ```
 

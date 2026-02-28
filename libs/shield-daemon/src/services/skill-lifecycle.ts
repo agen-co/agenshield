@@ -13,6 +13,7 @@ import { loadConfig, updateConfig } from '../config/index';
 import { uninstallBrewBinaryWrappers } from './brew-wrapper';
 import { writeFileViaBroker, mkdirViaBroker, rmViaBroker, isBrokerAvailable } from './broker-bridge';
 import { isDevMode } from '../config/paths';
+import { resolveTargetContext } from './target-context';
 
 // ─── Sudo helpers ────────────────────────────────────────────────────────────
 
@@ -96,28 +97,75 @@ export async function sudoRm(targetPath: string, agentUsername: string): Promise
   }
 }
 
+// ─── Slug prefix helpers ─────────────────────────────────────────────────────
+
+/** Known slug prefixes added by marketplace sources */
+const KNOWN_SLUG_PREFIXES = ['oc-', 'ch-', 'lo-', 'ag-', 'cb-'];
+
+/**
+ * Strip a known marketplace prefix from a slug to get the raw binary name.
+ * E.g. "oc-gog" → "gog", "my-tool" → null (no known prefix).
+ */
+export function stripKnownSlugPrefix(slug: string): string | null {
+  for (const prefix of KNOWN_SLUG_PREFIXES) {
+    if (slug.startsWith(prefix) && slug.length > prefix.length) {
+      return slug.slice(prefix.length);
+    }
+  }
+  return null;
+}
+
 // ─── Skill Wrapper ───────────────────────────────────────────────────────────
 
 /**
  * Create a bash wrapper in $AGENT_HOME/bin/<skill-name> that invokes the skill through policy.
+ * If the raw name (prefix-stripped) has a brew-original binary, the wrapper delegates
+ * directly to it instead of going through `shield-client skill run`.
  */
 export async function createSkillWrapper(name: string, binDir: string): Promise<void> {
-  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-  const agentUsername = path.basename(agentHome);
+  const { agentHome, agentUsername } = resolveTargetContext();
 
   await sudoMkdir(binDir, agentUsername);
 
   const wrapperPath = path.join(binDir, name);
-  const wrapperContent = [
-    '#!/bin/bash',
-    `# ${name} skill wrapper - policy-enforced execution`,
-    '# Ensure accessible working directory',
-    'if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi',
-    'SHIELD_CLIENT="${AGENSHIELD_HOST_HOME:-${HOME}}/.agenshield/bin/shield-client"',
-    '[ ! -x "$SHIELD_CLIENT" ] && SHIELD_CLIENT="/opt/agenshield/bin/shield-client"',
-    `exec "$SHIELD_CLIENT" skill run "${name}" "$@"`,
-    '',
-  ].join('\n');
+
+  // Check if the raw name (prefix-stripped) has a brew-original binary
+  const rawName = stripKnownSlugPrefix(name);
+  const brewOrigDir = path.join(binDir, '.brew-originals');
+  const brewBinary = rawName ? path.join(brewOrigDir, rawName) : null;
+  const hasBrewOriginal = brewBinary && fs.existsSync(brewBinary);
+
+  let wrapperContent: string;
+
+  if (hasBrewOriginal && rawName) {
+    // Brew-aware wrapper: policy check then exec the brew original directly
+    wrapperContent = [
+      '#!/bin/bash',
+      `# ${name} skill wrapper - delegates to brew-original "${rawName}"`,
+      '# Ensure accessible working directory',
+      'if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi',
+      'SHIELD_CLIENT="${AGENSHIELD_HOST_HOME:-${HOME}}/.agenshield/bin/shield-client"',
+      '[ ! -x "$SHIELD_CLIENT" ] && SHIELD_CLIENT="/opt/agenshield/bin/shield-client"',
+      `"$SHIELD_CLIENT" check-exec "${rawName}" 2>/dev/null`,
+      'if [ $? -ne 0 ]; then echo "Policy denied: ${rawName}" >&2; exit 126; fi',
+      `export AGENSHIELD_CONTEXT_TYPE=skill`,
+      `export AGENSHIELD_SKILL_SLUG="${name}"`,
+      `exec "${brewBinary}" "$@"`,
+      '',
+    ].join('\n');
+  } else {
+    // Standard wrapper: delegate to shield-client skill run
+    wrapperContent = [
+      '#!/bin/bash',
+      `# ${name} skill wrapper - policy-enforced execution`,
+      '# Ensure accessible working directory',
+      'if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi',
+      'SHIELD_CLIENT="${AGENSHIELD_HOST_HOME:-${HOME}}/.agenshield/bin/shield-client"',
+      '[ ! -x "$SHIELD_CLIENT" ] && SHIELD_CLIENT="/opt/agenshield/bin/shield-client"',
+      `exec "$SHIELD_CLIENT" skill run "${name}" "$@"`,
+      '',
+    ].join('\n');
+  }
 
   await sudoWriteFile(wrapperPath, wrapperContent, agentUsername, 0o755);
 
@@ -190,8 +238,7 @@ export function removeSkillPolicy(name: string): void {
  * If shared, updates the wrapper to the next owner.
  */
 export async function removeBrewBinaryWrappers(name: string): Promise<void> {
-  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
-  const agentUsername = path.basename(agentHome);
+  const { agentHome, agentUsername } = resolveTargetContext();
 
   try {
     const result = await uninstallBrewBinaryWrappers({

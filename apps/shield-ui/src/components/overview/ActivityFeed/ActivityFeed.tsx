@@ -9,14 +9,21 @@ import { useProfiles } from '../../../api/hooks';
 import { EmptyState } from '../../shared/EmptyState';
 import { Root, EventItem, EventIcon, EventContent } from './ActivityFeed.styles';
 
-export function ActivityFeed() {
+interface ActivityFeedProps {
+  profileId?: string;
+}
+
+export function ActivityFeed({ profileId }: ActivityFeedProps = {}) {
   const theme = useTheme();
   const { events: allEvents } = useSnapshot(eventStore);
   const { data: profilesData } = useProfiles();
-  const recentEvents = useMemo(
-    () => allEvents.filter((e) => !isNoiseEvent(e)).slice(0, 20),
-    [allEvents],
-  );
+  const recentEvents = useMemo(() => {
+    let filtered = allEvents.filter((e) => !isNoiseEvent(e));
+    if (profileId) {
+      filtered = filtered.filter((e) => e.profileId === profileId);
+    }
+    return filtered.slice(0, 20);
+  }, [allEvents, profileId]);
   const targetNameMap = useMemo(() => {
     const profiles = profilesData?.data ?? [];
     const map = new Map<string, string>();

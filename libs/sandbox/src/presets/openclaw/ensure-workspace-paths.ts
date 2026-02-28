@@ -23,11 +23,16 @@ export const ensureWorkspacePathsStep: InstallStep = {
 
   async run(ctx) {
     const configFile = `${ctx.agentHome}/.openclaw/openclaw.json`;
+    // Extract basename for escaped-path replacement (e.g. 'ash_openclaw_agent')
+    const agentBasename = ctx.agentHome.split('/').pop()!;
 
     // Rewrite any host user paths → agent home (idempotent)
     await ctx.execAsRoot([
       `if [ -f "${configFile}" ]; then`,
+      // Pass 1: unescaped paths
       `  sed -i '' 's|/Users/${ctx.hostUsername}|${ctx.agentHome}|g' "${configFile}"`,
+      // Pass 2: escaped paths — OpenClaw's JSON serializer uses \/
+      `  sed -i '' 's|\\/Users\\/${ctx.hostUsername}|\\/Users\\/${agentBasename}|g' "${configFile}"`,
       '  echo "PATHS_CHECKED"',
       'else',
       '  echo "NO_CONFIG"',

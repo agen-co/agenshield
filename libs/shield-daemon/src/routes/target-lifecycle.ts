@@ -9,7 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ApiResponse, DetectedTarget } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 import { emitEvent } from '../events/emitter';
-import { triggerTargetCheck, checkProcessesRunning, checkOpenClawRunning, listClaudeProcesses, listOpenClawProcesses } from '../watchers/targets';
+import { triggerTargetCheck, checkProcessesRunning, checkOpenClawRunning, listClaudeProcesses, listOpenClawProcesses, resolveAgentUid } from '../watchers/targets';
 import { ShieldLogger } from '../services/shield-logger';
 import { ShieldStepTracker } from '../services/shield-step-tracker';
 import { ManifestBuilder } from '../services/manifest-builder';
@@ -272,29 +272,33 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             const agentUsername = matchedProfile?.agentUsername;
             if (!agentUsername) continue;
 
+            const agentUid = await resolveAgentUid(agentUsername, (matchedProfile as { agentUid?: number }).agentUid);
+            if (agentUid == null) continue;
+
             const runBaseName = agentUsername.replace(/^ash_/, '').replace(/_agent$/, '');
 
             if (target.type === 'openclaw') {
               target.running = await checkOpenClawRunning(
-                agentUsername,
+                agentUid,
                 runBaseName,
                 app.processManager ?? null,
                 target.id,
               );
-              target.processes = await listOpenClawProcesses(agentUsername);
+              target.processes = await listOpenClawProcesses(agentUid);
             } else if (target.type === 'claude-code') {
-              const procs = await listClaudeProcesses(agentUsername);
+              const procs = await listClaudeProcesses(agentUid);
               target.running = procs.length > 0;
               target.processes = procs;
             } else {
-              // Fallback: launchctl broker check only
+              // Fallback: launchctl broker check only (direct lookup, no grep)
               try {
                 const executor = getSystemExecutor();
                 const brokerOutput = await executor.exec(
-                  `launchctl list | grep com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
+                  `launchctl list com.agenshield.broker.${runBaseName} 2>/dev/null || true`,
                   { timeout: 5_000 },
                 );
-                target.running = brokerOutput.trim().length > 0;
+                const trimmed = brokerOutput.trim();
+                target.running = trimmed.length > 0 && !trimmed.includes('Could not find service');
               } catch {
                 // leave as false
               }

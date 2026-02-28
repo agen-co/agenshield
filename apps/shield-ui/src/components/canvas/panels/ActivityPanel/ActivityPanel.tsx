@@ -9,6 +9,7 @@ import { memo } from 'react';
 import { useSnapshot } from 'valtio';
 import { useTheme } from '@mui/material/styles';
 import { eventStore } from '../../../../state/events';
+import { scopeStore } from '../../../../state/scope';
 import { AlertsSection } from './AlertsSection';
 import { ActivityFeedSection } from './ActivityFeedSection';
 import { PanelContainer } from './ActivityPanel.styles';
@@ -42,12 +43,13 @@ function TraceStub() {
 
 export const ActivityPanel = memo(function ActivityPanel() {
   const { events } = useSnapshot(eventStore);
+  const { profileId } = useSnapshot(scopeStore);
 
   return (
     <PanelContainer>
       <TraceStub />
       <AlertsSection />
-      <ActivityFeedSection events={events as typeof eventStore.events} />
+      <ActivityFeedSection events={events as typeof eventStore.events} profileId={profileId ?? undefined} />
     </PanelContainer>
   );
 });

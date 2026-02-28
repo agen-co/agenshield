@@ -13,9 +13,10 @@ import * as path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { SimulateRequest, SimulateResponse, SimulatedOperation } from '@agenshield/ipc';
 import { extractCommandBasename, filterUrlPoliciesForCommand } from '@agenshield/policies';
-import { loadConfig } from '../config/index';
+import { loadConfig, loadScopedConfig } from '../config/index';
 import { getPolicyManager } from '../services/policy-manager';
 import { getProxyPool } from '../proxy/pool';
+import { resolveTargetContext } from '../services/target-context';
 
 /** Max output capture per stream */
 const MAX_OUTPUT_BYTES = 4096;
@@ -83,7 +84,16 @@ function splitSubCommands(command: string): string[] {
 /**
  * Build a minimal SBPL seatbelt profile for playground simulation.
  */
-function buildSbplProfile(proxyPort: number): string {
+function buildSbplProfile(proxyPort: number, agentHome?: string): string {
+  const writePaths = [
+    ...(agentHome ? [`(subpath "${agentHome}")`] : []),
+    '(subpath "/tmp")',
+    '(subpath "/private/tmp")',
+    '(subpath "/var/folders")',
+    '(subpath "/dev/null")',
+    '(subpath "/dev/tty")',
+  ].join('\n  ');
+
   return `(version 1)
 (deny default)
 
@@ -101,13 +111,9 @@ function buildSbplProfile(proxyPort: number): string {
 ;; Allow read access broadly (needed for dynamic libs, configs, etc.)
 (allow file-read*)
 
-;; Allow writes only to temp directories
+;; Allow writes to temp directories${agentHome ? ' and agent home' : ''}
 (allow file-write*
-  (subpath "/tmp")
-  (subpath "/private/tmp")
-  (subpath "/var/folders")
-  (subpath "/dev/null")
-  (subpath "/dev/tty"))
+  ${writePaths})
 
 ;; Allow network only to localhost (proxy)
 (allow network*
@@ -175,6 +181,9 @@ export async function playgroundRoutes(app: FastifyInstance): Promise<void> {
         MAX_TIMEOUT_MS,
       );
 
+      // Resolve profile scope from header or body
+      const profileId = request.shieldContext?.profileId ?? request.body?.profileId ?? undefined;
+
       const simulationId = crypto.randomUUID();
       const startTime = Date.now();
       const operations: SimulatedOperation[] = [];
@@ -201,7 +210,7 @@ export async function playgroundRoutes(app: FastifyInstance): Promise<void> {
       };
 
       // --- Step 1: Evaluate exec policies for each sub-command ---
-      const config = loadConfig();
+      const config = profileId ? loadScopedConfig(profileId) : loadConfig();
       const manager = getPolicyManager();
       const subCommands = splitSubCommands(command);
 
@@ -209,6 +218,7 @@ export async function playgroundRoutes(app: FastifyInstance): Promise<void> {
         const result = manager.evaluateLive({
           operation: 'exec',
           target: sub,
+          profileId,
           defaultAction: config.defaultAction,
         });
 
@@ -269,6 +279,10 @@ export async function playgroundRoutes(app: FastifyInstance): Promise<void> {
           AGENSHIELD_SIMULATE: '1',
         };
 
+        // When profile-scoped, run in the target's home directory
+        const targetHome = profileId ? resolveTargetContext(profileId).agentHome : undefined;
+        if (targetHome) childEnv['HOME'] = targetHome;
+
         // Determine if we can use sandbox-exec (macOS only)
         const isMacOS = os.platform() === 'darwin';
         let spawnArgs: string[];
@@ -277,7 +291,7 @@ export async function playgroundRoutes(app: FastifyInstance): Promise<void> {
         if (isMacOS) {
           // Write SBPL profile to temp file
           profilePath = path.join(os.tmpdir(), `agenshield-sim-${simulationId}.sb`);
-          fs.writeFileSync(profilePath, buildSbplProfile(proxyPort), 'utf-8');
+          fs.writeFileSync(profilePath, buildSbplProfile(proxyPort, targetHome), 'utf-8');
 
           spawnBin = '/usr/bin/sandbox-exec';
           spawnArgs = ['-f', profilePath, '/bin/sh', '-c', command];

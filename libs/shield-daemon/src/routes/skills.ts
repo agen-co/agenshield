@@ -22,6 +22,7 @@ import {
   updateDownloadedAnalysis,
 } from '../services/marketplace';
 import { emitSkillAnalyzed, emitSkillAnalysisFailed, emitSkillUninstalled } from '../events/emitter';
+import { resolveTargetContext } from '../services/target-context';
 
 /** Compact analysis for list view — no full details/suggestions */
 interface SkillAnalysisSummary {
@@ -216,7 +217,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
     const manager = app.skillManager;
     const repo = manager.getRepository();
-    const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const { agentHome } = resolveTargetContext(ctx.profileId ?? undefined);
     const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
 
     // Get all skills from DB
@@ -345,7 +346,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const result = manager.getSkillBySlug(name);
-      const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+      const { agentHome } = resolveTargetContext(request.shieldContext.profileId ?? undefined);
       const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
 
       let summary: SkillSummary;
@@ -497,7 +498,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
       const manager = app.skillManager;
       const repo = manager.getRepository();
-      const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+      const { agentHome } = resolveTargetContext(request.shieldContext.profileId ?? undefined);
       const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
 
       // Resolve content for analysis (disk → download cache → marketplace)
@@ -774,7 +775,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         });
 
         // Write files to workspace/skills/{slug}/ so deploy adapter can read them
-        const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+        const { agentHome } = resolveTargetContext(request.shieldContext.profileId ?? undefined);
         const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
         const destDir = path.join(skillsDir, slug);
         fs.mkdirSync(destDir, { recursive: true });
@@ -835,8 +836,20 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         request.log.info({ skill: name, targetId, installationId: installation.id }, 'Installed skill to target');
         return reply.send({ success: true, data: { name, installationId: installation.id } });
       } catch (err) {
-        request.log.error({ skill: name, err: (err as Error).message }, 'Target install failed');
-        return reply.code(500).send({ error: `Installation failed: ${(err as Error).message}` });
+        const msg = (err as Error).message ?? '';
+        const isSocketError = msg.includes('ENOENT') && msg.includes('.sock')
+          || msg.includes('connect ECONNREFUSED')
+          || msg.includes('broker socket not found');
+
+        if (isSocketError) {
+          request.log.warn({ skill: name, err: msg }, 'Broker unavailable for target install');
+          return reply.code(503).send({
+            error: 'Broker service is not running. Start the broker or run the daemon in dev mode (set AGENSHIELD_AGENT_HOME).',
+          });
+        }
+
+        request.log.error({ skill: name, err: msg }, 'Target install failed');
+        return reply.code(500).send({ error: `Installation failed: ${msg}` });
       }
     },
   );

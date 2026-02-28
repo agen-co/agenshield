@@ -559,7 +559,7 @@ export async function onboardAgentOpenClaw(options: {
     `export HOME="${agentHome}"`,
     `export NVM_DIR="${nvmDir}"`,
     `source "${nvmDir}/nvm.sh"`,
-    `openclaw onboard --non-interactive --accept-risk --flow quickstart --mode local --no-install-daemon --daemon-runtime node --skip-channels --skip-skills --skip-health --skip-ui --node-manager npm`,
+    `openclaw onboard --non-interactive --accept-risk --flow quickstart --mode local --no-install-daemon --daemon-runtime node --skip-health --skip-ui --node-manager npm`,
   ].join(' && ');
 
   log('Running openclaw onboard as agent user');
