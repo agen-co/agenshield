@@ -158,6 +158,7 @@ function setupSkillInDb(
     author: 'tester',
     tags: ['test'],
     source: 'manual',
+    sourceOrigin: 'unknown' as const,
   });
 
   const ver = repo.addVersion({
@@ -511,7 +512,7 @@ describe('Skill Lifecycle Integration', () => {
 
       // Set up skill in DB using relative sourceDir
       const versionDir = seedSkillFiles(relSourceDir, SKILL_SLUG, SKILL_VERSION, SKILL_FILES);
-      const skill = repo.create({ name: SKILL_SLUG, slug: SKILL_SLUG, author: 'tester', tags: ['test'], source: 'manual' });
+      const skill = repo.create({ name: SKILL_SLUG, slug: SKILL_SLUG, author: 'tester', tags: ['test'], source: 'manual', sourceOrigin: 'unknown' as const });
       const ver = repo.addVersion({
         skillId: skill.id, version: SKILL_VERSION, folderPath: versionDir,
         contentHash: 'placeholder', hashUpdatedAt: new Date().toISOString(),
@@ -566,7 +567,7 @@ describe('Skill Lifecycle Integration', () => {
       const relativeQuarantineDir = path.relative(process.cwd(), relQuarantineDir);
 
       const versionDir = seedSkillFiles(relSourceDir, SKILL_SLUG, SKILL_VERSION, SKILL_FILES);
-      const skill = repo.create({ name: SKILL_SLUG, slug: SKILL_SLUG, author: 'tester', tags: ['test'], source: 'manual' });
+      const skill = repo.create({ name: SKILL_SLUG, slug: SKILL_SLUG, author: 'tester', tags: ['test'], source: 'manual', sourceOrigin: 'unknown' as const });
       const ver = repo.addVersion({
         skillId: skill.id, version: SKILL_VERSION, folderPath: versionDir,
         contentHash: 'placeholder', hashUpdatedAt: new Date().toISOString(),
@@ -619,7 +620,7 @@ describe('Skill Lifecycle Integration', () => {
       const relativeQuarantineDir = path.relative(process.cwd(), relQuarantineDir);
 
       const versionDir = seedSkillFiles(relSourceDir, SKILL_SLUG, SKILL_VERSION, SKILL_FILES);
-      const skill = repo.create({ name: SKILL_SLUG, slug: SKILL_SLUG, author: 'tester', tags: ['test'], source: 'manual' });
+      const skill = repo.create({ name: SKILL_SLUG, slug: SKILL_SLUG, author: 'tester', tags: ['test'], source: 'manual', sourceOrigin: 'unknown' as const });
       const ver = repo.addVersion({
         skillId: skill.id, version: SKILL_VERSION, folderPath: versionDir,
         contentHash: 'placeholder', hashUpdatedAt: new Date().toISOString(),

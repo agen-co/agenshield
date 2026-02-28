@@ -161,6 +161,7 @@ export const OPENCLAW_SHIELD_STEPS: ShieldStepDefinition[] = [
   { id: 'cleanup_stale_check', phase: 0, name: 'Check stale installations', description: 'Detect and remove orphaned ash_default_* users and artifacts' },
   // Phase 1: Detection
   { id: 'resolve_preset', phase: 1, name: 'Resolve target preset', description: 'Identify the preset and run target detection' },
+  { id: 'stop_host', phase: 1, name: 'Stop host processes', description: 'Stop host OpenClaw daemon and gateway processes' },
   // Phase 2: Users & Groups
   { id: 'create_socket_group', phase: 2, name: 'Create socket group', description: 'Create the ash_ socket group for IPC' },
   { id: 'create_agent_user', phase: 2, name: 'Create agent user', description: 'Create the sandboxed agent user account' },
@@ -192,7 +193,6 @@ export const OPENCLAW_SHIELD_STEPS: ShieldStepDefinition[] = [
   // Phase 8: Target App
   { id: 'install_openclaw', phase: 8, name: 'Install OpenClaw', description: 'Install OpenClaw via official installer' },
   { id: 'onboard_openclaw', phase: 8, name: 'Onboard OpenClaw', description: 'Run non-interactive onboarding to create openclaw.json' },
-  { id: 'stop_host', phase: 8, name: 'Stop host processes', description: 'Stop host OpenClaw daemon and gateway processes' },
   // Phase 9: Configuration
   { id: 'copy_config', phase: 9, name: 'Copy host config', description: 'Copy and rewrite host OpenClaw configuration' },
   { id: 'verify_openclaw', phase: 9, name: 'Verify OpenClaw', description: 'Run openclaw --version to verify installation' },

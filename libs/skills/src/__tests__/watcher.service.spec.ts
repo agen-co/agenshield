@@ -29,7 +29,7 @@ function createTestDb() {
 function makeSkillInput(overrides?: Record<string, unknown>) {
   return {
     name: 'Test Skill', slug: 'test-skill', author: 'tester',
-    tags: ['test'], source: 'manual' as const, ...overrides,
+    tags: ['test'], source: 'manual' as const, sourceOrigin: 'unknown' as const, ...overrides,
   };
 }
 

@@ -51,7 +51,7 @@ describe('UpdateService', () => {
     const service = new UpdateService(repo, null, emitter);
 
     const skill = repo.create({
-      name: 'S', slug: 's-update', tags: [], source: 'manual', remoteId: 'r1',
+      name: 'S', slug: 's-update', tags: [], source: 'manual', sourceOrigin: 'unknown' as const, remoteId: 'r1',
     });
     const v1 = repo.addVersion({
       skillId: skill.id, version: '1.0.0', folderPath: '/tmp',
@@ -105,7 +105,7 @@ describe('UpdateService', () => {
     const service = new UpdateService(repo, mockRemote, emitter);
 
     const skill = repo.create({
-      name: 'Remote S', slug: 'remote-s', tags: [], source: 'marketplace', remoteId: 'r-1',
+      name: 'Remote S', slug: 'remote-s', tags: [], source: 'marketplace', sourceOrigin: 'unknown' as const, remoteId: 'r-1',
     });
     const v = repo.addVersion({
       skillId: skill.id, version: '1.0.0', folderPath: '/tmp',

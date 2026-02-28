@@ -58,7 +58,10 @@ export function readTokenFile(brokerHomeDir: string): string | null {
 export async function reconcileTokenFiles(storage: Storage): Promise<void> {
   const profiles = storage.profiles.getByType('target');
   for (const profile of profiles) {
-    if (!profile.brokerHomeDir) continue;
+    if (!profile.brokerHomeDir) {
+      console.warn(`[profile-token] Profile ${profile.id} has no brokerHomeDir — skipping token file reconciliation`);
+      continue;
+    }
 
     // Generate a new broker JWT for each profile
     const brokerJwt = await signBrokerToken(profile.id, profile.id);
@@ -66,8 +69,15 @@ export async function reconcileTokenFiles(storage: Storage): Promise<void> {
     // Update the stored broker token
     storage.profiles.update(profile.id, { brokerToken: brokerJwt });
 
-    // Write the JWT to the token file
-    writeTokenFile(profile.brokerHomeDir, brokerJwt);
+    // Write the JWT to the token file (best-effort — broker may get token from plist env instead)
+    try {
+      writeTokenFile(profile.brokerHomeDir, brokerJwt);
+    } catch (err) {
+      console.warn(
+        `[profile-token] Failed to write token file for profile ${profile.id} at ${profile.brokerHomeDir}: ${(err as Error).message}. ` +
+        `Broker will use AGENSHIELD_PROFILE_ID env var from plist instead.`,
+      );
+    }
   }
 }
 

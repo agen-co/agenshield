@@ -34,6 +34,7 @@ function makeSkillInput(overrides?: Record<string, unknown>) {
     description: 'A test skill',
     tags: ['test'],
     source: 'manual' as const,
+    sourceOrigin: 'unknown' as const,
     ...overrides,
   };
 }

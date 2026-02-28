@@ -44,9 +44,11 @@ interface SkillsProps {
   embedded?: boolean;
   /** When set, the page operates in target-scoped mode */
   targetId?: string;
+  /** When provided, called instead of navigate on card click */
+  onSkillClick?: (skillId: string) => void;
 }
 
-export function Skills({ embedded, targetId }: SkillsProps = {}) {
+export function Skills({ embedded, targetId, onSkillClick }: SkillsProps = {}) {
   const snap = useSnapshot(skillsStore);
   const guard = useGuardedAction();
   const navigate = useNavigate();
@@ -96,9 +98,13 @@ export function Skills({ embedded, targetId }: SkillsProps = {}) {
 
   const handleCardClick = useCallback(
     (id: string) => {
-      navigate(`/skills/${id}`);
+      if (onSkillClick) {
+        onSkillClick(id);
+      } else {
+        navigate(`/skills/${id}`);
+      }
     },
-    [navigate],
+    [navigate, onSkillClick],
   );
 
   // ---- Target-scoped skill partitioning ----

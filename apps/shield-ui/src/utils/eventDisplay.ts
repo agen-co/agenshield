@@ -110,6 +110,8 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   // Setup
   'setup:shield_progress': { icon: ShieldAlert, label: 'Shield Progress', color: 'info' },
   'setup:shield_steps': { icon: ShieldAlert, label: 'Shield Steps', color: 'info' },
+  'setup:log': { icon: ShieldAlert, label: 'Shield Log', color: 'secondary' },
+  'setup:step_log': { icon: ShieldAlert, label: 'Shield Step Log', color: 'secondary' },
 };
 
 const FALLBACK_DISPLAY: EventDisplayMeta = { icon: Globe, label: 'Unknown', color: 'primary' };
@@ -413,4 +415,14 @@ export function getEventStatus(event: SSEEvent): { label: string; variant: Statu
     return { label: 'error', variant: 'error' };
   }
   return { label: 'info', variant: 'info' };
+}
+
+/**
+ * Extract the preset name from an agent username.
+ * `ash_openclaw_agent` → `openclaw`, `ash_foo_broker` → `foo`
+ * Returns the original string if it doesn't match the pattern.
+ */
+export function formatAgentUsername(username: string): string {
+  const match = username.match(/^ash_(.+?)_(agent|broker)$/);
+  return match ? match[1] : username;
 }

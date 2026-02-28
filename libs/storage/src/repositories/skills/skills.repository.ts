@@ -31,13 +31,15 @@ export class SkillsRepository extends BaseRepository {
       id, name: data.name, slug: data.slug,
       author: data.author ?? null, description: data.description ?? null,
       homepage: data.homepage ?? null, tags: JSON.stringify(data.tags),
-      source: data.source, remoteId: data.remoteId ?? null,
+      source: data.source, sourceOrigin: data.sourceOrigin ?? 'unknown',
+      remoteId: data.remoteId ?? null,
       isPublic: data.isPublic !== undefined ? (data.isPublic ? 1 : 0) : 1,
       createdAt: now, updatedAt: now,
     });
 
     return {
       id, ...data, tags: data.tags ?? [], source: data.source ?? 'unknown',
+      sourceOrigin: data.sourceOrigin ?? 'unknown',
       isPublic: data.isPublic ?? true, createdAt: now, updatedAt: now,
     };
   }
@@ -49,6 +51,11 @@ export class SkillsRepository extends BaseRepository {
 
   getBySlug(slug: string): Skill | null {
     const row = this.db.prepare(Q.selectSkillBySlug).get(slug) as DbSkillRow | undefined;
+    return row ? mapSkill(row) : null;
+  }
+
+  getBySlugAndOrigin(slug: string, sourceOrigin: string): Skill | null {
+    const row = this.db.prepare(Q.selectSkillBySlugAndOrigin).get(slug, sourceOrigin) as DbSkillRow | undefined;
     return row ? mapSkill(row) : null;
   }
 

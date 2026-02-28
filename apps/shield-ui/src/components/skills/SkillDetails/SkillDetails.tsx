@@ -64,7 +64,12 @@ const originChipConfig: Record<string, { label: string; color: 'warning' | 'defa
   untrusted: { label: 'Untrusted', color: 'warning' },
 };
 
-export function SkillDetails() {
+interface SkillDetailsProps {
+  /** When set, scopes install/uninstall actions to this target */
+  targetId?: string;
+}
+
+export function SkillDetails({ targetId }: SkillDetailsProps = {}) {
   const snap = useSnapshot(skillsStore);
   const guard = useGuardedAction();
   const navigate = useNavigate();
@@ -90,7 +95,13 @@ export function SkillDetails() {
 
   const isUntrustedAnalyzed = skill.origin === 'untrusted' && skill.actionState === 'analyzed';
 
+  // Target-scoped state
+  const isInstalledOnTarget = targetId
+    ? skill.installations?.some(i => i.profileId === targetId && i.status === 'active') ?? false
+    : false;
+
   const getActionLabel = (state: string) => {
+    if (targetId) return isInstalledOnTarget ? 'Uninstall from Target' : 'Install to Target';
     if (isUntrustedAnalyzed) return 'Reinstall';
     switch (state) {
       case 'not_analyzed': case 'analysis_failed': return 'Analyze';
@@ -103,6 +114,19 @@ export function SkillDetails() {
   };
 
   const handleAction = () => {
+    // Target-scoped actions
+    if (targetId) {
+      if (isInstalledOnTarget) {
+        setConfirmUninstall(true);
+      } else {
+        guard(async () => {
+          await installSkill(skill.slug, targetId);
+        }, { description: 'Unlock to install this skill to the target.', actionLabel: 'Install to Target' });
+      }
+      return;
+    }
+
+    // Global actions
     if (skill.actionState === 'installed') {
       setConfirmUninstall(true);
       return;
@@ -157,6 +181,15 @@ export function SkillDetails() {
                   sx={{ fontWeight: 500 }}
                 />
               )}
+              {targetId && (
+                <Chip
+                  label={isInstalledOnTarget ? 'Installed' : 'Not installed'}
+                  color={isInstalledOnTarget ? 'success' : 'default'}
+                  size="small"
+                  variant="outlined"
+                  sx={{ fontWeight: 500 }}
+                />
+              )}
             </Box>
             {skill.description && (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -174,7 +207,20 @@ export function SkillDetails() {
           )}
 
           {/* Action button */}
-          <ActionButton actionState={skill.actionState} origin={skill.origin} vulnLevel={vulnLevel} onClick={handleAction} />
+          {targetId ? (
+            isInstalledOnTarget ? (
+              <DangerButton fullWidth onClick={handleAction}>
+                Uninstall from Target
+              </DangerButton>
+            ) : (
+              <PrimaryButton fullWidth onClick={handleAction}>
+                <Download size={14} style={{ marginRight: 6 }} />
+                Install to Target
+              </PrimaryButton>
+            )
+          ) : (
+            <ActionButton actionState={skill.actionState} origin={skill.origin} vulnLevel={vulnLevel} onClick={handleAction} />
+          )}
 
           {/* Delete button for untrusted skills */}
           {skill.origin === 'untrusted' && (
@@ -385,14 +431,16 @@ export function SkillDetails() {
 
       <ConfirmDialog
         open={confirmUninstall}
-        title="Uninstall Skill"
-        message={`Are you sure you want to uninstall "${skill.name}"? This will remove the skill and its deployed files.`}
+        title={targetId ? 'Uninstall from Target' : 'Uninstall Skill'}
+        message={targetId
+          ? `Are you sure you want to uninstall "${skill.name}" from this target?`
+          : `Are you sure you want to uninstall "${skill.name}"? This will remove the skill and its deployed files.`}
         confirmLabel="Uninstall"
         variant="danger"
         onConfirm={async () => {
           setConfirmUninstall(false);
-          await uninstallSkill(skill.name);
-          navigate('/skills');
+          await uninstallSkill(skill.name, targetId);
+          if (!targetId) navigate('/skills');
         }}
         onCancel={() => setConfirmUninstall(false)}
       />

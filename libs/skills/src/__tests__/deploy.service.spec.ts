@@ -31,7 +31,7 @@ function createTestDb() {
 function makeSkillInput(overrides?: Record<string, unknown>) {
   return {
     name: 'Test Skill', slug: 'test-skill', author: 'tester',
-    tags: ['test'], source: 'manual' as const, ...overrides,
+    tags: ['test'], source: 'manual' as const, sourceOrigin: 'unknown' as const, ...overrides,
   };
 }
 
@@ -392,7 +392,7 @@ describe('OpenClawDeployAdapter', () => {
       const fileHash2 = crypto.createHash('sha256').update('{"key":"val"}').digest('hex');
 
       const context: DeployContext = {
-        skill: { id: '1', name: 'Test', slug: 'test-skill', tags: [], source: 'manual', isPublic: true, createdAt: '', updatedAt: '' },
+        skill: { id: '1', name: 'Test', slug: 'test-skill', tags: [], source: 'manual', sourceOrigin: 'unknown', isPublic: true, createdAt: '', updatedAt: '' },
         version: { id: '1', skillId: '1', version: '1.0.0', folderPath: sourceDir, contentHash: '', hashUpdatedAt: '', approval: 'unknown', trusted: false, analysisStatus: 'pending', requiredBins: [], requiredEnv: [], extractedCommands: [], createdAt: '', updatedAt: '' },
         files: [
           { id: '1', skillVersionId: '1', relativePath: 'index.ts', fileHash: fileHash1, sizeBytes: 19, createdAt: '', updatedAt: '' },
@@ -413,7 +413,7 @@ describe('OpenClawDeployAdapter', () => {
       fs.writeFileSync(path.join(sourceDir, 'main.sh'), '#!/bin/bash\necho hi');
 
       const context: DeployContext = {
-        skill: { id: '1', name: 'Test', slug: 'test-skill', tags: [], source: 'manual', isPublic: true, createdAt: '', updatedAt: '' },
+        skill: { id: '1', name: 'Test', slug: 'test-skill', tags: [], source: 'manual', sourceOrigin: 'unknown', isPublic: true, createdAt: '', updatedAt: '' },
         version: { id: '1', skillId: '1', version: '1.0.0', folderPath: sourceDir, contentHash: '', hashUpdatedAt: '', approval: 'unknown', trusted: false, analysisStatus: 'pending', requiredBins: [], requiredEnv: [], extractedCommands: [], createdAt: '', updatedAt: '' },
         files: [
           { id: '1', skillVersionId: '1', relativePath: 'main.sh', fileHash: 'abc', sizeBytes: 24, createdAt: '', updatedAt: '' },
@@ -436,7 +436,7 @@ describe('OpenClawDeployAdapter', () => {
       fs.writeFileSync(path.join(sourceDir, 'src', 'lib.ts'), 'export const x = 1');
 
       const context: DeployContext = {
-        skill: { id: '1', name: 'Test', slug: 'test-skill', tags: [], source: 'manual', isPublic: true, createdAt: '', updatedAt: '' },
+        skill: { id: '1', name: 'Test', slug: 'test-skill', tags: [], source: 'manual', sourceOrigin: 'unknown', isPublic: true, createdAt: '', updatedAt: '' },
         version: { id: '1', skillId: '1', version: '1.0.0', folderPath: sourceDir, contentHash: '', hashUpdatedAt: '', approval: 'unknown', trusted: false, analysisStatus: 'pending', requiredBins: [], requiredEnv: [], extractedCommands: [], createdAt: '', updatedAt: '' },
         files: [
           { id: '1', skillVersionId: '1', relativePath: 'src/lib.ts', fileHash: 'abc', sizeBytes: 19, createdAt: '', updatedAt: '' },
@@ -457,7 +457,7 @@ describe('OpenClawDeployAdapter', () => {
       fs.writeFileSync(path.join(deployDir, 'index.ts'), 'export default {}');
       fs.writeFileSync(path.join(binDir, 'test-skill'), '#!/bin/bash');
 
-      const skill = { id: '1', name: 'Test', slug: 'test-skill', tags: [], source: 'manual' as const, isPublic: true, createdAt: '', updatedAt: '' };
+      const skill = { id: '1', name: 'Test', slug: 'test-skill', tags: [], source: 'manual' as const, sourceOrigin: 'unknown' as const, isPublic: true, createdAt: '', updatedAt: '' };
       const version = { id: '1', skillId: '1', version: '1.0.0', folderPath: sourceDir, contentHash: '', hashUpdatedAt: '', approval: 'unknown' as const, trusted: false, analysisStatus: 'pending' as const, requiredBins: [] as string[], requiredEnv: [] as string[], extractedCommands: [] as unknown[], createdAt: '', updatedAt: '' };
       const installation = { id: '1', skillVersionId: '1', status: 'active' as const, autoUpdate: true, installedAt: '', updatedAt: '' };
 

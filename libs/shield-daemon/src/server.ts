@@ -33,7 +33,7 @@ import { verifyConfigIntegrity } from './config/loader';
 import { ConfigTamperError } from './config/errors';
 import { DaemonDeployAdapter } from './adapters/daemon-deploy-adapter';
 import { migrateSkillsToSqlite } from './migration/skill-migration';
-import { migrateSlugPrefixDisk } from './migration/slug-prefix-disk';
+import { migrateSlugPrefixDisk, removeSlugPrefixDisk } from './migration/slug-prefix-disk';
 import { migrateSecretsToSqlite } from './migration/secret-migration';
 import { cleanupLegacyFiles } from './migration/legacy-cleanup';
 import { reconcileTokenFiles, writeTokenFile } from './services/profile-token';
@@ -365,6 +365,9 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
 
   // ─── Run one-time slug-prefix disk folder rename ─────────────
   migrateSlugPrefixDisk(storage, skillsDir);
+
+  // ─── Run one-time slug-prefix removal from disk ─────────────
+  removeSlugPrefixDisk(storage, skillsDir);
 
   // ─── Run one-time secret vault.enc → SQLite migration ───────
   await migrateSecretsToSqlite(storage);

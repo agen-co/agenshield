@@ -14,7 +14,6 @@ import {
   createRestoreShellConfigStep,
   copyNodeBinaryStep,
   patchNvmNodeStep,
-  createStopHostProcessesStep,
   createAppWrapperStep,
 } from '../shared/index.js';
 import { cleanBrewLocksStep } from './clean-brew-locks.js';
@@ -47,8 +46,6 @@ export function getOpenclawPipeline(): InstallStep[] {
     createRestoreShellConfigStep('openclaw'),                   // weight 1
     detectHostOpenclawStep,                                     // weight 2, resolve() → injects copy + enforce steps
     enforceOpenclawConfigStep,                                   // weight 2, applies managed config enforcements
-    createStopHostProcessesStep('openclaw', 'node.*openclaw'),  // weight 3
-
     // Phase 9: Configuration
     verifyOpenclawStep,                                         // weight 2
     createAppWrapperStep('openclaw', async (ctx) => {           // weight 2

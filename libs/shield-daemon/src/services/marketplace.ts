@@ -60,17 +60,26 @@ const SHORT_TIMEOUT = 10_000;  // 10 seconds
 
 type MarketplaceSource = 'clawhub' | 'openclaw' | 'local';
 
-/** Determine the marketplace source from a prefixed slug. */
-function getSlugSource(slug: string): MarketplaceSource {
+/**
+ * Determine the marketplace source from a slug.
+ *
+ * Slugs are now raw (unprefixed). The source must be provided explicitly
+ * or determined from context. For backward compat, legacy prefixed slugs
+ * (oc-, lo-, ch-) are still recognized and stripped.
+ */
+function getSlugSource(slug: string, explicitSource?: MarketplaceSource): MarketplaceSource {
+  if (explicitSource) return explicitSource;
+  // Backward compat: handle legacy prefixed slugs from old clients
   if (slug.startsWith('oc-')) return 'openclaw';
   if (slug.startsWith('lo-')) return 'local';
-  return 'clawhub'; // ch-* or unprefixed
+  if (slug.startsWith('ch-')) return 'clawhub';
+  return 'clawhub'; // default
 }
 
 /**
- * Strip the display prefix (ch-, oc-, lo-) from a slug to get the raw
- * identifier expected by Convex and ClawHub APIs.
- * E.g. "ch-my-skill" → "my-skill", "my-skill" → "my-skill" (no-op).
+ * Ensure a slug is raw (unprefixed).
+ * Strips legacy display prefixes (ch-, oc-, lo-) for backward compat.
+ * New slugs are already raw and pass through unchanged.
  */
 function toRawSlug(slug: string): string {
   const match = slug.match(/^(?:ch|oc|lo)-(.+)$/);
@@ -685,12 +694,12 @@ export async function searchMarketplace(query: string): Promise<MarketplaceSkill
  * Fetches readme and file contents in parallel.
  * Cached for 5 minutes.
  */
-export async function getMarketplaceSkill(slug: string): Promise<MarketplaceSkill> {
+export async function getMarketplaceSkill(slug: string, explicitSource?: MarketplaceSource): Promise<MarketplaceSkill> {
   const cacheKey = `detail:${slug}`;
   const cached = getCached<MarketplaceSkill>(cacheKey);
   if (cached) return cached;
 
-  const source = getSlugSource(slug);
+  const source = getSlugSource(slug, explicitSource);
 
   // ── OpenClaw: resolve via search API + download files from GitHub ──
   if (source === 'openclaw') {
@@ -958,9 +967,9 @@ export async function analyzeSkillBySlug(
   slug: string,
   skillName?: string,
   publisher?: string,
-  options?: { noCache?: boolean },
+  options?: { noCache?: boolean; source?: MarketplaceSource },
 ): Promise<AnalyzeSkillResponse> {
-  const source = getSlugSource(slug);
+  const source = getSlugSource(slug, options?.source);
   const raw = toRawSlug(slug);
 
   // OpenClaw requires the registry path for dashed slugs

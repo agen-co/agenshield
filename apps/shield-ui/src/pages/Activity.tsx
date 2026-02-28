@@ -44,6 +44,7 @@ import {
   getEventStatus,
   getEventSeverity,
   isNoiseEvent,
+  formatAgentUsername,
   EVENT_DISPLAY,
   BLOCKED_EVENT_TYPES,
   SEVERITY_COLORS,
@@ -87,6 +88,8 @@ export interface ActivityProps {
   selectedEventId?: string | null;
   onSelectEvent?: (event: SSEEvent | null) => void;
   fillHeight?: boolean;
+  /** When true, show the EventDetailPanel even in embedded mode */
+  showDetailPanel?: boolean;
 }
 
 function getTimeThreshold(filter: TimeFilter): Date | null {
@@ -122,6 +125,7 @@ export function Activity({
   selectedEventId,
   onSelectEvent,
   fillHeight,
+  showDetailPanel,
 }: ActivityProps) {
   const theme = useTheme();
   const guard = useGuardedAction();
@@ -130,9 +134,10 @@ export function Activity({
   const targetNameMap = useMemo(() => {
     const profiles = profilesData?.data ?? [];
     const map = new Map<string, string>();
-    for (const p of profiles as Array<{ id: string; name: string; targetName?: string }>) {
+    for (const p of profiles as Array<{ id: string; name: string; targetName?: string; agentUsername?: string }>) {
       if (p.targetName) map.set(p.targetName, p.name);
       map.set(p.id, p.name);
+      if (p.agentUsername) map.set(p.agentUsername, formatAgentUsername(p.agentUsername));
     }
     return map;
   }, [profilesData]);
@@ -252,7 +257,7 @@ export function Activity({
     overscan: 15,
   });
 
-  const showStandalonePanel = !onSelectEvent && !!selectedEvent;
+  const showStandalonePanel = (!onSelectEvent && !!selectedEvent) || (showDetailPanel && !!selectedEvent);
 
   return (
     <Box sx={embedded ? { display: 'flex', flexDirection: 'column', flex: fillHeight ? 1 : undefined, minHeight: 0 } : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
@@ -603,8 +608,8 @@ export function Activity({
           )}
         </Box>
 
-        {/* Standalone detail panel (non-embedded mode) */}
-        {!embedded && (
+        {/* Detail panel (standalone, or embedded with showDetailPanel) */}
+        {(!embedded || showDetailPanel) && (
           <EventDetailPanel
             event={selectedEvent}
             onClose={() => handleSelectEvent(null)}

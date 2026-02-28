@@ -27,6 +27,9 @@ import { useProfiles, useOpenClawStatus, useOpenClawDashboardUrl, useConfig, use
 import { useStartTarget, useStopTarget } from '../../api/targets';
 import { useTargetStats } from '../../hooks/useTargetStats';
 import { getBrandIcon, getTargetIcon } from '../../utils/targetBranding';
+import { formatAgentUsername } from '../../utils/eventDisplay';
+import { TargetMetricCard } from '../../components/overview/TargetMetricCard';
+import { MetricCard } from '../../components/overview/MetricCard';
 import { CircularLoader } from '../../elements';
 import PrimaryButton from '../../elements/buttons/PrimaryButton';
 import DangerButton from '../../elements/buttons/DangerButton';
@@ -99,6 +102,13 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
     <PageGrid>
       {/* ---- Left Column ---- */}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+        {/* Per-target metrics */}
+        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+          <TargetMetricCard label="CPU" targetId={targetId} dataKey="cpuPercent" compact />
+          <TargetMetricCard label="Memory" targetId={targetId} dataKey="memPercent" compact />
+          <MetricCard label="Disk" dataKey="diskPercent" compact />
+        </Box>
+
         {/* App Header */}
         <HeaderCard>
           {brandIcon ? (
@@ -123,7 +133,7 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
             </Box>
             {agentUsername && (
               <Typography variant="body2" color="text.secondary">
-                {agentUsername}
+                {formatAgentUsername(agentUsername)}
               </Typography>
             )}
           </Box>
@@ -246,7 +256,7 @@ export function TargetOverview({ targetId, targetInfo, profileId }: TargetOvervi
           {agentUsername && (
             <InfoRow>
               <Typography variant="body2" color="text.secondary">Agent User</Typography>
-              <Typography variant="body2" fontWeight={500}>{agentUsername}</Typography>
+              <Typography variant="body2" fontWeight={500}>{formatAgentUsername(agentUsername)}</Typography>
             </InfoRow>
           )}
         </Card>

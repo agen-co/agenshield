@@ -3,6 +3,7 @@ export type {
   SkillApproval,
   AnalysisStatus,
   InstallationStatus,
+  SourceOrigin,
   Skill,
   SkillVersion,
   SkillFile,
@@ -27,6 +28,7 @@ export {
   prefixSlug,
   stripSlugPrefix,
   sourceHasPrefix,
+  resolveSourceOrigin,
 } from './slug-prefix';
 
 // Adapter types (used by sync service, daemon adapters)

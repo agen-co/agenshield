@@ -6,6 +6,7 @@
  */
 
 export type SkillSource = 'marketplace' | 'watcher' | 'manual' | 'integration' | 'unknown';
+export type SourceOrigin = 'openclaw' | 'clawhub' | 'local' | 'mcp' | 'registry' | 'manual' | 'unknown';
 export type SkillApproval = 'approved' | 'quarantined' | 'unknown';
 export type AnalysisStatus = 'pending' | 'analyzing' | 'complete' | 'error';
 export type InstallationStatus = 'active' | 'disabled' | 'quarantined' | 'pending';
@@ -20,6 +21,7 @@ export interface Skill {
   homepage?: string;
   tags: string[];
   source: SkillSource;
+  sourceOrigin: SourceOrigin;
   remoteId?: string;
   isPublic: boolean;
   createdAt: string;

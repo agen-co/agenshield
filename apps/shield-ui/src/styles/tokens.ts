@@ -11,7 +11,7 @@ export const tokens = {
     height: 56,
   },
   page: {
-    maxWidth: 1340,
+    maxWidth: 1440,
   },
   sidePanel: {
     width: 480,

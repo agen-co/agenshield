@@ -172,7 +172,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
     addSkillPolicy(skill.slug);
 
     // 4. Handle preset policies for master AgenCo skill
-    if (context.installation.profileId === undefined || context.skill.slug === 'ag-agenco') {
+    if (context.installation.profileId === undefined || context.skill.slug === 'agenco') {
       this.applyPresetPolicies(version);
     }
 
@@ -234,7 +234,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
     await removeBrewBinaryWrappers(skill.slug);
 
     // 4. Handle master skill: remove preset policies
-    if (skill.slug === 'ag-agenco') {
+    if (skill.slug === 'agenco') {
       const config = loadConfig();
       const agencoIds = new Set(AGENCO_PRESET.policies.map((p) => p.id));
       const filtered = config.policies.filter((p) => !agencoIds.has(p.id));

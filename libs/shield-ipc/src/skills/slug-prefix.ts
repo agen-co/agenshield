@@ -1,51 +1,54 @@
 /**
- * Source-prefixed slugs
+ * Source-prefixed slugs (DEPRECATED)
  *
- * External skill sources (synced via SyncService) get a short prefix in their
- * slug to prevent namespace collisions between registries.
+ * Slug prefixes have been removed. Skills now use raw names everywhere
+ * and track their source via the `sourceOrigin` field in the DB.
  *
- * Prefix mapping:
- *   ag = AgentFront (MCP/AgenCo integrations, source adapter ID "mcp")
- *   cb = ClawHub    (marketplace, source adapter ID "registry")
- *
- * Manual uploads (source='manual') and watcher-detected skills stay unprefixed.
+ * These functions are kept as no-ops for backward compatibility during
+ * the transition period. All callers should stop using them.
  */
 
-/** Map from source adapter ID → slug prefix. */
+import type { SourceOrigin } from './skills.types';
+
+/** @deprecated Slug prefixes are no longer used. Kept for reference. */
 export const SOURCE_SLUG_PREFIX: Record<string, string> = {
   mcp: 'ag',
   registry: 'cb',
 };
 
 /**
- * Prepend the source prefix to a raw slug.
- * Idempotent: if the slug already has the correct prefix, returns as-is.
+ * @deprecated No-op. Returns rawSlug unchanged. Slug prefixes are no longer applied.
  */
-export function prefixSlug(sourceId: string, rawSlug: string): string {
-  const prefix = SOURCE_SLUG_PREFIX[sourceId];
-  if (!prefix) return rawSlug;
-  const full = `${prefix}-${rawSlug}`;
-  if (rawSlug === full || rawSlug.startsWith(`${prefix}-`)) return rawSlug;
-  return full;
+export function prefixSlug(_sourceId: string, rawSlug: string): string {
+  return rawSlug;
 }
 
 /**
- * Strip a known source prefix from a slug.
- * Returns the prefix and raw slug, or null if no known prefix was found.
+ * @deprecated Always returns null. Slug prefixes are no longer used.
  */
-export function stripSlugPrefix(slug: string): { prefix: string; rawSlug: string } | null {
-  for (const [, prefix] of Object.entries(SOURCE_SLUG_PREFIX)) {
-    const token = `${prefix}-`;
-    if (slug.startsWith(token)) {
-      return { prefix, rawSlug: slug.slice(token.length) };
-    }
-  }
+export function stripSlugPrefix(_slug: string): { prefix: string; rawSlug: string } | null {
   return null;
 }
 
 /**
- * Whether a source adapter ID has a registered slug prefix.
+ * @deprecated Always returns false. Slug prefixes are no longer used.
  */
-export function sourceHasPrefix(sourceId: string): boolean {
-  return sourceId in SOURCE_SLUG_PREFIX;
+export function sourceHasPrefix(_sourceId: string): boolean {
+  return false;
+}
+
+/**
+ * Map a source adapter ID to a SourceOrigin value.
+ * Use this instead of slug prefixes to track where a skill came from.
+ */
+export function resolveSourceOrigin(sourceId: string): SourceOrigin {
+  const mapping: Record<string, SourceOrigin> = {
+    mcp: 'mcp',
+    registry: 'registry',
+    openclaw: 'openclaw',
+    clawhub: 'clawhub',
+    local: 'local',
+    manual: 'manual',
+  };
+  return mapping[sourceId] ?? 'unknown';
 }

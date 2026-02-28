@@ -17,6 +17,7 @@ export function mapSkill(row: DbSkillRow): Skill {
     homepage: row.homepage ?? undefined,
     tags: JSON.parse(row.tags),
     source: row.source as Skill['source'],
+    sourceOrigin: (row.source_origin ?? 'unknown') as Skill['sourceOrigin'],
     remoteId: row.remote_id ?? undefined,
     isPublic: row.is_public === 1,
     createdAt: row.created_at,

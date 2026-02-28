@@ -20,7 +20,7 @@ import type {
   ToolQuery,
   SkillsManagerEvent,
 } from '@agenshield/ipc';
-import { prefixSlug, stripSlugPrefix, sourceHasPrefix } from '@agenshield/ipc';
+import { resolveSourceOrigin } from '@agenshield/ipc';
 import type { SkillManager } from '../manager';
 
 export interface SyncServiceOptions {
@@ -134,13 +134,9 @@ export class SyncService {
   }
 
   async getSkillFiles(skillId: string): Promise<SkillDefinition | null> {
-    // Strip source prefix before delegating to adapters — adapters use raw IDs
-    const stripped = stripSlugPrefix(skillId);
-    const rawId = stripped ? stripped.rawSlug : skillId;
-
     for (const source of this.sources.values()) {
       try {
-        const def = await source.getSkillFiles(rawId);
+        const def = await source.getSkillFiles(skillId);
         if (def) return def;
       } catch {
         // Try next source
@@ -196,8 +192,9 @@ export class SyncService {
       return result;
     }
 
-    // Build desired map with prefixed slugs as keys
-    const desiredMap = new Map(desired.map(d => [prefixSlug(sourceId, d.skillId), d]));
+    // Build desired map with raw slugs as keys (no prefixing)
+    const desiredMap = new Map(desired.map(d => [d.skillId, d]));
+    const origin = resolveSourceOrigin(sourceId);
 
     // Find currently installed skills from this source adapter in the DB.
     // Adapter-synced skills use source='integration' + remoteId=sourceId.
@@ -210,15 +207,15 @@ export class SyncService {
     );
 
     // Install new or update stale skills
-    for (const [prefixedSlug, def] of desiredMap) {
-      const existingSkill = installedMap.get(prefixedSlug);
+    for (const [slug, def] of desiredMap) {
+      const existingSkill = installedMap.get(slug);
 
       if (!existingSkill) {
         // New skill — upload, approve, install
         try {
           this.manager.uploadFiles({
             name: def.name,
-            slug: prefixedSlug,
+            slug,
             version: def.version,
             author: def.author,
             description: def.description,
@@ -229,10 +226,10 @@ export class SyncService {
             })),
           });
 
-          // Tag skill with source='integration' + remoteId=sourceId for sync tracking
-          const skill = this.skills.getBySlug(prefixedSlug);
+          // Tag skill with source='integration' + remoteId=sourceId + sourceOrigin for tracking
+          const skill = this.skills.getBySlug(slug);
           if (skill) {
-            this.skills.update(skill.id, { source: 'integration' as const, remoteId: sourceId });
+            this.skills.update(skill.id, { source: 'integration' as const, sourceOrigin: origin, remoteId: sourceId });
 
             // Mark as trusted if source says so
             const version = this.skills.getLatestVersion(skill.id);
@@ -241,7 +238,7 @@ export class SyncService {
             }
           }
 
-          await this.manager.approveSkill(prefixedSlug);
+          await this.manager.approveSkill(slug);
           result.installed.push(def.skillId);
           this.emit({ type: 'skill:installed', skillId: def.skillId, sourceId });
         } catch (err) {
@@ -257,7 +254,7 @@ export class SyncService {
           try {
             this.manager.uploadFiles({
               name: def.name,
-              slug: prefixedSlug,
+              slug,
               version: def.version,
               author: def.author,
               description: def.description,
@@ -269,14 +266,14 @@ export class SyncService {
             });
 
             // Update source ownership
-            this.skills.update(existingSkill.id, { source: 'integration' as const, remoteId: sourceId });
+            this.skills.update(existingSkill.id, { source: 'integration' as const, sourceOrigin: origin, remoteId: sourceId });
 
             const version = this.skills.getLatestVersion(existingSkill.id);
             if (version && def.trusted) {
               this.skills.approveVersion(version.id);
             }
 
-            await this.manager.approveSkill(prefixedSlug);
+            await this.manager.approveSkill(slug);
             result.updated.push(def.skillId);
             this.emit({ type: 'skill:updated', skillId: def.skillId, sourceId });
           } catch (err) {

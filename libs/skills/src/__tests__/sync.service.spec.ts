@@ -1,9 +1,8 @@
 /**
- * SyncService source-prefixed slug tests
+ * SyncService slug tests
  *
- * Verifies that SyncService.syncSource() correctly prefixes slugs
- * based on the source adapter ID, and that getSkillFiles() strips
- * prefixes before delegating to adapters.
+ * Verifies that SyncService.syncSource() uses raw slugs (no prefixing)
+ * and that sourceOrigin is set based on the source adapter ID.
  */
 
 import * as fs from 'node:fs';
@@ -36,6 +35,13 @@ function createTestDb() {
   db.pragma('foreign_keys = ON');
   new InitialSchemaMigration().up(db);
   new SkillsManagerColumnsMigration().up(db);
+
+  // Add source_origin column if not present (from migration 023)
+  const columns = (db.prepare("PRAGMA table_info('skills')").all() as Array<{ name: string }>).map(c => c.name);
+  if (!columns.includes('source_origin')) {
+    db.exec("ALTER TABLE skills ADD COLUMN source_origin TEXT NOT NULL DEFAULT 'unknown'");
+  }
+
   return {
     db,
     dir,
@@ -106,7 +112,7 @@ function makeSkillDefinition(overrides: Partial<SkillDefinition> & { skillId: st
 
 // ─── Tests ──────────────────────────────────────────────────
 
-describe('SyncService source-prefixed slugs', () => {
+describe('SyncService raw slugs (no prefixing)', () => {
   let db: Database.Database;
   let dbCleanup: () => void;
   let dirs: ReturnType<typeof createTestDirs>;
@@ -140,7 +146,7 @@ describe('SyncService source-prefixed slugs', () => {
     });
   }
 
-  it('prefixes slug with source prefix (registry → cb-)', async () => {
+  it('stores slug as raw name (no prefix) for registry source', async () => {
     manager = createManager();
 
     const def = makeSkillDefinition({ skillId: 'gog', sourceId: 'registry' });
@@ -152,17 +158,13 @@ describe('SyncService source-prefixed slugs', () => {
     // Assert: result.installed includes the raw ID
     expect(result.installed).toContain('gog');
 
-    // Assert: DB skill slug is 'cb-gog' not 'gog'
-    const skill = repo.getBySlug('cb-gog');
+    // Assert: DB skill slug is 'gog' (raw, no prefix)
+    const skill = repo.getBySlug('gog');
     expect(skill).not.toBeNull();
-    expect(skill!.slug).toBe('cb-gog');
-
-    // Assert: no skill with raw slug 'gog'
-    const rawSkill = repo.getBySlug('gog');
-    expect(rawSkill).toBeNull();
+    expect(skill!.slug).toBe('gog');
   });
 
-  it('prefixes slug with source prefix (mcp → ag-)', async () => {
+  it('stores slug as raw name (no prefix) for mcp source', async () => {
     manager = createManager();
 
     const def = makeSkillDefinition({ skillId: 'agenco', sourceId: 'mcp' });
@@ -173,34 +175,13 @@ describe('SyncService source-prefixed slugs', () => {
 
     expect(result.installed).toContain('agenco');
 
-    // Assert: DB slug is 'ag-agenco'
-    const skill = repo.getBySlug('ag-agenco');
+    // Assert: DB slug is 'agenco' (raw, no 'ag-' prefix)
+    const skill = repo.getBySlug('agenco');
     expect(skill).not.toBeNull();
-    expect(skill!.slug).toBe('ag-agenco');
+    expect(skill!.slug).toBe('agenco');
   });
 
-  it('does not double-prefix already-prefixed slugs', async () => {
-    manager = createManager();
-
-    // Source returns skillId that already has the 'ag-' prefix
-    const def = makeSkillDefinition({ skillId: 'ag-agenco', sourceId: 'mcp' });
-    const source = createMockSource('mcp', 'AgentFront', [def]);
-    await manager.sync.registerSource(source);
-
-    const result = await manager.syncSource('mcp', 'openclaw');
-
-    expect(result.installed).toContain('ag-agenco');
-
-    // Assert: slug remains 'ag-agenco' (idempotent, not 'ag-ag-agenco')
-    const skill = repo.getBySlug('ag-agenco');
-    expect(skill).not.toBeNull();
-
-    // Assert: no double-prefixed slug exists
-    const doublePrefix = repo.getBySlug('ag-ag-agenco');
-    expect(doublePrefix).toBeNull();
-  });
-
-  it('getSkillFiles strips prefix before delegating to adapter', async () => {
+  it('getSkillFiles passes slug directly to adapter (no stripping needed)', async () => {
     manager = createManager();
 
     const getSkillFilesCalls: string[] = [];
@@ -208,12 +189,11 @@ describe('SyncService source-prefixed slugs', () => {
     const source = createMockSource('registry', 'ClawHub', [def], { getSkillFilesCalls });
     await manager.sync.registerSource(source);
 
-    // Call getSkillFiles with prefixed slug
-    const result = await manager.sync.getSkillFiles('cb-gog');
+    // Call getSkillFiles with raw slug
+    const result = await manager.sync.getSkillFiles('gog');
 
-    // Assert: adapter.getSkillFiles was called with stripped 'gog' (not 'cb-gog')
+    // Assert: adapter.getSkillFiles was called with 'gog' directly
     expect(getSkillFilesCalls).toContain('gog');
-    expect(getSkillFilesCalls).not.toContain('cb-gog');
     expect(result).not.toBeNull();
     expect(result!.skillId).toBe('gog');
   });

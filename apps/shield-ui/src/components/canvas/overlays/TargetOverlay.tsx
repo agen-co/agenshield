@@ -8,12 +8,13 @@
 
 import { lazy, Suspense, useState, useCallback, useEffect, useRef, useMemo, memo } from 'react';
 import { useTheme } from '@mui/material/styles';
-import { Tabs, Tab, Chip } from '@mui/material';
+import { Tabs, Tab, Chip, Box, Button } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
   Eye, Activity, Terminal, Zap, KeyRound, Settings,
 } from 'lucide-react';
+import { formatAgentUsername } from '../../../utils/eventDisplay';
 import { useSnapshot } from 'valtio';
 import { CircularLoader } from '../../../elements';
 import { setSkipEntryAnimation } from '../../../state/canvas-drilldown';
@@ -49,6 +50,7 @@ const LazyPolicies = lazy(() => import('../../../pages/Policies').then(m => ({ d
 const LazySecrets = lazy(() => import('../../../pages/Secrets').then(m => ({ default: m.Secrets })));
 const LazySkills = lazy(() => import('../../../pages/Skills').then(m => ({ default: m.Skills })));
 const LazySettings = lazy(() => import('../../../pages/Settings').then(m => ({ default: m.Settings })));
+const LazySkillPage = lazy(() => import('../../../pages/SkillPage').then(m => ({ default: m.SkillPage })));
 
 /* ---- TargetOverlay ---- */
 
@@ -139,11 +141,16 @@ export const TargetOverlay = memo(({ targetId, tab, skipAnimation }: TargetOverl
   // Track embedded policy sub-tab locally so Policies doesn't use relative navigate()
   const [policiesTab, setPoliciesTab] = useState('commands');
 
+  // Track inline skill detail within skills tab
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+
   const handleTabChange = useCallback((_: React.SyntheticEvent, newIdx: number) => {
+    setSelectedSkillId(null); // Reset inline skill detail on tab switch
     navigate(`/target/${targetId}/${TARGET_TABS[newIdx].slug}`, { replace: true });
   }, [navigate, targetId]);
 
-  const targetName = targetInfo?.name ?? targetId;
+  const rawName = targetInfo?.name ?? targetId;
+  const targetName = formatAgentUsername(rawName);
   const isShielded = targetInfo?.shielded ?? false;
 
   const fallback = (
@@ -235,13 +242,31 @@ export const TargetOverlay = memo(({ targetId, tab, skipAnimation }: TargetOverl
         ) : activeTab === 'activity' ? (
           <FullHeightArea>
             <Suspense fallback={fallback}>
-              <LazyActivity embedded fillHeight sourceFilter={targetId} profileId={profileId ?? undefined} />
+              <LazyActivity embedded fillHeight showDetailPanel sourceFilter={targetId} profileId={profileId ?? undefined} />
             </Suspense>
           </FullHeightArea>
         ) : (
           <ScrollArea>
             <Suspense fallback={fallback}>
-              {activeTab === 'skills' && <LazySkills embedded targetId={targetId} />}
+              {activeTab === 'skills' && (
+                selectedSkillId ? (
+                  <Box>
+                    <Button
+                      size="small"
+                      variant="text"
+                      color="secondary"
+                      startIcon={<ArrowLeft size={16} />}
+                      onClick={() => setSelectedSkillId(null)}
+                      sx={{ mb: 2 }}
+                    >
+                      Back to Skills
+                    </Button>
+                    <LazySkillPage skillId={selectedSkillId} embedded targetId={targetId} />
+                  </Box>
+                ) : (
+                  <LazySkills embedded targetId={targetId} onSkillClick={setSelectedSkillId} />
+                )
+              )}
               {activeTab === 'policies' && <LazyPolicies embedded embeddedTab={policiesTab} onTabChange={setPoliciesTab} />}
               {activeTab === 'secrets' && <LazySecrets embedded />}
               {activeTab === 'settings' && <LazySettings embedded profileId={profileId} targetId={targetId} />}

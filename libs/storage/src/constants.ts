@@ -17,6 +17,7 @@ export const META_KEYS = {
   SKILLS_MIGRATED: 'skills_migrated',
   SECRETS_MIGRATED: 'secrets_migrated',
   SLUG_PREFIX_DISK_MIGRATED: 'slug_prefix_disk_migrated',
+  SLUG_PREFIX_REMOVED: 'slug_prefix_removed',
   CONFIG_MIGRATED_TO_DB: 'config_migrated_to_db',
   LEGACY_FILES_CLEANED: 'legacy_files_cleaned',
 } as const;

@@ -24,6 +24,7 @@ export class RemoteSearchAdapter implements SearchAdapter {
           description: r.description,
           tags: r.tags,
           source: 'marketplace' as const,
+          sourceOrigin: 'unknown' as const,
           remoteId: r.remoteId,
           isPublic: true,
           createdAt: '',

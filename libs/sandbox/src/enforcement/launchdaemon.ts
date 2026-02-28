@@ -29,6 +29,7 @@ export function generateBrokerPlist(
     logDir?: string;
     hostHome?: string;
     isSEABinary?: boolean;
+    daemonUrl?: string;
   }
 ): string {
   const resolvedHostHome = options?.hostHome || process.env['HOME'] || '';
@@ -106,6 +107,12 @@ ${options?.isSEABinary
         <string>${agentHome}/.agenshield/policies</string>
         <key>AGENSHIELD_LOG_DIR</key>
         <string>${resolvedLogDir}</string>
+        <key>AGENSHIELD_PROFILE_ID</key>
+        <string>${config.agentUser.username}</string>
+        <key>AGENSHIELD_DAEMON_URL</key>
+        <string>${options?.daemonUrl || 'http://127.0.0.1:5200'}</string>
+        <key>AGENSHIELD_BROKER_HOME</key>
+        <string>${config.agentUser.home}</string>
         <key>NODE_ENV</key>
         <string>production</string>
     </dict>

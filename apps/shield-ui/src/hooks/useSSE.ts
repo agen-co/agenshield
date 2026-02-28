@@ -122,7 +122,7 @@ export function useSSE(enabled = true, token?: string | null) {
           if (stTargetId && stStepId && stMsg) {
             appendStepLog(stTargetId, stStepId, stMsg);
           }
-          return;
+          // Fall through to addEvent() so step logs appear in the activity feed
         }
         if (type === 'setup:shield_progress') {
           const { targetId, step, progress, message } = data as { targetId: string; step: string; progress: number; message?: string };
@@ -147,7 +147,7 @@ export function useSSE(enabled = true, token?: string | null) {
           if (logMsg && logTargetId) {
             appendShieldLog(logTargetId, logMsg, logStepId);
           }
-          return; // Don't add verbose install logs to the activity feed
+          // Fall through to addEvent() so install logs persist in the activity feed
         }
         if (type === 'setup:complete') {
           // Mode transition — invalidate health to pick up new mode

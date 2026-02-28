@@ -19,6 +19,7 @@ import { PolicyTargetProcessMigration } from './019-policy-target-process';
 import { BinarySignaturesMigration } from './020-binary-signatures';
 import { PolicyTargetRouterMigration } from './021-policy-target-router';
 import { ProfileIdToUsernameMigration } from './022-profile-id-to-username';
+import { RemoveSlugPrefixMigration } from './023-remove-slug-prefix';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -40,6 +41,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   new BinarySignaturesMigration(),
   new PolicyTargetRouterMigration(),
   new ProfileIdToUsernameMigration(),
+  new RemoveSlugPrefixMigration(),
 ];
 
 /**

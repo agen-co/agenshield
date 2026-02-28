@@ -143,18 +143,19 @@ export class SchemaMigration implements Migration {
 
       -- Skills (global identity)
       CREATE TABLE skills (
-        id          TEXT PRIMARY KEY,
-        name        TEXT NOT NULL,
-        slug        TEXT NOT NULL UNIQUE,
-        author      TEXT,
-        description TEXT,
-        homepage    TEXT,
-        tags        TEXT NOT NULL DEFAULT '[]',
-        source      TEXT NOT NULL DEFAULT 'unknown',
-        remote_id   TEXT,
-        is_public   INTEGER NOT NULL DEFAULT 0,
-        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        slug          TEXT NOT NULL UNIQUE,
+        author        TEXT,
+        description   TEXT,
+        homepage      TEXT,
+        tags          TEXT NOT NULL DEFAULT '[]',
+        source        TEXT NOT NULL DEFAULT 'unknown',
+        source_origin TEXT NOT NULL DEFAULT 'unknown',
+        remote_id     TEXT,
+        is_public     INTEGER NOT NULL DEFAULT 0,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
       );
       CREATE INDEX idx_skills_slug ON skills(slug);
       CREATE INDEX idx_skills_name ON skills(name);

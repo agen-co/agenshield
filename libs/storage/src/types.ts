@@ -110,6 +110,7 @@ export interface DbSkillRow {
   homepage: string | null;
   tags: string;
   source: string;
+  source_origin: string;
   remote_id: string | null;
   is_public: number;
   created_at: string;

@@ -332,13 +332,12 @@ async function handleSkillRun(args: string[]): Promise<void> {
   await new Promise<void>(() => {});
 }
 
-/** Known slug prefixes added by marketplace sources */
+/**
+ * @deprecated Slug prefixes are no longer used. Kept for backward compat
+ * to handle any lingering prefixed binaries during migration.
+ */
 const KNOWN_SLUG_PREFIXES = ['oc-', 'ch-', 'lo-', 'ag-', 'cb-'];
 
-/**
- * Strip a known marketplace prefix from a slug to get the raw binary name.
- * E.g. "oc-gog" → "gog", "my-tool" → null (no known prefix).
- */
 function stripKnownPrefix(slug: string): string | null {
   for (const prefix of KNOWN_SLUG_PREFIXES) {
     if (slug.startsWith(prefix) && slug.length > prefix.length) {

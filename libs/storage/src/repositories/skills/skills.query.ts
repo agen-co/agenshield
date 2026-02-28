@@ -10,11 +10,12 @@ const INSTALLATIONS = 'skill_installations';
 export const Q = {
   // ---- Skills ----
   insertSkill: `
-    INSERT INTO ${SKILLS} (id, name, slug, author, description, homepage, tags, source, remote_id, is_public, created_at, updated_at)
-    VALUES (@id, @name, @slug, @author, @description, @homepage, @tags, @source, @remoteId, @isPublic, @createdAt, @updatedAt)`,
+    INSERT INTO ${SKILLS} (id, name, slug, author, description, homepage, tags, source, source_origin, remote_id, is_public, created_at, updated_at)
+    VALUES (@id, @name, @slug, @author, @description, @homepage, @tags, @source, @sourceOrigin, @remoteId, @isPublic, @createdAt, @updatedAt)`,
 
   selectSkillById: `SELECT * FROM ${SKILLS} WHERE id = ?`,
   selectSkillBySlug: `SELECT * FROM ${SKILLS} WHERE slug = ?`,
+  selectSkillBySlugAndOrigin: `SELECT * FROM ${SKILLS} WHERE slug = ? AND source_origin = ?`,
   selectSkillByRemoteId: `SELECT * FROM ${SKILLS} WHERE remote_id = ?`,
   selectAllSkills: `SELECT * FROM ${SKILLS} ORDER BY name`,
   selectSkillsBySource: `SELECT * FROM ${SKILLS} WHERE source = ? ORDER BY name`,

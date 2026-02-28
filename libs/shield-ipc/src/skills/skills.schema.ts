@@ -4,6 +4,10 @@
 
 import { z } from 'zod';
 
+export const SourceOriginSchema = z.enum([
+  'openclaw', 'clawhub', 'local', 'mcp', 'registry', 'manual', 'unknown',
+]);
+
 export const SkillSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(200),
@@ -13,6 +17,7 @@ export const SkillSchema = z.object({
   homepage: z.string().url().optional(),
   tags: z.array(z.string()).default([]),
   source: z.enum(['marketplace', 'watcher', 'manual', 'integration', 'unknown']).default('unknown'),
+  sourceOrigin: SourceOriginSchema.default('unknown'),
   remoteId: z.string().optional(),
   isPublic: z.boolean().default(true),
   createdAt: z.string().datetime(),

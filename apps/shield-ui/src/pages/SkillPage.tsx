@@ -20,9 +20,11 @@ interface SkillPageProps {
   skillId?: string;
   /** When true, omits the outer maxWidth wrapper (Canvas already provides it) */
   embedded?: boolean;
+  /** When set, scopes install/uninstall actions to this target */
+  targetId?: string;
 }
 
-export function SkillPage({ skillId: propId, embedded }: SkillPageProps) {
+export function SkillPage({ skillId: propId, embedded, targetId }: SkillPageProps) {
   const { id: routeId } = useParams<{ id: string }>();
   const id = propId ?? routeId;
   const navigate = useNavigate();
@@ -70,7 +72,7 @@ export function SkillPage({ skillId: propId, embedded }: SkillPageProps) {
       ) : !selectedSkill ? (
         <Alert severity="info">Skill not found</Alert>
       ) : (
-        <SkillDetails />
+        <SkillDetails targetId={targetId} />
       )}
     </>
   );

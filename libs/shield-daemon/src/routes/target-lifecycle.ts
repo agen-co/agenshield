@@ -15,6 +15,8 @@ import { ShieldStepTracker } from '../services/shield-step-tracker';
 import { ManifestBuilder } from '../services/manifest-builder';
 import { OPENCLAW_SHIELD_STEPS, isSEA } from '@agenshield/ipc';
 import { registerShieldOperation, unregisterShieldOperation, getActiveShieldOperations } from '../services/shield-registry';
+import { signBrokerToken } from '@agenshield/auth';
+import { writeTokenFile, invalidateTokenCache } from '../services/profile-token';
 
 // ── Gateway port allocation helper ────────────────────────────────
 
@@ -499,6 +501,22 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
 
         // 2. Create sandbox users/groups
         tracker.completeStep('resolve_preset');
+
+        // 1b. Stop host processes (before creating sandbox users)
+        tracker.startStep('stop_host');
+        log('Stopping host OpenClaw processes...', 'stop_host');
+        shieldLog.step('stop_host', 'Stopping host OpenClaw processes before sandbox setup...');
+        try {
+          await executor.execAsRoot([
+            `sudo -H -u ${hostUsername} openclaw gateway stop 2>/dev/null || true`,
+            `sudo -H -u ${hostUsername} openclaw daemon stop 2>/dev/null || true`,
+            `sleep 2; pkill -u $(id -u ${hostUsername}) -f 'node.*openclaw' 2>/dev/null; true`,
+          ].join('; '), { timeout: 30_000 });
+        } catch {
+          // Best-effort — host processes may not be running
+        }
+        tracker.completeStep('stop_host');
+
         currentStep = 'creating_users';
         const agentUser = userConfig.agentUser.username;
         const brokerUser = userConfig.brokerUser.username;
@@ -1109,7 +1127,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           shieldLog.info(`${preset.name} installation complete.`);
         } else {
           // No preset install — skip all preset-specific steps
-          const skipSteps = ['install_homebrew', 'install_nvm', 'install_node', 'copy_node_binary', 'install_openclaw', 'stop_host', 'copy_config', 'verify_openclaw', 'patch_node', 'write_gateway_plist'];
+          const skipSteps = ['install_homebrew', 'install_nvm', 'install_node', 'copy_node_binary', 'install_openclaw', 'copy_config', 'verify_openclaw', 'patch_node', 'write_gateway_plist'];
           for (const stepId of skipSteps) {
             tracker.skipStep(stepId);
           }
@@ -1168,11 +1186,17 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         currentStep = 'installing_daemon';
         log('Installing broker LaunchDaemon...', 'installing_daemon');
         shieldLog.step('installing_broker_daemon', 'Installing broker LaunchDaemon...');
+        // Derive daemon URL from Fastify server address for broker identity
+        const addrInfo = app.server.address();
+        const daemonPort = (typeof addrInfo === 'object' && addrInfo?.port) || 5200;
+        const daemonUrl = `http://127.0.0.1:${daemonPort}`;
+
         const plistContent = generateBrokerPlist(userConfig, {
           baseName: resolvedBaseName,
           socketPath: pathsConfig.socketPath,
           hostHome,
           isSEABinary: isSEA(),
+          daemonUrl,
         });
         const brokerLabel = `com.agenshield.broker.${baseName}`;
         const plistPath = `/Library/LaunchDaemons/${brokerLabel}.plist`;
@@ -1187,6 +1211,20 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         shieldLog.processEvent('spawned', brokerLabel);
         tracker.completeStep('install_broker_daemon');
         manifestBuilder.recordInfra('install_broker_daemon', 11, { brokerLabel, plistPath });
+
+        // 8a. Generate broker JWT and write token file to agent home
+        const profileId = agentUser;
+        const brokerJwt = await signBrokerToken(profileId, profileId);
+        try {
+          const tokenFilePath = `${agentHome}/.agenshield-token`;
+          await executor.execAsRoot(
+            `printf '%s\\n' '${brokerJwt}' > "${tokenFilePath}" && chmod 640 "${tokenFilePath}" && chown ${brokerUser}:${groupName} "${tokenFilePath}"`,
+            { timeout: 10_000 },
+          );
+          shieldLog.info(`Broker token file written to ${tokenFilePath}`);
+        } catch (err) {
+          shieldLog.warn(`Failed to write broker token file: ${(err as Error).message} — broker will use plist env vars`);
+        }
 
         // 8b. Wait for broker socket before starting gateway (prevents crash loop)
         if (gatewayPlistPath) {
@@ -1380,7 +1418,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         log('Creating profile in storage...', 'creating_profile');
         shieldLog.step('creating_profile', 'Creating profile in storage...');
         const storage = getStorage();
-        const profileId = agentUser;
 
         // Allocate gateway port for openclaw targets
         const gatewayPort = basePresetId === 'openclaw' ? allocateGatewayPort() : undefined;
@@ -1394,7 +1431,10 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           agentHomeDir: agentHome,
           brokerUsername: brokerUser,
           brokerUid: userConfig.brokerUser.uid,
+          brokerHomeDir: agentHome,
+          brokerToken: brokerJwt,
         });
+        invalidateTokenCache();
 
         // Persist gateway port if allocated
         if (gatewayPort != null) {

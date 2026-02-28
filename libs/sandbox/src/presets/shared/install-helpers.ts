@@ -276,6 +276,7 @@ export async function patchNvmNode(ctx: InstallContext): Promise<void> {
   const wrapper = `#!/bin/bash
 # AgenShield Node.js Interceptor Wrapper
 export AGENSHIELD_NODE_BIN="${ctx.agentHome}/bin/node-bin"
+export AGENSHIELD_PROFILE_ID="${ctx.agentUsername}"
 export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"
 exec "${nodePath}.real" "$@"
 `;

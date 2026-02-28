@@ -95,7 +95,7 @@ describe('AnalyzeService', () => {
   afterEach(() => cleanup());
 
   it('analyzeVersion performs analysis and persists result', async () => {
-    const skill = repo.create({ name: 'S', slug: 's-test', tags: [], source: 'manual' });
+    const skill = repo.create({ name: 'S', slug: 's-test', tags: [], source: 'manual', sourceOrigin: 'unknown' as const });
     const v = repo.addVersion({
       skillId: skill.id, version: '1.0.0', folderPath: '/tmp',
       contentHash: 'abc', hashUpdatedAt: new Date().toISOString(),
@@ -123,7 +123,7 @@ describe('AnalyzeService', () => {
   });
 
   it('analyzePending processes pending versions', async () => {
-    const skill = repo.create({ name: 'S', slug: 's-pending', tags: [], source: 'manual' });
+    const skill = repo.create({ name: 'S', slug: 's-pending', tags: [], source: 'manual', sourceOrigin: 'unknown' as const });
     repo.addVersion({
       skillId: skill.id, version: '1.0.0', folderPath: '/tmp',
       contentHash: 'abc', hashUpdatedAt: new Date().toISOString(),
@@ -137,7 +137,7 @@ describe('AnalyzeService', () => {
   });
 
   it('reanalyze resets and re-analyzes', async () => {
-    const skill = repo.create({ name: 'S', slug: 's-reana', tags: [], source: 'manual' });
+    const skill = repo.create({ name: 'S', slug: 's-reana', tags: [], source: 'manual', sourceOrigin: 'unknown' as const });
     const v = repo.addVersion({
       skillId: skill.id, version: '1.0.0', folderPath: '/tmp',
       contentHash: 'abc', hashUpdatedAt: new Date().toISOString(),
@@ -164,7 +164,7 @@ describe('AnalyzeService', () => {
 
     const multiService = new AnalyzeService(repo, [new BasicAnalyzeAdapter(), warningAdapter], emitter);
 
-    const skill = repo.create({ name: 'S', slug: 's-multi', tags: [], source: 'manual' });
+    const skill = repo.create({ name: 'S', slug: 's-multi', tags: [], source: 'manual', sourceOrigin: 'unknown' as const });
     const v = repo.addVersion({
       skillId: skill.id, version: '1.0.0', folderPath: '/tmp',
       contentHash: 'abc', hashUpdatedAt: new Date().toISOString(),
