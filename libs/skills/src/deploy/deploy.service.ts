@@ -126,8 +126,11 @@ export class DeployService {
     const version = this.skills.getVersionById(inst.skillVersionId);
     if (!version) return null;
 
+    const skill = this.skills.getById(version.skillId);
+    if (!skill) return null;
+
     const files = this.skills.getFiles(version.id);
-    const result = await adapter.checkIntegrity(inst, version, files);
+    const result = await adapter.checkIntegrity(inst, version, files, skill);
     return { adapterId: adapter.id, result };
   }
 
@@ -144,8 +147,11 @@ export class DeployService {
       const version = this.skills.getVersionById(inst.skillVersionId);
       if (!version) continue;
 
+      const skill = this.skills.getById(version.skillId);
+      if (!skill) continue;
+
       const files = this.skills.getFiles(version.id);
-      const result = await adapter.checkIntegrity(inst, version, files);
+      const result = await adapter.checkIntegrity(inst, version, files, skill);
 
       results.push({ installationId: inst.id, adapterId: adapter.id, result });
     }

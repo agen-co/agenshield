@@ -29,6 +29,8 @@ export interface IntegrityCheckResult {
   unexpectedFiles: string[];
   currentHash?: string;
   expectedHash?: string;
+  /** The directory path that was checked (for diagnostics) */
+  checkedPath?: string;
 }
 
 /**
@@ -49,5 +51,5 @@ export interface DeployAdapter {
   undeploy(installation: SkillInstallation, version: SkillVersion, skill: Skill): Promise<void>;
 
   /** Check integrity of deployed files against the registered file manifests */
-  checkIntegrity(installation: SkillInstallation, version: SkillVersion, files: SkillFile[]): Promise<IntegrityCheckResult>;
+  checkIntegrity(installation: SkillInstallation, version: SkillVersion, files: SkillFile[], skill: Skill): Promise<IntegrityCheckResult>;
 }

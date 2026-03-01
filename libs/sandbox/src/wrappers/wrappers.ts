@@ -137,11 +137,17 @@ if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
 
 SOCKET_PATH="\${AGENSHIELD_SOCKET:-${config.socketPath}}"
 
-# Extract URL from arguments
+# Extract URL and method from arguments
 URL=""
 METHOD="GET"
-HEADERS=""
 DATA=""
+
+# curl flags that take a value argument (shift 2 required)
+# This prevents the catch-all from swallowing the next argument
+VALUE_FLAGS="-o --output -O --remote-name -u --user -e --referer -A --user-agent"
+VALUE_FLAGS="$VALUE_FLAGS --connect-timeout -m --max-time --retry --retry-delay"
+VALUE_FLAGS="$VALUE_FLAGS -w --write-out -T --upload-file -b --cookie -c --cookie-jar"
+VALUE_FLAGS="$VALUE_FLAGS --resolve --cacert --cert --key -x --proxy --interface"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -150,15 +156,27 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -H|--header)
-      HEADERS="$HEADERS -H '$2'"
+      # Headers are not forwarded — broker handles its own headers
       shift 2
       ;;
-    -d|--data)
+    -d|--data|--data-raw|--data-binary|--data-urlencode)
       DATA="$2"
       shift 2
       ;;
     -*)
-      shift
+      # Check if this flag takes a value argument
+      NEEDS_VALUE=false
+      for vf in $VALUE_FLAGS; do
+        if [ "$1" = "$vf" ]; then
+          NEEDS_VALUE=true
+          break
+        fi
+      done
+      if [ "$NEEDS_VALUE" = true ] && [ $# -ge 2 ]; then
+        shift 2
+      else
+        shift
+      fi
       ;;
     *)
       URL="$1"
@@ -172,8 +190,8 @@ if [ -z "$URL" ]; then
   exit 1
 fi
 
-# Route through broker
-exec ${config.shieldClientPath} http "$METHOD" "$URL" $DATA
+# Route through broker with --raw to output only the response body
+exec ${config.shieldClientPath} http --raw "$METHOD" "$URL" $DATA
 `,
   },
 

@@ -11,10 +11,10 @@ export const Q = {
   upsert: `
     INSERT INTO ${TABLE} (profile_id, version, daemon_port, daemon_host,
       daemon_log_level, daemon_enable_hosts_entry, default_action, vault_enabled, vault_provider,
-      skills_json, soul_json, broker_json, updated_at)
+      skills_json, soul_json, broker_json, enforcer_interval_ms, updated_at)
     VALUES (@profileId, @version, @daemonPort, @daemonHost,
       @daemonLogLevel, @daemonEnableHostsEntry, @defaultAction, @vaultEnabled, @vaultProvider,
-      @skillsJson, @soulJson, @brokerJson, @updatedAt)
+      @skillsJson, @soulJson, @brokerJson, @enforcerIntervalMs, @updatedAt)
     ON CONFLICT(profile_id) DO UPDATE SET
       version = COALESCE(@version, version),
       daemon_port = COALESCE(@daemonPort, daemon_port),
@@ -27,6 +27,7 @@ export const Q = {
       skills_json = COALESCE(@skillsJson, skills_json),
       soul_json = COALESCE(@soulJson, soul_json),
       broker_json = COALESCE(@brokerJson, broker_json),
+      enforcer_interval_ms = COALESCE(@enforcerIntervalMs, enforcer_interval_ms),
       updated_at = @updatedAt`,
 
   deleteWhere: (clause: string) =>

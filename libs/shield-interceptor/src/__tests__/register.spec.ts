@@ -510,6 +510,72 @@ describe('ChildProcessInterceptor (integration)', () => {
   });
 });
 
+// ── unwrapGuardedShell ───────────────────────────────────────────────────────
+
+describe('ChildProcessInterceptor.unwrapGuardedShell', () => {
+  let interceptor: any;
+
+  beforeAll(() => {
+    const realCp = jest.requireActual('../interceptors/child-process') as typeof import('../interceptors/child-process');
+    interceptor = new realCp.ChildProcessInterceptor({
+      client: { request: jest.fn() } as any,
+      policyEvaluator: { check: jest.fn() } as any,
+      eventReporter: { intercept: jest.fn(), allow: jest.fn(), deny: jest.fn(), error: jest.fn(), report: jest.fn(), flush: jest.fn(), stop: jest.fn() } as any,
+      failOpen: true,
+      config: {
+        socketPath: '/tmp/test.sock',
+        httpHost: 'localhost',
+        httpPort: 5201,
+        failOpen: true,
+        logLevel: 'error',
+        interceptFetch: false,
+        interceptHttp: false,
+        interceptWs: false,
+        interceptFs: false,
+        interceptExec: true,
+        timeout: 5000,
+        contextType: 'agent' as const,
+        enableSeatbelt: false,
+        seatbeltProfileDir: '/tmp/test-profiles',
+      },
+    });
+  });
+
+  it('unwraps legacy /usr/local/bin/guarded-shell path', () => {
+    expect(interceptor.unwrapGuardedShell('/usr/local/bin/guarded-shell -c ls -la')).toBe('ls -la');
+  });
+
+  it('unwraps bare guarded-shell basename', () => {
+    expect(interceptor.unwrapGuardedShell('guarded-shell -c echo hello')).toBe('echo hello');
+  });
+
+  it('unwraps per-target $HOME/.agenshield/bin/guarded-shell path', () => {
+    expect(
+      interceptor.unwrapGuardedShell('/Users/ash_openclaw_agent/.agenshield/bin/guarded-shell -c ls memory')
+    ).toBe('ls memory');
+  });
+
+  it('unwraps arbitrary absolute path ending in /guarded-shell', () => {
+    expect(
+      interceptor.unwrapGuardedShell('/opt/custom/guarded-shell -c git status')
+    ).toBe('git status');
+  });
+
+  it('handles guarded-shell without -c flag', () => {
+    expect(
+      interceptor.unwrapGuardedShell('/Users/agent/.agenshield/bin/guarded-shell ls')
+    ).toBe('ls');
+  });
+
+  it('returns original command when no guarded-shell wrapper', () => {
+    expect(interceptor.unwrapGuardedShell('ls -la /tmp')).toBe('ls -la /tmp');
+  });
+
+  it('returns original command for non-absolute path containing guarded-shell', () => {
+    expect(interceptor.unwrapGuardedShell('some-tool /guarded-shell -c ls')).toBe('some-tool /guarded-shell -c ls');
+  });
+});
+
 // ── FetchInterceptor (real, not mocked) ──────────────────────────────────────
 
 describe('FetchInterceptor (integration)', () => {

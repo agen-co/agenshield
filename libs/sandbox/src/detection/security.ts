@@ -309,6 +309,17 @@ export async function checkSecurityStatus(options?: SecurityCheckOptions): Promi
       if (cmd.includes(currentUser) || allPatterns.some((pat) => cmd.includes(pat))) return true;
     }
 
+    // 4. Stale-process cleanup: ps -u $(id -u {sandboxUser}) ... | xargs kill
+    if (cmd.includes('xargs kill')) {
+      if (sandboxUsers.some((u) => cmd.includes(u))) return true;
+    }
+
+    // 5. Bash-wrapped sudo delegation to sandbox users (readiness checks, etc.)
+    // isSudoDelegation only handles top-level sudo; this catches /bin/bash -c sudo -H -u {sandboxUser} ...
+    if (cmd.includes('sudo') && sandboxUsers.some((u) => cmd.includes(`-u ${u}`))) {
+      return true;
+    }
+
     return false;
   };
 

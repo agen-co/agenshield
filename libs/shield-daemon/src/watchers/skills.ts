@@ -343,11 +343,15 @@ function scanSkills(): void {
                 addToApprovedList(skillName, undefined, hash ?? undefined);
                 addSkillPolicy(skillName);
                 // Create wrapper so the skill is actually invocable
-                const { agentHome: resolvedHome } = resolveTargetContext();
-                const binDir = path.join(resolvedHome, 'bin');
-                createSkillWrapper(skillName, binDir).catch((err) => {
-                  console.warn(`[SkillsWatcher] Failed to create wrapper for ${skillName}:`, (err as Error).message);
-                });
+                const resolvedCtx = resolveTargetContext();
+                if (resolvedCtx) {
+                  const binDir = path.join(resolvedCtx.agentHome, 'bin');
+                  createSkillWrapper(skillName, binDir).catch((err) => {
+                    console.warn(`[SkillsWatcher] Failed to create wrapper for ${skillName}:`, (err as Error).message);
+                  });
+                } else {
+                  console.warn(`[SkillsWatcher] No target context — skipping wrapper creation for ${skillName}`);
+                }
                 if (callbacks.onApproved) {
                   callbacks.onApproved(skillName);
                 }
@@ -616,7 +620,7 @@ export function getSkillsDir(): string {
   if (skillsDir) return skillsDir;
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
   if (agentHome) {
-    return path.join(agentHome, '.openclaw', 'workspace', 'skills');
+    return path.join(agentHome, '.openclaw', 'skills');
   }
   return '';
 }
@@ -661,8 +665,12 @@ export async function ensureSkillWrappers(): Promise<void> {
   const approved = loadApprovedSkills();
   if (approved.length === 0) return;
 
-  const { agentHome: resolvedHome } = resolveTargetContext();
-  const binDir = path.join(resolvedHome, 'bin');
+  const resolvedCtx = resolveTargetContext();
+  if (!resolvedCtx) {
+    console.warn('[SkillsWatcher] No target context — skipping wrapper creation');
+    return;
+  }
+  const binDir = path.join(resolvedCtx.agentHome, 'bin');
   const dir = getSkillsDir();
 
   for (const entry of approved) {

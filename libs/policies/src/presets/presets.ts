@@ -109,6 +109,19 @@ export const OPENCLAW_PRESET: PolicyPreset = {
       preset: 'openclaw',
     },
     {
+      id: 'preset-openclaw-local-gateway',
+      name: 'Local Gateway (HTTP)',
+      action: 'allow',
+      target: 'url',
+      patterns: [
+        'http://127.0.0.1:*',
+        'http://localhost:*',
+      ],
+      enabled: true,
+      priority: 5,
+      preset: 'openclaw',
+    },
+    {
       id: 'preset-openclaw-channels',
       name: 'Messaging Channels',
       action: 'allow',

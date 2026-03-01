@@ -90,7 +90,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
     const agentUsername = path.basename(resolvedPaths.agentHome);
 
     // 1. Process files: strip env vars and inject installation tags
-    const processedFiles = await this.processFiles(files, version, fileContents);
+    const processedFiles = await this.processFiles(files, version, fileContents, skill.slug);
 
     // 2. Write files via dev fs, broker, or sudo fallback
     if (this.devMode) {
@@ -254,11 +254,9 @@ export class DaemonDeployAdapter implements DeployAdapter {
     installation: SkillInstallation,
     version: SkillVersion,
     files: SkillFile[],
+    skill: Skill,
   ): Promise<IntegrityCheckResult> {
-    // Derive slug from folder path pattern /skills/{slug}/{version}
-    const pathParts = version.folderPath.split('/').filter(Boolean);
-    const skillSlug = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : pathParts[0];
-    const deployDir = path.join(this.skillsDir, skillSlug);
+    const deployDir = path.join(this.skillsDir, skill.slug);
 
     const modifiedFiles: string[] = [];
     const missingFiles: string[] = [];
@@ -292,7 +290,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
     }
 
     const intact = modifiedFiles.length === 0 && missingFiles.length === 0 && unexpectedFiles.length === 0;
-    return { intact, modifiedFiles, missingFiles, unexpectedFiles };
+    return { intact, modifiedFiles, missingFiles, unexpectedFiles, checkedPath: deployDir };
   }
 
   // ─── Private Helpers ────────────────────────────────────────
@@ -317,7 +315,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
           .replace(/_agent$/, '');
         return {
           agentHome,
-          skillsDir: path.join(agentHome, '.openclaw', 'workspace', 'skills'),
+          skillsDir: path.join(agentHome, '.openclaw', 'skills'),
           binDir: path.join(agentHome, 'bin'),
           socketGroup: `ash_${baseName}`,
         };
@@ -348,12 +346,15 @@ export class DaemonDeployAdapter implements DeployAdapter {
     files: SkillFile[],
     version: SkillVersion,
     fileContents?: Map<string, Buffer>,
+    skillSlug?: string,
   ): Promise<Array<{ relativePath: string; content: string }>> {
     const processed: Array<{ relativePath: string; content: string }> = [];
 
-    // Extract slug from folderPath pattern: /skills/{slug}/{version}
-    const pathParts = version.folderPath.split('/').filter(Boolean);
-    const skillSlug = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : pathParts[0];
+    // Use provided slug, fall back to path extraction for backward compat
+    if (!skillSlug) {
+      const pathParts = version.folderPath.split('/').filter(Boolean);
+      skillSlug = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : pathParts[0];
+    }
 
     for (const file of files) {
       let content: string;

@@ -22,7 +22,8 @@ import {
   updateDownloadedAnalysis,
 } from '../services/marketplace';
 import { emitSkillAnalyzed, emitSkillAnalysisFailed, emitSkillUninstalled } from '../events/emitter';
-import { resolveTargetContext } from '../services/target-context';
+import { resolveTargetContext, requireTargetContext } from '../services/target-context';
+import { TargetContextNotFoundError } from '../errors';
 
 /** Compact analysis for list view — no full details/suggestions */
 interface SkillAnalysisSummary {
@@ -217,8 +218,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
     const manager = app.skillManager;
     const repo = manager.getRepository();
-    const { agentHome } = resolveTargetContext(ctx.profileId ?? undefined);
-    const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
+    const targetCtx = resolveTargetContext(ctx.profileId ?? undefined);
+    if (!targetCtx) {
+      return reply.code(503).send({ error: 'No target context configured — skill features unavailable' });
+    }
+    const skillsDir = `${targetCtx.agentHome}/.openclaw/skills`;
 
     // Get all skills from DB
     const allSkills = repo.getAll();
@@ -346,8 +350,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const result = manager.getSkillBySlug(name);
-      const { agentHome } = resolveTargetContext(request.shieldContext.profileId ?? undefined);
-      const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
+      const targetCtx = resolveTargetContext(request.shieldContext.profileId ?? undefined);
+      if (!targetCtx) {
+        return reply.code(503).send({ error: 'No target context configured — skill features unavailable' });
+      }
+      const skillsDir = `${targetCtx.agentHome}/.openclaw/skills`;
 
       let summary: SkillSummary;
 
@@ -498,8 +505,11 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
       const manager = app.skillManager;
       const repo = manager.getRepository();
-      const { agentHome } = resolveTargetContext(request.shieldContext.profileId ?? undefined);
-      const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
+      const targetCtx = resolveTargetContext(request.shieldContext.profileId ?? undefined);
+      if (!targetCtx) {
+        return reply.code(503).send({ error: 'No target context configured — skill features unavailable' });
+      }
+      const skillsDir = `${targetCtx.agentHome}/.openclaw/skills`;
 
       // Resolve content for analysis (disk → download cache → marketplace)
       if (!content) {
@@ -775,8 +785,8 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         });
 
         // Write files to workspace/skills/{slug}/ so deploy adapter can read them
-        const { agentHome } = resolveTargetContext(request.shieldContext.profileId ?? undefined);
-        const skillsDir = `${agentHome}/.openclaw/workspace/skills`;
+        const installCtx = requireTargetContext(request.shieldContext.profileId ?? undefined);
+        const skillsDir = `${installCtx.agentHome}/.openclaw/skills`;
         const destDir = path.join(skillsDir, slug);
         fs.mkdirSync(destDir, { recursive: true });
         for (const f of files) {
@@ -792,6 +802,9 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
         return reply.send({ success: true, name, installation });
       } catch (err) {
+        if (err instanceof TargetContextNotFoundError) {
+          return reply.code(503).send({ error: 'No target context configured — skill features unavailable' });
+        }
         request.log.error({ skill: name, err: (err as Error).message }, 'Install failed');
         return reply.code(500).send({
           error: `Installation failed: ${(err as Error).message}`,

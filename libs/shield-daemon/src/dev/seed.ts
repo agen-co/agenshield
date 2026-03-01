@@ -76,7 +76,7 @@ export function seedDevData(storage: Storage): void {
     for (const dir of [
       profile.agentHomeDir,
       path.join(profile.agentHomeDir, 'bin'),
-      path.join(profile.agentHomeDir, '.openclaw', 'workspace', 'skills'),
+      path.join(profile.agentHomeDir, '.openclaw', 'skills'),
       profile.brokerHomeDir,
     ]) {
       if (!fs.existsSync(dir)) {

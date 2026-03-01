@@ -215,7 +215,7 @@ export class SkillWatcherService {
     operationId: string,
     installationId: string,
     adapterId: string,
-    result: { modifiedFiles: string[]; missingFiles: string[]; unexpectedFiles: string[] },
+    result: { modifiedFiles: string[]; missingFiles: string[]; unexpectedFiles: string[]; checkedPath?: string },
   ): Promise<void> {
     const policy = this.resolvePolicy(installationId);
     const hasModified = result.modifiedFiles.length > 0 || result.unexpectedFiles.length > 0;
@@ -239,6 +239,7 @@ export class SkillWatcherService {
       missingFiles: result.missingFiles,
       unexpectedFiles: result.unexpectedFiles,
       action,
+      checkedPath: result.checkedPath,
     });
 
     // Look up installation context — needed by both branches

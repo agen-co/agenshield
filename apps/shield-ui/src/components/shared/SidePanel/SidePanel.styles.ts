@@ -17,7 +17,7 @@ export const InlinePanel = styled('div', {
   flexDirection: 'column' as const,
   borderLeft: $open ? `1px solid ${theme.palette.divider}` : 'none',
   backgroundColor: theme.palette.background.paper,
-  transition: `width ${tokens.transition.duration} ${tokens.transition.easing}, opacity ${tokens.transition.duration} ${tokens.transition.easing}`,
+  transition: `opacity ${tokens.transition.duration} ${tokens.transition.easing}`,
 }));
 
 export const PanelHeader = styled('div', {

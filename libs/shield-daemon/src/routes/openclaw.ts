@@ -81,8 +81,11 @@ export async function openclawRoutes(app: FastifyInstance): Promise<void> {
       const sandbox = await getSandbox();
       const fn = sandbox['getOpenClawDashboardUrl'] as ((options?: { agentHome?: string }) => Promise<{ success: boolean; url?: string; token?: string; error?: string }>) | undefined;
       if (!fn) return { success: false, error: { code: 'OPENCLAW_NOT_AVAILABLE', message: 'OpenClaw functions not available in current build' } };
-      const { agentHome } = resolveTargetContext('openclaw');
-      const result = await fn({ agentHome });
+      const targetCtx = resolveTargetContext('openclaw');
+      if (!targetCtx) {
+        return { success: false, error: { code: 'TARGET_CONTEXT_NOT_FOUND', message: 'No target context configured' } };
+      }
+      const result = await fn({ agentHome: targetCtx.agentHome });
       if (!result.success || !result.url || !result.token) {
         return { success: false, error: { code: 'OPENCLAW_DASHBOARD_ERROR', message: result.error || 'Failed to get dashboard URL' } };
       }

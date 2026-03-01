@@ -92,6 +92,7 @@ export type SkillEvent =
       missingFiles: string[];
       unexpectedFiles: string[];
       action: WatcherAction;
+      checkedPath?: string;
     }
   | { type: 'watcher:quarantined'; operationId: string; installationId: string }
   | { type: 'watcher:reinstalled'; operationId: string; installationId: string }

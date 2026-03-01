@@ -66,8 +66,9 @@ function extractRequestBody(init: RequestInit): string | undefined {
  * @param url - The URL to fetch
  * @param init - Standard RequestInit options
  * @param context - A label for the call context (e.g. 'agenco:token-refresh')
+ * @param profileId - Optional profile ID for SSE event scoping
  */
-export async function loggedFetch(url: string, init: RequestInit, context: string): Promise<Response> {
+export async function loggedFetch(url: string, init: RequestInit, context: string, profileId?: string): Promise<Response> {
   const method = (init.method || 'GET').toUpperCase();
   const safeUrl = sanitizeUrl(url);
   const start = Date.now();
@@ -113,7 +114,7 @@ export async function loggedFetch(url: string, init: RequestInit, context: strin
       requestBody: sanitizeBody(extractRequestBody(init)),
       responseBody: sanitizeBody(responseBodyStr),
       success: response.ok,
-    });
+    }, profileId);
 
     return response;
   } catch (error) {
@@ -129,7 +130,7 @@ export async function loggedFetch(url: string, init: RequestInit, context: strin
       requestBody: sanitizeBody(extractRequestBody(init)),
       responseBody: (error as Error).message,
       success: false,
-    });
+    }, profileId);
 
     throw error;
   }

@@ -45,6 +45,7 @@ function assembleConfig(data: ConfigData, policies: PolicyConfig[]): ShieldConfi
       host: data.daemonHost ?? defaults.daemon.host,
       logLevel: (data.daemonLogLevel as ShieldConfig['daemon']['logLevel']) ?? defaults.daemon.logLevel,
       enableHostsEntry: data.daemonEnableHostsEntry ?? defaults.daemon.enableHostsEntry,
+      enforcerIntervalMs: data.enforcerIntervalMs ?? defaults.daemon.enforcerIntervalMs,
     },
     policies,
     defaultAction: (data.defaultAction as ShieldConfig['defaultAction']) ?? defaults.defaultAction,
@@ -157,6 +158,7 @@ export function saveConfig(config: ShieldConfig): void {
     skillsJson: config.skills ? JSON.stringify(config.skills) : null,
     soulJson: config.soul ? JSON.stringify(config.soul) : null,
     brokerJson: config.broker ? JSON.stringify(config.broker) : null,
+    enforcerIntervalMs: config.daemon.enforcerIntervalMs ?? null,
   });
 
   // Sync policies: delete non-managed global-scope policies, re-insert
@@ -233,6 +235,7 @@ export function saveScopedConfig(config: ShieldConfig, profileId: string): void 
     skillsJson: config.skills ? JSON.stringify(config.skills) : null,
     soulJson: config.soul ? JSON.stringify(config.soul) : null,
     brokerJson: config.broker ? JSON.stringify(config.broker) : null,
+    enforcerIntervalMs: config.daemon.enforcerIntervalMs ?? null,
   });
 
   // Get global policy IDs so we can identify profile-only policies

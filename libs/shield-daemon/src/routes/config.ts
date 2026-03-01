@@ -28,6 +28,7 @@ import { installShieldExec, createUserConfig } from '@agenshield/sandbox';
 import { generatePolicyMarkdown } from '../services/policy-markdown';
 import { resolveTargetContext } from '../services/target-context';
 import { syncAndWriteRouterHostPassthrough } from '../services/router-sync';
+import { restartProcessEnforcer } from '../services/process-enforcer';
 import {
   readPathRegistry,
   generateRouterWrapper,
@@ -84,11 +85,13 @@ async function syncPoliciesAfterChange(
   syncOpenClawFromPolicies(newPolicies);
 
   try {
-    const { agentHome } = resolveTargetContext();
-    const instructionsPath = path.join(agentHome, '.openclaw', 'policy-instructions.md');
-    const markdown = generatePolicyMarkdown(newPolicies, getKnownSkillNames(app));
-    fs.mkdirSync(path.dirname(instructionsPath), { recursive: true });
-    fs.writeFileSync(instructionsPath, markdown, 'utf-8');
+    const targetCtx = resolveTargetContext();
+    if (targetCtx) {
+      const instructionsPath = path.join(targetCtx.agentHome, '.openclaw', 'policy-instructions.md');
+      const markdown = generatePolicyMarkdown(newPolicies, getKnownSkillNames(app));
+      fs.mkdirSync(path.dirname(instructionsPath), { recursive: true });
+      fs.writeFileSync(instructionsPath, markdown, 'utf-8');
+    }
   } catch { /* non-fatal */ }
 }
 
@@ -178,9 +181,10 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
           );
         }
 
-        const oldPolicies = profileId
-          ? loadScopedConfig(profileId).policies
-          : loadConfig().policies;
+        const oldConfig = profileId
+          ? loadScopedConfig(profileId)
+          : loadConfig();
+        const oldPolicies = oldConfig.policies;
         const updated = profileId
           ? updateScopedConfig(request.body, profileId)
           : updateConfig(request.body);
@@ -188,6 +192,11 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         // Sync policies to system enforcement
         if (request.body.policies) {
           await syncPoliciesAfterChange(app, oldPolicies, updated.policies);
+        }
+
+        // Restart process enforcer if interval changed
+        if (updated.daemon.enforcerIntervalMs !== oldConfig.daemon.enforcerIntervalMs) {
+          restartProcessEnforcer({ intervalMs: updated.daemon.enforcerIntervalMs ?? 1000 });
         }
 
         return {
@@ -665,8 +674,11 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
    * Returns all config files from $AGENT_HOME/.openclaw/
    */
   app.get('/config/openclaw', async (_request: FastifyRequest, reply: FastifyReply) => {
-    const { agentHome } = resolveTargetContext();
-    const configDir = path.join(agentHome, '.openclaw');
+    const targetCtx = resolveTargetContext();
+    if (!targetCtx) {
+      return reply.code(503).send({ error: 'No target context configured' });
+    }
+    const configDir = path.join(targetCtx.agentHome, '.openclaw');
     const configFiles = readConfigDir(configDir);
     return reply.send({ configDir, files: configFiles });
   });
@@ -685,8 +697,11 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
       if (!original) {
         return reply.code(400).send({ error: 'original query param required' });
       }
-      const { agentHome: resolvedHome } = resolveTargetContext();
-      const agentConfigDir = path.join(resolvedHome, '.openclaw');
+      const targetCtx = resolveTargetContext();
+      if (!targetCtx) {
+        return reply.code(503).send({ error: 'No target context configured' });
+      }
+      const agentConfigDir = path.join(targetCtx.agentHome, '.openclaw');
       const diff = diffConfigDirs(original, agentConfigDir);
       return reply.send({ diff });
     }

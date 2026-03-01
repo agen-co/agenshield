@@ -543,6 +543,15 @@ export function Activity({
                             >
                               {display.label}
                             </Typography>
+                            {event.source && event.source !== 'daemon' && (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ fontSize: 10, opacity: 0.7, flexShrink: 0 }}
+                              >
+                                {event.source}
+                              </Typography>
+                            )}
                           </Box>
 
                           {/* Details */}

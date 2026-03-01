@@ -72,6 +72,7 @@ export class ConfigRepository extends BaseRepository {
       skillsJson: validated.skillsJson ?? null,
       soulJson: validated.soulJson ?? null,
       brokerJson: validated.brokerJson ?? null,
+      enforcerIntervalMs: validated.enforcerIntervalMs ?? null,
       updatedAt: now,
     });
   }

@@ -15,9 +15,10 @@ import type { PolicyConfig } from '@agenshield/ipc';
 import { isDevMode } from '../config/paths';
 import { resolveTargetContext } from './target-context';
 
-function getOpenClawConfigPath(): string {
-  const { agentHome } = resolveTargetContext('openclaw');
-  return path.join(agentHome, '.openclaw', 'openclaw.json');
+function getOpenClawConfigPath(): string | null {
+  const ctx = resolveTargetContext('openclaw');
+  if (!ctx) return null;
+  return path.join(ctx.agentHome, '.openclaw', 'openclaw.json');
 }
 
 interface OpenClawConfig {
@@ -33,6 +34,7 @@ interface OpenClawConfig {
 
 export function readOpenClawConfig(): OpenClawConfig {
   const configPath = getOpenClawConfigPath();
+  if (!configPath) return {};
   try {
     if (fs.existsSync(configPath)) {
       try {
@@ -45,6 +47,7 @@ export function readOpenClawConfig(): OpenClawConfig {
           }
           // File owned by agent user — read via sudo
           const ctx = resolveTargetContext('openclaw');
+          if (!ctx) return {};
           const agentUsername = ctx.agentUsername;
           const raw = execSync(
             `sudo -H -u ${agentUsername} cat "${configPath}"`,
@@ -67,7 +70,9 @@ export function readOpenClawConfig(): OpenClawConfig {
 
 function writeConfig(config: OpenClawConfig): void {
   const configPath = getOpenClawConfigPath();
+  if (!configPath) return;
   const ctx = resolveTargetContext('openclaw');
+  if (!ctx) return;
   const agentHome = ctx.agentHome;
   const agentUsername = ctx.agentUsername;
 

@@ -95,6 +95,6 @@ export function getSkillBackupDir(): string {
  */
 export function getSkillsDir(): string {
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
-  if (agentHome) return path.join(agentHome, '.openclaw', 'workspace', 'skills');
+  if (agentHome) return path.join(agentHome, '.openclaw', 'skills');
   return '';
 }

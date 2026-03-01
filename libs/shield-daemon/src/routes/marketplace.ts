@@ -30,7 +30,8 @@ import { stripEnvFromSkillMd } from '@agenshield/sandbox';
 import { injectInstallationTag } from '../services/skill-tag-injector';
 import { executeSkillInstallSteps } from '../services/skill-deps';
 import { getSkillsDir } from '../config/paths';
-import { resolveTargetContext } from '../services/target-context';
+import { resolveTargetContext, requireTargetContext } from '../services/target-context';
+import { TargetContextNotFoundError } from '../errors';
 
 /* ── Install-in-progress tracking ───────────────────────── */
 const installInProgress = new Set<string>();
@@ -593,7 +594,7 @@ export async function marketplaceRoutes(app: FastifyInstance): Promise<void> {
           // 8. Execute dependency install steps from skill metadata
           let depsSuccess = true;
           emitSkillInstallProgress(slug, 'deps', 'Installing skill dependencies');
-          const { agentHome, agentUsername } = resolveTargetContext(request.shieldContext.profileId ?? undefined);
+          const { agentHome, agentUsername } = requireTargetContext(request.shieldContext.profileId ?? undefined);
           skillDir = skillsDir ? path.join(skillsDir, slug) : '';
 
           try {

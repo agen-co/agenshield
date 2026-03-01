@@ -29,7 +29,7 @@ import { activateMCP, deactivateMCP } from './mcp';
 import { getActivityWriter } from './services/activity-writer';
 import { shutdownProxyPool } from './proxy/pool';
 import { getQuarantineDir, getSkillBackupDir, isDevMode, getConfigDir } from './config/paths';
-import { verifyConfigIntegrity } from './config/loader';
+import { verifyConfigIntegrity, loadConfig } from './config/loader';
 import { ConfigTamperError } from './config/errors';
 import { DaemonDeployAdapter } from './adapters/daemon-deploy-adapter';
 import { migrateSkillsToSqlite } from './migration/skill-migration';
@@ -50,7 +50,7 @@ import { startMetricsCollector, stopMetricsCollector } from './services/metrics-
 import { resolveTargetContext } from './services/target-context';
 import { ProcessManager } from './services/process-manager';
 import { getCloudConnector } from './services/cloud-connector';
-import { startProcessEnforcer, stopProcessEnforcer } from './services/process-enforcer';
+import { startProcessEnforcer, stopProcessEnforcer, restartProcessEnforcer } from './services/process-enforcer';
 import { startEventLoopMonitor, stopEventLoopMonitor } from './services/event-loop-monitor';
 import { initSystemExecutor, shutdownSystemExecutor } from './workers/system-command';
 
@@ -186,16 +186,21 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   // Start security watcher for real-time monitoring
   startSecurityWatcher(10000); // Check every 10 seconds
 
-  // Derive paths from profile storage (falls back to env vars / defaults)
+  // Derive paths from profile storage (falls back to env vars)
   const targetCtx = resolveTargetContext();
-  const agentHome = targetCtx.agentHome;
-  const skillsDir = path.resolve(`${agentHome}/.openclaw/workspace/skills`);
-  const socketGroup = targetCtx.socketGroup;
+  const hasTargetCtx = targetCtx !== null;
+  const agentHome = targetCtx?.agentHome ?? '';
+  const skillsDir = hasTargetCtx ? path.resolve(`${agentHome}/.openclaw/skills`) : '';
+  const socketGroup = targetCtx?.socketGroup ?? '';
 
   const devMode = isDevMode();
 
+  if (!hasTargetCtx) {
+    app.log.warn('No target context — skill features disabled until a target is configured');
+  }
+
   // Ensure skills directory exists with proper permissions
-  if (!fs.existsSync(skillsDir)) {
+  if (hasTargetCtx && !fs.existsSync(skillsDir)) {
     try {
       if (devMode) {
         fs.mkdirSync(skillsDir, { recursive: true });
@@ -209,7 +214,7 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
     } catch (err) {
       app.log.warn({ err }, `Cannot create skills directory (${skillsDir}) — skills features will be limited until the directory is created by the shielding pipeline`);
     }
-  } else if (!devMode) {
+  } else if (hasTargetCtx && !devMode) {
     try {
       const stat = fs.statSync(skillsDir);
       if ((stat.mode & 0o7777) !== 0o2775) {
@@ -218,7 +223,7 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
     } catch { /* best-effort */ }
   }
 
-  if (devMode) {
+  if (devMode && hasTargetCtx) {
     app.log.info(`Running in DEV MODE — agentHome=${agentHome}, skillsDir=${skillsDir}`);
   }
 
@@ -361,13 +366,19 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   }
 
   // ─── Run one-time JSON → SQLite migration ────────────────────
-  migrateSkillsToSqlite(storage, skillsDir);
+  if (skillsDir) {
+    migrateSkillsToSqlite(storage, skillsDir);
+  }
 
   // ─── Run one-time slug-prefix disk folder rename ─────────────
-  migrateSlugPrefixDisk(storage, skillsDir);
+  if (skillsDir) {
+    migrateSlugPrefixDisk(storage, skillsDir);
+  }
 
   // ─── Run one-time slug-prefix removal from disk ─────────────
-  removeSlugPrefixDisk(storage, skillsDir);
+  if (skillsDir) {
+    removeSlugPrefixDisk(storage, skillsDir);
+  }
 
   // ─── Run one-time secret vault.enc → SQLite migration ───────
   await migrateSecretsToSqlite(storage);
@@ -388,19 +399,21 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   }
 
   // ─── Initialize SkillManager (new SQLite-backed) ─────────────
-  const deployAdapter = new DaemonDeployAdapter({
-    skillsDir,
-    agentHome,
-    socketGroup,
-    binDir: path.join(agentHome, 'bin'),
-    devMode,
-    profiles: storage.profiles,
-  });
+  const deployAdapter = hasTargetCtx
+    ? new DaemonDeployAdapter({
+        skillsDir,
+        agentHome,
+        socketGroup,
+        binDir: path.join(agentHome, 'bin'),
+        devMode,
+        profiles: storage.profiles,
+      })
+    : null;
 
   const skillManager = new SkillManager(storage, {
-    deployers: [deployAdapter],
-    watcher: { pollIntervalMs: 30000, skillsDir, quarantineDir },
-    autoStartWatcher: true,
+    deployers: deployAdapter ? [deployAdapter] : [],
+    watcher: skillsDir ? { pollIntervalMs: 30000, skillsDir, quarantineDir } : undefined,
+    autoStartWatcher: !!skillsDir,
     eventBus,
     backupDir,
   });
@@ -537,7 +550,8 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   setProcessManager(processManager);
 
   // Start process enforcer (scans running host processes against process-target policies)
-  startProcessEnforcer({ intervalMs: 10_000 });
+  const daemonConfig = loadConfig();
+  startProcessEnforcer({ intervalMs: daemonConfig.daemon.enforcerIntervalMs ?? 1000 });
 
   // Stop watchers, proxy pool, and MCP on server close
   app.addHook('onClose', async () => {

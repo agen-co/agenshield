@@ -18,5 +18,6 @@ export const UpdateConfigSchema = z.object({
   skillsJson: z.string().nullable().optional(),
   soulJson: z.string().nullable().optional(),
   brokerJson: z.string().nullable().optional(),
+  enforcerIntervalMs: z.number().int().positive().nullable().optional(),
 });
 export type ConfigData = z.input<typeof UpdateConfigSchema>;

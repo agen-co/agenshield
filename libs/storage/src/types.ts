@@ -39,6 +39,7 @@ export interface DbConfigRow {
   skills_json: string | null;
   soul_json: string | null;
   broker_json: string | null;
+  enforcer_interval_ms: number | null;
   updated_at: string;
 }
 

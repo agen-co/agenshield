@@ -39,26 +39,44 @@ import type { UpdateEngineOptions } from '../update/types.js';
 
 async function runPostUpgrade(): Promise<void> {
   const postUpgradeSpinner = await createSpinner('Reapplying target configurations...');
-  const maxAttempts = 5;
+  const maxAttempts = 10;
+  const retryDelayMs = 2000;
+  const fetchTimeoutMs = 15_000;
   let lastError = 'Could not reach daemon for post-upgrade refresh';
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    postUpgradeSpinner.update(`Reapplying target configurations (attempt ${attempt}/${maxAttempts})...`);
+
+    // Health pre-check — if daemon is dead, skip the fetch and wait
+    const status = await getDaemonStatus();
+    if (!status.running) {
+      lastError = 'Daemon is not running — it may have crashed after startup. Check daemon.log for details.';
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, retryDelayMs));
+      }
+      continue;
+    }
+
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs);
       const res = await fetch(
         `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}/api/system/post-upgrade`,
-        { method: 'POST' },
+        { method: 'POST', signal: controller.signal },
       );
+      clearTimeout(timeout);
       const data = await res.json() as { success: boolean; data?: { profiles?: unknown[] }; error?: string };
       if (data.success) {
         postUpgradeSpinner.succeed(`Refreshed ${data.data?.profiles?.length ?? 0} target(s)`);
         return;
       }
       lastError = data.error ?? 'Post-upgrade refresh failed';
-    } catch {
-      lastError = 'Could not reach daemon for post-upgrade refresh';
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      lastError = `Could not reach daemon for post-upgrade refresh: ${msg}`;
     }
     if (attempt < maxAttempts) {
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, retryDelayMs));
     }
   }
 

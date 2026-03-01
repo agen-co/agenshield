@@ -118,6 +118,8 @@ export interface DaemonConfig {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   /** Whether to add agen.shield to /etc/hosts */
   enableHostsEntry: boolean;
+  /** Process enforcer scan interval in ms (default: 1000) */
+  enforcerIntervalMs?: number;
 }
 
 export interface BrokerConfig {

@@ -8,6 +8,11 @@
  *
  * System commands are offloaded to the worker thread via SystemCommandExecutor
  * to avoid blocking the event loop.
+ *
+ * Performance optimisations:
+ * - Delta scanning: only evaluates newly-appeared PIDs each cycle
+ * - Non-blocking kill: SIGTERM is fire-and-forget; SIGKILL scheduled via unref'd timer
+ * - Cached daemon descendants: pgrep result cached with 10s TTL
  */
 
 import os from 'node:os';
@@ -35,9 +40,18 @@ export interface HostProcess {
 // ─── State ───────────────────────────────────────────────────
 
 let scanTimer: NodeJS.Timeout | null = null;
+let currentIntervalMs = 0;
 /** PIDs recently killed — tracked to avoid re-scanning dead processes */
 const recentlyKilledPids = new Set<number>();
 let recentlyKilledCleanupTimer: NodeJS.Timeout | null = null;
+
+/** Delta scanning: tracks previously-evaluated PIDs and their verdict */
+const knownPids = new Map<number, 'allowed' | 'denied'>();
+
+/** Cached daemon descendants (pgrep is expensive at 1s intervals) */
+let cachedDaemonDescendants: Set<number> = new Set();
+let cachedDaemonDescendantsAt = 0;
+const DAEMON_DESCENDANTS_TTL_MS = 10_000;
 
 // ─── Public API ─────────────────────────────────────────────
 
@@ -50,6 +64,7 @@ export interface ProcessEnforcerOptions {
  */
 export function startProcessEnforcer(options?: ProcessEnforcerOptions): void {
   const intervalMs = options?.intervalMs ?? 10_000;
+  currentIntervalMs = intervalMs;
   const log = getLogger();
   log.info(`[enforcer] Starting process enforcer (interval: ${intervalMs}ms)`);
 
@@ -80,13 +95,39 @@ export function stopProcessEnforcer(): void {
     recentlyKilledCleanupTimer = null;
   }
   recentlyKilledPids.clear();
+  knownPids.clear();
+  cachedDaemonDescendants = new Set();
+  cachedDaemonDescendantsAt = 0;
+  currentIntervalMs = 0;
+}
+
+/**
+ * Restart the process enforcer with new options.
+ * No-op if the interval hasn't changed.
+ */
+export function restartProcessEnforcer(options?: ProcessEnforcerOptions): void {
+  const newInterval = options?.intervalMs ?? 10_000;
+  if (newInterval === currentIntervalMs && scanTimer) return;
+
+  stopProcessEnforcer();
+  startProcessEnforcer(options);
 }
 
 /**
  * Trigger a one-shot enforcement scan (e.g., after policy push).
+ * Also invalidates the known-PID cache so all running processes are re-evaluated.
  */
 export async function triggerProcessEnforcement(): Promise<void> {
+  invalidateKnownPids();
   await runEnforcementScan();
+}
+
+/**
+ * Invalidate the delta cache so the next scan re-evaluates every PID.
+ * Called when policies change.
+ */
+export function invalidateKnownPids(): void {
+  knownPids.clear();
 }
 
 // ─── Internal ────────────────────────────────────────────────
@@ -122,12 +163,17 @@ async function runEnforcementScan(): Promise<void> {
 
   // Collect daemon's own process tree — never kill our own children
   // (e.g., installation scripts running openclaw onboarding)
-  let daemonDescendants: Set<number>;
-  try {
-    const descendants = await collectDescendants(process.pid);
-    daemonDescendants = new Set(descendants);
-  } catch {
-    daemonDescendants = new Set();
+  // Cached with 10s TTL to avoid calling pgrep every 1s scan.
+  const daemonDescendants = await getDaemonDescendantsCached();
+
+  // Build a set of current PIDs for pruning departed ones from knownPids
+  const currentPidSet = new Set(processes.map((p) => p.pid));
+
+  // Prune departed PIDs from knownPids
+  for (const pid of knownPids.keys()) {
+    if (!currentPidSet.has(pid)) {
+      knownPids.delete(pid);
+    }
   }
 
   // Per-scan fingerprint cache and hash lookup (created once, discarded after scan)
@@ -139,15 +185,19 @@ async function runEnforcementScan(): Promise<void> {
     } catch { return null; }
   };
 
+  let newPidsEvaluated = 0;
+
   for (const proc of processes) {
     // Skip recently killed PIDs
     if (recentlyKilledPids.has(proc.pid)) continue;
 
     // Skip daemon's own descendant processes
-    if (daemonDescendants.has(proc.pid)) {
-      log.debug(`[enforcer] Skipping PID ${proc.pid} (daemon descendant): ${proc.command.slice(0, 80)}`);
-      continue;
-    }
+    if (daemonDescendants.has(proc.pid)) continue;
+
+    // Delta scanning: skip PIDs we already evaluated
+    if (knownPids.has(proc.pid)) continue;
+
+    newPidsEvaluated++;
 
     let result = policyManager.evaluateProcess(proc.command);
 
@@ -167,7 +217,14 @@ async function runEnforcementScan(): Promise<void> {
       }
     }
 
-    if (!result) continue; // Process truly allowed
+    if (!result) {
+      // Process allowed — remember it
+      knownPids.set(proc.pid, 'allowed');
+      continue;
+    }
+
+    // Process denied — remember and enforce
+    knownPids.set(proc.pid, 'denied');
 
     const payload = {
       pid: proc.pid,
@@ -184,9 +241,9 @@ async function runEnforcementScan(): Promise<void> {
         `[enforcer] Killing denied process PID ${proc.pid}: ${proc.command.slice(0, 120)} (policy: ${result.policyId})`,
       );
       emitProcessViolation(payload);
-      await killProcessTree(proc.pid);
-      emitProcessKilled(payload);
       recentlyKilledPids.add(proc.pid);
+      killProcessTree(proc.pid);
+      emitProcessKilled(payload);
     } else {
       // alert mode (default)
       log.info(
@@ -195,6 +252,29 @@ async function runEnforcementScan(): Promise<void> {
       emitProcessViolation(payload);
     }
   }
+
+  if (newPidsEvaluated > 0) {
+    log.debug(`[enforcer] Evaluated ${newPidsEvaluated} new PID(s) this scan`);
+  }
+}
+
+/**
+ * Get daemon descendants with caching (10s TTL).
+ */
+async function getDaemonDescendantsCached(): Promise<Set<number>> {
+  const now = Date.now();
+  if (now - cachedDaemonDescendantsAt < DAEMON_DESCENDANTS_TTL_MS) {
+    return cachedDaemonDescendants;
+  }
+
+  try {
+    const descendants = await collectDescendants(process.pid);
+    cachedDaemonDescendants = new Set(descendants);
+  } catch {
+    cachedDaemonDescendants = new Set();
+  }
+  cachedDaemonDescendantsAt = now;
+  return cachedDaemonDescendants;
 }
 
 /**
@@ -252,28 +332,38 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
 }
 
 /**
- * Kill a process tree: SIGTERM → grace period → SIGKILL.
- * Follows the pattern from services/process-manager.ts.
+ * Kill a process tree: SIGTERM immediately, SIGKILL after grace period (non-blocking).
+ * The SIGKILL timer is unref'd so it doesn't keep the event loop alive.
  */
-export async function killProcessTree(pid: number): Promise<void> {
-  const descendants = await collectDescendants(pid);
-
-  // SIGTERM to the whole tree (leaves first)
-  for (const childPid of descendants.reverse()) {
-    try { process.kill(childPid, 'SIGTERM'); } catch { /* already dead */ }
-  }
+export function killProcessTree(pid: number): void {
+  // Collect descendants synchronously via cached data isn't possible here;
+  // fire SIGTERM to the root immediately, then collect + kill async.
   try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ }
 
-  // Grace period then SIGKILL — await completion
-  await new Promise<void>(resolve => {
-    setTimeout(() => {
-      for (const childPid of descendants) {
-        try { process.kill(childPid, 'SIGKILL'); } catch { /* already dead */ }
+  // Async: collect descendants and kill them too
+  collectDescendants(pid)
+    .then((descendants) => {
+      // SIGTERM to descendants (leaves first)
+      for (const childPid of descendants.reverse()) {
+        try { process.kill(childPid, 'SIGTERM'); } catch { /* already dead */ }
       }
-      try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
-      resolve();
-    }, GRACE_PERIOD_MS);
-  });
+
+      // Schedule SIGKILL after grace period (non-blocking)
+      const timer = setTimeout(() => {
+        for (const childPid of descendants) {
+          try { process.kill(childPid, 'SIGKILL'); } catch { /* already dead */ }
+        }
+        try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+      }, GRACE_PERIOD_MS);
+      timer.unref();
+    })
+    .catch(() => {
+      // Failed to collect descendants — still schedule SIGKILL for root
+      const timer = setTimeout(() => {
+        try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+      }, GRACE_PERIOD_MS);
+      timer.unref();
+    });
 }
 
 /**

@@ -18,17 +18,21 @@ export function createStopHostProcessesStep(appName: string, killPattern: string
     phase: 8,
     progressMessage: `Stopping host ${appName} processes...`,
     runsAs: 'root',
-    timeout: 30_000,
+    timeout: 15_000,
     weight: 3,
 
     async run(ctx) {
       if (appName === 'openclaw') {
-        // Graceful stop + targeted PID kill as fallback
-        await ctx.execAsRoot([
-          `sudo -H -u ${ctx.hostUsername} openclaw gateway stop 2>/dev/null || true`,
-          `sudo -H -u ${ctx.hostUsername} openclaw daemon stop 2>/dev/null || true`,
-          `sleep 2; pkill -u $(id -u ${ctx.hostUsername}) -f '${killPattern}' 2>/dev/null; true`,
-        ].join('; '), { timeout: 30_000 });
+        // Early-exit if no openclaw processes, parallel stop if running
+        await ctx.execAsRoot(
+          `if ps -u $(id -u ${ctx.hostUsername}) -o command= 2>/dev/null | grep -q 'openclaw'; then ` +
+          `sudo -H -u ${ctx.hostUsername} openclaw gateway stop 2>/dev/null & ` +
+          `sudo -H -u ${ctx.hostUsername} openclaw daemon stop 2>/dev/null & ` +
+          `wait; sleep 1; ` +
+          `pkill -u $(id -u ${ctx.hostUsername}) -f '${killPattern}' 2>/dev/null; ` +
+          `fi; true`,
+          { timeout: 15_000 },
+        );
       } else {
         // Generic pattern-based kill
         await ctx.execAsRoot(

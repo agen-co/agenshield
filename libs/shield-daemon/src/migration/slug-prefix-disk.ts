@@ -110,10 +110,8 @@ export function removeSlugPrefixDisk(storage: Storage, skillsDir: string): void 
 
   console.log('[slug-prefix-remove] Starting filesystem slug prefix removal...');
 
-  let ctx: { agentHome: string } | null = null;
-  try {
-    ctx = resolveTargetContext();
-  } catch {
+  const ctx = resolveTargetContext();
+  if (!ctx) {
     // No target context — nothing to migrate on disk
     storage.setMeta(META_KEYS.SLUG_PREFIX_REMOVED, new Date().toISOString());
     return;

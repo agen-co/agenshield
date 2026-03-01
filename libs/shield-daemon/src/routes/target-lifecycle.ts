@@ -507,11 +507,15 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         log('Stopping host OpenClaw processes...', 'stop_host');
         shieldLog.step('stop_host', 'Stopping host OpenClaw processes before sandbox setup...');
         try {
-          await executor.execAsRoot([
-            `sudo -H -u ${hostUsername} openclaw gateway stop 2>/dev/null || true`,
-            `sudo -H -u ${hostUsername} openclaw daemon stop 2>/dev/null || true`,
-            `sleep 2; pkill -u $(id -u ${hostUsername}) -f 'node.*openclaw' 2>/dev/null; true`,
-          ].join('; '), { timeout: 30_000 });
+          await executor.execAsRoot(
+            `if ps -u $(id -u ${hostUsername}) -o command= 2>/dev/null | grep -q 'openclaw'; then ` +
+            `sudo -H -u ${hostUsername} openclaw gateway stop 2>/dev/null & ` +
+            `sudo -H -u ${hostUsername} openclaw daemon stop 2>/dev/null & ` +
+            `wait; sleep 1; ` +
+            `pkill -u $(id -u ${hostUsername}) -f 'node.*openclaw' 2>/dev/null; ` +
+            `fi; true`,
+            { timeout: 15_000 },
+          );
         } catch {
           // Best-effort — host processes may not be running
         }

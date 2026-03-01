@@ -43,12 +43,12 @@ export function getSkillsDir(homeDir: string): string {
  * The skill is auto-generated and deployed by the daemon at runtime.
  */
 export function getAgenCoSkillPath(): string {
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
   const possiblePaths: string[] = [
-    // Daemon-deployed location (primary)
-    path.join(
-      process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent',
-      '.openclaw', 'workspace', 'skills', 'agenco',
-    ),
+    // Daemon-deployed location (primary) — only if env var is set
+    ...(agentHome
+      ? [path.join(agentHome, '.openclaw', 'skills', 'agenco')]
+      : []),
     // Global install fallback
     '/opt/agenshield/skills/agenco',
   ];

@@ -113,6 +113,15 @@ describe('OPENCLAW_PRESET', () => {
     expect(commands!.patterns).toContain('git:*');
     expect(commands!.patterns).toContain('launchctl:*');
   });
+
+  it('has local gateway HTTP allow', () => {
+    const localGw = OPENCLAW_PRESET.policies.find(p => p.id === 'preset-openclaw-local-gateway');
+    expect(localGw).toBeDefined();
+    expect(localGw!.action).toBe('allow');
+    expect(localGw!.target).toBe('url');
+    expect(localGw!.patterns).toContain('http://127.0.0.1:*');
+    expect(localGw!.patterns).toContain('http://localhost:*');
+  });
 });
 
 describe('CLAUDECODE_PRESET', () => {

@@ -24,5 +24,6 @@ export function mapConfig(row: DbConfigRow): ConfigData {
     skillsJson: row.skills_json,
     soulJson: row.soul_json,
     brokerJson: row.broker_json,
+    enforcerIntervalMs: row.enforcer_interval_ms,
   };
 }

@@ -13,7 +13,7 @@ import { loadConfig, updateConfig } from '../config/index';
 import { uninstallBrewBinaryWrappers } from './brew-wrapper';
 import { writeFileViaBroker, mkdirViaBroker, rmViaBroker, isBrokerAvailable } from './broker-bridge';
 import { isDevMode } from '../config/paths';
-import { resolveTargetContext } from './target-context';
+import { requireTargetContext } from './target-context';
 
 // ─── Sudo helpers ────────────────────────────────────────────────────────────
 
@@ -105,7 +105,7 @@ export async function sudoRm(targetPath: string, agentUsername: string): Promise
  * directly to it instead of going through `shield-client skill run`.
  */
 export async function createSkillWrapper(name: string, binDir: string): Promise<void> {
-  const { agentHome, agentUsername } = resolveTargetContext();
+  const { agentHome, agentUsername } = requireTargetContext();
 
   await sudoMkdir(binDir, agentUsername);
 
@@ -219,7 +219,7 @@ export function removeSkillPolicy(name: string): void {
  * If shared, updates the wrapper to the next owner.
  */
 export async function removeBrewBinaryWrappers(name: string): Promise<void> {
-  const { agentHome, agentUsername } = resolveTargetContext();
+  const { agentHome, agentUsername } = requireTargetContext();
 
   try {
     const result = await uninstallBrewBinaryWrappers({

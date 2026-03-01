@@ -292,7 +292,7 @@ export async function evaluatePolicyCheck(
           return config.policies || [];
         },
         defaultAction: config.defaultAction ?? 'deny',
-        agentHome: resolveTargetContext(profileId).agentHome,
+        agentHome: resolveTargetContext(profileId)?.agentHome ?? '',
         brokerHttpPort: config.broker?.httpPort,
         resourceMonitoring: config.resourceMonitoring,
       },

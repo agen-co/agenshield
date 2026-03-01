@@ -90,11 +90,8 @@ export class OpenClawDeployAdapter implements DeployAdapter {
     }
   }
 
-  async checkIntegrity(installation: SkillInstallation, version: SkillVersion, files: SkillFile[]): Promise<IntegrityCheckResult> {
-    // We derive the deploy dir from the skill slug via folderPath pattern /skills/{slug}/{version}
-    const slugFromPath = version.folderPath.split('/').filter(Boolean);
-    const skillSlug = slugFromPath.length >= 2 ? slugFromPath[slugFromPath.length - 2] : slugFromPath[0];
-    const deployDir = path.join(this.skillsDir, skillSlug);
+  async checkIntegrity(installation: SkillInstallation, version: SkillVersion, files: SkillFile[], skill: Skill): Promise<IntegrityCheckResult> {
+    const deployDir = path.join(this.skillsDir, skill.slug);
 
     const modifiedFiles: string[] = [];
     const missingFiles: string[] = [];
@@ -129,7 +126,7 @@ export class OpenClawDeployAdapter implements DeployAdapter {
 
     const intact = modifiedFiles.length === 0 && missingFiles.length === 0 && unexpectedFiles.length === 0;
 
-    return { intact, modifiedFiles, missingFiles, unexpectedFiles };
+    return { intact, modifiedFiles, missingFiles, unexpectedFiles, checkedPath: deployDir };
   }
 
   private computeDeployedHash(dir: string, files: SkillFile[]): string {

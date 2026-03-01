@@ -52,6 +52,7 @@ export const ScrollArea = styled('div')({
 export const FullHeightArea = styled('div')({
   flex: 1,
   overflow: 'hidden',
+  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
   padding: 24,

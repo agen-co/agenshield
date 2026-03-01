@@ -28,6 +28,7 @@ export function getDefaultConfig(): ShieldConfig {
       host: DEFAULT_HOST,
       logLevel: 'info',
       enableHostsEntry: false,
+      enforcerIntervalMs: 1000,
     },
     policies: [],
     vault: {

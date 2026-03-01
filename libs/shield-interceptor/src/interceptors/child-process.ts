@@ -156,6 +156,13 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       const rest = trimmed.slice(basePrefix.length).trim();
       return rest.startsWith('-c ') ? rest.slice(3).trim() : rest;
     }
+    // Per-target path: "/Users/<user>/.agenshield/bin/guarded-shell -c <cmd>"
+    // Match any absolute path ending in /guarded-shell
+    const gsIdx = trimmed.indexOf('/guarded-shell ');
+    if (gsIdx >= 0 && trimmed[0] === '/') {
+      const rest = trimmed.slice(gsIdx + '/guarded-shell '.length).trim();
+      return rest.startsWith('-c ') ? rest.slice(3).trim() : rest;
+    }
     return command;
   }
 

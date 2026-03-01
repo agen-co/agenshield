@@ -120,12 +120,16 @@ async function handlePing(args: string[]): Promise<void> {
 }
 
 async function handleHttp(args: string[]): Promise<void> {
-  const method = args[0]?.toUpperCase() as 'GET' | 'POST' | 'PUT' | 'DELETE';
-  const url = args[1];
-  const body = args[2];
+  // Check for --raw flag (used by curl wrapper to get only the response body)
+  const raw = args.includes('--raw');
+  const filtered = raw ? args.filter((a) => a !== '--raw') : args;
+
+  const method = filtered[0]?.toUpperCase() as 'GET' | 'POST' | 'PUT' | 'DELETE';
+  const url = filtered[1];
+  const body = filtered[2];
 
   if (!method || !url) {
-    console.error('Usage: shield-client http <method> <url> [body]');
+    console.error('Usage: shield-client http [--raw] <method> <url> [body]');
     process.exit(1);
   }
 
@@ -134,6 +138,13 @@ async function handleHttp(args: string[]): Promise<void> {
     method,
     body,
   });
+
+  if (raw) {
+    // Raw mode: output only the response body (like real curl)
+    if (result.body) process.stdout.write(result.body);
+    if (!result.status || result.status >= 400) process.exit(22); // curl uses 22 for HTTP errors
+    return;
+  }
 
   console.log(`Status: ${result.status} ${result.statusText}`);
   console.log('Headers:');
@@ -348,7 +359,8 @@ function stripKnownPrefix(slug: string): string | null {
 }
 
 function findSkillBinary(slug: string): string | null {
-  const agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+  const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
+  if (!agentHome) return null;
   const wrapperDir = join(agentHome, 'bin');
 
   // 1. Check brew-originals directory first

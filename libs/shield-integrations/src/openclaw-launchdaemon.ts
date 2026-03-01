@@ -592,7 +592,10 @@ export async function getOpenClawDashboardUrl(
   options?: { agentHome?: string },
 ): Promise<{ success: boolean; url?: string; token?: string; error?: string }> {
   try {
-    const agentHome = options?.agentHome || process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent';
+    const agentHome = options?.agentHome || process.env['AGENSHIELD_AGENT_HOME'];
+    if (!agentHome) {
+      return { success: false, error: 'No agent home configured — set AGENSHIELD_AGENT_HOME or pass agentHome option' };
+    }
     const configPath = path.join(agentHome, '.openclaw', 'openclaw.json');
 
     let raw: string;

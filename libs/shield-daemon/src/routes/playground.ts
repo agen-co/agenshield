@@ -286,7 +286,7 @@ export async function playgroundRoutes(app: FastifyInstance): Promise<void> {
         };
 
         // When profile-scoped, run in the target's home directory
-        const targetHome = profileId ? resolveTargetContext(profileId).agentHome : undefined;
+        const targetHome = profileId ? resolveTargetContext(profileId)?.agentHome : undefined;
         if (targetHome) childEnv['HOME'] = targetHome;
 
         // Determine if we can use sandbox-exec (macOS only)

@@ -3,6 +3,22 @@
  * AgenShield Daemon Entry Point
  */
 
+// Crash handlers — must be registered before any imports that could throw.
+// Both stdout and stderr go to daemon.log (CLI spawns with stdio: ['ignore', logFd, logFd]).
+// process.stderr.write() is unbuffered in Node.js, so it lands in the file even if the process crashes immediately.
+process.stderr.write(`[boot] AgenShield daemon starting at ${new Date().toISOString()} (PID ${process.pid})\n`);
+
+process.on('uncaughtException', (err) => {
+  process.stderr.write(`[FATAL] Uncaught exception: ${err?.stack ?? err}\n`);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+  process.stderr.write(`[FATAL] Unhandled rejection: ${msg}\n`);
+  process.exit(1);
+});
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { initStorage, DB_FILENAME, ACTIVITY_DB_FILENAME, DatabaseCorruptedError } from '@agenshield/storage';

@@ -61,9 +61,16 @@ export async function handleSkillInstall(
       slug,
       files,
       createWrapper = false,
-      agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent',
+      agentHome = process.env['AGENSHIELD_AGENT_HOME'] ?? '',
       socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default',
     } = params as unknown as SkillInstallParams;
+
+    if (!agentHome) {
+      return {
+        success: false,
+        error: { code: 1003, message: 'agentHome is required — set AGENSHIELD_AGENT_HOME or pass agentHome param' },
+      };
+    }
 
     // Validate slug
     if (!slug || !isValidSlug(slug)) {
@@ -189,9 +196,16 @@ export async function handleSkillUninstall(
   try {
     const {
       slug,
-      agentHome = process.env['AGENSHIELD_AGENT_HOME'] || '/Users/ash_default_agent',
+      agentHome = process.env['AGENSHIELD_AGENT_HOME'] ?? '',
       removeWrapper = true,
     } = params as unknown as SkillUninstallParams;
+
+    if (!agentHome) {
+      return {
+        success: false,
+        error: { code: 1003, message: 'agentHome is required — set AGENSHIELD_AGENT_HOME or pass agentHome param' },
+      };
+    }
 
     // Validate slug
     if (!slug || !isValidSlug(slug)) {

@@ -104,6 +104,11 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   // Metrics
   'metrics:spike': { icon: AlertTriangle, label: 'Resource Spike', color: 'warning' },
 
+  // Trace
+  'trace:started': { icon: Play, label: 'Exec Trace', color: 'secondary' },
+  'trace:completed': { icon: Square, label: 'Trace Done', color: 'secondary' },
+  'trace:anomaly': { icon: AlertTriangle, label: 'Trace Anomaly', color: 'warning' },
+
   // Interceptor
   'interceptor:event': { icon: Crosshair, label: 'Interceptor Event', color: 'info' },
 
@@ -185,6 +190,10 @@ export function getEventSeverity(event: SSEEvent): EventSeverity {
     if (dtype === 'allowed' || dtype === 'allow') return 'info';
   }
 
+  // Trace
+  if (t === 'trace:anomaly') return 'warn';
+  if (t === 'trace:started' || t === 'trace:completed') return 'debug';
+
   // Warn: security warnings, alerts, resource limits, broker crashes, resource spikes
   if (t === 'security:status' || t === 'security:warning') return 'warn';
   if (t === 'metrics:spike') return 'warn';
@@ -236,6 +245,7 @@ export function isNoiseEvent(event: SSEEvent): boolean {
   if (event.type === 'metrics:spike') return true;
   if (event.type === 'security:status') return true;
   if (event.type === 'targets:status') return true;
+  if (event.type === 'trace:started' || event.type === 'trace:completed') return true;
 
   // Hide API polling requests (GET to known polling endpoints)
   if (event.type === 'api:request') {
@@ -315,6 +325,21 @@ export function getEventSummary(event: SSEEvent): string {
   if (event.type === 'skills:integrity_restored') {
     const name = String(d.slug ?? d.name ?? '');
     return `${name} — files restored`;
+  }
+
+  if (event.type === 'trace:started' || event.type === 'trace:completed') {
+    const command = String(d.command ?? '');
+    const depth = d.depth != null ? ` (depth: ${d.depth})` : '';
+    const allowed = d.allowed === true ? 'allowed' : d.allowed === false ? 'denied' : '';
+    const suffix = allowed ? ` — ${allowed}` : '';
+    const truncated = command.length > 80 ? command.slice(0, 77) + '...' : command;
+    return `${truncated}${depth}${suffix}`;
+  }
+  if (event.type === 'trace:anomaly') {
+    const command = String(d.command ?? '');
+    const message = String(d.message ?? d.reason ?? '');
+    const truncated = command.length > 80 ? command.slice(0, 77) + '...' : command;
+    return message ? `${truncated} — ${message}` : truncated;
   }
 
   if (event.type === 'config:policies_updated') {
@@ -397,6 +422,13 @@ export function getEventStatus(event: SSEEvent): { label: string; variant: Statu
     if (dtype === 'allowed' || dtype === 'allow') return { label: 'allow', variant: 'success' };
     return { label: dtype || 'event', variant: 'info' };
   }
+  if (event.type === 'trace:started' || event.type === 'trace:completed') {
+    const d = event.data as Record<string, unknown>;
+    if (d.allowed === true) return { label: 'allow', variant: 'success' };
+    if (d.allowed === false) return { label: 'deny', variant: 'error' };
+    return { label: 'trace', variant: 'info' };
+  }
+  if (event.type === 'trace:anomaly') return { label: 'anomaly', variant: 'warning' };
   if (BLOCKED_EVENT_TYPES.has(event.type)) return { label: 'deny', variant: 'error' };
   if (event.type.startsWith('process:')) {
     if (event.type.endsWith('_started')) return { label: 'started', variant: 'success' };
