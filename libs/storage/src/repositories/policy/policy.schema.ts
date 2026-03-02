@@ -24,6 +24,7 @@ export const UpdatePolicySchema = z.object({
   scope: z.string().optional(),
   networkAccess: z.enum(['none', 'proxy', 'direct']).optional(),
   enforcement: z.enum(['alert', 'kill']).optional(),
+  methods: z.array(z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])).optional(),
   managed: z.boolean().optional(),
   managedSource: z.string().optional(),
 });
@@ -46,6 +47,7 @@ export const UpdatePolicyCodec = z.codec(
       scope: data.scope,
       network_access: data.networkAccess,
       enforcement: data.enforcement,
+      methods: data.methods !== undefined ? JSON.stringify(data.methods) : undefined,
       managed: data.managed !== undefined ? (data.managed ? 1 : 0) : undefined,
       managed_source: data.managedSource,
     }),

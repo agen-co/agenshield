@@ -28,6 +28,9 @@ import {
   type TargetStatusInfo,
   type EnforcementProcessPayload,
   type ConfigPoliciesUpdatedPayload,
+  type TargetBinaryDriftedPayload,
+  type TargetRePatchedPayload,
+  type SystemUpdateAvailablePayload,
 } from '@agenshield/ipc';
 
 // Re-export for internal daemon consumers that import from this file
@@ -129,7 +132,8 @@ function deriveSource(type: string, data: unknown, profileId?: string): string {
   if (type.startsWith('enforcement:')) return profile ?? 'daemon';
   if (type.startsWith('resource:')) return profile ?? 'system';
   if (type.startsWith('metrics:')) return 'system';
-  if (type.startsWith('targets:')) return 'daemon';
+  if (type.startsWith('targets:') || type.startsWith('target:')) return 'daemon';
+  if (type.startsWith('system:')) return 'system';
   if (type.startsWith('daemon:') || type.startsWith('config:') || type.startsWith('security:')) return 'daemon';
   if (type.startsWith('api:')) return 'daemon';
   return profile ?? 'daemon';
@@ -344,4 +348,20 @@ export function emitProcessKilled(data: EnforcementProcessPayload, profileId?: s
 
 export function emitPoliciesUpdated(data: ConfigPoliciesUpdatedPayload): void {
   broadcast('config:policies_updated', data);
+}
+
+// ===== Binary integrity event helpers =====
+
+export function emitBinaryDrifted(data: TargetBinaryDriftedPayload, profileId?: string): void {
+  broadcast('target:binary-drifted', data, profileId);
+}
+
+export function emitRePatched(data: TargetRePatchedPayload, profileId?: string): void {
+  broadcast('target:re-patched', data, profileId);
+}
+
+// ===== System update event helpers =====
+
+export function emitUpdateAvailable(data: SystemUpdateAvailablePayload): void {
+  broadcast('system:update-available', data);
 }

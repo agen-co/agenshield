@@ -882,11 +882,13 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           shieldLog.info('Generating and installing seatbelt profiles');
           try {
             const { installSeatbeltProfiles } = await import('@agenshield/sandbox');
+            const { expandSensitiveHomePaths } = await import('@agenshield/broker');
             const agentProfile = generateAgentProfile({
               workspacePath: `${agentHome}/workspace`,
               socketPath: `${agentHome}/.agenshield/run/agenshield.sock`,
               agentHome,
               denyWritePaths: preset.seatbeltDenyPaths,
+              denyReadPaths: expandSensitiveHomePaths(agentHome),
               networkMode: enforcementMode === 'interceptor' ? 'allow' : undefined,
             });
             await installSeatbeltProfiles(userConfig, { agentProfile });
@@ -1177,11 +1179,13 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         currentStep = 'generating_seatbelt';
         log('Generating seatbelt security profile...', 'generating_seatbelt');
         shieldLog.step('generating_seatbelt', 'Generating seatbelt security profile...');
+        const { expandSensitiveHomePaths: expandPaths } = await import('@agenshield/broker');
         const seatbeltProfile = generateAgentProfile({
           workspacePath: `${agentHome}/workspace`,
           socketPath: pathsConfig.socketPath,
           agentHome,
           denyWritePaths: preset.seatbeltDenyPaths,
+          denyReadPaths: expandPaths(agentHome),
           networkMode: enforcementMode === 'interceptor' ? 'allow' : undefined,
         });
         const seatbeltPath = `${agentHome}/.agenshield/seatbelt/agent.sb`;

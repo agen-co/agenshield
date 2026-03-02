@@ -22,6 +22,7 @@ export interface DbProfileRow {
   install_manifest: string | null;
   gateway_port: number | null;
   enforcement_mode: string | null;
+  workspace_paths: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -58,6 +59,7 @@ export interface DbPolicyRow {
   scope: string | null;
   network_access: string | null;
   enforcement: string | null;
+  methods: string | null;
   managed: number;
   managed_source: string | null;
   created_at: string;

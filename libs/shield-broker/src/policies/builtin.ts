@@ -6,6 +6,7 @@
 
 import os from 'node:os';
 import type { PolicyConfig, PolicyRule } from './enforcer.js';
+import { SENSITIVE_FILE_PATTERNS } from './sensitive-patterns.js';
 
 /**
  * Built-in policy rules
@@ -65,7 +66,7 @@ export const BuiltinPolicies: PolicyRule[] = [
     name: 'Allow localhost connections',
     action: 'allow',
     target: 'url',
-    operations: ['http_request'],
+    operations: ['http_request', 'open_url'],
     patterns: [
       'http://localhost:*',
       'http://localhost:*/**',
@@ -80,28 +81,14 @@ export const BuiltinPolicies: PolicyRule[] = [
     priority: 100,
   },
 
-  // Deny access to sensitive files
+  // Deny access to sensitive files (centralized patterns)
   {
     id: 'builtin-deny-secrets',
     name: 'Deny access to secret files',
     action: 'deny',
-    target: 'command',
-    operations: ['file_read', 'file_write'],
-    patterns: [
-      '**/.env',
-      '**/.env.*',
-      '**/secrets.json',
-      '**/secrets.yaml',
-      '**/secrets.yml',
-      '**/*.key',
-      '**/*.pem',
-      '**/*.p12',
-      '**/id_rsa',
-      '**/id_ed25519',
-      '**/.ssh/*',
-      '**/credentials.json',
-      '**/service-account*.json',
-    ],
+    target: 'filesystem',
+    operations: ['file_read', 'file_write', 'file_list'],
+    patterns: [...SENSITIVE_FILE_PATTERNS],
     enabled: true,
     priority: 200,
   },
@@ -111,8 +98,8 @@ export const BuiltinPolicies: PolicyRule[] = [
     id: 'builtin-deny-system',
     name: 'Deny access to system files',
     action: 'deny',
-    target: 'command',
-    operations: ['file_read', 'file_write'],
+    target: 'filesystem',
+    operations: ['file_read', 'file_write', 'file_list'],
     patterns: [
       '/etc/passwd',
       '/etc/shadow',
@@ -207,7 +194,7 @@ export const BuiltinPolicies: PolicyRule[] = [
     name: 'Allow common AI API endpoints',
     action: 'allow',
     target: 'url',
-    operations: ['http_request'],
+    operations: ['http_request', 'open_url'],
     patterns: [
       'https://api.anthropic.com',
       'https://api.anthropic.com/**',
@@ -219,6 +206,14 @@ export const BuiltinPolicies: PolicyRule[] = [
       'https://generativelanguage.googleapis.com/**',
       'https://api.mistral.ai',
       'https://api.mistral.ai/**',
+      'https://claude.ai',
+      'https://claude.ai/**',
+      'https://platform.claude.com',
+      'https://platform.claude.com/**',
+      'https://mcp-proxy.anthropic.com',
+      'https://mcp-proxy.anthropic.com/**',
+      'https://storage.googleapis.com',
+      'https://storage.googleapis.com/**',
     ],
     enabled: true,
     priority: 50,
@@ -230,7 +225,7 @@ export const BuiltinPolicies: PolicyRule[] = [
     name: 'Allow package registries',
     action: 'allow',
     target: 'url',
-    operations: ['http_request'],
+    operations: ['http_request', 'open_url'],
     patterns: [
       'https://registry.npmjs.org',
       'https://registry.npmjs.org/**',
@@ -253,7 +248,7 @@ export const BuiltinPolicies: PolicyRule[] = [
     name: 'Allow GitHub',
     action: 'allow',
     target: 'url',
-    operations: ['http_request'],
+    operations: ['http_request', 'open_url'],
     patterns: [
       'https://github.com',
       'https://github.com/**',
@@ -272,26 +267,27 @@ export const BuiltinPolicies: PolicyRule[] = [
 /**
  * Get default policy configuration
  */
-export function getDefaultPolicies(options?: { agentHome?: string }): PolicyConfig {
+export function getDefaultPolicies(options?: {
+  agentHome?: string;
+  workspacePaths?: string[];
+}): PolicyConfig {
   const agentHome = options?.agentHome
     || process.env['AGENSHIELD_AGENT_HOME']
     || os.homedir();
+
+  const allowedPaths = [
+    agentHome,
+    '/tmp/agenshield',
+    ...(options?.workspacePaths ?? []),
+  ];
 
   return {
     version: '1.0.0',
     defaultAction: 'deny',
     rules: [...BuiltinPolicies],
     fsConstraints: {
-      allowedPaths: [
-        agentHome,
-        '/tmp/agenshield',
-      ],
-      deniedPatterns: [
-        '**/.env*',
-        '**/secrets.*',
-        '**/*.key',
-        '**/*.pem',
-      ],
+      allowedPaths,
+      deniedPatterns: [...SENSITIVE_FILE_PATTERNS],
     },
     networkConstraints: {
       allowedHosts: [
@@ -303,6 +299,10 @@ export function getDefaultPolicies(options?: { agentHome?: string }): PolicyConf
         'pypi.org',
         'github.com',
         'api.github.com',
+        'claude.ai',
+        'platform.claude.com',
+        'mcp-proxy.anthropic.com',
+        'storage.googleapis.com',
       ],
       deniedHosts: ['*'],
       allowedPorts: [80, 443, 5200],

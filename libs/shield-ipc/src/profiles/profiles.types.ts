@@ -32,6 +32,8 @@ export interface Profile {
   gatewayPort?: number;
   /** Which enforcement layer(s) are active for this profile */
   enforcementMode?: EnforcementMode;
+  /** Allowed workspace directories for this profile */
+  workspacePaths?: string[];
   createdAt: string;
   updatedAt: string;
 }

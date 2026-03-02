@@ -15,7 +15,7 @@ export interface PolicyRule {
   id: string;
   name: string;
   action: 'allow' | 'deny' | 'approval';
-  target: 'skill' | 'command' | 'url';
+  target: 'skill' | 'command' | 'url' | 'filesystem';
   operations: string[];
   patterns: string[];
   enabled: boolean;
@@ -92,6 +92,9 @@ export class PolicyEnforcer {
         break;
       case 'skill':
         normalized.operations = ['skill_install', 'skill_uninstall'];
+        break;
+      case 'filesystem':
+        normalized.operations = ['file_read', 'file_write', 'file_list'];
         break;
       default:
         normalized.operations = ['*'];
@@ -211,7 +214,7 @@ export class PolicyEnforcer {
       if (['file_read', 'file_write', 'file_list'].includes(operation) && this.policies.fsConstraints) {
         return { allowed: true, reason: 'Allowed by file system constraints' };
       }
-      if (operation === 'http_request' && this.policies.networkConstraints) {
+      if ((operation === 'http_request' || operation === 'open_url') && this.policies.networkConstraints) {
         return { allowed: true, reason: 'Allowed by network constraints' };
       }
 
@@ -360,7 +363,7 @@ export class PolicyEnforcer {
     }
 
     // Network constraints
-    if (operation === 'http_request') {
+    if (operation === 'http_request' || operation === 'open_url') {
       const url = params['url'] as string;
       if (url && this.policies.networkConstraints) {
         try {

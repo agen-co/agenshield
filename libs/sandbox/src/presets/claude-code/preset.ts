@@ -7,7 +7,10 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execAsync = promisify(exec);
 import type {
   TargetPreset,
   PresetDetectionResult,
@@ -40,7 +43,8 @@ export const claudeCodePreset: TargetPreset = {
 
     // 1. Find the claude binary
     try {
-      binaryPath = execSync('which claude', { encoding: 'utf-8', timeout: 5_000 }).trim();
+      const { stdout: whichOut } = await execAsync('which claude', { encoding: 'utf-8', timeout: 5_000 });
+      binaryPath = whichOut.trim();
     } catch {
       // Not found in PATH
     }
@@ -49,10 +53,11 @@ export const claudeCodePreset: TargetPreset = {
 
     // 2. Get version
     try {
-      const versionOutput = execSync('claude --version 2>/dev/null', {
+      const { stdout: versionOut } = await execAsync('claude --version 2>/dev/null', {
         encoding: 'utf-8',
         timeout: 10_000,
-      }).trim();
+      });
+      const versionOutput = versionOut.trim();
       // Version output may be multi-line; take first line
       version = versionOutput.split('\n')[0]?.trim();
     } catch {
@@ -61,7 +66,8 @@ export const claudeCodePreset: TargetPreset = {
 
     // 3. Determine installation method
     try {
-      const npmRoot = execSync('npm root -g', { encoding: 'utf-8', timeout: 5_000 }).trim();
+      const { stdout: npmOut } = await execAsync('npm root -g', { encoding: 'utf-8', timeout: 5_000 });
+      const npmRoot = npmOut.trim();
       const claudeNpmPath = path.join(npmRoot, '@anthropic-ai', 'claude-code');
       if (fs.existsSync(claudeNpmPath)) {
         method = 'npm';

@@ -44,7 +44,7 @@ export class CompiledPolicyEngine {
    * - Returns GraphEffects for sandbox builder to consume
    */
   evaluate(input: EvaluationInput): EvaluationResult {
-    const { operation, target, context, defaultAction } = input;
+    const { operation, target, context, defaultAction, httpMethod } = input;
     const targetType = operationToTarget(operation);
     const effectiveDefault = defaultAction ?? this.data.defaultAction;
 
@@ -67,6 +67,9 @@ export class CompiledPolicyEngine {
 
       // Check operations filter
       if (rule.operations && !rule.operations.has(operation)) continue;
+
+      // Check HTTP method filter (URL-target policies only)
+      if (rule.methods && httpMethod && !rule.methods.has(httpMethod)) continue;
 
       // Check pattern match
       for (const matcher of rule.matchers) {

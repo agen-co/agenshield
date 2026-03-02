@@ -29,6 +29,7 @@ export function mapPolicy(row: DbPolicyRow): PolicyConfig {
     scope: row.scope ?? undefined,
     networkAccess: row.network_access as PolicyConfig['networkAccess'],
     enforcement: row.enforcement as PolicyConfig['enforcement'],
+    methods: row.methods ? JSON.parse(row.methods) : undefined,
     tier: deriveTier(row),
   };
 }

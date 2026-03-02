@@ -281,7 +281,10 @@ TRAPDEBUG() {
 
 # ---- Ensure accessible working directory ----
 if [[ -n "$AGENSHIELD_HOST_CWD" ]] && [[ -d "$AGENSHIELD_HOST_CWD" ]]; then
-  cd "$AGENSHIELD_HOST_CWD" 2>/dev/null || cd "$HOME" 2>/dev/null || cd /
+  if ! cd "$AGENSHIELD_HOST_CWD" 2>/dev/null; then
+    print -r -- "AgenShield: Cannot access $AGENSHIELD_HOST_CWD — using home directory" >&2
+    cd "$HOME" 2>/dev/null || cd /
+  fi
 else
   cd "$HOME" 2>/dev/null || cd /
 fi

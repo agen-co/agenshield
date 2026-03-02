@@ -676,6 +676,264 @@ export function detectInstallFormat(): InstallFormat {
 // SEA binary helpers
 // ---------------------------------------------------------------------------
 
+/** Default GitHub repository for SEA releases */
+const DEFAULT_GITHUB_REPO = 'agen-co/agenshield';
+
+/**
+ * Query the latest SEA release version from GitHub Releases API.
+ * Uses the public API endpoint (no authentication required).
+ */
+export async function queryLatestSEAVersion(repo = DEFAULT_GITHUB_REPO): Promise<string> {
+  const https = await import('node:https');
+
+  return new Promise<string>((resolve, reject) => {
+    const url = `https://api.github.com/repos/${repo}/releases/latest`;
+    const req = https.get(url, {
+      headers: {
+        'User-Agent': 'agenshield-cli',
+        'Accept': 'application/vnd.github+json',
+      },
+      timeout: 15_000,
+    }, (res) => {
+      // Follow redirects
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        const location = res.headers['location'];
+        if (location) {
+          https.get(location, {
+            headers: { 'User-Agent': 'agenshield-cli', 'Accept': 'application/vnd.github+json' },
+            timeout: 15_000,
+          }, (r2) => {
+            let body = '';
+            r2.on('data', (chunk: Buffer) => { body += chunk; });
+            r2.on('end', () => {
+              try {
+                const data = JSON.parse(body);
+                const tag = (data.tag_name as string) ?? '';
+                resolve(tag.replace(/^v/, ''));
+              } catch (err) {
+                reject(new Error(`Failed to parse GitHub release response: ${(err as Error).message}`));
+              }
+            });
+          }).on('error', reject);
+          return;
+        }
+      }
+
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`GitHub API returned ${res.statusCode}`));
+        return;
+      }
+
+      let body = '';
+      res.on('data', (chunk: Buffer) => { body += chunk; });
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          const tag = (data.tag_name as string) ?? '';
+          resolve(tag.replace(/^v/, ''));
+        } catch (err) {
+          reject(new Error(`Failed to parse GitHub release response: ${(err as Error).message}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('GitHub API request timed out'));
+    });
+  });
+}
+
+/**
+ * Detect the current platform string for SEA archive naming.
+ */
+function detectSEAPlatform(): string {
+  return process.platform === 'darwin' ? 'darwin' : 'linux';
+}
+
+/**
+ * Detect the current architecture string for SEA archive naming.
+ */
+function detectSEAArch(): string {
+  return process.arch === 'arm64' ? 'arm64' : 'x64';
+}
+
+/**
+ * Sign a binary with hardened runtime on macOS.
+ * Equivalent to `sign_binary_hardened()` in install.sh.
+ */
+async function signBinaryHardened(binaryPath: string): Promise<void> {
+  if (process.platform !== 'darwin') return;
+
+  // Remove quarantine attribute
+  try {
+    execSync(`xattr -d com.apple.quarantine "${binaryPath}" 2>/dev/null`, { stdio: 'pipe' });
+  } catch { /* may not have the attribute */ }
+
+  // Re-sign with hardened runtime
+  const entitlements = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict>
+</plist>`;
+
+  const tmpPlist = path.join(os.tmpdir(), `agenshield-entitlements-${Date.now()}.plist`);
+  fs.writeFileSync(tmpPlist, entitlements);
+  try {
+    execSync(
+      `codesign --force --sign - --options runtime --entitlements "${tmpPlist}" "${binaryPath}"`,
+      { stdio: 'pipe' },
+    );
+  } finally {
+    try { fs.unlinkSync(tmpPlist); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Download and install a SEA binary release from GitHub Releases.
+ *
+ * Mirrors the logic in `tools/sea/install.sh`:
+ * 1. Download the platform-specific tarball
+ * 2. Verify SHA-256 checksum
+ * 3. Extract and install binaries + support files
+ * 4. Sign binaries on macOS
+ */
+export async function downloadAndInstallSEARemote(
+  version: string,
+  repo = DEFAULT_GITHUB_REPO,
+  onProgress?: (step: string) => void,
+): Promise<DownloadResult> {
+  const platform = detectSEAPlatform();
+  const arch = detectSEAArch();
+  const archiveName = `agenshield-${version}-${platform}-${arch}.tar.gz`;
+  const baseUrl = `https://github.com/${repo}/releases/download/v${version}`;
+  const archiveUrl = `${baseUrl}/${archiveName}`;
+  const checksumUrl = `${baseUrl}/checksums.sha256`;
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agenshield-sea-'));
+  const archivePath = path.join(tmpDir, archiveName);
+  const checksumPath = path.join(tmpDir, 'checksums.sha256');
+  const extractDir = path.join(tmpDir, 'extracted');
+
+  try {
+    // Step 1: Download archive
+    onProgress?.(`Downloading ${archiveName}...`);
+    await shellAsync(
+      `curl -fSL --retry 3 --retry-delay 2 -o "${archivePath}" "${archiveUrl}"`,
+      { timeout: 300_000 },
+    );
+
+    // Step 2: Download checksums and verify
+    onProgress?.('Verifying checksum...');
+    try {
+      await shellAsync(
+        `curl -fSL --retry 3 --retry-delay 2 -o "${checksumPath}" "${checksumUrl}"`,
+        { timeout: 30_000 },
+      );
+
+      // Extract expected hash for our archive
+      const checksumContent = fs.readFileSync(checksumPath, 'utf-8');
+      const expectedLine = checksumContent.split('\n').find((l) => l.includes(archiveName));
+      if (expectedLine) {
+        const expectedHash = expectedLine.split(/\s+/)[0];
+        const actualResult = await shellAsync(
+          `shasum -a 256 "${archivePath}" | awk '{print $1}'`,
+          { timeout: 30_000 },
+        );
+        const actualHash = actualResult.stdout.trim();
+        if (actualHash !== expectedHash) {
+          return {
+            success: false,
+            version,
+            error: `Checksum mismatch: expected ${expectedHash}, got ${actualHash}`,
+          };
+        }
+      }
+    } catch {
+      // Checksum file may not exist for all releases — warn but continue
+      onProgress?.('Warning: could not verify checksum, continuing...');
+    }
+
+    // Step 3: Extract
+    onProgress?.('Extracting...');
+    fs.mkdirSync(extractDir, { recursive: true });
+    await shellAsync(
+      `tar -xzf "${archivePath}" -C "${extractDir}"`,
+      { timeout: 60_000 },
+    );
+
+    // Step 4: Install binaries
+    const binDir = getBinDir();
+    const libexecDir = path.join(AGENSHIELD_HOME, 'libexec');
+    const libDir = path.join(AGENSHIELD_HOME, 'lib', `v${version}`);
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(libexecDir, { recursive: true });
+    fs.mkdirSync(libDir, { recursive: true });
+
+    // CLI binary → bin/
+    onProgress?.('Installing binaries...');
+    const cliBin = path.join(extractDir, 'agenshield');
+    if (fs.existsSync(cliBin)) {
+      fs.copyFileSync(cliBin, path.join(binDir, 'agenshield'));
+      fs.chmodSync(path.join(binDir, 'agenshield'), 0o755);
+      await signBinaryHardened(path.join(binDir, 'agenshield'));
+    }
+
+    // Daemon + Broker → libexec/
+    for (const name of ['agenshield-daemon', 'agenshield-broker']) {
+      const src = path.join(extractDir, name);
+      if (fs.existsSync(src)) {
+        const dest = path.join(libexecDir, name);
+        fs.copyFileSync(src, dest);
+        fs.chmodSync(dest, 0o755);
+        await signBinaryHardened(dest);
+      }
+    }
+
+    // On macOS, libexec should be owned by root:wheel for privilege separation
+    if (process.platform === 'darwin') {
+      try {
+        execSync(`sudo chown -R root:wheel "${libexecDir}"`, { stdio: 'pipe' });
+      } catch { /* best-effort */ }
+    }
+
+    // Step 5: Copy support directories
+    const supportDirs = ['native', 'workers', 'interceptor', 'client', 'ui-assets'];
+    for (const dir of supportDirs) {
+      const srcDir = path.join(extractDir, dir);
+      if (fs.existsSync(srcDir)) {
+        const destDir = path.join(libDir, dir);
+        fs.mkdirSync(destDir, { recursive: true });
+        onProgress?.(`Installing ${dir}...`);
+        execSync(`cp -R "${srcDir}/." "${destDir}/"`, { stdio: 'pipe' });
+      }
+    }
+
+    // Step 6: Write extraction stamp
+    fs.writeFileSync(path.join(libDir, '.extracted'), `${version}:wius`);
+
+    onProgress?.('Installation complete');
+    return { success: true, version };
+  } catch (err) {
+    return {
+      success: false,
+      version,
+      error: (err as Error).message,
+    };
+  } finally {
+    // Cleanup temp directory
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch { /* ignore */ }
+  }
+}
+
 /** Path to the SEA binary in ~/.agenshield/bin/ */
 export function getSEABinaryPath(): string {
   return path.join(getBinDir(), 'agenshield');

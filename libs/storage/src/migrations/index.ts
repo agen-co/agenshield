@@ -22,6 +22,8 @@ import { ProfileIdToUsernameMigration } from './022-profile-id-to-username';
 import { RemoveSlugPrefixMigration } from './023-remove-slug-prefix';
 import { EnforcerIntervalMigration } from './024-enforcer-interval';
 import { ProfileEnforcementModeMigration } from './025-profile-enforcement-mode';
+import { ProfileWorkspacePathsMigration } from './026-profile-workspace-paths';
+import { PolicyMethodsMigration } from './027-policy-methods';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -46,6 +48,8 @@ export const ALL_MIGRATIONS: Migration[] = [
   new RemoveSlugPrefixMigration(),
   new EnforcerIntervalMigration(),
   new ProfileEnforcementModeMigration(),
+  new ProfileWorkspacePathsMigration(),
+  new PolicyMethodsMigration(),
 ];
 
 /**

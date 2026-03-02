@@ -32,6 +32,7 @@ export interface CompileInput {
 export function operationToTarget(operation: string): string {
   switch (operation) {
     case 'http_request':
+    case 'open_url':
       return 'url';
     case 'exec':
       return 'command';
@@ -163,6 +164,9 @@ export function compile(input: CompileInput): CompiledPolicyEngine {
       scopeMatch: (ctx) => policyScopeMatches(policy, ctx),
       operations: policy.operations && policy.operations.length > 0
         ? new Set(policy.operations)
+        : null,
+      methods: policy.methods && policy.methods.length > 0
+        ? new Set(policy.methods)
         : null,
       enforcement: policy.enforcement,
     };

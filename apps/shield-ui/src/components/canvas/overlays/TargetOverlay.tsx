@@ -267,7 +267,7 @@ export const TargetOverlay = memo(({ targetId, tab, skipAnimation }: TargetOverl
                   <LazySkills embedded targetId={targetId} onSkillClick={setSelectedSkillId} />
                 )
               )}
-              {activeTab === 'policies' && <LazyPolicies embedded embeddedTab={policiesTab} onTabChange={setPoliciesTab} />}
+              {activeTab === 'policies' && <LazyPolicies embedded embeddedTab={policiesTab} />}
               {activeTab === 'secrets' && <LazySecrets embedded />}
               {activeTab === 'settings' && <LazySettings embedded profileId={profileId} targetId={targetId} />}
             </Suspense>

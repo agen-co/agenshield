@@ -20,6 +20,7 @@ export const ProfileSchema = z.object({
   brokerToken: z.string().min(1).optional(),
   installManifest: z.any().optional(),
   enforcementMode: z.enum(['proxy', 'interceptor', 'both']).optional(),
+  workspacePaths: z.array(z.string().max(500)).optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

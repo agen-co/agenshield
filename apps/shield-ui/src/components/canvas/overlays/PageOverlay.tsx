@@ -9,11 +9,10 @@
 
 import { lazy, Suspense, useCallback, useEffect, useRef, memo } from 'react';
 import { useTheme } from '@mui/material/styles';
-import { Tabs, Tab } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
-  Network, Terminal, HardDrive,
+  Terminal,
   Eye, Zap, KeyRound, BarChart3, Settings as SettingsIcon,
 } from 'lucide-react';
 import { CircularLoader } from '../../../elements';
@@ -47,14 +46,6 @@ const LazySecrets = lazy(() => import('../../../pages/Secrets').then(m => ({ def
 const LazyOverview = lazy(() => import('../../../pages/Overview').then(m => ({ default: m.Overview })));
 const LazySettings = lazy(() => import('../../../pages/Settings').then(m => ({ default: m.Settings })));
 const LazyAllMetrics = lazy(() => import('./CoreMetricsView').then(m => ({ default: m.AllMetricsView })));
-
-/* ---- Policy tab config ---- */
-
-const POLICY_TABS = [
-  { slug: 'commands', label: 'Commands', icon: Terminal },
-  { slug: 'network', label: 'Network', icon: Network },
-  { slug: 'filesystem', label: 'Filesystem', icon: HardDrive },
-] as const;
 
 /* Metrics tabs removed — AllMetricsView shows all 4 charts at once */
 
@@ -106,22 +97,10 @@ export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps)
     }
   }, [navigate, isSkillDetail]);
 
-  const handleTabChange = useCallback((_: React.SyntheticEvent, newIdx: number) => {
-    navigate(`/policies/${POLICY_TABS[newIdx].slug}`, { replace: true });
-  }, [navigate]);
-
-  const handlePoliciesTabChange = useCallback((newTab: string) => {
-    navigate(`/policies/${newTab}`, { replace: true });
-  }, [navigate]);
-
-
   const meta = PAGE_META[page];
   if (!meta) return null;
 
   const Icon = meta.icon;
-  const policyTabIdx = page === 'policies'
-    ? Math.max(0, POLICY_TABS.findIndex(t => t.slug === (tab ?? 'commands')))
-    : -1;
 
   return (
     <OverlayRoot>
@@ -159,28 +138,6 @@ export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps)
             {isSkillDetail ? 'Skills / Detail' : meta.title}
           </span>
 
-          {/* Policy tabs (inline in header) */}
-          {page === 'policies' && (
-            <Tabs
-              value={policyTabIdx}
-              onChange={handleTabChange}
-              sx={{ ml: 'auto', minHeight: 36 }}
-            >
-              {POLICY_TABS.map((t) => {
-                const TabIcon = t.icon;
-                return (
-                  <Tab
-                    key={t.slug}
-                    icon={<TabIcon size={13} />}
-                    iconPosition="start"
-                    label={t.label}
-                    sx={{ minHeight: 36, textTransform: 'none', fontSize: 13, py: 0 }}
-                  />
-                );
-              })}
-            </Tabs>
-          )}
-
         </OverlayHeader>
 
         {page === 'overview' ? (
@@ -205,8 +162,7 @@ export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps)
               {page === 'policies' && (
                 <LazyPolicies
                   embedded
-                  embeddedTab={tab ?? 'commands'}
-                  onTabChange={handlePoliciesTabChange}
+                  embeddedTab={tab}
                 />
               )}
               {page === 'secrets' && <LazySecrets embedded />}

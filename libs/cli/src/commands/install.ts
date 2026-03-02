@@ -32,6 +32,8 @@ import {
   ensurePathInShellRc,
   buildAndInstallSEAFromLocal,
 } from '../utils/home.js';
+import { stopDaemon, startDaemon, getDaemonStatus, DAEMON_CONFIG } from '../utils/daemon.js';
+import { inkSelect } from '../prompts/index.js';
 import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
@@ -80,11 +82,76 @@ export function registerInstallCommand(program: Command): void {
 
       // 2. Check for existing installation
       const existing = readVersionInfo();
-      if (existing && !opts['force']) {
-        output.warn(`AgenShield ${existing.version} is already installed at ${AGENSHIELD_HOME}`);
-        output.info('  Use --force to overwrite, or run `agenshield upgrade` to update.');
+      let installAction: 'update' | 'reinstall' = 'update';
+      let wasDaemonRunning = false;
+
+      if (existing) {
+        const formatLabel = existing.format === 'sea' ? 'SEA binary' : 'npm';
+        output.info(`  Existing installation detected:`);
+        output.info(`    Version: ${existing.version}`);
+        output.info(`    Format:  ${formatLabel}`);
+        output.info(`    Channel: ${existing.channel ?? 'unknown'}`);
         output.info('');
-        return;
+
+        const interactive = !opts['force'] && process.stdin.isTTY && process.stderr.isTTY;
+
+        if (interactive) {
+          const choice = await inkSelect<'update' | 'reinstall' | 'cancel'>([
+            { label: 'Update (recommended)', value: 'update', description: 'Stop daemon, overwrite files, restart' },
+            { label: 'Uninstall & reinstall', value: 'reinstall', description: 'Remove old artifacts, install fresh' },
+            { label: 'Cancel', value: 'cancel', description: 'Exit without changes' },
+          ], { title: 'AgenShield is already installed. What would you like to do?' });
+
+          if (!choice || choice === 'cancel') {
+            output.info('  Cancelled.');
+            return;
+          }
+          installAction = choice;
+        } else {
+          // Non-interactive or --force: default to update
+          output.info('  Proceeding with update (non-interactive mode)...');
+          output.info('');
+        }
+
+        // Stop daemon if running before overwriting files
+        const daemonStatus = await getDaemonStatus();
+        wasDaemonRunning = daemonStatus.running;
+        if (wasDaemonRunning) {
+          const stopSpinner = await createSpinner('Stopping daemon...');
+          const stopResult = await stopDaemon();
+          if (!stopResult.success && stopResult.message !== 'Daemon is not running') {
+            stopSpinner.fail(stopResult.message);
+            throw new CliError(
+              `Failed to stop daemon before install. Try: agenshield stop\n${stopResult.message}`,
+              'DAEMON_STOP_FAILED',
+            );
+          }
+          stopSpinner.succeed(stopResult.message);
+        }
+
+        // Handle reinstall: remove old artifacts
+        if (installAction === 'reinstall') {
+          const cleanSpinner = await createSpinner('Removing old installation...');
+          const dirsToRemove = [
+            getBinDir(),
+            path.join(AGENSHIELD_HOME, 'libexec'),
+            getDistDir(),
+          ];
+          for (const dir of dirsToRemove) {
+            try {
+              if (fs.existsSync(dir)) {
+                fs.rmSync(dir, { recursive: true, force: true });
+              }
+            } catch { /* best effort */ }
+          }
+          try {
+            const versionFile = getVersionFilePath();
+            if (fs.existsSync(versionFile)) {
+              fs.unlinkSync(versionFile);
+            }
+          } catch { /* best effort */ }
+          cleanSpinner.succeed('Removed old installation');
+        }
       }
 
       // 3. Create directories
@@ -166,6 +233,20 @@ export function registerInstallCommand(program: Command): void {
           output.info(`    Run: source ${rcFile}`);
         } else {
           output.success(`PATH already configured in ${rcFile}`);
+        }
+
+        // Restart daemon if it was running before install
+        if (wasDaemonRunning) {
+          const restartSpinner = await createSpinner('Restarting daemon...');
+          const startResult = await startDaemon();
+          if (startResult.success) {
+            const url = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
+            restartSpinner.succeed(startResult.message);
+            output.info(`  URL: ${url}`);
+          } else {
+            restartSpinner.fail(startResult.message);
+            output.warn('  Daemon did not restart. Run `agenshield start` manually.');
+          }
         }
 
         output.info('');
@@ -268,6 +349,20 @@ export function registerInstallCommand(program: Command): void {
         output.info(`    Run: source ${rcFile}`);
       } else {
         output.success(`PATH already configured in ${rcFile}`);
+      }
+
+      // 10. Restart daemon if it was running before install
+      if (wasDaemonRunning) {
+        const restartSpinner = await createSpinner('Restarting daemon...');
+        const startResult = await startDaemon();
+        if (startResult.success) {
+          const url = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
+          restartSpinner.succeed(startResult.message);
+          output.info(`  URL: ${url}`);
+        } else {
+          restartSpinner.fail(startResult.message);
+          output.warn('  Daemon did not restart. Run `agenshield start` manually.');
+        }
       }
 
       output.info('');

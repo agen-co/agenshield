@@ -8,10 +8,10 @@ export const Q = {
   insert: `
     INSERT INTO ${TABLE} (id, profile_id, name, action, target, patterns,
       enabled, priority, operations, preset, scope, network_access,
-      enforcement, managed, managed_source, created_at, updated_at)
+      enforcement, methods, managed, managed_source, created_at, updated_at)
     VALUES (@id, @profileId, @name, @action, @target, @patterns,
       @enabled, @priority, @operations, @preset, @scope, @networkAccess,
-      @enforcement, @managed, @managedSource, @createdAt, @updatedAt)`,
+      @enforcement, @methods, @managed, @managedSource, @createdAt, @updatedAt)`,
 
   selectById: `SELECT * FROM ${TABLE} WHERE id = ?`,
 

@@ -89,6 +89,7 @@ export const PolicyConfigSchema = z.object({
   preset: z.string().optional(),
   scope: z.string().optional(),
   networkAccess: z.enum(['none', 'proxy', 'direct']).optional(),
+  methods: z.array(z.enum(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'])).optional(),
   tier: PolicyTierSchema.optional(),
 });
 

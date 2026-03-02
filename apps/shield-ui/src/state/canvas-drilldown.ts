@@ -33,10 +33,10 @@ export const COMPONENT_ROUTE_MAP: Record<SystemComponentType, {
 }> = {
   skills:         { pageId: 'skills', title: 'Skills' },
   secrets:        { pageId: 'secrets', title: 'Secrets' },
-  'policy-graph': { pageId: 'policies', defaultTab: 'commands', title: 'Policies' },
+  'policy-graph': { pageId: 'policies', title: 'Policies' },
   monitoring:     { pageId: 'overview', title: 'Overview' },
   cpu:            { pageId: 'metrics', title: 'System Metrics' },
-  command:        { pageId: 'policies', defaultTab: 'commands', title: 'Policies' },
+  command:        { pageId: 'policies', title: 'Policies' },
   network:        { pageId: 'metrics', title: 'System Metrics' },
   filesystem:     { pageId: 'metrics', title: 'System Metrics' },
   memory:         { pageId: 'metrics', title: 'System Metrics' },

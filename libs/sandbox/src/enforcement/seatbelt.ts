@@ -25,6 +25,8 @@ export function generateAgentProfile(options: {
   additionalReadPaths?: string[];
   /** Paths relative to agentHome to deny writes to (e.g., ['.openclaw', '.claude']). */
   denyWritePaths?: string[];
+  /** Absolute paths/dirs to deny reading. Paths ending with '/' are treated as directories (subpath). */
+  denyReadPaths?: string[];
   /** Network mode: 'deny' (default) blocks all network, 'allow' permits outbound (interceptor-only mode). */
   networkMode?: 'deny' | 'allow';
 }): string {
@@ -41,6 +43,33 @@ export function generateAgentProfile(options: {
     const allDeny = [...new Set([...alwaysDeny, ...targetDeny])];
     for (const rel of allDeny) {
       denyWriteLines.push(`(deny file-write* (subpath "${options.agentHome}/${rel}"))`);
+    }
+  }
+
+  // Build deny-read rules for sensitive files/directories.
+  // Directories (paths ending with '/') use subpath, files use literal.
+  // Placed AFTER the broad /Users allow — seatbelt: later deny overrides earlier allow.
+  const denyReadLines: string[] = [];
+  if (options.denyReadPaths && options.denyReadPaths.length > 0) {
+    const subpaths: string[] = [];
+    const literals: string[] = [];
+    for (const p of options.denyReadPaths) {
+      if (p.endsWith('/')) {
+        subpaths.push(p.replace(/\/+$/, ''));
+      } else {
+        literals.push(p);
+      }
+    }
+    if (subpaths.length > 0 || literals.length > 0) {
+      denyReadLines.push(';; CRITICAL DENIALS - Secret Files (kernel-enforced)');
+      denyReadLines.push('(deny file-read*');
+      for (const s of subpaths) {
+        denyReadLines.push(`  (subpath "${s}")`);
+      }
+      for (const l of literals) {
+        denyReadLines.push(`  (literal "${l}")`);
+      }
+      denyReadLines.push(')');
     }
   }
 
@@ -136,6 +165,8 @@ ${denyWriteLines.join('\n')}
   (subpath "/Volumes")
   (subpath "/android")
   (subpath "/opt"))
+
+${denyReadLines.length > 0 ? denyReadLines.join('\n') : ''}
 
 ;; ========================================
 ;; Workspace (Read/Write)
@@ -435,11 +466,15 @@ EOF`);
 /**
  * Generate agent profile from UserConfig
  */
-export function generateAgentProfileFromConfig(config: import('@agenshield/ipc').UserConfig): string {
+export function generateAgentProfileFromConfig(
+  config: import('@agenshield/ipc').UserConfig,
+  options?: { denyReadPaths?: string[] },
+): string {
   return generateAgentProfile({
     workspacePath: `${config.agentUser.home}/workspace`,
     socketPath: `${config.agentUser.home}/.agenshield/run/agenshield.sock`,
     agentHome: config.agentUser.home,
+    denyReadPaths: options?.denyReadPaths,
   });
 }
 

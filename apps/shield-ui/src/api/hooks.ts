@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSnapshot } from 'valtio';
-import type { UpdateConfigRequest, PolicyConfig, SimulateRequest, TieredPolicies } from '@agenshield/ipc';
+import type { UpdateConfigRequest, PolicyConfig, SimulateRequest, TieredPolicies, PolicyGraph } from '@agenshield/ipc';
 import { api, authFetch, type CreateSecretRequest } from './client';
 import { daemonStatusStore } from '../state/daemon-status';
 import { securityStore, setSecurityStatus } from '../state/security';
@@ -17,6 +17,7 @@ export const queryKeys = {
   health: ['health'] as const,
   config: ['config'] as const,
   tieredPolicies: ['policies', 'tiered'] as const,
+  policyGraph: ['policies', 'graph'] as const,
   skills: ['skills'] as const,
   secrets: ['secrets'] as const,
   availableEnvSecrets: ['secrets', 'env'] as const,
@@ -176,6 +177,24 @@ export function useTieredPolicies() {
       if (!res.ok) throw new Error('Failed to fetch tiered policies');
       const json = await res.json();
       return json.data as TieredPolicies;
+    },
+    enabled: healthy,
+  });
+}
+
+/**
+ * Hook to fetch the policy graph (nodes, edges, activations).
+ */
+export function usePolicyGraph() {
+  const healthy = useHealthGate();
+  const scope = useScopeKey();
+  return useQuery({
+    queryKey: [...queryKeys.policyGraph, scope] as const,
+    queryFn: async (): Promise<PolicyGraph> => {
+      const res = await authFetch('/api/policies/graph');
+      if (!res.ok) throw new Error('Failed to fetch policy graph');
+      const json = await res.json();
+      return json.data as PolicyGraph;
     },
     enabled: healthy,
   });

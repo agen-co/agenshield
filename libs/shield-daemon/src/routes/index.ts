@@ -31,6 +31,7 @@ import { logStreamRoutes } from './logs';
 import { binarySignatureRoutes } from './binary-signatures';
 import { icloudRoutes } from './icloud';
 import { enrollmentRoutes } from './enrollment';
+import { workspacePathsRoutes } from './workspace-paths';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 import { registerShieldContext } from '../context';
@@ -139,6 +140,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(binarySignatureRoutes);
       await api.register(icloudRoutes);
       await api.register(enrollmentRoutes);
+      await api.register(workspacePathsRoutes);
     },
     { prefix: API_PREFIX }
   );

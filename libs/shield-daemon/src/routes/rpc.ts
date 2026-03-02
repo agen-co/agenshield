@@ -171,6 +171,7 @@ export async function evaluatePolicyCheck(
   target: string,
   context?: PolicyExecutionContext,
   profileId?: string,
+  httpMethod?: string,
 ): Promise<{ allowed: boolean; policyId?: string; reason?: string; sandbox?: SandboxConfig; executionContext?: PolicyExecutionContext; traceId?: string }> {
   const config = loadConfig();
   const manager = getPolicyManager();
@@ -195,6 +196,7 @@ export async function evaluatePolicyCheck(
     target,
     context,
     profileId,
+    httpMethod,
     defaultAction: config.defaultAction,
   });
 
@@ -399,7 +401,7 @@ async function handleHttpRequest(
 
   // Policy check before proxying (Python patcher sends no context)
   const context = params['context'] as PolicyExecutionContext | undefined;
-  const policyResult = await evaluatePolicyCheck('http_request', url, context, profileId);
+  const policyResult = await evaluatePolicyCheck('http_request', url, context, profileId, method);
 
   if (!policyResult.allowed) {
     emitInterceptorEvent({

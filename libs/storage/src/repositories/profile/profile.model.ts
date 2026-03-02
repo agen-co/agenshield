@@ -23,6 +23,7 @@ export function mapProfile(row: DbProfileRow): Profile {
     installManifest: row.install_manifest ? JSON.parse(row.install_manifest) : undefined,
     gatewayPort: row.gateway_port ?? undefined,
     enforcementMode: (row.enforcement_mode as Profile['enforcementMode']) ?? undefined,
+    workspacePaths: row.workspace_paths ? JSON.parse(row.workspace_paths) : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

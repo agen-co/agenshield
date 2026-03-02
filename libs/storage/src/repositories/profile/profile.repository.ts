@@ -109,6 +109,43 @@ export class ProfileRepository extends BaseRepository {
     return this.getById(id);
   }
 
+  /**
+   * Add a workspace path to a profile's allowed list.
+   * Returns the updated profile or null if not found.
+   */
+  addWorkspacePath(id: string, wsPath: string): Profile | null {
+    const profile = this.getById(id);
+    if (!profile) return null;
+    const paths = profile.workspacePaths ?? [];
+    if (paths.includes(wsPath)) return profile;
+    const updated = [...paths, wsPath];
+    this.buildDynamicUpdate(
+      { workspace_paths: JSON.stringify(updated) },
+      'profiles',
+      'id = @id',
+      { id },
+    );
+    return this.getById(id);
+  }
+
+  /**
+   * Remove a workspace path from a profile's allowed list.
+   * Returns the updated profile or null if not found.
+   */
+  removeWorkspacePath(id: string, wsPath: string): Profile | null {
+    const profile = this.getById(id);
+    if (!profile) return null;
+    const paths = profile.workspacePaths ?? [];
+    const updated = paths.filter((p) => p !== wsPath);
+    this.buildDynamicUpdate(
+      { workspace_paths: JSON.stringify(updated) },
+      'profiles',
+      'id = @id',
+      { id },
+    );
+    return this.getById(id);
+  }
+
   delete(id: string): boolean {
     return this.db.prepare(Q.delete).run(id).changes > 0;
   }

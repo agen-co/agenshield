@@ -24,6 +24,7 @@ export {
   type HeartbeatPayload,
   type EventLoopPayload,
   type ConfigPoliciesUpdatedPayload,
+  type SystemUpdateAvailablePayload,
   CORE_EVENT_TYPES,
 } from './core.events';
 
@@ -119,6 +120,8 @@ export {
   type AgentProcessInfo,
   type TargetStatusInfo,
   type TargetStatusPayload,
+  type TargetBinaryDriftedPayload,
+  type TargetRePatchedPayload,
   TARGET_EVENT_TYPES,
 } from './target.events';
 

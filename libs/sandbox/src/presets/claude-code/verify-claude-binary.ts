@@ -35,6 +35,37 @@ export const verifyClaudeBinaryStep: InstallStep = {
       }
     }
 
+    // Resolve and hash the claude binary for integrity tracking
+    try {
+      const whichResult = await ctx.execAsUser(
+        `export HOME="${ctx.agentHome}" && export PATH="${buildClaudeSearchPath(ctx.agentHome)}:$PATH" && which claude`,
+        { timeout: 5_000 },
+      );
+      const claudePath = (whichResult.output ?? '').trim();
+      if (claudePath) {
+        outputs['claudeBinaryPath'] = claudePath;
+        // Resolve the real path (may be a symlink)
+        const realResult = await ctx.execAsUser(
+          `readlink -f "${claudePath}" 2>/dev/null || echo "${claudePath}"`,
+          { timeout: 5_000 },
+        );
+        const realPath = (realResult.output ?? '').trim();
+        if (realPath) {
+          const hashResult = await ctx.execAsUser(
+            `shasum -a 256 "${realPath}" 2>/dev/null | awk '{print $1}'`,
+            { timeout: 10_000 },
+          );
+          const hash = (hashResult.output ?? '').trim();
+          if (hash) {
+            outputs['claudeBinaryHash'] = hash;
+            outputs['claudeRealPath'] = realPath;
+          }
+        }
+      }
+    } catch {
+      // Non-fatal — hash is optional
+    }
+
     return { changed: false, outputs, warnings };
   },
 };

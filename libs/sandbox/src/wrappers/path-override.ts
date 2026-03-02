@@ -269,6 +269,92 @@ _agenshield_exec_host() {
   exec "$BIN" "$@"
 }
 
+# Daemon connection (used by _check_cwd_access and _check_cwd_perms)
+DAEMON_HOST="\${AGENSHIELD_HOST:-127.0.0.1}"
+DAEMON_PORT="\${AGENSHIELD_PORT:-5200}"
+
+# Helper: check if CWD is in the allowed workspace paths
+_check_cwd_access() {
+  local AGENT_HOME="$1"
+  local CWD="$PWD"
+
+  # Always allowed: agentHome and its subdirs
+  [[ "$CWD" == "$AGENT_HOME"* ]] && return 0
+
+  local ENCODED_PATH
+  ENCODED_PATH=$(printf '%s' "$CWD" | jq -sRr @uri 2>/dev/null || echo "$CWD")
+  local RESP
+  RESP=$(curl -sf "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/check?path=$ENCODED_PATH" 2>/dev/null)
+
+  # Fail-open if daemon unreachable (broker still enforces at runtime)
+  [ -z "$RESP" ] && return 0
+
+  echo "$RESP" | grep -q '"allowed":true' && return 0
+
+  # Prompt user
+  echo "" >&2
+  echo "AgenShield: Current directory is not in the allowed workspace paths:" >&2
+  echo "  $CWD" >&2
+  echo "" >&2
+  echo "  1) Grant access to this folder" >&2
+  echo "  2) Start in agent home ($AGENT_HOME) instead" >&2
+  echo "  3) Cancel" >&2
+  printf "Select [1/2/3]: " >&2
+  read -r CHOICE
+
+  case "$CHOICE" in
+    1) curl -sf -X POST "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/grant" \
+         -H "Content-Type: application/json" \
+         -d "{\\"path\\":\\"$CWD\\"}" > /dev/null 2>&1
+       echo "Access granted." >&2 ;;
+    2) export AGENSHIELD_HOST_CWD="$AGENT_HOME"
+       echo "Using agent home." >&2 ;;
+    *) echo "Cancelled." >&2; exit 0 ;;
+  esac
+}
+
+# Helper: check if agent user has OS-level read+execute on CWD
+_check_cwd_perms() {
+  local AGENT_USER="$1" AGENT_HOME="$2"
+  local CWD="$PWD"
+
+  # Skip if CWD is under agent home (always accessible)
+  [[ "$CWD" == "$AGENT_HOME"* ]] && return 0
+
+  # Test if agent user can read+execute the directory
+  if sudo -n -u "$AGENT_USER" test -r "$CWD" -a -x "$CWD" 2>/dev/null; then
+    return 0
+  fi
+
+  # Prompt user
+  echo "" >&2
+  echo "AgenShield: The agent user ($AGENT_USER) cannot access:" >&2
+  echo "  $CWD" >&2
+  echo "" >&2
+  echo "  1) Fix permissions (grant read access)" >&2
+  echo "  2) Start in agent home ($AGENT_HOME) instead" >&2
+  echo "  3) Cancel" >&2
+  printf "Select [1/2/3]: " >&2
+  read -r CHOICE
+
+  case "$CHOICE" in
+    1) # Call daemon to apply ACLs
+       local RESP
+       RESP=$(curl -sf -X POST "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/fix-permissions" \\
+         -H "Content-Type: application/json" \\
+         -d "{\\"path\\":\\"$CWD\\",\\"agentUser\\":\\"$AGENT_USER\\"}" 2>/dev/null)
+       if echo "$RESP" | grep -q '"success":true'; then
+         echo "Permissions fixed." >&2
+       else
+         echo "Failed to fix permissions. Starting in agent home." >&2
+         export AGENSHIELD_HOST_CWD="$AGENT_HOME"
+       fi ;;
+    2) export AGENSHIELD_HOST_CWD="$AGENT_HOME"
+       echo "Using agent home." >&2 ;;
+    *) echo "Cancelled." >&2; exit 0 ;;
+  esac
+}
+
 # Parse registry with awk — structured output:
 #   META:<allowHostPassthrough 0|1>:<originalBinary>
 #   INST:<user>:<bin>:<home>:<name>:<baseName>
@@ -332,6 +418,11 @@ if [[ $TOTAL_OPTIONS -eq 0 ]]; then
 elif [[ $TOTAL_OPTIONS -eq 1 ]]; then
   # Single option — direct exec (no prompt)
   if [[ $INST_COUNT -eq 1 ]]; then
+    # Validate CWD is in allowed workspace paths before launching
+    if [[ -n "\${INST_HOMES[1]}" ]]; then
+      _check_cwd_access "\${INST_HOMES[1]}"
+      _check_cwd_perms "\${INST_USERS[1]}" "\${INST_HOMES[1]}"
+    fi
     _agenshield_exec "\${INST_USERS[1]}" "\${INST_BINS[1]}" "\${INST_HOMES[1]}" "$@"
   else
     _agenshield_exec_host "$ORIG_BIN" "$@"
@@ -351,6 +442,11 @@ else
 
   if [[ "$CHOICE" =~ ^[0-9]+$ ]] && [[ $CHOICE -ge 1 ]] && [[ $CHOICE -le $TOTAL_OPTIONS ]]; then
     if [[ $CHOICE -le $INST_COUNT ]]; then
+      # Validate CWD is in allowed workspace paths before launching
+      if [[ -n "\${INST_HOMES[$CHOICE]}" ]]; then
+        _check_cwd_access "\${INST_HOMES[$CHOICE]}"
+        _check_cwd_perms "\${INST_USERS[$CHOICE]}" "\${INST_HOMES[$CHOICE]}"
+      fi
       _agenshield_exec "\${INST_USERS[$CHOICE]}" "\${INST_BINS[$CHOICE]}" "\${INST_HOMES[$CHOICE]}" "$@"
     else
       _agenshield_exec_host "$ORIG_BIN" "$@"

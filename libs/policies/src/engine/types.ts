@@ -17,6 +17,8 @@ export interface CompiledRule {
   scopeMatch: (context?: PolicyExecutionContext) => boolean;
   /** Operations filter (null = all operations) */
   operations: Set<string> | null;
+  /** HTTP methods filter (null = all methods) */
+  methods: Set<string> | null;
   /** Enforcement mode for process-target policies */
   enforcement?: 'alert' | 'kill';
 }
@@ -38,6 +40,8 @@ export interface EvaluationInput {
   target: string;
   context?: PolicyExecutionContext;
   profileId?: string;
+  /** HTTP method for URL-target policy filtering */
+  httpMethod?: string;
   /** Default action when no policy matches */
   defaultAction?: 'allow' | 'deny';
 }

@@ -179,6 +179,8 @@ export interface PolicyConfig {
   networkAccess?: 'none' | 'proxy' | 'direct';
   /** Per-policy resource limits (overrides global defaults) */
   resourceLimits?: import('./policy').ResourceLimits;
+  /** HTTP methods this policy applies to (URL target only, undefined = all methods) */
+  methods?: Array<'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS'>;
   /** Policy tier — derived from storage, not set by clients */
   tier?: PolicyTier;
 }

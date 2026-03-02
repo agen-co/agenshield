@@ -55,6 +55,7 @@ import { startProcessEnforcer, stopProcessEnforcer, restartProcessEnforcer } fro
 import { startEventLoopMonitor, stopEventLoopMonitor } from './services/event-loop-monitor';
 import { initSystemExecutor, shutdownSystemExecutor } from './workers/system-command';
 import { startFallbackNotifications, stopFallbackNotifications } from './services/notifications';
+import { startAutoUpdateWatcher, stopAutoUpdateWatcher } from './watchers/auto-update';
 
 /**
  * Create and configure the Fastify server
@@ -578,10 +579,14 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   // Start fallback notifications (native macOS alerts when no SSE clients connected)
   startFallbackNotifications();
 
+  // Start auto-update watcher (checks GitHub Releases every 6 hours, notifies via SSE)
+  startAutoUpdateWatcher();
+
   // Stop watchers, proxy pool, and MCP on server close
   app.addHook('onClose', async () => {
     emitProcessStopped('daemon', { pid: process.pid });
     stopFallbackNotifications();
+    stopAutoUpdateWatcher();
     stopProcessEnforcer();
     stopEventLoopMonitor();
     stopSecurityWatcher();

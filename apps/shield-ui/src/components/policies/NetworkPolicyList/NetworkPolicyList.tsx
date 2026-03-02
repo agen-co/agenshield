@@ -71,6 +71,16 @@ const NetworkRow = memo(function NetworkRow({
             sx={{ fontSize: 11, height: 20 }}
           />
         )}
+        {policy.methods && policy.methods.length > 0 && policy.methods.map((m) => (
+          <Chip
+            key={m}
+            size="small"
+            label={m}
+            color="primary"
+            variant="outlined"
+            sx={{ fontSize: 10, height: 18, fontWeight: 600 }}
+          />
+        ))}
       </Box>
 
       <PolicyMeta>
@@ -118,7 +128,9 @@ const NetworkRow = memo(function NetworkRow({
   return a.id === b.id && a.enabled === b.enabled && a.name === b.name &&
     a.action === b.action && a.preset === b.preset &&
     a.patterns.length === b.patterns.length &&
-    a.patterns.every((p, i) => p === b.patterns[i]);
+    a.patterns.every((p, i) => p === b.patterns[i]) &&
+    (a.methods?.length ?? 0) === (b.methods?.length ?? 0) &&
+    (a.methods ?? []).every((m, i) => m === (b.methods ?? [])[i]);
 });
 
 /* ── List component ───────────────────────────────────────── */

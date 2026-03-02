@@ -27,6 +27,7 @@ export const UpdateProfileSchema = z.object({
   installManifest: z.any().optional(),
   gatewayPort: z.number().int().min(1024).max(65535).optional(),
   enforcementMode: z.enum(['proxy', 'interceptor', 'both']).optional(),
+  workspacePaths: z.array(z.string().max(500)).optional(),
 });
 export type UpdateProfileInput = z.input<typeof UpdateProfileSchema>;
 
@@ -51,6 +52,7 @@ export const UpdateProfileCodec = z.codec(
       install_manifest: data.installManifest !== undefined ? JSON.stringify(data.installManifest) : undefined,
       gateway_port: data.gatewayPort,
       enforcement_mode: data.enforcementMode,
+      workspace_paths: data.workspacePaths !== undefined ? JSON.stringify(data.workspacePaths) : undefined,
     }),
   },
 );

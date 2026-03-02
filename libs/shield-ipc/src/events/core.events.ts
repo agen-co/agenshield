@@ -26,6 +26,12 @@ export interface ConfigPoliciesUpdatedPayload {
   count: number;
 }
 
+export interface SystemUpdateAvailablePayload {
+  currentVersion: string;
+  latestVersion: string;
+  releaseUrl: string;
+}
+
 declare module '@agenshield/ipc' {
   interface EventRegistry {
     'heartbeat': HeartbeatPayload;
@@ -33,6 +39,7 @@ declare module '@agenshield/ipc' {
     'config:policies_updated': ConfigPoliciesUpdatedPayload;
     'daemon:status': DaemonStatus;
     'metrics:eventloop': EventLoopPayload;
+    'system:update-available': SystemUpdateAvailablePayload;
   }
 }
 
@@ -42,6 +49,7 @@ export const CORE_EVENT_TYPES = [
   'config:policies_updated',
   'daemon:status',
   'metrics:eventloop',
+  'system:update-available',
 ] as const;
 
 registerEventTypes(CORE_EVENT_TYPES);

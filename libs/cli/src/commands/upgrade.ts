@@ -25,6 +25,8 @@ import {
   getLocalCliEntry,
   detectInstallFormat,
   buildAndInstallSEAFromLocal,
+  queryLatestSEAVersion,
+  downloadAndInstallSEARemote,
 } from '../utils/home.js';
 import { isSEA } from '@agenshield/ipc';
 import { output } from '../utils/output.js';
@@ -464,11 +466,128 @@ async function upgradeSEAInstall(options: {
   output.info(`  Install format:  ${options.migration ? 'npm → SEA migration' : 'SEA binary'}`);
 
   if (!options.local) {
-    // TODO: Download pre-built SEA binary from GitHub Releases
-    throw new CliError(
-      'Remote SEA binary upgrades are not yet supported. Use --local to build from monorepo.',
-      'SEA_REMOTE_NOT_SUPPORTED',
-    );
+    // Remote SEA upgrade: download from GitHub Releases
+    const querySpinner = await createSpinner('Checking for latest release...');
+    let latestVersion: string;
+    try {
+      latestVersion = await queryLatestSEAVersion();
+      querySpinner.succeed(`Latest release: ${latestVersion}`);
+    } catch (err) {
+      querySpinner.fail('Failed to query GitHub Releases');
+      throw new CliError(
+        `Could not check for latest version: ${(err as Error).message}`,
+        'GITHUB_API_FAILED',
+      );
+    }
+
+    if (currentVersion === latestVersion && !options.force) {
+      output.info('');
+      output.success(`Already at latest version (${currentVersion}).`);
+      output.info('  Use --force to re-install.');
+      return;
+    }
+
+    output.info(`  Latest version:  ${latestVersion}`);
+
+    // Ensure sudo credentials are cached before stopping the daemon
+    const { ensureSudoAccess, startSudoKeepalive } = await import('../utils/privileges.js');
+    ensureSudoAccess();
+    const keepalive = startSudoKeepalive();
+
+    try {
+
+    // Stop daemon if running
+    const wasDaemonRunning = (await getDaemonStatus()).running;
+    if (wasDaemonRunning) {
+      const stopSpinner = await createSpinner('Stopping daemon...');
+      const stopResult = await stopDaemon();
+      if (!stopResult.success && stopResult.message !== 'Daemon is not running') {
+        stopSpinner.fail(stopResult.message);
+        throw new CliError(stopResult.message, 'DAEMON_STOP_FAILED');
+      }
+      stopSpinner.succeed(stopResult.message);
+    }
+
+    // Backup current binaries
+    const binDir = getBinDir();
+    const binaryNames = ['agenshield', 'agenshield-daemon', 'agenshield-broker'];
+    for (const name of binaryNames) {
+      const binPath = path.join(binDir, name);
+      const backupPath = `${binPath}.bak`;
+      if (fs.existsSync(binPath)) {
+        try {
+          fs.copyFileSync(binPath, backupPath);
+        } catch { /* best effort */ }
+      }
+    }
+
+    const dlSpinner = await createSpinner(`Downloading agenshield@${latestVersion}...`);
+    const result = await downloadAndInstallSEARemote(latestVersion, undefined, (step) => dlSpinner.update(step));
+
+    if (!result.success) {
+      dlSpinner.fail(`Download failed: ${result.error}`);
+      // Restore backups
+      let restored = false;
+      for (const name of binaryNames) {
+        const binPath = path.join(binDir, name);
+        const bkPath = `${binPath}.bak`;
+        if (fs.existsSync(bkPath)) {
+          fs.copyFileSync(bkPath, binPath);
+          fs.chmodSync(binPath, 0o755);
+          restored = true;
+        }
+      }
+      if (restored) {
+        output.info('  Restoring previous binaries...');
+        output.success('Restored successfully.');
+      }
+      if (wasDaemonRunning) {
+        output.info('  Restarting daemon with previous version...');
+        await startDaemon();
+      }
+      throw new CliError(`Remote SEA upgrade failed: ${result.error}`, 'SEA_DOWNLOAD_FAILED');
+    }
+
+    dlSpinner.succeed(`Downloaded agenshield@${latestVersion}`);
+
+    // Clean up backups
+    for (const name of binaryNames) {
+      const bkPath = path.join(binDir, name) + '.bak';
+      try {
+        if (fs.existsSync(bkPath)) fs.unlinkSync(bkPath);
+      } catch { /* ignore */ }
+    }
+
+    // Update version.json
+    writeVersionInfo({
+      version: latestVersion,
+      channel: versionInfo?.channel ?? 'stable',
+      installedAt: versionInfo?.installedAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      format: 'sea',
+    });
+    output.success(`Updated version.json (${currentVersion} → ${latestVersion})`);
+
+    if (wasDaemonRunning) {
+      const restartSpinner = await createSpinner('Restarting daemon...');
+      const startResult = await startDaemon();
+      if (startResult.success) {
+        const url = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
+        restartSpinner.succeed(startResult.message);
+        output.info(`  URL: ${url}`);
+        await runPostUpgrade();
+      } else {
+        restartSpinner.fail(startResult.message);
+      }
+    }
+
+    output.info('');
+    output.success(`Upgrade complete! (${currentVersion} → ${latestVersion})`);
+
+    } finally {
+      clearInterval(keepalive);
+    }
+    return;
   }
 
   const repoRoot = findMonorepoRoot();

@@ -159,7 +159,7 @@ export function removeUserAcl(targetPath: string, userName: string, log: Logger 
  * Walk up from `targetPath` collecting ancestor directories that are NOT
  * world-traversable and therefore need an explicit `search` ACL.
  */
-function getAncestorsNeedingTraversal(targetPath: string): string[] {
+export function getAncestorsNeedingTraversal(targetPath: string): string[] {
   const ancestors: string[] = [];
   let dir = path.dirname(targetPath);
   while (dir !== targetPath && dir !== '/') {

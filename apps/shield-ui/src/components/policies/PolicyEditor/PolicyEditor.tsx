@@ -118,6 +118,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
     patterns: policy?.patterns.join('\n') ?? '',
     enabled: policy?.enabled ?? true,
     operations: policy?.operations ?? [] as string[],
+    methods: policy?.methods ?? [] as string[],
   };
 
   const [formData, setFormData] = useState(initial);
@@ -151,6 +152,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
       patterns: policy?.patterns.join('\n') ?? '',
       enabled: policy?.enabled ?? true,
       operations: policy?.operations ?? [],
+      methods: policy?.methods ?? [],
     });
   }, [policy, defaultTarget]);
 
@@ -160,7 +162,8 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
     formData.action !== initial.action ||
     formData.target !== initial.target ||
     formData.patterns !== initial.patterns ||
-    JSON.stringify(formData.operations) !== JSON.stringify(initial.operations);
+    JSON.stringify(formData.operations) !== JSON.stringify(initial.operations) ||
+    JSON.stringify(formData.methods) !== JSON.stringify(initial.methods);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -244,6 +247,7 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
       patterns: formData.patterns.split('\n').filter((p) => p.trim()),
       enabled: formData.enabled,
       ...(formData.target === 'filesystem' ? { operations: formData.operations } : {}),
+      ...(formData.target === 'url' && formData.methods.length > 0 ? { methods: formData.methods as PolicyConfig['methods'] } : {}),
       ...(policy?.preset ? { preset: policy.preset } : {}),
     };
     onSave(newPolicy, secretIds);
@@ -400,6 +404,39 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
                   : undefined
           }
         />
+
+        {/* HTTP methods filter (URL target only) */}
+        {formData.target === 'url' && (
+          <Box>
+            <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+              HTTP Methods
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+              {(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'] as const).map((method) => {
+                const selected = formData.methods.includes(method);
+                return (
+                  <Chip
+                    key={method}
+                    label={method}
+                    size="small"
+                    variant={selected ? 'filled' : 'outlined'}
+                    color={selected ? 'primary' : 'default'}
+                    onClick={() => {
+                      const next = selected
+                        ? formData.methods.filter((m) => m !== method)
+                        : [...formData.methods, method];
+                      setFormData({ ...formData, methods: next });
+                    }}
+                    sx={{ cursor: 'pointer', fontSize: 12 }}
+                  />
+                );
+              })}
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              {formData.methods.length === 0 ? 'All methods allowed' : `Only ${formData.methods.join(', ')}`}
+            </Typography>
+          </Box>
+        )}
 
         {/* Contextual autocomplete */}
         {formData.target === 'command' && commandOptions.length > 0 && (

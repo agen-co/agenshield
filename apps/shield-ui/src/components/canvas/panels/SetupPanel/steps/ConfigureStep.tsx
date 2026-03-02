@@ -97,7 +97,7 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
     setCustomVersion('');
     const cats = target?.type === 'openclaw' ? OPENCLAW_CONFIG_CATEGORIES : CLAUDE_CONFIG_CATEGORIES;
     setSelectedCategories(new Set(cats.filter(c => c.defaultOn).map(c => c.id)));
-    setEnforcementMode('both');
+    setEnforcementMode('interceptor');
   }, [defaultBaseName, detectedVersion, target?.type]);
 
   if (!target) return null;

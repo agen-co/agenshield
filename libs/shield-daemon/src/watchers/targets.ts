@@ -10,10 +10,11 @@
 
 import { createHash } from 'node:crypto';
 import { emitTargetStatus, registerProfilePreset } from '../events/emitter';
-import type { AgentProcessInfo, TargetStatusInfo } from '@agenshield/ipc';
+import type { AgentProcessInfo, TargetStatusInfo, Profile } from '@agenshield/ipc';
 import { getLogger } from '../logger';
 import type { ProcessManager } from '../services/process-manager';
 import { getSystemExecutor } from '../workers/system-command';
+import { checkClaudeBinaryIntegrity, remediateClaudeBinaryDrift } from './binary-integrity';
 
 /** Cache resolved UIDs to avoid repeated `id -u` lookups. */
 const uidCache = new Map<string, number>();
@@ -322,6 +323,22 @@ async function getTargetStatuses(): Promise<TargetStatusInfo[]> {
           const procs = await listClaudeProcesses(agentUid);
           target.running = procs.length > 0;
           target.processes = procs;
+
+          // Check binary integrity and auto-remediate drift
+          if (matchedProfile) {
+            try {
+              const integrity = checkClaudeBinaryIntegrity(matchedProfile as Profile);
+              if (integrity?.drifted) {
+                target.binaryDrifted = true;
+                // Fire-and-forget: remediation runs asynchronously
+                remediateClaudeBinaryDrift(matchedProfile as Profile, integrity).catch((err) => {
+                  getLogger().debug({ err, targetId: target.id }, 'Binary drift remediation failed');
+                });
+              }
+            } catch (err) {
+              getLogger().debug({ err, targetId: target.id }, 'Binary integrity check failed');
+            }
+          }
         } else {
           // Fallback: launchctl broker check only (direct lookup, no grep)
           try {
@@ -355,7 +372,7 @@ async function getTargetStatuses(): Promise<TargetStatusInfo[]> {
 function hashTargets(targets: TargetStatusInfo[]): string {
   const json = JSON.stringify(targets.map((t) => ({
     id: t.id, name: t.name, type: t.type, shielded: t.shielded, running: t.running,
-    gatewayPort: t.gatewayPort, pid: t.pid,
+    gatewayPort: t.gatewayPort, pid: t.pid, binaryDrifted: t.binaryDrifted,
     processPids: t.processes?.map((p) => p.pid).sort(),
   })));
   return createHash('md5').update(json).digest('hex');

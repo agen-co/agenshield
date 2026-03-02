@@ -12,6 +12,14 @@ export { HttpFallbackServer } from './http-fallback.js';
 // Policy exports
 export { PolicyEnforcer } from './policies/enforcer.js';
 export { BuiltinPolicies, getDefaultPolicies } from './policies/builtin.js';
+export {
+  SENSITIVE_FILE_PATTERNS,
+  SENSITIVE_HOME_PATHS,
+  expandSensitiveHomePaths,
+} from './policies/sensitive-patterns.js';
+
+// Error exports
+export { BrokerError, WorkspaceAccessDeniedError } from './errors.js';
 
 // Handler exports
 export * from './handlers/index.js';

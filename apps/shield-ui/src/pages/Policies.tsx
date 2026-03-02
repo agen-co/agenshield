@@ -1,6 +1,10 @@
 /**
- * Policies page - tabbed layout (Commands / Network / Filesystem)
- * Tab selection is driven by the URL: /policies/commands, /policies/network, /policies/filesystem
+ * Policies page — thin router with overview + drill-down views
+ *
+ * No tab → PolicyOverview (grouped summary of all policy types)
+ * tab === 'commands' | 'network' | 'filesystem' | 'process' → drill-down
+ * tab === 'simulate' → SimulatePanel (only when scoped)
+ * tab === 'graph' → PolicyGraphView
  *
  * Policies are organized into three tiers:
  * - Managed: Admin-enforced, read-only
@@ -8,7 +12,7 @@
  * - Target: Per-target policies (only in scoped context)
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -16,11 +20,9 @@ import {
   Card,
   CardContent,
   Collapse,
-  Tabs,
-  Tab,
   Typography,
 } from '@mui/material';
-import { Plus, Terminal, Globe, FolderOpen, Play, Cpu } from 'lucide-react';
+import { Plus, Terminal, Globe, FolderOpen, Cpu, ArrowLeft } from 'lucide-react';
 import type { PolicyConfig, TieredPolicies } from '@agenshield/ipc';
 import { useConfig, useSecrets, useUpdateSecret, useSkills, useTieredPolicies, useCreatePolicy, useUpdatePolicy, useDeletePolicy, useTogglePolicy } from '../api/hooks';
 import { useGuardedAction } from '../hooks/useGuardedAction';
@@ -36,11 +38,13 @@ import { FilesystemPolicyTable } from '../components/policies/FilesystemPolicyTa
 import { ProcessPolicyList } from '../components/policies/ProcessPolicyList';
 import { SimulatePanel } from '../components/policies/SimulatePanel';
 import { PolicyTierSection } from '../components/policies/PolicyTierSection';
+import { CircularLoader } from '../elements';
 import { useSnapshot } from 'valtio';
 import { scopeStore } from '../state/scope';
 
-const ALL_TAB_SLUGS = ['commands', 'network', 'filesystem', 'process', 'simulate'] as const;
-const TOP_LEVEL_TAB_SLUGS = ['commands', 'network', 'filesystem', 'process'] as const;
+const LazyPolicyOverview = lazy(() => import('../components/policies/PolicyOverview').then(m => ({ default: m.PolicyOverview })));
+const LazyPolicyGraphView = lazy(() => import('../components/policies/PolicyGraphView').then(m => ({ default: m.PolicyGraphView })));
+
 const TAB_TARGETS: Record<string, 'command' | 'url' | 'filesystem' | 'process'> = {
   commands: 'command',
   network: 'url',
@@ -48,10 +52,16 @@ const TAB_TARGETS: Record<string, 'command' | 'url' | 'filesystem' | 'process'> 
   process: 'process',
 };
 
+const TAB_META: Record<string, { label: string; icon: typeof Terminal; target: string }> = {
+  commands: { label: 'Commands', icon: Terminal, target: 'command' },
+  network: { label: 'Network', icon: Globe, target: 'url' },
+  filesystem: { label: 'Filesystem', icon: FolderOpen, target: 'filesystem' },
+  process: { label: 'Process', icon: Cpu, target: 'process' },
+};
+
 interface PoliciesProps {
   embedded?: boolean;
   embeddedTab?: string;
-  onTabChange?: (tab: string) => void;
 }
 
 /** Filter policies by target type */
@@ -59,19 +69,109 @@ function filterByTarget(policies: PolicyConfig[], target: string) {
   return policies.filter((p) => p.target === target);
 }
 
-export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps = {}) {
+export function Policies({ embedded, embeddedTab }: PoliciesProps = {}) {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
 
   const { profileId } = useSnapshot(scopeStore);
-
-  // Simulate tab only available in target (scoped) context
   const isScoped = !!profileId;
-  const tabSlugs = isScoped ? ALL_TAB_SLUGS : TOP_LEVEL_TAB_SLUGS;
 
   const resolvedTab = embedded ? embeddedTab : tab;
-  const activeTab = Math.max(0, (tabSlugs as readonly string[]).indexOf(resolvedTab as string));
-  const activeTarget = TAB_TARGETS[tabSlugs[activeTab]];
+
+  // Route to the right view
+  if (!resolvedTab) {
+    return (
+      <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+        {!embedded && (
+          <PageHeader
+            title="Policies"
+            description="Manage security policies for all target types."
+          />
+        )}
+        <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}><CircularLoader /></Box>}>
+          <LazyPolicyOverview embedded={embedded} />
+        </Suspense>
+      </Box>
+    );
+  }
+
+  if (resolvedTab === 'graph') {
+    return (
+      <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+        <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}><CircularLoader /></Box>}>
+          <LazyPolicyGraphView onBack={() => navigate(embedded ? '/policies' : '/policies', { replace: true })} />
+        </Suspense>
+      </Box>
+    );
+  }
+
+  if (resolvedTab === 'simulate' && isScoped) {
+    return (
+      <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+        <DrilldownHeader
+          label="Simulate"
+          embedded={embedded}
+          onBack={() => navigate('/policies', { replace: true })}
+        />
+        <SimulatePanel />
+      </Box>
+    );
+  }
+
+  // Drill-down view for commands/network/filesystem/process
+  const activeTarget = TAB_TARGETS[resolvedTab];
+  if (!activeTarget) {
+    // Unknown tab → redirect to overview
+    return (
+      <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
+        <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}><CircularLoader /></Box>}>
+          <LazyPolicyOverview embedded={embedded} />
+        </Suspense>
+      </Box>
+    );
+  }
+
+  return (
+    <PolicyDrilldown
+      tab={resolvedTab}
+      target={activeTarget}
+      embedded={embedded}
+    />
+  );
+}
+
+/* ---- Drill-down header with back navigation ---- */
+
+function DrilldownHeader({ label, embedded, onBack }: { label: string; embedded?: boolean; onBack: () => void }) {
+  if (embedded) return null;
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+      <Button
+        size="small"
+        variant="text"
+        startIcon={<ArrowLeft size={14} />}
+        onClick={onBack}
+        sx={{ textTransform: 'none', color: 'text.secondary' }}
+      >
+        All Policies
+      </Button>
+      <Typography variant="h6" sx={{ fontWeight: 700 }}>{label}</Typography>
+    </Box>
+  );
+}
+
+/* ---- Policy drill-down view ---- */
+
+interface PolicyDrilldownProps {
+  tab: string;
+  target: 'command' | 'url' | 'filesystem' | 'process';
+  embedded?: boolean;
+}
+
+function PolicyDrilldown({ tab, target, embedded }: PolicyDrilldownProps) {
+  const navigate = useNavigate();
+  const { profileId } = useSnapshot(scopeStore);
+  const isScoped = !!profileId;
 
   const { data: config } = useConfig();
   const { data: tiered } = useTieredPolicies();
@@ -93,29 +193,25 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
 
   const { guardOpen, guardConfirm, guardCancel } = useUnsavedChangesGuard(formDirty);
 
-  // Flat policies from config — used only for fallback rendering while tiered data loads
   const policies = config?.data?.policies ?? [];
   const secrets = secretsData?.data ?? [];
   const skills = skillsData?.data ?? [];
-
-  // Aggregate pending state for busy indicators
   const mutationPending = createPolicy.isPending || updatePolicy.isPending || deletePolicy.isPending || togglePolicy.isPending;
 
-  // Tiered policies for rendering
   const managedPolicies = tiered?.managed ?? [];
   const globalPolicies = tiered?.global ?? [];
   const targetPolicies = tiered?.target ?? [];
   const targetSections = tiered?.targetSections ?? [];
-
-  // The editable tier: in target view = target policies, in global view = global policies
   const editablePolicies = isScoped ? targetPolicies : globalPolicies;
 
-  // Check if any installed skills have commands (for empty state)
   const hasSkillCommands = useMemo(
     () => skills.some((s) => s.status === 'active' && (s as any).analysis?.commands?.length),
     [skills],
   );
 
+  const meta = TAB_META[tab];
+
+  // CRUD handlers
   const confirmToggle = (id: string, enabled: boolean) => {
     togglePolicy.mutate({ id, enabled });
   };
@@ -194,7 +290,6 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
       });
   };
 
-  // Filesystem inline handlers
   const handleFsUpdate = (policy: PolicyConfig) => {
     guard(() => {
       const { id, ...rest } = policy;
@@ -229,18 +324,6 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
     [guard],
   );
 
-  const handleTabChange = (_e: React.SyntheticEvent, newTab: number) => {
-    if (embedded && onTabChange) {
-      onTabChange(tabSlugs[newTab]);
-    } else {
-      navigate(tabSlugs[newTab], { replace: true });
-    }
-    // Close editor when switching tabs (if not dirty)
-    if (formOpen && !formDirty) {
-      handleCancel();
-    }
-  };
-
   // Noop handlers for read-only sections
   const noop = () => {};
   const noopToggle = () => {};
@@ -248,14 +331,8 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
   const noopDelete = () => {};
   const noopAddSkill = () => {};
 
-  /** Render a tier's policies for the currently active tab */
-  function renderTierPolicies(
-    tierPolicies: PolicyConfig[],
-    readOnly: boolean,
-  ) {
-    const target = activeTarget;
-    if (!target) return null;
-
+  /** Render a tier's policies for the current target */
+  function renderTierPolicies(tierPolicies: PolicyConfig[], readOnly: boolean) {
     const filtered = filterByTarget(tierPolicies, target);
 
     if (filtered.length === 0) return (
@@ -264,7 +341,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
       </Box>
     );
 
-    if (activeTab === 0) {
+    if (target === 'command') {
       return (
         <CommandPolicyList
           policies={filtered}
@@ -279,7 +356,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
       );
     }
 
-    if (activeTab === 1) {
+    if (target === 'url') {
       return (
         <NetworkPolicyList
           policies={filtered}
@@ -292,7 +369,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
       );
     }
 
-    if (activeTab === 2) {
+    if (target === 'filesystem') {
       return (
         <FilesystemPolicyTable
           policies={filtered}
@@ -306,7 +383,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
       );
     }
 
-    if (activeTab === 3) {
+    if (target === 'process') {
       return (
         <ProcessPolicyList
           policies={filtered}
@@ -322,30 +399,30 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
     return null;
   }
 
-  /** Check if any tier has policies for the active tab target */
-  const activePolicyTarget = activeTarget;
-  const hasManagedForTab = activePolicyTarget ? filterByTarget(managedPolicies, activePolicyTarget).length > 0 : false;
-  const hasGlobalForTab = activePolicyTarget ? filterByTarget(globalPolicies, activePolicyTarget).length > 0 : false;
-  const hasTargetForTab = activePolicyTarget ? filterByTarget(targetPolicies, activePolicyTarget).length > 0 : false;
-  const hasEditableForTab = activePolicyTarget ? filterByTarget(editablePolicies, activePolicyTarget).length > 0 : false;
+  const hasManagedForTab = filterByTarget(managedPolicies, target).length > 0;
+  const hasGlobalForTab = filterByTarget(globalPolicies, target).length > 0;
+  const hasTargetForTab = filterByTarget(targetPolicies, target).length > 0;
+  const hasEditableForTab = filterByTarget(editablePolicies, target).length > 0;
   const hasAnyPolicies = hasManagedForTab || hasGlobalForTab || hasTargetForTab;
+
+  // Show editor for command and network types
+  const showEditor = target === 'command' || target === 'url';
 
   return (
     <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
-      {!embedded && (
-        <PageHeader
-          title="Policies"
-          description="Manage security policies for command, URL, filesystem, and process filtering."
-        />
-      )}
+      <DrilldownHeader
+        label={meta?.label ?? tab}
+        embedded={embedded}
+        onBack={() => navigate('/policies', { replace: true })}
+      />
 
       {/* Collapsible editor for Commands + Network tabs */}
-      {activeTab <= 1 && (
+      {showEditor && (
         <Collapse in={formOpen} unmountOnExit timeout={250}>
           <Box sx={{ mb: 3, position: 'relative', zIndex: 10 }}>
             <PolicyEditor
               policy={editingPolicy}
-              defaultTarget={editingPolicy ? editingPolicy.target : activeTarget}
+              defaultTarget={editingPolicy ? editingPolicy.target : target}
               onSave={handleSave}
               onCancel={handleCancel}
               onDirtyChange={setFormDirty}
@@ -357,66 +434,25 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
       )}
 
       <Card sx={{ p: 0, opacity: formFocused ? 0.45 : 1, transition: 'opacity 0.2s ease', pointerEvents: formFocused ? 'none' : 'auto' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={activeTab} onChange={handleTabChange} sx={{ flex: 1 }}>
-            <Tab
-              icon={<Terminal size={14} />}
-              iconPosition="start"
-              label="Commands"
-              sx={{ minHeight: 48, textTransform: 'none' }}
-            />
-            <Tab
-              icon={<Globe size={14} />}
-              iconPosition="start"
-              label="Network"
-              sx={{ minHeight: 48, textTransform: 'none' }}
-            />
-            <Tab
-              icon={<FolderOpen size={14} />}
-              iconPosition="start"
-              label="Filesystem"
-              sx={{ minHeight: 48, textTransform: 'none' }}
-            />
-            <Tab
-              icon={<Cpu size={14} />}
-              iconPosition="start"
-              label="Process"
-              sx={{ minHeight: 48, textTransform: 'none' }}
-            />
-            {isScoped && (
-              <Tab
-                icon={<Play size={14} />}
-                iconPosition="start"
-                label="Simulate"
-                sx={{ minHeight: 48, textTransform: 'none' }}
-              />
-            )}
-          </Tabs>
-
-          {/* Add button — only for Commands and Network tabs */}
-          {!formOpen && activeTab <= 1 && (
-            <Box sx={{ pr: 2 }}>
-              <Button
-                size="small"
-                variant="contained"
-                startIcon={<Plus size={14} />}
-                onClick={handleAdd}
-              >
-                Add Policy
-              </Button>
-            </Box>
-          )}
-        </Box>
+        {/* Add button header */}
+        {showEditor && !formOpen && (
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', borderBottom: 1, borderColor: 'divider', px: 2, py: 1 }}>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<Plus size={14} />}
+              onClick={handleAdd}
+            >
+              Add Policy
+            </Button>
+          </Box>
+        )}
 
         <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
-          {/* Tab 4: Simulate — no tiering needed */}
-          {activeTab === 4 && <SimulatePanel />}
-
-          {/* Tabs 0-3: Tiered policy display */}
-          {activeTab <= 3 && !tiered && (
-            /* Fallback to flat list while tiered data is loading */
+          {/* Loading fallback */}
+          {!tiered && (
             <>
-              {activeTab === 0 && (
+              {target === 'command' && (
                 filterByTarget(policies, 'command').length === 0 && !hasSkillCommands ? (
                   <EmptyState
                     icon={<Terminal size={28} />}
@@ -444,7 +480,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                 )
               )}
 
-              {activeTab === 1 && (
+              {target === 'url' && (
                 filterByTarget(policies, 'url').length === 0 ? (
                   <EmptyState
                     icon={<Globe size={28} />}
@@ -470,7 +506,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                 )
               )}
 
-              {activeTab === 2 && (
+              {target === 'filesystem' && (
                 <FilesystemPolicyTable
                   policies={filterByTarget(policies, 'filesystem')}
                   onToggle={requestToggle}
@@ -482,7 +518,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                 />
               )}
 
-              {activeTab === 3 && (
+              {target === 'process' && (
                 filterByTarget(policies, 'process').length === 0 ? (
                   <EmptyState
                     icon={<Cpu size={28} />}
@@ -503,10 +539,11 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
             </>
           )}
 
-          {activeTab <= 3 && tiered && (
+          {/* Tiered display */}
+          {tiered && (
             <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {/* Empty state when no policies exist for this tab */}
-              {!hasAnyPolicies && activeTab === 0 && !hasSkillCommands && (
+              {/* Empty state */}
+              {!hasAnyPolicies && target === 'command' && !hasSkillCommands && (
                 <EmptyState
                   icon={<Terminal size={28} />}
                   title="No command policies"
@@ -520,7 +557,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                   }
                 />
               )}
-              {!hasAnyPolicies && activeTab === 1 && (
+              {!hasAnyPolicies && target === 'url' && (
                 <EmptyState
                   icon={<Globe size={28} />}
                   title="No network policies"
@@ -534,7 +571,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                   }
                 />
               )}
-              {!hasAnyPolicies && activeTab === 3 && (
+              {!hasAnyPolicies && target === 'process' && (
                 <EmptyState
                   icon={<Cpu size={28} />}
                   title="No process policies"
@@ -542,44 +579,44 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                 />
               )}
 
-              {/* Managed tier — always read-only */}
+              {/* Managed tier */}
               {hasManagedForTab && (
                 <PolicyTierSection
                   tier="managed"
                   label="Managed Policies"
                   description="Admin-enforced policies that cannot be modified"
-                  count={activePolicyTarget ? filterByTarget(managedPolicies, activePolicyTarget).length : 0}
+                  count={filterByTarget(managedPolicies, target).length}
                   readOnly
                 >
                   {renderTierPolicies(managedPolicies, true)}
                 </PolicyTierSection>
               )}
 
-              {/* Global tier — editable in global view, read-only in target view */}
+              {/* Global tier */}
               {hasGlobalForTab && (
                 <PolicyTierSection
                   tier="global"
                   label={isScoped ? 'Inherited (Global)' : 'Global Policies'}
-                  count={activePolicyTarget ? filterByTarget(globalPolicies, activePolicyTarget).length : 0}
+                  count={filterByTarget(globalPolicies, target).length}
                   readOnly={isScoped}
                 >
                   {renderTierPolicies(globalPolicies, isScoped)}
                 </PolicyTierSection>
               )}
 
-              {/* Target tier — only in scoped context */}
+              {/* Target tier */}
               {isScoped && (
                 <PolicyTierSection
                   tier="target"
                   label="Target Policies"
-                  count={activePolicyTarget ? filterByTarget(targetPolicies, activePolicyTarget).length : 0}
+                  count={filterByTarget(targetPolicies, target).length}
                 >
                   {hasTargetForTab ? (
                     renderTierPolicies(targetPolicies, false)
                   ) : (
                     <Box sx={{ p: 2 }}>
                       <Typography variant="body2" color="text.secondary">
-                        No target-specific policies for this tab.
+                        No target-specific policies for this type.
                       </Typography>
                     </Box>
                   )}
@@ -588,9 +625,7 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
 
               {/* Target sections — only in global view */}
               {!isScoped && targetSections.length > 0 && targetSections.map((section) => {
-                const sectionFiltered = activePolicyTarget
-                  ? filterByTarget(section.policies, activePolicyTarget)
-                  : [];
+                const sectionFiltered = filterByTarget(section.policies, target);
                 if (sectionFiltered.length === 0) return null;
                 return (
                   <PolicyTierSection
@@ -607,8 +642,8 @@ export function Policies({ embedded, embeddedTab, onTabChange }: PoliciesProps =
                 );
               })}
 
-              {/* Filesystem always shows the add row in the editable tier */}
-              {activeTab === 2 && !hasEditableForTab && (
+              {/* Filesystem add row */}
+              {target === 'filesystem' && !hasEditableForTab && (
                 <FilesystemPolicyTable
                   policies={[]}
                   onToggle={requestToggle}
