@@ -43,7 +43,7 @@ export interface Migration {
 }
 
 /**
- * Persisted migration state at /etc/agenshield/migrations.json
+ * Persisted migration state at ~/.agenshield/migrations.json
  */
 export interface MigrationState {
   /** Current installed version */

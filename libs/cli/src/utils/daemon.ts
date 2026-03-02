@@ -456,10 +456,13 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
 
   // Run in background
   try {
-    // Try launchctl first (macOS preferred)
+    // Try launchctl first (macOS preferred) — use enable + kickstart (not deprecated start)
     try {
       execSync('launchctl list com.agenshield.daemon 2>/dev/null', { stdio: 'pipe' });
-      execSync('launchctl start com.agenshield.daemon');
+      try {
+        execSync('sudo launchctl enable system/com.agenshield.daemon', { stdio: 'pipe' });
+      } catch { /* may already be enabled */ }
+      execSync('sudo launchctl kickstart system/com.agenshield.daemon', { stdio: 'pipe' });
       return {
         success: true,
         message: 'Daemon started via launchd',
@@ -743,26 +746,33 @@ export async function stopDaemon(): Promise<{
     };
   }
 
-  // Try launchctl first — use bootout so KeepAlive can't respawn the job
+  // Try launchctl first — use disable + kill SIGTERM (keeps plist, prevents KeepAlive respawn)
   // Discover all registered com.agenshield.* labels (daemon, broker, per-target broker, etc.)
   const launchdLabels = findRegisteredAgenshieldLabels();
   let launchdStopped = false;
 
   for (const label of launchdLabels) {
     launchdStopped = true;
+    // Disable prevents KeepAlive from respawning — plist stays for restart
     try {
-      execSync(`sudo launchctl bootout system/${label} 2>/dev/null`, { stdio: 'pipe' });
+      execSync(`sudo launchctl disable system/${label}`, {
+        stdio: 'pipe',
+        timeout: 10_000,
+      });
+    } catch { /* may already be disabled or not in system domain */ }
+    // Send SIGTERM for graceful shutdown
+    try {
+      execSync(`sudo launchctl kill SIGTERM system/${label}`, {
+        stdio: 'pipe',
+        timeout: 10_000,
+      });
     } catch {
+      // Fallback for user-domain services
       try {
-        execSync(`launchctl bootout gui/${process.getuid?.() ?? ''}/${label} 2>/dev/null`, { stdio: 'pipe' });
-      } catch {
-        try { execSync(`launchctl stop ${label}`, { stdio: 'pipe' }); } catch { /* ignore */ }
-      }
+        execSync(`launchctl kill SIGTERM gui/${process.getuid?.() ?? ''}/${label}`, { stdio: 'pipe' });
+      } catch { /* not running */ }
     }
   }
-
-  // Remove plist files from /Library/LaunchDaemons/ to prevent respawn on reboot
-  cleanupAgenshieldPlists();
 
   if (launchdStopped) {
     // Even after launchctl bootout, wait for the actual process to exit

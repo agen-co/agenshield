@@ -173,6 +173,7 @@ export {
 // LaunchDaemon (enforcement)
 export {
   generateBrokerPlist,
+  generateBrokerLauncherScript,
   installLaunchDaemon,
   loadLaunchDaemon,
   unloadLaunchDaemon,

@@ -36,4 +36,14 @@ export interface DaemonStatus {
   cloudConnected?: boolean;
   /** Company name from AgenShield Cloud enrollment */
   cloudCompany?: string;
+  /** Whether enrollment is pending user action */
+  enrollmentPending?: boolean;
+  /** Current enrollment state details (present during enrollment flow) */
+  enrollment?: {
+    state: string;
+    verificationUri?: string;
+    userCode?: string;
+    expiresAt?: string;
+    error?: string;
+  };
 }

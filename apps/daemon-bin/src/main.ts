@@ -16,10 +16,30 @@ try {
       extractWorkers: true,
       extractInterceptors: true,
       extractUI: true,
+      extractShieldClient: true,
     });
   }
 } catch {
   // Not running as SEA — normal mode
+}
+
+// Handle --version before starting any server
+if (process.argv.includes('--version')) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sea = require('node:sea');
+    if (sea.isSea()) {
+      console.log(sea.getAsset('VERSION', 'utf8').trim());
+    } else {
+      throw new Error('not SEA');
+    }
+  } catch {
+    // Dev mode — read from package.json
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pkg = require('../../../package.json');
+    console.log(pkg.version);
+  }
+  process.exit(0);
 }
 
 const args = process.argv.slice(2);

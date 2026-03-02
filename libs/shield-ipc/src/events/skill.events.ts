@@ -52,7 +52,7 @@ declare module '@agenshield/ipc' {
     'skills:uninstalled': SkillNamePayload;
     'skills:deployed': { name: string; adapterId: string };
     'skills:deploy_failed': { name: string; error: string };
-    'skills:integrity_violation': { name: string; slug: string; action: string; modifiedFiles: string[]; missingFiles: string[]; unexpectedFiles: string[] };
+    'skills:integrity_violation': { name: string; slug: string; action: string; modifiedFiles: string[]; missingFiles: string[]; unexpectedFiles: string[]; checkedPath?: string };
     'skills:integrity_restored': { name: string; slug: string; modifiedFiles: string[]; missingFiles: string[] };
   }
 }

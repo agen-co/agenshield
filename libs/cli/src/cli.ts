@@ -33,6 +33,7 @@ import { registerLogsCommand } from './commands/logs.js';
 import { registerExecCommand } from './commands/exec.js';
 import { registerAuthCommands } from './commands/auth-cmd.js';
 import { registerCompletionCommand } from './commands/completion.js';
+import { registerServiceCommand } from './commands/service.js';
 
 const VERSION = getVersion();
 
@@ -65,6 +66,9 @@ registerLogsCommand(program);
 
 // Authentication
 registerAuthCommands(program);
+
+// Service management
+registerServiceCommand(program);
 
 // Handle SIGINT gracefully
 process.on('SIGINT', () => {

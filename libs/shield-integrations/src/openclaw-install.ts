@@ -583,7 +583,7 @@ export async function onboardAgentOpenClaw(options: {
  * Returns the PID of the spawned process.
  *
  * Uses `spawn` with `detached: true` so the gateway survives the parent
- * process exiting. Logs go to /var/log/agenshield/openclaw-gateway.log.
+ * process exiting. Logs go to `${agentHome}/.agenshield/logs/openclaw-gateway.log`.
  */
 export async function startAgentOpenClawGateway(options: {
   agentHome: string;
@@ -595,7 +595,7 @@ export async function startAgentOpenClawGateway(options: {
   const nvmDir = `${agentHome}/.nvm`;
   const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
 
-  const socketPath = '/var/run/agenshield/agenshield.sock';
+  const socketPath = `${agentHome}/.agenshield/run/agenshield.sock`;
   const interceptorPath = '/opt/agenshield/lib/interceptor/register.cjs';
 
   const gatewayCmd = [
@@ -614,16 +614,17 @@ export async function startAgentOpenClawGateway(options: {
     `exec openclaw gateway run`,
   ].join(' && ');
 
+  const logDir = `${agentHome}/.agenshield/logs`;
+  const gatewayLogPath = path.join(logDir, 'openclaw-gateway.log');
+  const gatewayErrorLogPath = path.join(logDir, 'openclaw-gateway.error.log');
+
   log('Starting openclaw gateway run in background');
   try {
-    // Ensure log directory and files exist with correct ownership + permissions
-    sudoExec('mkdir -p /var/log/agenshield');
-    sudoExec(`touch /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
-    sudoExec(`chown ${agentUsername}:${socketGroupName} /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
-    sudoExec(`chmod 666 /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
+    // Ensure log directory and files exist (user-writable, no sudo needed)
+    fs.mkdirSync(logDir, { recursive: true });
 
-    const outLog = fs.openSync('/var/log/agenshield/openclaw-gateway.log', 'a');
-    const errLog = fs.openSync('/var/log/agenshield/openclaw-gateway.error.log', 'a');
+    const outLog = fs.openSync(gatewayLogPath, 'a');
+    const errLog = fs.openSync(gatewayErrorLogPath, 'a');
 
     const child = spawn(
       'sudo',
@@ -654,7 +655,7 @@ export async function startAgentOpenClawGateway(options: {
       return { success: true, pid, message: `OpenClaw gateway running (PID: ${pid})` };
     } catch {
       log('OpenClaw gateway process exited immediately — check logs');
-      return { success: false, message: 'OpenClaw gateway exited immediately. Check /var/log/agenshield/openclaw-gateway.error.log' };
+      return { success: false, message: `OpenClaw gateway exited immediately. Check ${gatewayErrorLogPath}` };
     }
   } catch (err) {
     const msg = (err as Error).message;
@@ -677,7 +678,7 @@ export async function startAgentOpenClawDashboard(options: {
   const nvmDir = `${agentHome}/.nvm`;
   const log = (msg: string) => verbose && process.stderr.write(`[SETUP] ${msg}\n`);
 
-  const dashSocketPath = '/var/run/agenshield/agenshield.sock';
+  const dashSocketPath = `${agentHome}/.agenshield/run/agenshield.sock`;
   const dashInterceptorPath = '/opt/agenshield/lib/interceptor/register.cjs';
 
   const dashboardCmd = [
@@ -696,14 +697,17 @@ export async function startAgentOpenClawDashboard(options: {
     `exec openclaw dashboard`,
   ].join(' && ');
 
+  const dashLogDir = `${agentHome}/.agenshield/logs`;
+  const dashLogPath = path.join(dashLogDir, 'openclaw-dashboard.log');
+  const dashErrorLogPath = path.join(dashLogDir, 'openclaw-dashboard.error.log');
+
   log('Starting openclaw dashboard in background');
   try {
-    sudoExec(`touch /var/log/agenshield/openclaw-dashboard.log /var/log/agenshield/openclaw-dashboard.error.log`);
-    sudoExec(`chown ${agentUsername}:${socketGroupName} /var/log/agenshield/openclaw-dashboard.log /var/log/agenshield/openclaw-dashboard.error.log`);
-    sudoExec(`chmod 666 /var/log/agenshield/openclaw-dashboard.log /var/log/agenshield/openclaw-dashboard.error.log`);
+    // Ensure log directory and files exist (user-writable, no sudo needed)
+    fs.mkdirSync(dashLogDir, { recursive: true });
 
-    const outLog = fs.openSync('/var/log/agenshield/openclaw-dashboard.log', 'a');
-    const errLog = fs.openSync('/var/log/agenshield/openclaw-dashboard.error.log', 'a');
+    const outLog = fs.openSync(dashLogPath, 'a');
+    const errLog = fs.openSync(dashErrorLogPath, 'a');
 
     const child = spawn(
       'sudo',

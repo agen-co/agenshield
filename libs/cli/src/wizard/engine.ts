@@ -744,7 +744,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
         agentUsername: agentUser.username,
         socketGroupName,
         interceptorPath: '/opt/agenshield/lib/interceptor/register.cjs',
-        socketPath: '/var/run/agenshield/agenshield.sock',
+        socketPath: context.pathsConfig?.socketPath ?? `${agentUser.home}/.agenshield/run/agenshield.sock`,
         httpPort: 5201,
         verbose: context.options?.verbose,
         onLog,
@@ -1065,7 +1065,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     // Skip in dry-run mode
     if (context.options?.dryRun) {
       logVerbose(`[dry-run] Would install guarded shell to /usr/local/bin/guarded-shell`, context);
-      logVerbose(`[dry-run] Would install ZDOTDIR files to /etc/agenshield/zdot/`, context);
+      logVerbose(`[dry-run] Would install ZDOTDIR files to ~/.agenshield/zdot/`, context);
       logVerbose(`[dry-run] Would install wrappers: ${(requiredBins || ['node', 'npm', 'git', 'curl', 'shieldctl']).join(', ')}`, context);
       context.wrappersInstalled = requiredBins || ['node', 'npm', 'git', 'curl', 'shieldctl'];
       return { success: true };
@@ -1074,8 +1074,8 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
     try {
       // First, install guarded shell (critical for PATH/HOME enforcement)
       logVerbose(`Installing guarded shell to /usr/local/bin/guarded-shell`, context);
-      logVerbose(`Installing .zshenv to /etc/agenshield/zdot/.zshenv`, context);
-      logVerbose(`Installing .zshrc to /etc/agenshield/zdot/.zshrc`, context);
+      logVerbose(`Installing .zshenv to ~/.agenshield/zdot/.zshenv`, context);
+      logVerbose(`Installing .zshrc to ~/.agenshield/zdot/.zshrc`, context);
 
       const guardedShellResult = await installGuardedShell(context.userConfig);
       if (!guardedShellResult.success) {
@@ -1214,7 +1214,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
         socketOwner: brokerUsername,
         socketGroup: socketGroupName,
         policiesPath: '/opt/agenshield/policies',
-        auditLogPath: '/var/log/agenshield/audit.log',
+        auditLogPath: `${context.pathsConfig.logDir}/audit.log`,
         agentHome: context.userConfig.agentUser.home,
       }, null, 2);
 
@@ -1358,7 +1358,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
   },
 
   'setup-launchdaemon': async (context) => {
-    if (!context.userConfig || !context.brokerInstalled) {
+    if (!context.userConfig || !context.brokerInstalled || !context.pathsConfig) {
       return { success: false, error: 'Required context not set' };
     }
 
@@ -1378,21 +1378,17 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       const brokerUsername = context.userConfig.brokerUser.username;
       const socketGroupName = context.userConfig.groups.socket.name;
 
-      // Remove stale socket from previous installs (may be root-owned, causing EACCES)
-      logVerbose('Removing stale socket file if present', context);
-      logVerbose('Running: sudo rm -f /var/run/agenshield/agenshield.sock', context);
-      execSync(`sudo rm -f /var/run/agenshield/agenshield.sock`, { encoding: 'utf-8', stdio: 'pipe' });
-
       // Ensure log files exist with correct ownership BEFORE loading daemon.
       // launchd opens stdout/stderr files at process start; if they don't exist
       // or are root-owned, the broker's output may be lost.
+      const logDir = context.pathsConfig.logDir;
       logVerbose('Ensuring log files have correct ownership', context);
-      logVerbose('Running: sudo mkdir -p /var/log/agenshield', context);
-      execSync(`sudo mkdir -p /var/log/agenshield`, { encoding: 'utf-8', stdio: 'pipe' });
-      logVerbose('Running: sudo touch /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log', context);
-      execSync(`sudo touch /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log`, { encoding: 'utf-8', stdio: 'pipe' });
-      logVerbose(`Running: sudo chown ${brokerUsername}:${socketGroupName} /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log`, context);
-      execSync(`sudo chown ${brokerUsername}:${socketGroupName} /var/log/agenshield/broker.log /var/log/agenshield/broker.error.log`, { encoding: 'utf-8', stdio: 'pipe' });
+      logVerbose(`Running: mkdir -p ${logDir}`, context);
+      execSync(`mkdir -p "${logDir}"`, { encoding: 'utf-8', stdio: 'pipe' });
+      logVerbose(`Running: touch ${logDir}/broker.log ${logDir}/broker.error.log`, context);
+      execSync(`touch "${logDir}/broker.log" "${logDir}/broker.error.log"`, { encoding: 'utf-8', stdio: 'pipe' });
+      logVerbose(`Running: chown ${brokerUsername}:${socketGroupName} ${logDir}/broker.log ${logDir}/broker.error.log`, context);
+      execSync(`chown ${brokerUsername}:${socketGroupName} "${logDir}/broker.log" "${logDir}/broker.error.log"`, { encoding: 'utf-8', stdio: 'pipe' });
 
       // Bootout any stale broker daemon entry from a previous install.
       // Without this, `launchctl bootstrap` may fail if the old entry is cached.
@@ -1585,7 +1581,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
 
       const esConfig = {
         monitoredUsers,
-        daemonSocketPath: '/var/run/agenshield/agenshield.sock',
+        daemonSocketPath: context.pathsConfig?.socketPath ?? `${os.homedir()}/.agenshield/run/agenshield.sock`,
         daemonHost: '127.0.0.1',
         daemonPort: 5200,
         mode: 'monitor',

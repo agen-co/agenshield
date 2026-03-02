@@ -29,10 +29,15 @@ export const ensureWorkspacePathsStep: InstallStep = {
     // Rewrite any host user paths → agent home (idempotent)
     await ctx.execAsRoot([
       `if [ -f "${configFile}" ]; then`,
-      // Pass 1: unescaped paths
+      // Pass 1: host-user unescaped paths
       `  sed -i '' 's|/Users/${ctx.hostUsername}|${ctx.agentHome}|g' "${configFile}"`,
-      // Pass 2: escaped paths — OpenClaw's JSON serializer uses \/
+      // Pass 2: host-user escaped paths — OpenClaw's JSON serializer uses \/
       `  sed -i '' 's|\\/Users\\/${ctx.hostUsername}|\\/Users\\/${agentBasename}|g' "${configFile}"`,
+      // Pass 3-4: legacy agent-user paths (e.g. /Users/openclaw → /Users/ash_openclaw_agent)
+      ...(ctx.profileBaseName !== ctx.hostUsername && ctx.profileBaseName !== agentBasename ? [
+        `  sed -i '' 's|/Users/${ctx.profileBaseName}|${ctx.agentHome}|g' "${configFile}"`,
+        `  sed -i '' 's|\\/Users\\/${ctx.profileBaseName}|\\/Users\\/${agentBasename}|g' "${configFile}"`,
+      ] : []),
       '  echo "PATHS_CHECKED"',
       'else',
       '  echo "NO_CONFIG"',

@@ -11,7 +11,9 @@ import { promisify } from 'node:util';
 
 const execAsync = promisify(exec);
 
-const SEATBELT_DIR = '/etc/agenshield/seatbelt';
+import { seatbeltDirPath } from '@agenshield/ipc';
+
+const SEATBELT_DIR = seatbeltDirPath();
 
 /**
  * Agent seatbelt profile template

@@ -81,7 +81,7 @@ AgenShield is a security framework for AI agents that provides network isolation
 
 ### Primary: Unix Socket
 
-**Path**: `/var/run/agenshield.sock`
+**Path**: `~/.agenshield/run/agenshield.sock`
 
 **Properties**:
 - Owner: `clawbroker:clawshield`
@@ -138,10 +138,10 @@ AgenShield is a security framework for AI agents that provides network isolation
 ### System Directories
 
 ```
-/var/run/agenshield/
+~/.agenshield/run/
 └── agenshield.sock          # Unix domain socket
 
-/var/log/agenshield/
+~/.agenshield/logs/
 ├── broker.log               # Broker stdout
 ├── broker.error.log         # Broker stderr
 └── audit.log                # Security audit log
@@ -154,7 +154,7 @@ AgenShield is a security framework for AI agents that provides network isolation
 │   └── custom/              # User policies
 └── ops/                     # Operation logs
 
-/etc/agenshield/
+~/.agenshield/
 ├── seatbelt/                # Sandbox profiles
 │   ├── agent.sb             # Agent profile
 │   └── ops/                 # Per-operation profiles
@@ -280,7 +280,7 @@ Layer 4: Audit Logging
 
 ; Allow socket access to broker
 (allow network-outbound
-  (local unix-socket "/var/run/agenshield.sock"))
+  (local unix-socket "~/.agenshield/run/agenshield.sock"))
 
 ; Deny all network
 (deny network*)
@@ -343,7 +343,7 @@ Layer 4: Audit Logging
    │
 2. Interceptor catches the call
    │
-3. Interceptor connects to /var/run/agenshield.sock
+3. Interceptor connects to ~/.agenshield/run/agenshield.sock
    │
 4. Broker receives JSON-RPC request:
    │  { "method": "http_request", "params": { "url": "..." } }
@@ -482,17 +482,17 @@ interface PolicyConfig {
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/var/log/agenshield/broker.log</string>
+    <string>~/.agenshield/logs/broker.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/var/log/agenshield/broker.error.log</string>
+    <string>~/.agenshield/logs/broker.error.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>AGENSHIELD_CONFIG</key>
         <string>/opt/agenshield/config/shield.json</string>
         <key>AGENSHIELD_SOCKET</key>
-        <string>/var/run/agenshield.sock</string>
+        <string>~/.agenshield/run/agenshield.sock</string>
     </dict>
 </dict>
 </plist>
@@ -514,7 +514,7 @@ dscl . -read /Users/clawagent
 dscl . -read /Users/clawbroker
 
 # Socket permissions
-ls -la /var/run/agenshield/
+ls -la ~/.agenshield/run/
 
 # Daemon running
 launchctl list | grep agenshield
@@ -551,7 +551,7 @@ sudo -u clawagent /Users/clawagent/bin/shieldctl request ping
 | Variable | Default | Description |
 |----------|---------|-------------|
 | AGENSHIELD_CONFIG | /opt/agenshield/config/shield.json | Config file path |
-| AGENSHIELD_SOCKET | /var/run/agenshield.sock | Unix socket path |
+| AGENSHIELD_SOCKET | ~/.agenshield/run/agenshield.sock | Unix socket path |
 | AGENSHIELD_HTTP_PORT | 5200 | HTTP fallback port |
 | AGENSHIELD_LOG_LEVEL | info | Logging level |
 | AGENSHIELD_FAIL_OPEN | false | Allow on daemon failure |

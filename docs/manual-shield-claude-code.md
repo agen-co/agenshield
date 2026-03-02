@@ -27,6 +27,7 @@ HOST_USER="${SUDO_USER:-$(stat -f '%Su' /dev/console 2>/dev/null || logname 2>/d
 HOST_HOME="/Users/$HOST_USER"
 SHARED_BIN="$HOST_HOME/.agenshield/bin"
 SHARED_LIB="$HOST_HOME/.agenshield/lib"
+SHARED_LIBEXEC="$HOST_HOME/.agenshield/libexec"
 GUARDED_SHELL_PATH="$AGENT_HOME/.agenshield/bin/guarded-shell"
 ZDOT_DIR="$AGENT_HOME/.zdot"
 ```
@@ -250,6 +251,12 @@ chmod -a "$BROKER_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agen
 chmod +a "$BROKER_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield"
 chmod -a "$BROKER_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/bin" 2>/dev/null; true
 chmod +a "$BROKER_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/bin"
+# Broker user ACL on libexec (SEA broker binary lives here)
+chmod -a "$BROKER_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/libexec" 2>/dev/null; true
+chmod +a "$BROKER_USER allow search,list,readattr,readextattr,execute" "$HOST_HOME/.agenshield/libexec"
+# Broker user ACL on lib (native modules like better-sqlite3)
+chmod -a "$BROKER_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield/lib" 2>/dev/null; true
+chmod +a "$BROKER_USER allow search,list,readattr,readextattr" "$HOST_HOME/.agenshield/lib"
 # Agent user ACLs (wrappers exec shield-client from host .agenshield/bin)
 chmod -a "$AGENT_USER allow search" "$HOST_HOME" 2>/dev/null; true
 chmod +a "$AGENT_USER allow search" "$HOST_HOME"
@@ -497,50 +504,36 @@ to load it. This step only runs if any wrapper in the preset sets
 
 ```bash
 # Runs as: root | Timeout: 30s
-# Build the interceptor first (from repo root)
-npx nx build shield-interceptor
+# In SEA mode, the interceptor is already installed by install.sh
+INTERCEPTOR_SRC="$HOST_HOME/.agenshield/lib/interceptor/register.cjs"
+test -f "$INTERCEPTOR_SRC" && echo "Interceptor EXISTS" || echo "Interceptor MISSING"
 
-# Deploy to shared lib
+# Copy to shared lib (if not already there)
 mkdir -p "$SHARED_LIB/interceptor"
-INTERCEPTOR_SRC="$(pwd)/libs/shield-interceptor/dist/register.cjs"
 cp "$INTERCEPTOR_SRC" "$SHARED_LIB/interceptor/register.cjs" && \
 chown root:$GROUP "$SHARED_LIB/interceptor/register.cjs" && \
 chmod 644 "$SHARED_LIB/interceptor/register.cjs"
 ```
 
-### 5.2 Deploy broker binary
+### 5.2 Deploy broker binary (SEA mode)
 
-Copy the broker to `$SHARED_BIN/agenshield-broker`. The LaunchDaemon plist
-(Phase 10) references this path.
-
-```bash
-# Runs as: your user (from repo root) | Timeout: 120s
-npx nx build shield-broker
-```
+In SEA (Single Executable Application) mode, the broker is a self-contained
+binary deployed to `$SHARED_LIBEXEC/agenshield-broker`. No `node-bin` runner
+is needed — the LaunchDaemon plist (Phase 10) invokes the binary directly.
 
 ```bash
 # Runs as: root | Timeout: 15s
-BROKER_SRC="$(pwd)/libs/shield-broker/dist/main.js"
-mkdir -p "$SHARED_BIN" && \
-cp "$BROKER_SRC" "$SHARED_BIN/agenshield-broker" && \
-chmod 755 "$SHARED_BIN/agenshield-broker" && \
-chown root:$GROUP "$SHARED_BIN/agenshield-broker"
+# In SEA mode, the broker binary is already installed by install.sh at:
+#   $HOST_HOME/.agenshield/libexec/agenshield-broker
+# Just verify it exists and set permissions for the shield flow.
+test -f "$SHARED_LIBEXEC/agenshield-broker" && echo "Broker binary EXISTS" || echo "Broker binary MISSING"
+
+# Ensure correct ownership and permissions
+chown root:$GROUP "$SHARED_LIBEXEC/agenshield-broker" && \
+chmod 755 "$SHARED_LIBEXEC/agenshield-broker"
 ```
 
-### 5.3 Create ESM package.json
-
-The broker binary is built with esbuild `format:"esm"` and uses `import`
-statements. Without this `package.json`, Node defaults to CJS and crashes.
-
-```bash
-# Runs as: root | Timeout: 5s
-cat > "$HOST_HOME/.agenshield/package.json" << 'EOF'
-{"type":"module"}
-EOF
-chown root:wheel "$HOST_HOME/.agenshield/package.json"
-```
-
-### 5.4 Deploy shield-client
+### 5.3 Deploy shield-client
 
 Copy shield-client to `$SHARED_BIN/shield-client`. The shebang is rewritten
 from `#!/usr/bin/env node` to `#!$AGENT_HOME/bin/node-bin` so it runs
@@ -563,7 +556,7 @@ chmod 755 "$SHARED_BIN/shield-client" && \
 chown root:$GROUP "$SHARED_BIN/shield-client"
 ```
 
-### 5.4b Bootstrap node-bin
+### 5.3b Bootstrap node-bin
 
 Copy the host's Node.js binary to `$AGENT_HOME/bin/node-bin` so the
 shield-client shebang works before Phase 7 (Claude Code install). This is a
@@ -576,7 +569,7 @@ chown root:$GROUP "$AGENT_HOME/bin/node-bin" && \
 chmod 755 "$AGENT_HOME/bin/node-bin"
 ```
 
-### 5.5 Install wrapper scripts
+### 5.4 Install wrapper scripts
 
 Generates wrapper scripts in `$AGENT_HOME/bin/` for the required and optional
 binaries defined by the `claudecode` preset.
@@ -593,7 +586,7 @@ interceptor. This step is code-driven (`installSpecificWrappers()` in
 ls -la $AGENT_HOME/bin/
 ```
 
-### 5.6 Install basic command symlinks
+### 5.5 Install basic command symlinks
 
 Symlink basic system commands (`ls`, `cat`, `grep`, etc.) into
 `$AGENT_HOME/bin/` so the guarded shell can use them. These are plain
@@ -614,7 +607,7 @@ for cmd in ls cat head tail less more grep find mkdir rmdir rm cp mv pwd \
 done
 ```
 
-### 5.7 Lock down permissions
+### 5.6 Lock down permissions
 
 Set root ownership on all wrapper files and symlinks, then restore the bin
 directory itself to broker-owned with setgid so skills can be installed later.
@@ -1010,6 +1003,15 @@ cat > "/etc/sudoers.d/agenshield-claudecode" << SUDOERS_EOF
 # AgenShield — allows $HOST_USER to run commands as agent/broker without password
 $HOST_USER ALL=(ash_claudecode_agent) NOPASSWD: ALL
 $HOST_USER ALL=(ash_claudecode_broker) NOPASSWD: ALL
+
+# AgenShield — allows broker to manage gateway LaunchDaemon without TTY
+$BROKER_USER ALL=(root) NOPASSWD: /bin/launchctl kickstart system/com.agenshield.$BASE_NAME.gateway
+$BROKER_USER ALL=(root) NOPASSWD: /bin/launchctl kickstart -k system/com.agenshield.$BASE_NAME.gateway
+$BROKER_USER ALL=(root) NOPASSWD: /bin/launchctl enable system/com.agenshield.$BASE_NAME.gateway
+$BROKER_USER ALL=(root) NOPASSWD: /bin/launchctl disable system/com.agenshield.$BASE_NAME.gateway
+$BROKER_USER ALL=(root) NOPASSWD: /bin/launchctl kill SIGTERM system/com.agenshield.$BASE_NAME.gateway
+$BROKER_USER ALL=(root) NOPASSWD: /bin/launchctl bootout system/com.agenshield.$BASE_NAME.gateway
+$BROKER_USER ALL=(root) NOPASSWD: /bin/launchctl list com.agenshield.$BASE_NAME.gateway
 SUDOERS_EOF
 chmod 440 "/etc/sudoers.d/agenshield-claudecode" && \
 visudo -c -f "/etc/sudoers.d/agenshield-claudecode" 2>/dev/null || rm -f "/etc/sudoers.d/agenshield-claudecode"
@@ -1019,11 +1021,90 @@ visudo -c -f "/etc/sudoers.d/agenshield-claudecode" 2>/dev/null || rm -f "/etc/s
 
 ## Phase 10 — Install Broker LaunchDaemon
 
-### 10.1 Write broker plist, set permissions, and load
+### 10.1 Fix log directory permissions
+
+Fix log dir permissions **before** bootstrap so the broker can write logs immediately.
+
+```bash
+# Runs as: root | Timeout: 10s
+LOG_DIR="$AGENT_HOME/.agenshield/logs"
+mkdir -p "$LOG_DIR" && chown $BROKER_USER:$GROUP "$LOG_DIR" && chmod 2775 "$LOG_DIR"
+```
+
+### 10.2 SEA binary pre-flight
+
+Verify the broker binary exists and is executable by the broker user.
+
+```bash
+# Runs as: root | Timeout: 5s
+test -f "$SHARED_LIBEXEC/agenshield-broker" && echo "EXISTS" || echo "MISSING"
+sudo -u $BROKER_USER test -x "$SHARED_LIBEXEC/agenshield-broker" && echo "EXEC_OK" || echo "EXEC_FAIL"
+```
+
+### 10.3 Fix ownership, quarantine, and code signature
 
 ```bash
 # Runs as: root | Timeout: 15s
-cat > "/Library/LaunchDaemons/com.agenshield.broker.claudecode.plist" << 'PLIST_EOF'
+chown root:wheel "$HOST_HOME/.agenshield/libexec" && \
+chown root:wheel "$SHARED_LIBEXEC/agenshield-broker" && \
+xattr -d com.apple.quarantine "$SHARED_LIBEXEC/agenshield-broker" 2>/dev/null; true
+
+# Write temp entitlements plist
+cat > /tmp/agenshield-ent.plist << 'ENT_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict>
+</plist>
+ENT_EOF
+
+codesign --force --sign - --options runtime --entitlements /tmp/agenshield-ent.plist "$SHARED_LIBEXEC/agenshield-broker"
+rm -f /tmp/agenshield-ent.plist
+```
+
+### 10.3b Write broker launcher script (SEA mode)
+
+```bash
+# Runs as: root | Timeout: 10s
+cat > "$AGENT_HOME/.agenshield/bin/broker-launcher.sh" << 'LAUNCHER_EOF'
+#!/bin/bash
+# AgenShield Broker Launcher — wraps SEA binary for AMFI compatibility
+set -euo pipefail
+
+export AGENSHIELD_CONFIG="$AGENT_HOME/.agenshield/config/shield.json"
+export AGENSHIELD_SOCKET="$SOCKET_PATH"
+export AGENSHIELD_AGENT_HOME="$AGENT_HOME"
+export AGENSHIELD_HOST_HOME="$HOST_HOME"
+export AGENSHIELD_AUDIT_LOG="$AGENT_HOME/.agenshield/logs/audit.log"
+export AGENSHIELD_POLICIES="$AGENT_HOME/.agenshield/policies"
+export AGENSHIELD_LOG_DIR="$LOG_DIR"
+export AGENSHIELD_PROFILE_ID="$AGENT_USER"
+export AGENSHIELD_DAEMON_URL="http://127.0.0.1:5200"
+export AGENSHIELD_BROKER_HOME="$AGENT_HOME"
+export HOME="$AGENT_HOME"
+export NODE_ENV="production"
+
+exec "$SHARED_LIBEXEC/agenshield-broker"
+LAUNCHER_EOF
+chown root:wheel "$AGENT_HOME/.agenshield/bin/broker-launcher.sh" && \
+chmod 755 "$AGENT_HOME/.agenshield/bin/broker-launcher.sh"
+```
+
+### 10.4 Write broker plist
+
+> **Note:** `AssociatedBundleIdentifiers` is only included when
+> `/Applications/AgenShieldES.app` exists on the host. It is shown
+> commented out below — uncomment if the ES app is installed.
+
+```bash
+# Runs as: root | Timeout: 15s
+BROKER_LABEL="com.agenshield.broker.claudecode"
+PLIST_PATH="/Library/LaunchDaemons/$BROKER_LABEL.plist"
+cat > "$PLIST_PATH" << 'PLIST_EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1031,15 +1112,18 @@ cat > "/Library/LaunchDaemons/com.agenshield.broker.claudecode.plist" << 'PLIST_
     <key>Label</key>
     <string>com.agenshield.broker.claudecode</string>
 
+    <!-- Only include AssociatedBundleIdentifiers when /Applications/AgenShieldES.app exists -->
+    <!--
     <key>AssociatedBundleIdentifiers</key>
     <array>
         <string>com.frontegg.AgenShieldES</string>
     </array>
+    -->
 
     <key>ProgramArguments</key>
     <array>
-        <string>$SHARED_BIN/node-bin</string>
-        <string>$SHARED_BIN/agenshield-broker</string>
+        <string>/bin/bash</string>
+        <string>/Users/ash_claudecode_agent/.agenshield/bin/broker-launcher.sh</string>
     </array>
 
     <key>UserName</key>
@@ -1057,12 +1141,18 @@ cat > "/Library/LaunchDaemons/com.agenshield.broker.claudecode.plist" << 'PLIST_
     <key>ThrottleInterval</key>
     <integer>10</integer>
 
+    <key>ExitTimeOut</key>
+    <integer>10</integer>
+
     <key>StandardOutPath</key>
     <string>/Users/ash_claudecode_agent/.agenshield/logs/broker.log</string>
 
     <key>StandardErrorPath</key>
     <string>/Users/ash_claudecode_agent/.agenshield/logs/broker.error.log</string>
 
+    <!-- NOTE: Broker intentionally runs without NODE_OPTIONS/interceptor — it IS the
+         enforcement point. If broker ever spawns Node.js as the agent user, add
+         NODE_OPTIONS and AGENSHIELD_INTERCEPT_* here. -->
     <key>EnvironmentVariables</key>
     <dict>
         <key>AGENSHIELD_CONFIG</key>
@@ -1071,20 +1161,31 @@ cat > "/Library/LaunchDaemons/com.agenshield.broker.claudecode.plist" << 'PLIST_
         <string>/Users/ash_claudecode_agent/.agenshield/run/agenshield.sock</string>
         <key>AGENSHIELD_AGENT_HOME</key>
         <string>/Users/ash_claudecode_agent</string>
-        <key>AGENSHIELD_LOG_DIR</key>
-        <string>/Users/ash_claudecode_agent/.agenshield/logs</string>
         <key>AGENSHIELD_HOST_HOME</key>
         <string>$HOST_HOME</string>
         <key>AGENSHIELD_AUDIT_LOG</key>
         <string>$AGENT_HOME/.agenshield/logs/audit.log</string>
         <key>AGENSHIELD_POLICIES</key>
         <string>$AGENT_HOME/.agenshield/policies</string>
+        <key>AGENSHIELD_LOG_DIR</key>
+        <string>$LOG_DIR</string>
+        <key>AGENSHIELD_PROFILE_ID</key>
+        <string>$AGENT_USER</string>
+        <key>AGENSHIELD_DAEMON_URL</key>
+        <string>http://127.0.0.1:5200</string>
+        <key>AGENSHIELD_BROKER_HOME</key>
+        <string>$AGENT_HOME</string>
+        <key>HOME</key>
+        <string>$AGENT_HOME</string>
         <key>NODE_ENV</key>
         <string>production</string>
+        <!-- Only in SEA mode with native module: -->
+        <!-- <key>BETTER_SQLITE3_BINDING</key> -->
+        <!-- <string>$HOST_HOME/.agenshield/lib/v$VERSION/native/better_sqlite3.node</string> -->
     </dict>
 
     <key>WorkingDirectory</key>
-    <string>$HOST_HOME/.agenshield</string>
+    <string>$AGENT_HOME</string>
 
     <key>SoftResourceLimits</key>
     <dict>
@@ -1094,8 +1195,38 @@ cat > "/Library/LaunchDaemons/com.agenshield.broker.claudecode.plist" << 'PLIST_
 </dict>
 </plist>
 PLIST_EOF
-chmod 644 "/Library/LaunchDaemons/com.agenshield.broker.claudecode.plist"
-launchctl load "/Library/LaunchDaemons/com.agenshield.broker.claudecode.plist" 2>/dev/null; true
+```
+
+### 10.5 Set plist permissions and validate
+
+```bash
+# Runs as: root | Timeout: 10s
+chown root:wheel "$PLIST_PATH" && \
+chmod 644 "$PLIST_PATH" && \
+plutil -lint "$PLIST_PATH"
+```
+
+### 10.6 Bootout stale service, bootstrap, and kickstart
+
+```bash
+# Runs as: root | Timeout: 15s
+# sudo forces a new audit session with system domain access
+# (required when executing from osascript privilege helper on macOS Sequoia)
+sudo launchctl bootout system/$BROKER_LABEL 2>&1; echo "BOOTOUT_EXIT=$?"
+sudo launchctl bootstrap system "$PLIST_PATH"
+
+# If bootstrap fails, try deprecated launchctl load -w (looser session requirements)
+# sudo launchctl load -w "$PLIST_PATH"
+
+# Kickstart to ensure immediate start
+sudo launchctl kickstart system/$BROKER_LABEL
+```
+
+### 10.7 Post-bootstrap verification
+
+```bash
+# Runs as: root | Timeout: 5s
+launchctl list $BROKER_LABEL
 ```
 
 ---
@@ -1175,8 +1306,11 @@ ls -la /Users/ash_claudecode_agent/.zdot/
 # Check interceptor deployment
 test -f "$HOST_HOME/.agenshield/lib/interceptor/register.cjs" && echo "Interceptor OK" || echo "Interceptor MISSING"
 
-# Check broker binary
-test -x "$HOST_HOME/.agenshield/bin/agenshield-broker" && echo "Broker binary OK" || echo "Broker binary MISSING"
+# Check libexec directory
+ls -la "$HOST_HOME/.agenshield/libexec/"
+
+# Check broker binary (SEA mode — deployed to libexec)
+test -x "$HOST_HOME/.agenshield/libexec/agenshield-broker" && echo "Broker binary OK" || echo "Broker binary MISSING"
 
 # Check shield-client
 test -x "$HOST_HOME/.agenshield/bin/shield-client" && echo "Shield-client OK" || echo "Shield-client MISSING"

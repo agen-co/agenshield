@@ -16,6 +16,9 @@
 #   AGENSHIELD_VERSION    - Install a specific version (default: latest)
 #   AGENSHIELD_INSTALL_DIR - Installation directory (default: ~/.agenshield)
 #   AGENSHIELD_GITHUB_REPO - GitHub repo for downloads (default: agen-co/agenshield)
+#   AGENSHIELD_TOKEN      - Enrollment token for automatic cloud setup (MDM)
+#   AGENSHIELD_CLOUD_URL  - Cloud API URL for automatic setup (requires AGENSHIELD_TOKEN or AGENSHIELD_ORG)
+#   AGENSHIELD_ORG        - Org client ID for MDM enrollment (device code flow on daemon start)
 #
 set -e
 
@@ -51,6 +54,24 @@ ok()    { printf "${GREEN}  ok${RESET}  %s\n" "$1"; }
 warn()  { printf "${YELLOW}warn${RESET}  %s\n" "$1"; }
 error() { printf "${RED}error${RESET} %s\n" "$1" >&2; }
 die()   { error "$1"; exit 1; }
+
+# Sign a binary with ad-hoc identity + hardened runtime (macOS Sequoia requirement)
+sign_binary_hardened() {
+  _BINARY="$1"
+  _ENT_FILE=$(mktemp /tmp/agenshield-ent.XXXXXX.plist)
+  cat > "$_ENT_FILE" << 'ENTEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>com.apple.security.cs.allow-jit</key><true/>
+<key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+<key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict></plist>
+ENTEOF
+  codesign --force --sign - --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
+    codesign --force --sign - "$_BINARY" 2>/dev/null || true
+  rm -f "$_ENT_FILE"
+}
 
 # Detect the platform
 detect_platform() {
@@ -238,6 +259,12 @@ main() {
   if [ -f "$EXTRACT_DIR/$CLI_BINARY" ]; then
     cp "$EXTRACT_DIR/$CLI_BINARY" "$BIN_DIR/$CLI_BINARY"
     chmod 755 "$BIN_DIR/$CLI_BINARY"
+    # macOS: remove quarantine and re-sign with hardened runtime
+    if [ "$PLATFORM" = "darwin" ]; then
+      xattr -d com.apple.quarantine "$BIN_DIR/$CLI_BINARY" 2>/dev/null || true
+      sign_binary_hardened "$BIN_DIR/$CLI_BINARY"
+      info "Re-signed $CLI_BINARY (ad-hoc, hardened runtime)"
+    fi
     ok "Installed $CLI_BINARY → $BIN_DIR/"
   fi
 
@@ -249,6 +276,21 @@ main() {
       ok "Installed $BINARY → libexec/"
     fi
   done
+
+  # macOS: remove quarantine and re-sign with hardened runtime for LaunchDaemon compatibility
+  if [ "$PLATFORM" = "darwin" ]; then
+    for BINARY in $INTERNAL_BINARIES; do
+      if [ -f "$INSTALL_DIR/libexec/$BINARY" ]; then
+        xattr -d com.apple.quarantine "$INSTALL_DIR/libexec/$BINARY" 2>/dev/null || true
+        sign_binary_hardened "$INSTALL_DIR/libexec/$BINARY"
+        info "Re-signed $BINARY (ad-hoc, hardened runtime)"
+      fi
+    done
+    # If running with sudo/root, set proper ownership for system LaunchDaemons
+    if [ "$(id -u)" = "0" ] || command -v sudo >/dev/null 2>&1; then
+      sudo chown -R root:wheel "$INSTALL_DIR/libexec" 2>/dev/null || true
+    fi
+  fi
 
   # Install native modules
   LIB_DIR="$INSTALL_DIR/lib/v${VERSION}"
@@ -272,6 +314,13 @@ main() {
     ok "Installed interceptor scripts"
   fi
 
+  # Install shield-client script
+  if [ -d "$EXTRACT_DIR/client" ]; then
+    mkdir -p "$LIB_DIR/client"
+    cp "$EXTRACT_DIR/client/"* "$LIB_DIR/client/" 2>/dev/null || true
+    ok "Installed shield-client script"
+  fi
+
   # Install UI assets
   if [ -d "$EXTRACT_DIR/ui-assets" ]; then
     mkdir -p "$LIB_DIR/ui-assets"
@@ -280,7 +329,21 @@ main() {
   fi
 
   # Write version stamp for SEA extraction check
-  echo "${VERSION}:wiu" > "$LIB_DIR/.extracted"
+  echo "${VERSION}:wius" > "$LIB_DIR/.extracted"
+
+  # macOS: verify code signing (informational, non-blocking)
+  if [ "$PLATFORM" = "darwin" ] && command -v codesign >/dev/null 2>&1; then
+    if codesign --verify --verbose=0 "$BIN_DIR/$CLI_BINARY" 2>/dev/null; then
+      SIGN_INFO=$(codesign -dv "$BIN_DIR/$CLI_BINARY" 2>&1 | grep "Authority=" | head -1 || true)
+      if echo "$SIGN_INFO" | grep -q "Developer ID"; then
+        ok "Code signature verified (Developer ID)"
+      else
+        info "Binary is ad-hoc signed (community build)"
+      fi
+    else
+      info "Binary is unsigned (community build)"
+    fi
+  fi
 
   # Write version.json
   cat > "$INSTALL_DIR/version.json" << EOF
@@ -297,10 +360,69 @@ EOF
   # Add to PATH
   ensure_path
 
+  # ── Automatic cloud setup via token (MDM) ──────────────────────────────
+  SETUP_DONE=false
+  TOKEN="${AGENSHIELD_TOKEN:-}"
+  if [ -n "$TOKEN" ]; then
+    info "Enrollment token detected — running automatic setup..."
+    SETUP_ARGS="--token $TOKEN"
+    CLOUD_URL="${AGENSHIELD_CLOUD_URL:-}"
+    if [ -n "$CLOUD_URL" ]; then
+      SETUP_ARGS="$SETUP_ARGS --cloud-url $CLOUD_URL"
+    fi
+
+    # Use the freshly installed binary (PATH may not be sourced yet)
+    if "$BIN_DIR/$CLI_BINARY" setup $SETUP_ARGS; then
+      ok "Automatic setup completed"
+      SETUP_DONE=true
+    else
+      SETUP_EXIT=$?
+      warn "Automatic setup failed (exit code $SETUP_EXIT)"
+      warn "You can retry manually: agenshield setup --token <token>"
+    fi
+  fi
+
+  # ── Automatic org-based setup via AGENSHIELD_ORG (MDM) ───────────────────
+  ORG="${AGENSHIELD_ORG:-}"
+  if [ -n "$ORG" ] && [ "$SETUP_DONE" = "false" ]; then
+    CLOUD_URL="${AGENSHIELD_CLOUD_URL:-}"
+    if [ -z "$CLOUD_URL" ]; then
+      warn "AGENSHIELD_ORG requires AGENSHIELD_CLOUD_URL to be set — skipping org setup"
+    else
+      info "Org client ID detected — writing MDM config and running org setup..."
+
+      # Write MDM config directly (in case CLI setup fails)
+      MDM_DIR="$HOME/.agenshield"
+      mkdir -p "$MDM_DIR"
+      tee "$MDM_DIR/mdm.json" > /dev/null << MDMEOF
+{
+  "orgClientId": "$ORG",
+  "cloudUrl": "$CLOUD_URL",
+  "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+MDMEOF
+      ok "Wrote MDM config to $MDM_DIR/mdm.json"
+
+      # Run setup --org
+      if "$BIN_DIR/$CLI_BINARY" setup --org "$ORG" --cloud-url "$CLOUD_URL"; then
+        ok "Org setup completed"
+        SETUP_DONE=true
+      else
+        SETUP_EXIT=$?
+        warn "Org setup failed (exit code $SETUP_EXIT)"
+        warn "MDM config is written — the daemon will retry enrollment on next start."
+      fi
+    fi
+  fi
+
   printf "\n${GREEN}${BOLD}Installation complete!${RESET}\n\n"
-  printf "  Run:\n\n"
-  printf "    ${CYAN}source %s${RESET}\n" "$RC_FILE"
-  printf "    ${CYAN}agenshield setup${RESET}\n\n"
+  if [ "$SETUP_DONE" = "true" ]; then
+    printf "  AgenShield is installed and enrolled.\n\n"
+  else
+    printf "  Run:\n\n"
+    printf "    ${CYAN}source %s${RESET}\n" "$RC_FILE"
+    printf "    ${CYAN}agenshield setup${RESET}\n\n"
+  fi
   printf "  Installation directory: ${DIM}%s${RESET}\n" "$INSTALL_DIR"
   printf "  Binaries:\n"
   if [ -f "$BIN_DIR/$CLI_BINARY" ]; then

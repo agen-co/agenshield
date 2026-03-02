@@ -7,13 +7,14 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { ApiResponse, DetectedTarget, TargetType } from '@agenshield/ipc';
+import { migrationStatePath, MIGRATION_STATE_PATH } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 import { emitEvent } from '../events/emitter';
 import { triggerTargetCheck, checkProcessesRunning, checkOpenClawRunning, listClaudeProcesses, listOpenClawProcesses, resolveAgentUid } from '../watchers/targets';
 import { ShieldLogger } from '../services/shield-logger';
 import { ShieldStepTracker } from '../services/shield-step-tracker';
 import { ManifestBuilder } from '../services/manifest-builder';
-import { OPENCLAW_SHIELD_STEPS, isSEA } from '@agenshield/ipc';
+import { OPENCLAW_SHIELD_STEPS, isSEA, getSEAVersion } from '@agenshield/ipc';
 import { registerShieldOperation, unregisterShieldOperation, getActiveShieldOperations } from '../services/shield-registry';
 import { signBrokerToken } from '@agenshield/auth';
 import { writeTokenFile, invalidateTokenCache } from '../services/profile-token';
@@ -183,7 +184,7 @@ export async function detectOldInstallations(): Promise<import('@agenshield/ipc'
 
     const directories: string[] = [];
     const home = process.env['HOME'] || '';
-    for (const dir of ['/opt/agenshield', '/etc/agenshield', ...(home ? [`${home}/.agenshield`] : [])]) {
+    for (const dir of ['/opt/agenshield', ...(home ? [`${home}/.agenshield`] : [])]) {
       if (fs.existsSync(dir)) directories.push(dir);
     }
 
@@ -199,10 +200,9 @@ export async function detectOldInstallations(): Promise<import('@agenshield/ipc'
 
     let version = 'unknown';
     try {
-      const homeDir = process.env['HOME'] || '';
-      const migrationsPath = homeDir ? `${homeDir}/.agenshield/migrations.json` : '/etc/agenshield/migrations.json';
-      const legacyMigrationsPath = '/etc/agenshield/migrations.json';
-      const resolvedPath = fs.existsSync(migrationsPath) ? migrationsPath : legacyMigrationsPath;
+      const primaryPath = migrationStatePath();
+      const legacyPath = MIGRATION_STATE_PATH;
+      const resolvedPath = fs.existsSync(primaryPath) ? primaryPath : legacyPath;
       if (fs.existsSync(resolvedPath)) {
         const data = JSON.parse(fs.readFileSync(resolvedPath, 'utf-8'));
         version = data.version ?? 'unknown';
@@ -474,6 +474,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           createPathsConfig,
           generateAgentProfile,
           generateBrokerPlist,
+          generateBrokerLauncherScript,
         } = await import('@agenshield/sandbox');
         const basePresetId = resolvePresetId(targetId);
         const preset = getPreset(basePresetId);
@@ -624,6 +625,12 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           `chmod +a "${brokerUser} allow search,list,readattr,readextattr" "${hostHome}/.agenshield"`,
           `chmod -a "${brokerUser} allow search,list,readattr,readextattr,execute" "${hostHome}/.agenshield/bin" 2>/dev/null; true`,
           `chmod +a "${brokerUser} allow search,list,readattr,readextattr,execute" "${hostHome}/.agenshield/bin"`,
+          // Broker user ACL on libexec (SEA broker binary lives here)
+          `chmod -a "${brokerUser} allow search,list,readattr,readextattr,execute" "${hostHome}/.agenshield/libexec" 2>/dev/null; true`,
+          `chmod +a "${brokerUser} allow search,list,readattr,readextattr,execute" "${hostHome}/.agenshield/libexec"`,
+          // Broker user ACL on lib (native modules like better-sqlite3)
+          `chmod -a "${brokerUser} allow search,list,readattr,readextattr" "${hostHome}/.agenshield/lib" 2>/dev/null; true`,
+          `chmod +a "${brokerUser} allow search,list,readattr,readextattr" "${hostHome}/.agenshield/lib"`,
           // Agent user ACLs (wrappers exec shield-client from host .agenshield/bin)
           `chmod -a "${agentUser} allow search" "${hostHome}" 2>/dev/null; true`,
           `chmod +a "${agentUser} allow search" "${hostHome}"`,
@@ -786,6 +793,16 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           const brokerResult = await copyBrokerBinary(userConfig, hostHome);
           if (!brokerResult.success) {
             request.log.warn({ targetId }, `Broker binary deploy failed: ${brokerResult.message}`);
+          }
+          // In SEA mode, verify the SEA broker binary exists at libexec
+          // (the LaunchDaemon plist references libexec/agenshield-broker)
+          if (isSEA()) {
+            const brokerSEAPath = `${hostHome}/.agenshield/libexec/agenshield-broker`;
+            const { existsSync } = await import('node:fs');
+            if (!existsSync(brokerSEAPath)) {
+              shieldLog.error(`SEA broker binary not found at ${brokerSEAPath} — run install.sh to deploy`);
+              request.log.error({ targetId }, `SEA broker binary missing at ${brokerSEAPath}`);
+            }
           }
           tracker.completeStep('deploy_broker_binary');
           manifestBuilder.recordInfra('deploy_broker_binary', 4, {});
@@ -1195,12 +1212,74 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         const daemonPort = (typeof addrInfo === 'object' && addrInfo?.port) || 5200;
         const daemonUrl = `http://127.0.0.1:${daemonPort}`;
 
+        // Resolve native module path for broker plist (SEA mode)
+        let nativeModulePath: string | undefined;
+        if (isSEA()) {
+          try {
+            const version = getSEAVersion();
+            if (version) {
+              const candidate = `${hostHome}/.agenshield/lib/v${version}/native/better_sqlite3.node`;
+              const fsSync = await import('node:fs');
+              if (fsSync.existsSync(candidate)) {
+                nativeModulePath = candidate;
+              }
+            }
+          } catch {
+            // Non-fatal — broker will try AGENSHIELD_HOST_HOME fallback
+          }
+        }
+
+        // Check if /Applications/AgenShieldES.app exists for AssociatedBundleIdentifiers
+        let hostAppInstalled = false;
+        const hostAppPath = '/Applications/AgenShieldES.app';
+        try {
+          const fsSync = await import('node:fs');
+          if (fsSync.existsSync(hostAppPath)) {
+            hostAppInstalled = true;
+            shieldLog.info('Host app found at /Applications/AgenShieldES.app');
+          } else {
+            // Try to install from embedded bundle (best-effort)
+            try {
+              const { getESExtensionAppPath } = await import('@agenshield/sandbox');
+              const embeddedApp = getESExtensionAppPath();
+              if (embeddedApp) {
+                const cpResult = await executor.execAsRoot(
+                  `cp -r "${embeddedApp}" "${hostAppPath}" && chown -R root:wheel "${hostAppPath}"`,
+                  { timeout: 15_000 },
+                );
+                if (cpResult.success) {
+                  hostAppInstalled = true;
+                  shieldLog.info(`Installed AgenShieldES.app from embedded bundle to ${hostAppPath}`);
+                } else {
+                  shieldLog.warn(`Failed to install AgenShieldES.app: ${cpResult.error ?? cpResult.output}`);
+                }
+              } else {
+                shieldLog.info('Host app not bundled — omitting AssociatedBundleIdentifiers');
+              }
+            } catch {
+              shieldLog.info('Host app not found — omitting AssociatedBundleIdentifiers');
+            }
+          }
+        } catch {
+          shieldLog.info('Could not check host app — omitting AssociatedBundleIdentifiers');
+        }
+
+        // In SEA mode, use a launcher shell script so ProgramArguments references /bin/bash
+        // (Apple-signed) instead of the SEA binary directly — avoids AMFI validation failures
+        // on macOS Sequoia (Bootstrap failed: 5: Input/output error).
+        const brokerLauncherPath = isSEA()
+          ? `${agentHome}/.agenshield/bin/broker-launcher.sh`
+          : undefined;
+
         const plistContent = generateBrokerPlist(userConfig, {
           baseName: resolvedBaseName,
           socketPath: pathsConfig.socketPath,
           hostHome,
           isSEABinary: isSEA(),
           daemonUrl,
+          nativeModulePath,
+          includeAssociatedBundle: hostAppInstalled,
+          launcherScriptPath: brokerLauncherPath,
         });
         const brokerLabel = `com.agenshield.broker.${baseName}`;
         const plistPath = `/Library/LaunchDaemons/${brokerLabel}.plist`;
@@ -1208,12 +1287,190 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         shieldLog.launchdEvent('load', brokerLabel, plistPath);
         emitEvent('process:started', { process: 'broker', action: 'spawning', pid: undefined } as import('@agenshield/ipc').ProcessEventPayload);
         shieldLog.processEvent('spawning', brokerLabel, { user: brokerUser, plistPath });
-        await executor.execAsRoot(
-          `cat > "${plistPath}" << 'PLIST_EOF'\n${plistContent}\nPLIST_EOF\nchmod 644 "${plistPath}"\nlaunchctl bootout system/${brokerLabel} 2>/dev/null; true\nlaunchctl bootstrap system "${plistPath}"\nlaunchctl kickstart system/${brokerLabel} 2>/dev/null; true`,
-          { timeout: 15_000 },
+
+        // Fix log directory permissions BEFORE bootstrap so broker can write logs immediately
+        const logDir = `${agentHome}/.agenshield/logs`;
+        try {
+          await executor.execAsRoot(
+            `mkdir -p "${logDir}" && chown ${brokerUser}:${groupName} "${logDir}" && chmod 2775 "${logDir}"`,
+            { timeout: 10_000 },
+          );
+        } catch {
+          shieldLog.warn(`Failed to fix log dir permissions for ${logDir}`);
+        }
+
+        // Verify broker binary exists and is executable by broker user before bootstrap (SEA mode)
+        if (isSEA()) {
+          const brokerBinaryPath = `${hostHome}/.agenshield/libexec/agenshield-broker`;
+          const verifyResult = await executor.execAsRoot(
+            [
+              `test -f "${brokerBinaryPath}" && echo "EXISTS" || echo "MISSING"`,
+              `sudo -u ${brokerUser} test -x "${brokerBinaryPath}" && echo "EXEC_OK" || echo "EXEC_FAIL"`,
+            ].join('; '),
+            { timeout: 5_000 },
+          );
+          const out = verifyResult.output ?? '';
+          if (out.includes('MISSING')) {
+            shieldLog.error(`Broker binary not found at ${brokerBinaryPath}`);
+          } else if (out.includes('EXEC_FAIL')) {
+            shieldLog.warn(`Broker binary not executable by ${brokerUser} — ACL or permission issue`);
+          } else {
+            shieldLog.info(`Broker binary verified: accessible by ${brokerUser}`);
+          }
+        }
+
+        // Write broker launcher script (SEA mode) — the primary fix for AMFI validation
+        // failures on macOS Sequoia. The launcher wraps the SEA binary so launchctl
+        // bootstraps /bin/bash (Apple-signed) and `exec` preserves PID tracking.
+        if (isSEA() && brokerLauncherPath) {
+          const brokerBinaryPath = `${hostHome}/.agenshield/libexec/agenshield-broker`;
+          const configFilePath = `${agentHome}/.agenshield/config/shield.json`;
+          const logDirPath = `${agentHome}/.agenshield/logs`;
+          const launcherContent = generateBrokerLauncherScript({
+            brokerBinaryPath,
+            configPath: configFilePath,
+            socketPath: pathsConfig.socketPath,
+            agentHome,
+            hostHome,
+            logDir: logDirPath,
+            daemonUrl,
+            profileId: userConfig.agentUser.username,
+            nativeModulePath,
+          });
+          try {
+            await executor.execAsRoot(
+              `mkdir -p "${agentHome}/.agenshield/bin" && cat > "${brokerLauncherPath}" << 'LAUNCHER_EOF'\n${launcherContent}\nLAUNCHER_EOF\nchown root:wheel "${brokerLauncherPath}" && chmod 755 "${brokerLauncherPath}"`,
+              { timeout: 10_000 },
+            );
+            shieldLog.info(`Broker launcher script written: ${brokerLauncherPath}`);
+          } catch (launcherErr) {
+            shieldLog.error(`Failed to write broker launcher script: ${(launcherErr as Error).message}`);
+          }
+        }
+
+        // Fix ownership, quarantine, and code signature for launchctl bootstrap (defense-in-depth).
+        // The primary fix is the launcher script above; code-signing provides additional
+        // defense-in-depth for other validation points.
+        try {
+          const brokerBin = `${hostHome}/.agenshield/libexec/agenshield-broker`;
+          const tmpEnt = `/tmp/agenshield-ent-${Date.now()}.plist`;
+          const entXml = '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/><key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>';
+          await executor.execAsRoot(
+            [
+              `chown root:wheel "${hostHome}/.agenshield/libexec"`,
+              `chown root:wheel "${brokerBin}"`,
+              `xattr -d com.apple.quarantine "${brokerBin}" 2>/dev/null; true`,
+              `printf '%s' '${entXml}' > "${tmpEnt}"`,
+              `codesign --force --sign - --options runtime --entitlements "${tmpEnt}" "${brokerBin}"`,
+              `rm -f "${tmpEnt}"`,
+            ].join(' && '),
+            { timeout: 15_000 },
+          );
+          try {
+            const signInfo = await executor.execAsRoot(
+              `codesign -dvv "${brokerBin}" 2>&1 | head -5`,
+              { timeout: 5_000 },
+            );
+            if (signInfo.output) {
+              shieldLog.info(`Broker binary signing: ${signInfo.output.trim()}`);
+            }
+          } catch { /* diagnostic logging is best-effort */ }
+        } catch {
+          shieldLog.warn('Failed to fix libexec for bootstrap — bootstrap may fail');
+        }
+
+        let brokerBootstrapOk = true;
+
+        // Step A: Write plist and set permissions
+        const writePlistResult = await executor.execAsRoot(
+          `cat > "${plistPath}" << 'PLIST_EOF'\n${plistContent}\nPLIST_EOF\nchown root:wheel "${plistPath}"\nchmod 644 "${plistPath}"`,
+          { timeout: 10_000 },
         );
-        shieldLog.processEvent('spawned', brokerLabel);
-        tracker.completeStep('install_broker_daemon');
+        if (!writePlistResult.success) {
+          shieldLog.error(`Failed to write broker plist: ${writePlistResult.error ?? writePlistResult.output}`);
+          brokerBootstrapOk = false;
+        }
+
+        // Step B: Validate plist (catches XML/encoding errors)
+        if (brokerBootstrapOk) {
+          const plutilResult = await executor.execAsRoot(`plutil -lint "${plistPath}"`, { timeout: 5_000 });
+          if (!plutilResult.success || !(plutilResult.output ?? '').includes('OK')) {
+            shieldLog.error(`Plist validation failed: ${plutilResult.output ?? plutilResult.error}`);
+            brokerBootstrapOk = false;
+          }
+        }
+
+        // Step C: Pre-bootstrap verification
+        if (brokerBootstrapOk && brokerLauncherPath) {
+          const launcherCheck = await executor.execAsRoot(
+            `test -x "${brokerLauncherPath}" && echo "LAUNCHER_OK" || echo "LAUNCHER_MISSING"; ls -la "${brokerLauncherPath}" 2>&1`,
+            { timeout: 5_000 },
+          );
+          shieldLog.info(`Pre-bootstrap launcher check: ${launcherCheck.output?.trim()}`);
+        }
+
+        // Step D: Bootout stale service + bootstrap (sudo forces new audit session for system domain access)
+        if (brokerBootstrapOk) {
+          const bootoutResult = await executor.execAsRoot(
+            `sudo launchctl bootout system/${brokerLabel} 2>&1; echo "BOOTOUT_EXIT=$?"`,
+            { timeout: 10_000 },
+          );
+          if (bootoutResult.output) {
+            shieldLog.info(`Broker bootout: ${bootoutResult.output.trim()}`);
+          }
+
+          const bootstrapResult = await executor.execAsRoot(
+            `sudo launchctl bootstrap system "${plistPath}" 2>&1`,
+            { timeout: 15_000 },
+          );
+          if (!bootstrapResult.success) {
+            shieldLog.error(`launchctl bootstrap failed: ${bootstrapResult.output ?? bootstrapResult.error}`);
+
+            // Capture launchd syslog for bootstrap failure diagnostics
+            try {
+              const syslog = await executor.execAsRoot(
+                `log show --predicate 'subsystem == "com.apple.launchd"' --last 1m --style syslog 2>/dev/null | grep -i "${brokerLabel}" | tail -5 || echo "NO_SYSLOG"`,
+                { timeout: 10_000 },
+              );
+              if (syslog.output) shieldLog.info(`launchd syslog: ${syslog.output.trim()}`);
+            } catch { /* best-effort diagnostics */ }
+
+            // Fallback: try deprecated launchctl load -w (looser session requirements)
+            shieldLog.warn(`bootstrap failed, trying deprecated launchctl load -w as fallback...`);
+            const loadResult = await executor.execAsRoot(
+              `sudo launchctl load -w "${plistPath}" 2>&1`,
+              { timeout: 15_000 },
+            );
+            if (loadResult.success) {
+              shieldLog.info(`launchctl load -w succeeded for ${brokerLabel}`);
+              brokerBootstrapOk = true;
+            } else {
+              shieldLog.error(`launchctl load -w also failed: ${loadResult.output ?? loadResult.error}`);
+              brokerBootstrapOk = false;
+            }
+          } else {
+            shieldLog.info(`launchctl bootstrap succeeded for ${brokerLabel}`);
+            // Kickstart to ensure immediate start
+            await executor.execAsRoot(`sudo launchctl kickstart system/${brokerLabel} 2>/dev/null; true`, { timeout: 10_000 });
+          }
+        }
+
+        // Step E: Post-bootstrap verification
+        if (brokerBootstrapOk) {
+          const verifyResult = await executor.execAsRoot(`launchctl list ${brokerLabel} 2>&1`, { timeout: 5_000 });
+          if (verifyResult.success && verifyResult.output) {
+            shieldLog.info(`Post-bootstrap: ${verifyResult.output.trim()}`);
+          } else {
+            shieldLog.warn(`Service ${brokerLabel} not visible after bootstrap`);
+          }
+        }
+
+        if (!brokerBootstrapOk) {
+          tracker.failStep('install_broker_daemon', 'Broker bootstrap failed — see logs for details');
+        } else {
+          shieldLog.processEvent('spawned', brokerLabel);
+          tracker.completeStep('install_broker_daemon');
+        }
         manifestBuilder.recordInfra('install_broker_daemon', 11, { brokerLabel, plistPath });
 
         // 8a. Generate broker JWT and write token file to agent home
@@ -1230,8 +1487,26 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           shieldLog.warn(`Failed to write broker token file: ${(err as Error).message} — broker will use plist env vars`);
         }
 
+        // Helper: collect broker diagnostics (used by both bootstrap-failure and socket-timeout paths)
+        const collectBrokerDiagnostics = async () => {
+          try {
+            const diagResult = await executor.execAsRoot([
+              `launchctl print system/${brokerLabel} 2>&1 || echo "NO_BROKER_PRINT"`,
+              `launchctl list | grep ${brokerLabel} 2>/dev/null || echo "NO_BROKER_IN_LAUNCHCTL"`,
+              `id ${brokerUser} 2>&1 || echo "USER_NOT_FOUND"`,
+              `sudo -u ${brokerUser} test -x "${hostHome}/.agenshield/libexec/agenshield-broker" && echo "BINARY_ACCESSIBLE" || echo "BINARY_NOT_ACCESSIBLE"`,
+              `sudo -u ${brokerUser} test -w "${agentHome}/.agenshield/logs" && echo "LOG_DIR_WRITABLE" || echo "LOG_DIR_NOT_WRITABLE"`,
+              `ls -la "${hostHome}/.agenshield/libexec/" 2>/dev/null || echo "NO_LIBEXEC_DIR"`,
+              `sudo -u ${brokerUser} timeout 3 "${hostHome}/.agenshield/libexec/agenshield-broker" --version 2>&1 || echo "DRY_RUN_FAILED"`,
+              `tail -30 "${agentHome}/.agenshield/logs/broker.error.log" 2>/dev/null || echo "NO_BROKER_LOG"`,
+              `log show --predicate 'subsystem == "com.apple.launchd"' --last 3m --style syslog 2>/dev/null | grep -i agenshield | tail -10 || echo "NO_LAUNCHD_LOG"`,
+            ].join('; '), { timeout: 20_000 });
+            shieldLog.info(`Broker diagnostics:\n${diagResult.output ?? 'N/A'}`);
+          } catch { /* best-effort diagnostics */ }
+        };
+
         // 8b. Wait for broker socket before starting gateway (prevents crash loop)
-        if (gatewayPlistPath) {
+        if (gatewayPlistPath && brokerBootstrapOk) {
           tracker.startStep('wait_broker_socket');
           currentStep = 'waiting_broker_socket';
           shieldLog.step('waiting_broker_socket', `Waiting for broker socket at ${pathsConfig.socketPath}...`);
@@ -1321,13 +1596,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           } else {
             // Hard gate: broker socket not available — collect diagnostics and skip gateway
             shieldLog.error(`Broker socket not ready after ${SOCKET_WAIT_MS}ms — skipping gateway start`);
-            try {
-              const diagResult = await executor.execAsRoot([
-                `launchctl list | grep com.agenshield.broker 2>/dev/null || echo "NO_BROKER_IN_LAUNCHCTL"`,
-                `tail -20 "${agentHome}/.agenshield/logs/broker.error.log" 2>/dev/null || echo "NO_BROKER_LOG"`,
-              ].join('; '), { timeout: 10_000 });
-              shieldLog.info(`Broker diagnostics:\n${diagResult.output ?? 'N/A'}`);
-            } catch { /* best-effort diagnostics */ }
+            await collectBrokerDiagnostics();
             tracker.failStep('wait_broker_socket', 'Broker socket not ready — gateway start deferred');
             log('Broker socket not ready — gateway start deferred. Use /targets/lifecycle/:targetId/start to retry.', 'waiting_broker_socket');
 
@@ -1398,7 +1667,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             emitEvent('process:started', { process: 'gateway', action: 'spawning', pid: undefined } as import('@agenshield/ipc').ProcessEventPayload);
 
             await executor.execAsRoot(
-              `launchctl bootout system/${gatewayLabel} 2>/dev/null; true\nlaunchctl bootstrap system "${gatewayPlistPath}"\nlaunchctl kickstart system/${gatewayLabel}`,
+              `sudo launchctl bootout system/${gatewayLabel} 2>/dev/null; true\nsudo launchctl bootstrap system "${gatewayPlistPath}"\nsudo launchctl kickstart system/${gatewayLabel}`,
               { timeout: 15_000 },
             );
             shieldLog.processEvent('spawned', gatewayLabel);
@@ -1409,6 +1678,30 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             tracker.skipStep('start_gateway');
             manifestBuilder.skipInfra('start_gateway', 12);
           }
+        } else if (gatewayPlistPath && !brokerBootstrapOk) {
+          // Bootstrap failed — skip socket wait entirely (fail fast)
+          shieldLog.error('Broker bootstrap failed — skipping socket wait');
+          tracker.startStep('wait_broker_socket');
+          tracker.failStep('wait_broker_socket', 'Broker bootstrap failed');
+          await collectBrokerDiagnostics();
+          log('Broker bootstrap failed — skipping socket wait. See logs for details.', 'waiting_broker_socket');
+
+          // Rollback: restart host processes since shielded replacement failed
+          if (hostUsername && basePresetId === 'openclaw') {
+            shieldLog.info('Rolling back: restarting host OpenClaw processes...');
+            try {
+              await executor.execAsRoot(
+                `sudo -H -u ${hostUsername} openclaw daemon start 2>/dev/null || true; sudo -H -u ${hostUsername} openclaw gateway start 2>/dev/null || true`,
+                { timeout: 30_000 },
+              );
+              shieldLog.info('Host OpenClaw processes restarted.');
+            } catch {
+              shieldLog.error('Failed to restart host OpenClaw processes.');
+            }
+          }
+
+          tracker.skipStep('gateway_preflight');
+          tracker.skipStep('start_gateway');
         } else {
           // No gateway — skip socket wait and gateway steps
           tracker.skipStep('wait_broker_socket');

@@ -7,6 +7,7 @@ import type { GetStatusResponse, DaemonStatus } from '@agenshield/ipc';
 import { VERSION, loadConfig } from '../config/index';
 import { loadState } from '../state/index';
 import { getCloudConnector } from '../services/cloud-connector';
+import { getEnrollmentService } from '../services/enrollment';
 
 // Lazy-loaded integrations — avoids top-level await (TLA) which breaks CJS bundles
 let getOpenClawStatusSync: (() => unknown) | undefined;
@@ -68,6 +69,11 @@ export function buildDaemonStatus(): DaemonStatus {
   const cloudConnected = cloud.isConnected();
   const cloudCompany = cloud.getCompanyName();
 
+  // Enrollment state
+  const enrollmentState = getEnrollmentService().getState();
+  const enrollmentPending = enrollmentState.state === 'pending_user_auth';
+  const includeEnrollment = enrollmentState.state !== 'idle';
+
   return {
     running: true,
     pid: process.pid,
@@ -78,6 +84,16 @@ export function buildDaemonStatus(): DaemonStatus {
     agentUsername: agentUser?.username,
     ...(openclaw ? { openclaw } : {}),
     ...(cloudConnected ? { cloudConnected, cloudCompany } : {}),
+    ...(enrollmentPending ? { enrollmentPending } : {}),
+    ...(includeEnrollment ? {
+      enrollment: {
+        state: enrollmentState.state,
+        ...('verificationUri' in enrollmentState ? { verificationUri: enrollmentState.verificationUri } : {}),
+        ...('userCode' in enrollmentState ? { userCode: enrollmentState.userCode } : {}),
+        ...('expiresAt' in enrollmentState ? { expiresAt: enrollmentState.expiresAt } : {}),
+        ...('error' in enrollmentState ? { error: enrollmentState.error } : {}),
+      },
+    } : {}),
   };
 }
 

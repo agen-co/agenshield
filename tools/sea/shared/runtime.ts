@@ -57,7 +57,13 @@ export function getSEAAsset(name: string, encoding?: 'utf8'): string | ArrayBuff
  */
 export function getLibDir(): string {
   const version = getSEAVersion();
-  return path.join(os.homedir(), '.agenshield', 'lib', `v${version}`);
+  // Assets live under the HOST user's home (extracted by install.sh / daemon).
+  // The broker runs as a different user, so prefer AGENSHIELD_HOST_HOME.
+  const home = process.env['AGENSHIELD_HOST_HOME']
+    || process.env['AGENSHIELD_BROKER_HOME']
+    || process.env['HOME']
+    || os.homedir();
+  return path.join(home, '.agenshield', 'lib', `v${version}`);
 }
 
 export interface SEASetupOptions {
@@ -67,6 +73,8 @@ export interface SEASetupOptions {
   extractInterceptors?: boolean;
   /** Extract UI assets tarball — daemon only */
   extractUI?: boolean;
+  /** Extract shield-client CJS bundle — daemon only */
+  extractShieldClient?: boolean;
 }
 
 /**
@@ -74,6 +82,10 @@ export interface SEASetupOptions {
  */
 export function extractAssetsIfNeeded(opts: SEASetupOptions = {}): void {
   if (!isSEA()) return;
+
+  // Early return when no extraction options are set (e.g. broker binary)
+  const hasWork = opts.extractWorkers || opts.extractInterceptors || opts.extractUI || opts.extractShieldClient;
+  if (!hasWork) return;
 
   const libDir = getLibDir();
   const version = getSEAVersion();
@@ -84,6 +96,7 @@ export function extractAssetsIfNeeded(opts: SEASetupOptions = {}): void {
     opts.extractWorkers ? 'w' : '',
     opts.extractInterceptors ? 'i' : '',
     opts.extractUI ? 'u' : '',
+    opts.extractShieldClient ? 's' : '',
   ].join('');
   const stampFile = path.join(libDir, '.extracted');
   const expectedStamp = optKey ? `${version}:${optKey}` : version;
@@ -96,7 +109,14 @@ export function extractAssetsIfNeeded(opts: SEASetupOptions = {}): void {
     // Stamp doesn't exist — need to extract
   }
 
-  fs.mkdirSync(libDir, { recursive: true });
+  try {
+    fs.mkdirSync(libDir, { recursive: true });
+  } catch {
+    // Can't create lib dir (e.g., broker running as different user) — assets
+    // should already be extracted by daemon or install.sh. Continue without
+    // extracting; setupNativeModules() will still find them if the path is correct.
+    return;
+  }
 
   // Extract worker script
   if (opts.extractWorkers) {
@@ -146,8 +166,20 @@ export function extractAssetsIfNeeded(opts: SEASetupOptions = {}): void {
     }
   }
 
-  // Write version stamp
-  fs.writeFileSync(stampFile, expectedStamp);
+  // Extract shield-client CJS bundle
+  if (opts.extractShieldClient) {
+    try {
+      const clientDir = path.join(libDir, 'client');
+      fs.mkdirSync(clientDir, { recursive: true });
+      const clientCode = getSEAAsset('shield-client.cjs', 'utf8');
+      fs.writeFileSync(path.join(clientDir, 'shield-client.cjs'), clientCode);
+    } catch {
+      // Shield-client asset may not be embedded in this binary
+    }
+  }
+
+  // Write version stamp (non-fatal — broker may not have write access)
+  try { fs.writeFileSync(stampFile, expectedStamp); } catch { /* non-fatal */ }
 }
 
 /**
@@ -170,6 +202,8 @@ export function setupNativeModules(): void {
  */
 export function setupSEARuntime(opts?: SEASetupOptions): void {
   if (!isSEA()) return;
-  extractAssetsIfNeeded(opts);
+  // Ensure setupNativeModules() always runs even if extraction fails
+  // (critical for broker which needs BETTER_SQLITE3_BINDING)
+  try { extractAssetsIfNeeded(opts); } catch { /* continue to setupNativeModules */ }
   setupNativeModules();
 }

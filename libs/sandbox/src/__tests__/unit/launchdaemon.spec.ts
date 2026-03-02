@@ -1,4 +1,4 @@
-import { generateBrokerPlist } from '../../enforcement/launchdaemon';
+import { generateBrokerPlist, generateBrokerLauncherScript } from '../../enforcement/launchdaemon';
 import { generateBrokerPlistLegacy } from '../../legacy';
 import type { UserConfig } from '@agenshield/ipc';
 
@@ -103,10 +103,31 @@ describe('generateBrokerPlist', () => {
     );
   });
 
-  it('includes the associated bundle identifier', () => {
+  it('includes the associated bundle identifier when includeAssociatedBundle is true', () => {
+    const plist = generateBrokerPlist(mockUserConfig, {
+      hostHome: '/Users/testuser',
+      includeAssociatedBundle: true,
+    });
+
+    expect(plist).toContain('AssociatedBundleIdentifiers');
+    expect(plist).toContain('com.frontegg.AgenShieldES');
+  });
+
+  it('omits the associated bundle identifier when includeAssociatedBundle is false', () => {
+    const plist = generateBrokerPlist(mockUserConfig, {
+      hostHome: '/Users/testuser',
+      includeAssociatedBundle: false,
+    });
+
+    expect(plist).not.toContain('AssociatedBundleIdentifiers');
+    expect(plist).not.toContain('com.frontegg.AgenShieldES');
+  });
+
+  it('omits the associated bundle identifier by default', () => {
     const plist = generateBrokerPlist(mockUserConfig, { hostHome: '/Users/testuser' });
 
-    expect(plist).toContain('com.frontegg.AgenShieldES');
+    expect(plist).not.toContain('AssociatedBundleIdentifiers');
+    expect(plist).not.toContain('com.frontegg.AgenShieldES');
   });
 
   it('uses per-target node-bin and shared broker binary', () => {
@@ -137,6 +158,90 @@ describe('generateBrokerPlist', () => {
     expect(plist).toContain('/Users/ash_test_agent/bin/node-bin');
     expect(plist).toContain('/Users/testuser/.agenshield/libexec/agenshield-broker');
   });
+
+  it('uses /bin/bash + launcher script in ProgramArguments when launcherScriptPath is set', () => {
+    const launcherPath = '/Users/ash_test_agent/.agenshield/bin/broker-launcher.sh';
+    const plist = generateBrokerPlist(mockUserConfig, {
+      hostHome: '/Users/testuser',
+      launcherScriptPath: launcherPath,
+    });
+
+    expect(plist).toContain('<string>/bin/bash</string>');
+    expect(plist).toContain(`<string>${launcherPath}</string>`);
+    // Should NOT contain the broker binary or node-bin in ProgramArguments
+    expect(plist).not.toMatch(/<array>[\s\S]*node-bin[\s\S]*<\/array>/);
+  });
+
+  it('launcherScriptPath takes precedence over isSEABinary', () => {
+    const launcherPath = '/Users/ash_test_agent/.agenshield/bin/broker-launcher.sh';
+    const plist = generateBrokerPlist(mockUserConfig, {
+      hostHome: '/Users/testuser',
+      isSEABinary: true,
+      launcherScriptPath: launcherPath,
+    });
+
+    expect(plist).toContain('<string>/bin/bash</string>');
+    expect(plist).toContain(`<string>${launcherPath}</string>`);
+    // The SEA binary path should still appear in EnvironmentVariables but not in ProgramArguments
+    const programArgs = plist.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
+    expect(programArgs).toBeTruthy();
+    expect(programArgs![1]).toContain('/bin/bash');
+    expect(programArgs![1]).toContain(launcherPath);
+    expect(programArgs![1]).not.toContain('agenshield-broker');
+  });
+});
+
+describe('generateBrokerLauncherScript', () => {
+  const defaultOpts = {
+    brokerBinaryPath: '/Users/testuser/.agenshield/libexec/agenshield-broker',
+    configPath: '/Users/ash_test_agent/.agenshield/config/shield.json',
+    socketPath: '/Users/ash_test_agent/.agenshield/run/agenshield.sock',
+    agentHome: '/Users/ash_test_agent',
+    hostHome: '/Users/testuser',
+    logDir: '/Users/ash_test_agent/.agenshield/logs',
+    daemonUrl: 'http://127.0.0.1:5200',
+    profileId: 'ash_test_agent',
+  };
+
+  it('starts with bash shebang and set -euo pipefail', () => {
+    const script = generateBrokerLauncherScript(defaultOpts);
+
+    expect(script).toMatch(/^#!\/bin\/bash\n/);
+    expect(script).toContain('set -euo pipefail');
+  });
+
+  it('exports all required environment variables', () => {
+    const script = generateBrokerLauncherScript(defaultOpts);
+
+    expect(script).toContain(`export AGENSHIELD_CONFIG="${defaultOpts.configPath}"`);
+    expect(script).toContain(`export AGENSHIELD_SOCKET="${defaultOpts.socketPath}"`);
+    expect(script).toContain(`export AGENSHIELD_AGENT_HOME="${defaultOpts.agentHome}"`);
+    expect(script).toContain(`export AGENSHIELD_HOST_HOME="${defaultOpts.hostHome}"`);
+    expect(script).toContain(`export AGENSHIELD_DAEMON_URL="${defaultOpts.daemonUrl}"`);
+    expect(script).toContain(`export AGENSHIELD_PROFILE_ID="${defaultOpts.profileId}"`);
+    expect(script).toContain('export NODE_ENV="production"');
+  });
+
+  it('exec-replaces with the broker binary path', () => {
+    const script = generateBrokerLauncherScript(defaultOpts);
+
+    expect(script).toContain(`exec "${defaultOpts.brokerBinaryPath}"`);
+  });
+
+  it('includes BETTER_SQLITE3_BINDING when nativeModulePath is set', () => {
+    const script = generateBrokerLauncherScript({
+      ...defaultOpts,
+      nativeModulePath: '/Users/testuser/.agenshield/lib/v1.0.0/native/better_sqlite3.node',
+    });
+
+    expect(script).toContain('export BETTER_SQLITE3_BINDING="/Users/testuser/.agenshield/lib/v1.0.0/native/better_sqlite3.node"');
+  });
+
+  it('omits BETTER_SQLITE3_BINDING when nativeModulePath is not set', () => {
+    const script = generateBrokerLauncherScript(defaultOpts);
+
+    expect(script).not.toContain('BETTER_SQLITE3_BINDING');
+  });
 });
 
 describe('generateBrokerPlistLegacy', () => {
@@ -148,11 +253,12 @@ describe('generateBrokerPlistLegacy', () => {
   });
 
   it('uses default paths when no options provided', () => {
+    const home = process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || '';
     const plist = generateBrokerPlistLegacy();
 
     expect(plist).toContain('/opt/agenshield/bin/agenshield-broker');
     expect(plist).toContain('/opt/agenshield/config/shield.json');
-    expect(plist).toContain('/var/run/agenshield/agenshield.sock');
+    expect(plist).toContain(`${home}/.agenshield/run/agenshield.sock`);
   });
 
   it('uses custom options when provided', () => {

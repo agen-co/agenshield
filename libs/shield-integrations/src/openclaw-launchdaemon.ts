@@ -13,10 +13,12 @@
  */
 
 import * as fs from 'node:fs/promises';
+import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { socketPath as ipcSocketPath, logDir } from '@agenshield/ipc';
 
 const execAsync = promisify(exec);
 
@@ -72,7 +74,7 @@ export interface OpenClawDaemonResult {
  * then execs openclaw with the given arguments.
  */
 function generateLauncherScript(config: OpenClawLaunchConfig): string {
-  const socketPath = config.socketPath || '/var/run/agenshield/agenshield.sock';
+  const socketPath = config.socketPath || ipcSocketPath(config.agentHome);
   const interceptorPath = config.interceptorPath || '/opt/agenshield/lib/interceptor/register.cjs';
   const httpPort = config.httpPort || 5201;
 
@@ -142,9 +144,20 @@ exec openclaw "$@"
  * Generate LaunchDaemon plist for OpenClaw daemon process.
  */
 export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): string {
-  const socketPath = config.socketPath || '/var/run/agenshield/agenshield.sock';
+  const socketPath = config.socketPath || ipcSocketPath(config.agentHome);
   const interceptorPath = config.interceptorPath || '/opt/agenshield/lib/interceptor/register.cjs';
   const httpPort = config.httpPort || 5201;
+  const logsDir = logDir(config.agentHome);
+
+  const hostAppExists = fsSync.existsSync('/Applications/AgenShieldES.app');
+  const associatedBundleBlock = hostAppExists
+    ? `
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>${AGENSHIELD_HOST_BUNDLE_ID}</string>
+    </array>
+`
+    : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -152,12 +165,7 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
 <dict>
     <key>Label</key>
     <string>${OPENCLAW_DAEMON_LABEL}</string>
-
-    <key>AssociatedBundleIdentifiers</key>
-    <array>
-        <string>${AGENSHIELD_HOST_BUNDLE_ID}</string>
-    </array>
-
+${associatedBundleBlock}
     <key>ProgramArguments</key>
     <array>
         <string>${OPENCLAW_LAUNCHER_PATH}</string>
@@ -223,10 +231,10 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
     <integer>10</integer>
 
     <key>StandardOutPath</key>
-    <string>/var/log/agenshield/openclaw-daemon.log</string>
+    <string>${logsDir}/openclaw-daemon.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/var/log/agenshield/openclaw-daemon.error.log</string>
+    <string>${logsDir}/openclaw-daemon.error.log</string>
 
     <key>WorkingDirectory</key>
     <string>${config.agentHome}</string>
@@ -245,9 +253,20 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
  * Generate LaunchDaemon plist for OpenClaw gateway process.
  */
 export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): string {
-  const socketPath = config.socketPath || '/var/run/agenshield/agenshield.sock';
+  const socketPath = config.socketPath || ipcSocketPath(config.agentHome);
   const interceptorPath = config.interceptorPath || '/opt/agenshield/lib/interceptor/register.cjs';
   const httpPort = config.httpPort || 5201;
+  const logsDir = logDir(config.agentHome);
+
+  const hostAppExists = fsSync.existsSync('/Applications/AgenShieldES.app');
+  const associatedBundleBlock = hostAppExists
+    ? `
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>${AGENSHIELD_HOST_BUNDLE_ID}</string>
+    </array>
+`
+    : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -255,12 +274,7 @@ export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): stri
 <dict>
     <key>Label</key>
     <string>${OPENCLAW_GATEWAY_LABEL}</string>
-
-    <key>AssociatedBundleIdentifiers</key>
-    <array>
-        <string>${AGENSHIELD_HOST_BUNDLE_ID}</string>
-    </array>
-
+${associatedBundleBlock}
     <key>ProgramArguments</key>
     <array>
         <string>${OPENCLAW_LAUNCHER_PATH}</string>
@@ -326,10 +340,10 @@ export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): stri
     <integer>10</integer>
 
     <key>StandardOutPath</key>
-    <string>/var/log/agenshield/openclaw-gateway.log</string>
+    <string>${logsDir}/openclaw-gateway.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/var/log/agenshield/openclaw-gateway.error.log</string>
+    <string>${logsDir}/openclaw-gateway.error.log</string>
 
     <key>WorkingDirectory</key>
     <string>${config.agentHome}</string>
@@ -388,10 +402,9 @@ export async function installOpenClawLaunchDaemons(
     }
 
     // 2. Ensure log files exist with correct ownership
-    const agentUsername = config.agentUsername;
-    const socketGroupName = config.socketGroupName;
-    await execAsync(`sudo touch /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
-    await execAsync(`sudo chown ${agentUsername}:${socketGroupName} /var/log/agenshield/openclaw-gateway.log /var/log/agenshield/openclaw-gateway.error.log`);
+    const logsDir = logDir(config.agentHome);
+    await execAsync(`mkdir -p "${logsDir}"`);
+    await execAsync(`touch "${logsDir}/openclaw-gateway.log" "${logsDir}/openclaw-gateway.error.log"`);
 
     // 3. Remove stale entries
     try {

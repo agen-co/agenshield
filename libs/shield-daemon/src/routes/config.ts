@@ -670,6 +670,31 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
   );
 
   /**
+   * GET /config/keychain/status — Get Keychain integration status.
+   * Returns whether Keychain is available, enabled, and which categories are active.
+   */
+  app.get('/config/keychain/status', async (): Promise<ApiResponse<{
+    platform: string;
+    available: boolean;
+    enabled: boolean;
+    categories: string[];
+    syncToICloud: boolean;
+  }>> => {
+    const config = loadConfig();
+    const keychainConfig = config.keychain ?? { enabled: false, categories: [], syncToICloud: false };
+    return {
+      success: true,
+      data: {
+        platform: process.platform,
+        available: process.platform === 'darwin',
+        enabled: keychainConfig.enabled,
+        categories: keychainConfig.categories,
+        syncToICloud: keychainConfig.syncToICloud,
+      },
+    };
+  });
+
+  /**
    * GET /config/openclaw - Display agent's OpenClaw configuration
    * Returns all config files from $AGENT_HOME/.openclaw/
    */

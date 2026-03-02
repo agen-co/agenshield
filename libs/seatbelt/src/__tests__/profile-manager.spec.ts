@@ -387,10 +387,11 @@ describe('ProfileManager', () => {
       expect(profile).toContain('(allow network-inbound (local unix))');
     });
 
-    it('/var/run/agenshield paths always present', () => {
+    it('~/.agenshield/run paths always present', () => {
+      const home = process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || '';
       const profile = pm.generateProfile(createSandbox());
-      expect(profile).toContain('(subpath "/var/run/agenshield")');
-      expect(profile).toContain('(subpath "/private/var/run/agenshield")');
+      expect(profile).toContain(`(subpath "${home}/.agenshield/run")`);
+      expect(profile).toContain(`(subpath "/private${home}/.agenshield/run")`);
     });
   });
 

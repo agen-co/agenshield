@@ -171,6 +171,7 @@ export class SkillManager extends EventEmitter {
             modifiedFiles: event.modifiedFiles,
             missingFiles: event.missingFiles,
             unexpectedFiles: event.unexpectedFiles,
+            checkedPath: event.checkedPath,
           });
           break;
         }

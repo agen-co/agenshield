@@ -40,5 +40,15 @@ export default defineConfig({
     commonjsOptions: {
       transformMixedEsModules: true,
     },
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // shield-ipc barrel-exports Node.js modules (constants.ts, sea.ts) that are
+        // tree-shaken from the browser bundle. Suppress the externalization warnings.
+        if (warning.code === 'MISSING_EXPORT' && warning.exporter?.includes('__vite-browser-external')) {
+          return;
+        }
+        warn(warning);
+      },
+    },
   },
 });

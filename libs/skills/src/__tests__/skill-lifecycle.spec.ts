@@ -14,8 +14,7 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../storage/src/migrations/001-initial-schema';
-import { SkillsManagerColumnsMigration } from '../../../storage/src/migrations/003-skills-manager-columns';
+import { SchemaMigration } from '../../../storage/src/migrations/001-schema';
 import { SkillsRepository } from '../../../storage/src/repositories/skills/skills.repository';
 import { SkillManager } from '../manager';
 import { DeployService } from '../deploy/deploy.service';
@@ -35,8 +34,7 @@ function createTestDb() {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
-  new SkillsManagerColumnsMigration().up(db);
+  new SchemaMigration().up(db);
   return {
     db,
     dir,

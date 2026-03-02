@@ -13,6 +13,8 @@
 import * as path from 'node:path';
 import * as net from 'node:net';
 
+import * as os from 'node:os';
+
 import { SHIELD_EXEC_PATH, SHIELD_EXEC_CONTENT } from '../legacy.js';
 
 /** Resolve shield-exec path under the host user's ~/.agenshield/ */
@@ -22,7 +24,10 @@ export function shieldExecPath(hostHome?: string): string {
 }
 
 /** Default socket path for broker communication */
-const DEFAULT_SOCKET_PATH = '/var/run/agenshield/agenshield.sock';
+const DEFAULT_SOCKET_PATH = path.join(
+  process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || os.homedir(),
+  '.agenshield', 'run', 'agenshield.sock',
+);
 
 /** Commands that shield-exec handles (all routed through broker as exec) */
 export const PROXIED_COMMANDS = [

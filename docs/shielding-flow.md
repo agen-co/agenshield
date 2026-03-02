@@ -72,10 +72,10 @@ sequenceDiagram
     TL->>PE: execAsRoot (30s timeout)
     PE->>PH: RPC exec
     PH->>FS: mkdir -p /Users/ash_openclaw_agent/{bin,.config}
-    PH->>FS: mkdir -p /etc/agenshield/seatbelt, /var/run/agenshield, /var/log/agenshield
+    PH->>FS: mkdir -p ~/.agenshield/seatbelt, ~/.agenshield/run, ~/.agenshield/logs
     PH->>FS: chown -R ash_openclaw_agent:ash_openclaw /Users/ash_openclaw_agent
     PH->>FS: chmod 2775 /Users/ash_openclaw_agent
-    PH->>FS: chmod 2770 /var/run/agenshield (setgid)
+    PH->>FS: chmod 2770 ~/.agenshield/run (setgid)
     PH->>FS: Write .agenshield/meta.json (root-owned)
 
     Note over UI,NET: PHASE 6: INSTALL COMMAND WRAPPERS (20%)
@@ -87,8 +87,8 @@ sequenceDiagram
     TL->>TL: emit setup:shield_progress (30%)
     TL->>PE: execAsRoot (15s timeout)
     PE->>PH: RPC exec
-    PH->>FS: mkdir -p /etc/agenshield
-    PH->>FS: Write /etc/agenshield/path-registry.json
+    PH->>FS: mkdir -p ~/.agenshield
+    PH->>FS: Write ~/.agenshield/path-registry.json
     PH->>FS: Install router wrapper at /usr/local/bin/openclaw
 
     Note over UI,NET: PHASE 8: INSTALL TARGET APP (35-80%)
@@ -149,7 +149,7 @@ sequenceDiagram
         Note over IH,NET: Step 9/9: Write Gateway Plist (96%)
         OC->>PE: execAsRoot (15s timeout)
         PE->>PH: RPC exec
-        PH->>FS: mkdir -p /var/log/agenshield
+        PH->>FS: mkdir -p ~/.agenshield/logs
         PH->>FS: Write /Library/LaunchDaemons/com.agenshield.openclaw.gateway.plist
         PH->>FS: chmod 644 plist
         Note over OC: RunAtLoad=false, KeepAlive={SuccessfulExit=false}<br/>Gateway plist written but NOT loaded yet
@@ -163,7 +163,7 @@ sequenceDiagram
         TL->>TL: generateAgentProfile(workspacePath, socketPath, agentHome)
         TL->>PE: execAsRoot: write .sb profile
         PE->>PH: RPC exec
-        PH->>FS: Write /etc/agenshield/seatbelt/openclaw-agent.sb
+        PH->>FS: Write ~/.agenshield/seatbelt/openclaw-agent.sb
         Note over SB: Profile denies file-read* /bin, /usr/bin<br/>but allows file-read* + process-exec for<br/>/bin/sh, /bin/bash, /usr/bin/env
     end
 
@@ -183,7 +183,7 @@ sequenceDiagram
     Note over LD: Broker starts, creates Unix socket
 
     Note over UI,NET: PHASE 11b: WAIT FOR BROKER SOCKET (89%)
-    TL->>TL: Poll for socket at /var/run/agenshield/*.sock
+    TL->>TL: Poll for socket at ~/.agenshield/run/*.sock
     TL->>TL: Wait up to 15s, poll every 500ms
     Note over TL: Socket confirmed ready
 
@@ -209,11 +209,11 @@ sequenceDiagram
 | Log | Path | Content |
 |-----|------|---------|
 | Shield operation log | `~/.agenshield/logs/shield-{target}-{ts}.log` | Full step-by-step with commands and results |
-| Daemon log | `~/.agenshield/logs/daemon.log` or `/var/log/agenshield/daemon.log` | General daemon pino logs |
-| Broker stdout | `/var/log/agenshield/broker.log` | Broker process output |
-| Broker stderr | `/var/log/agenshield/broker.error.log` | Broker errors |
-| Gateway stdout | `/var/log/agenshield/openclaw-gateway.log` | Gateway process output |
-| Gateway stderr | `/var/log/agenshield/openclaw-gateway.err` | Gateway errors |
+| Daemon log | `~/.agenshield/logs/daemon.log` or `~/.agenshield/logs/daemon.log` | General daemon pino logs |
+| Broker stdout | `~/.agenshield/logs/broker.log` | Broker process output |
+| Broker stderr | `~/.agenshield/logs/broker.error.log` | Broker errors |
+| Gateway stdout | `~/.agenshield/logs/openclaw-gateway.log` | Gateway process output |
+| Gateway stderr | `~/.agenshield/logs/openclaw-gateway.err` | Gateway errors |
 
 ## Troubleshooting
 
@@ -247,10 +247,10 @@ cat "$(ls -t ~/.agenshield/logs/shield-*.log | head -1)"
 ### Check gateway and broker logs
 
 ```bash
-cat /var/log/agenshield/openclaw-gateway.log
-cat /var/log/agenshield/openclaw-gateway.err
-cat /var/log/agenshield/broker.log
-cat /var/log/agenshield/broker.error.log
+cat ~/.agenshield/logs/openclaw-gateway.log
+cat ~/.agenshield/logs/openclaw-gateway.err
+cat ~/.agenshield/logs/broker.log
+cat ~/.agenshield/logs/broker.error.log
 ```
 
 ### Manually stop crash-looping services

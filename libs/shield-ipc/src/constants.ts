@@ -2,6 +2,9 @@
  * Constants for AgenShield
  */
 
+import * as os from 'node:os';
+import * as path from 'node:path';
+
 /** Default HTTP server port */
 export const DEFAULT_PORT = 5200;
 
@@ -63,10 +66,67 @@ export const SKILL_BACKUP_DIR = 'skills/backup';
  */
 export const MIGRATION_STATE_PATH = '/etc/agenshield/migrations.json';
 
+/**
+ * Resolve the host user's home directory.
+ *
+ * Priority:
+ * 1. Explicit `hostHome` parameter
+ * 2. `AGENSHIELD_USER_HOME` env var (set by the LaunchDaemon launcher)
+ * 3. `HOME` env var
+ * 4. `os.homedir()`
+ */
+export function resolveUserHome(hostHome?: string): string {
+  return hostHome || process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || os.homedir();
+}
+
+/** ~/.agenshield config directory */
+export function configDirPath(home?: string): string {
+  return path.join(resolveUserHome(home), '.agenshield');
+}
+
+/** ~/.agenshield/mdm.json */
+export function mdmConfigPath(home?: string): string {
+  return path.join(configDirPath(home), 'mdm.json');
+}
+
+/** ~/.agenshield/logs */
+export function logDir(home?: string): string {
+  return path.join(configDirPath(home), 'logs');
+}
+
+/** ~/.agenshield/run/agenshield.sock */
+export function socketPath(home?: string): string {
+  return path.join(configDirPath(home), 'run', 'agenshield.sock');
+}
+
+/** ~/.agenshield/run */
+export function socketDir(home?: string): string {
+  return path.join(configDirPath(home), 'run');
+}
+
+/** ~/.agenshield/run/privilege-helper.sock */
+export function privilegeHelperSocket(home?: string): string {
+  return path.join(socketDir(home), 'privilege-helper.sock');
+}
+
+/** ~/.agenshield/seatbelt */
+export function seatbeltDirPath(home?: string): string {
+  return path.join(configDirPath(home), 'seatbelt');
+}
+
+/** ~/.agenshield/zdot */
+export function zdotDirPath(home?: string): string {
+  return path.join(configDirPath(home), 'zdot');
+}
+
+/** ~/.agenshield/path-registry.json */
+export function pathRegistryPath(home?: string): string {
+  return path.join(configDirPath(home), 'path-registry.json');
+}
+
 /** Resolve migration state file path under the host user's ~/.agenshield/ */
 export function migrationStatePath(hostHome?: string): string {
-  const home = hostHome || process.env['HOME'] || '';
-  return `${home}/.agenshield/migrations.json`;
+  return path.join(configDirPath(hostHome), 'migrations.json');
 }
 
 /** Default OAuth callback port */
@@ -77,6 +137,35 @@ export const MCP_GATEWAY = 'https://mcp.marketplace.frontegg.com';
 
 /** Marketplace API URL (direct REST calls — different subdomain from MCP gateway) */
 export const MARKETPLACE_API = 'https://my.mcp.marketplace.frontegg.com';
+
+// MDM configuration paths
+/**
+ * @deprecated Use mdmConfigPath() instead.
+ * Retained for backward-compat reads of legacy installations.
+ */
+export const MDM_CONFIG_DIR = '/etc/agenshield';
+
+/** MDM org config filename */
+export const MDM_CONFIG_FILE = 'mdm.json';
+
+// LaunchDaemon constants (macOS)
+/** LaunchDaemon label for the AgenShield daemon */
+export const DAEMON_LAUNCHD_LABEL = 'com.agenshield.daemon';
+
+/** LaunchDaemon plist path */
+export const DAEMON_LAUNCHD_PLIST = '/Library/LaunchDaemons/com.agenshield.daemon.plist';
+
+/** LaunchDaemon label for the AgenShield privilege helper */
+export const PRIVILEGE_HELPER_LAUNCHD_LABEL = 'com.agenshield.privilege-helper';
+
+/** LaunchDaemon plist path for the privilege helper */
+export const PRIVILEGE_HELPER_LAUNCHD_PLIST = '/Library/LaunchDaemons/com.agenshield.privilege-helper.plist';
+
+/**
+ * @deprecated Use logDir() instead.
+ * Retained for backward-compat reads of legacy installations.
+ */
+export const SYSTEM_LOG_DIR = '/var/log/agenshield';
 
 // API Endpoints
 /** API route prefix */

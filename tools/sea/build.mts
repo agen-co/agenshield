@@ -33,6 +33,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
+import { injectBlob as sharedInjectBlob, createArchive as sharedCreateArchive, getVersion as sharedGetVersion } from './shared/build-helpers.mts';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const DIST_SEA = path.join(ROOT, 'dist', 'sea');
@@ -50,6 +51,8 @@ const flags = {
   minify: argv.includes('--minify'),
   platform: getArg('--platform') || os.platform(),
   arch: getArg('--arch') || os.arch(),
+  codesignIdentity: getArg('--codesign-identity'),
+  entitlements: getArg('--entitlements'),
 };
 
 function getArg(name: string): string | undefined {
@@ -173,43 +176,13 @@ async function step7_injectBlob(): Promise<void> {
   const binaryPath = path.join(DIST_SEA, binaryName);
   const blobPath = path.join(DIST_SEA, 'sea-prep.blob');
 
-  // Copy the node binary
-  const nodePath = process.execPath;
-  console.log(`[COPY] ${nodePath} → ${binaryPath}`);
-  fs.copyFileSync(nodePath, binaryPath);
-  fs.chmodSync(binaryPath, 0o755);
-
-  // macOS: remove existing code signature before injection
-  if (flags.platform === 'darwin') {
-    try {
-      run(
-        `codesign --remove-signature "${binaryPath}"`,
-        'Remove existing code signature (macOS)',
-      );
-    } catch {
-      console.log('[WARN] codesign --remove-signature failed (may not be signed)');
-    }
-  }
-
-  // Inject the blob using postject
-  const machoFlag = flags.platform === 'darwin'
-    ? '--macho-segment-name NODE_SEA'
-    : '';
-
-  run(
-    `npx postject "${binaryPath}" NODE_SEA_BLOB "${blobPath}" ` +
-    `--sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 ` +
-    machoFlag,
-    'Inject SEA blob into binary',
-  );
-
-  // macOS: ad-hoc re-sign
-  if (flags.platform === 'darwin') {
-    run(
-      `codesign --sign - "${binaryPath}"`,
-      'Ad-hoc code signing (macOS)',
-    );
-  }
+  sharedInjectBlob({
+    binaryPath,
+    blobPath,
+    platform: flags.platform,
+    codesignIdentity: flags.codesignIdentity,
+    entitlementsPath: flags.entitlements,
+  });
 }
 
 async function step8_package(): Promise<void> {

@@ -107,6 +107,10 @@ export interface ShieldConfig {
     enabled: boolean;
     defaults: import('./policy').ResourceLimits;
   };
+  /** macOS Keychain integration (optional, macOS only) */
+  keychain?: KeychainIntegrationConfig;
+  /** iCloud backup configuration (optional, macOS only) */
+  icloudBackup?: ICloudBackupConfig;
 }
 
 export interface DaemonConfig {
@@ -206,6 +210,45 @@ export interface SoulConfig {
   content?: string;
   /** Security level */
   securityLevel?: 'low' | 'medium' | 'high';
+}
+
+/**
+ * Keychain integration configuration (macOS only).
+ * When enabled, secrets are stored in macOS Keychain instead of file-based vault.
+ */
+export interface KeychainIntegrationConfig {
+  /** Whether Keychain integration is enabled */
+  enabled: boolean;
+  /** Which categories of items to store in Keychain */
+  categories: ('vault-key' | 'oauth-tokens' | 'secrets')[];
+  /** Whether to sync items to iCloud Keychain */
+  syncToICloud: boolean;
+}
+
+/**
+ * iCloud backup configuration (macOS only).
+ */
+export interface ICloudBackupConfig {
+  /** Whether automatic iCloud backup is enabled */
+  enabled: boolean;
+  /** Backup interval in hours (default: 24) */
+  intervalHours: number;
+  /** Timestamp of last successful backup */
+  lastBackupAt?: string;
+}
+
+/**
+ * MDM org-based enrollment configuration.
+ * Written to ~/.agenshield/mdm.json by install.sh or `setup --org`.
+ * The daemon reads this at boot to trigger the device code flow automatically.
+ */
+export interface MdmOrgConfig {
+  /** Organization client ID (used in the device code flow) */
+  orgClientId: string;
+  /** Cloud API URL */
+  cloudUrl: string;
+  /** ISO timestamp when the MDM config was created */
+  createdAt: string;
 }
 
 // --- Skill Analysis types ---

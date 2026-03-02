@@ -10,6 +10,7 @@ export {
 
 export {
   generateBrokerPlist,
+  generateBrokerLauncherScript,
   installLaunchDaemon,
   loadLaunchDaemon,
   unloadLaunchDaemon,

@@ -7,6 +7,7 @@
  *   3. Persisting setup state so other commands know setup is complete
  *
  * Options `--mode` and `--cloud-url` allow skipping prompts for CI / scripting.
+ * Option  `--token` enables non-interactive MDM enrollment with a pre-generated token.
  */
 
 import type { Command } from 'commander';
@@ -17,6 +18,8 @@ import {
   startDaemon,
   readAdminToken,
   fetchAdminToken,
+  findDaemonExecutable,
+  DAEMON_CONFIG,
 } from '../utils/daemon.js';
 import { buildBrowserUrl, waitForAdminToken } from '../utils/browser.js';
 import { ensureSudoAccess, startSudoKeepalive } from '../utils/privileges.js';
@@ -33,6 +36,8 @@ import {
   isCloudEnrolled,
   CLOUD_CONFIG,
 } from '../utils/cloud.js';
+import { saveMdmConfig } from '@agenshield/auth';
+import { installDaemonService, installPrivilegeHelperService } from '@agenshield/integrations';
 import { inkSelect, inkInput, inkBrowserLink } from '../prompts/index.js';
 
 // ---------------------------------------------------------------------------
@@ -235,6 +240,216 @@ async function runCloudSetup(options: { cloudUrl: string }): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Token-based setup flow (MDM / non-interactive)
+// ---------------------------------------------------------------------------
+
+async function runTokenSetup(options: { cloudUrl: string; token: string }): Promise<void> {
+  output.info('');
+  output.info(`  ${output.bold('Cloud Setup (Token)')}`);
+  output.info('');
+
+  // Check if already enrolled
+  if (isCloudEnrolled()) {
+    output.warn('This device is already enrolled in AgenShield Cloud.');
+    output.info('  To re-enroll, remove ~/.agenshield/cloud.json first.');
+    output.info('');
+    return;
+  }
+
+  const { cloudUrl, token } = options;
+
+  // 1. Generate Ed25519 keypair
+  const keypairSpinner = await createSpinner('Generating device keypair...');
+  const keypair = generateEd25519Keypair();
+  keypairSpinner.succeed('Device keypair generated');
+
+  // 2. Register device with cloud using the enrollment token directly
+  const registerSpinner = await createSpinner('Registering device...');
+  let registration: Awaited<ReturnType<typeof registerDevice>>;
+  try {
+    registration = await registerDevice(
+      cloudUrl,
+      token,
+      keypair.publicKey,
+      os.hostname(),
+    );
+  } catch (err) {
+    registerSpinner.fail('Registration failed');
+    throw new ConnectionError(`Failed to register device: ${(err as Error).message}`);
+  }
+  registerSpinner.succeed(`Device registered (ID: ${registration.agentId})`);
+
+  // 3. Save credentials locally
+  saveCloudCredentials(
+    registration.agentId,
+    keypair.privateKey,
+    cloudUrl,
+    'MDM',
+  );
+
+  // 4. Persist setup state
+  writeSetupState({
+    mode: 'cloud',
+    cloudUrl,
+    completedAt: new Date().toISOString(),
+  });
+
+  output.info('');
+
+  // 5. Auto-install LaunchDaemon service (macOS)
+  if (process.platform === 'darwin') {
+    const serviceSpinner = await createSpinner('Installing daemon service...');
+    const daemonPath = findDaemonExecutable();
+
+    if (daemonPath) {
+      const serviceResult = installDaemonService({
+        daemonPath,
+        port: DAEMON_CONFIG.PORT,
+        host: DAEMON_CONFIG.HOST,
+      });
+
+      if (serviceResult.success) {
+        // Also install privilege helper
+        const helperResult = installPrivilegeHelperService({
+          daemonPath,
+          userHome: os.homedir(),
+        });
+        if (helperResult.success) {
+          serviceSpinner.succeed('Services installed (daemon + privilege helper)');
+        } else {
+          serviceSpinner.succeed('Daemon service installed (LaunchDaemon)');
+          output.warn(`Privilege helper: ${helperResult.message}`);
+        }
+      } else {
+        serviceSpinner.fail(serviceResult.message);
+        if (serviceResult.message.includes('Operation not permitted')) {
+          output.warn('Installing a LaunchDaemon requires administrator privileges. Run with sudo.');
+        }
+        output.info('  Run `sudo agenshield service install` to install manually.');
+      }
+    } else {
+      serviceSpinner.fail('Daemon executable not found — skipping service install');
+      output.info('  Run `agenshield service install` after the daemon binary is available.');
+    }
+  }
+
+  // 6. Start daemon (best-effort)
+  const daemonStatus = await getDaemonStatus();
+  if (!daemonStatus.running) {
+    const daemonSpinner = await createSpinner('Starting daemon...');
+    const daemonResult = await startDaemon({ sudo: true });
+    if (!daemonResult.success) {
+      daemonSpinner.fail(daemonResult.message);
+      output.warn('Cloud enrollment succeeded, but the daemon failed to start.');
+      output.info('  Run `agenshield start` to start it manually.');
+      output.info('');
+      output.success('Cloud setup complete (token)!');
+      return;
+    }
+    daemonSpinner.succeed('Daemon started');
+  }
+
+  output.info('');
+  output.success('Cloud setup complete (token)!');
+  output.info(`  Agent ID: ${registration.agentId}`);
+  output.info(`  Cloud:    ${cloudUrl}`);
+  output.info('');
+}
+
+// ---------------------------------------------------------------------------
+// Org-based setup flow (MDM device code enrollment)
+// ---------------------------------------------------------------------------
+
+async function runOrgSetup(options: { cloudUrl: string; orgClientId: string }): Promise<void> {
+  output.info('');
+  output.info(`  ${output.bold('Cloud Setup (Org)')}`);
+  output.info('');
+
+  const { cloudUrl, orgClientId } = options;
+
+  // 1. Write MDM config
+  const spinner = await createSpinner('Writing MDM config...');
+  try {
+    saveMdmConfig({
+      orgClientId,
+      cloudUrl,
+      createdAt: new Date().toISOString(),
+    });
+    spinner.succeed('MDM config written (~/.agenshield/mdm.json)');
+  } catch (err) {
+    spinner.fail('Failed to write MDM config');
+    throw new ConnectionError(`Failed to write MDM config: ${(err as Error).message}`);
+  }
+
+  // 2. Persist setup state
+  writeSetupState({
+    mode: 'cloud',
+    cloudUrl,
+    completedAt: new Date().toISOString(),
+  });
+
+  // 3. Install LaunchDaemon service (macOS, best-effort)
+  if (process.platform === 'darwin') {
+    const serviceSpinner = await createSpinner('Installing daemon service...');
+    const daemonPath = findDaemonExecutable();
+
+    if (daemonPath) {
+      const serviceResult = installDaemonService({
+        daemonPath,
+        port: DAEMON_CONFIG.PORT,
+        host: DAEMON_CONFIG.HOST,
+      });
+
+      if (serviceResult.success) {
+        // Also install privilege helper
+        const helperResult = installPrivilegeHelperService({
+          daemonPath,
+          userHome: os.homedir(),
+        });
+        if (helperResult.success) {
+          serviceSpinner.succeed('Services installed (daemon + privilege helper)');
+        } else {
+          serviceSpinner.succeed('Daemon service installed (LaunchDaemon)');
+          output.warn(`Privilege helper: ${helperResult.message}`);
+        }
+      } else {
+        serviceSpinner.fail(serviceResult.message);
+        output.info('  Run `sudo agenshield service install` to install manually.');
+      }
+    } else {
+      serviceSpinner.fail('Daemon executable not found — skipping service install');
+    }
+  }
+
+  // 4. Start daemon (best-effort)
+  const daemonStatus = await getDaemonStatus();
+  if (!daemonStatus.running) {
+    const daemonSpinner = await createSpinner('Starting daemon...');
+    const daemonResult = await startDaemon({ sudo: true });
+    if (!daemonResult.success) {
+      daemonSpinner.fail(daemonResult.message);
+      output.warn('MDM config written, but the daemon failed to start.');
+      output.info('  Run `agenshield start` to start it manually.');
+      output.info('');
+      output.success('Org setup complete!');
+      output.info('  The daemon will initiate enrollment on next start.');
+      output.info('  Open the dashboard to complete enrollment.');
+      return;
+    }
+    daemonSpinner.succeed('Daemon started');
+  }
+
+  output.info('');
+  output.success('Org setup complete!');
+  output.info(`  Org:      ${orgClientId}`);
+  output.info(`  Cloud:    ${cloudUrl}`);
+  output.info('');
+  output.info('  The daemon will initiate enrollment automatically.');
+  output.info('  Open the dashboard to see the verification code.');
+  output.info('');
+}
+
+// ---------------------------------------------------------------------------
 // Command definition
 // ---------------------------------------------------------------------------
 
@@ -244,10 +459,26 @@ export function registerSetupCommand(program: Command): void {
     .description('Set up AgenShield (interactive guided flow)')
     .option('--mode <mode>', 'Skip mode prompt: "local" or "cloud"')
     .option('--cloud-url <url>', 'Cloud API URL (skips prompt, implies --mode cloud)')
+    .option('--token <token>', 'Enrollment token for non-interactive cloud setup (MDM)')
+    .option('--org <org>', 'Org client ID for MDM enrollment (device code flow on daemon start)')
     .action(withGlobals(async (opts) => {
       printShieldLogo();
       output.info(`  ${output.bold('Welcome to AgenShield Setup')}`);
       output.info('');
+
+      // Org-based MDM setup (device code flow on daemon start)
+      if (opts['org']) {
+        const cloudUrl = (opts['cloudUrl'] as string) || CLOUD_CONFIG.url;
+        await runOrgSetup({ cloudUrl, orgClientId: opts['org'] as string });
+        return;
+      }
+
+      // Token-based non-interactive setup (MDM)
+      if (opts['token']) {
+        const cloudUrl = (opts['cloudUrl'] as string) || CLOUD_CONFIG.url;
+        await runTokenSetup({ cloudUrl, token: opts['token'] as string });
+        return;
+      }
 
       const existing = readSetupState();
       if (existing) {

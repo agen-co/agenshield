@@ -220,7 +220,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
     const repo = manager.getRepository();
     const targetCtx = resolveTargetContext(ctx.profileId ?? undefined);
     if (!targetCtx) {
-      return reply.code(503).send({ error: 'No target context configured — skill features unavailable' });
+      return reply.send({ data: [] });
     }
     const skillsDir = `${targetCtx.agentHome}/.openclaw/skills`;
 

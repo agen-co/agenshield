@@ -40,7 +40,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
     super(options);
     const config = this.interceptorConfig;
     this.syncClient = new SyncClient({
-      socketPath: config?.socketPath || '/var/run/agenshield/agenshield.sock',
+      socketPath: config?.socketPath || `${process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || ''}/.agenshield/run/agenshield.sock`,
       httpHost: config?.httpHost || 'localhost',
       httpPort: config?.httpPort || 5201,
       timeout: config?.timeout || 30000,

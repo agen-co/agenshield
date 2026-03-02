@@ -9,8 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../storage/src/migrations/001-initial-schema';
-import { SkillsManagerColumnsMigration } from '../../../storage/src/migrations/003-skills-manager-columns';
+import { SchemaMigration } from '../../../storage/src/migrations/001-schema';
 import { SkillsRepository } from '../../../storage/src/repositories/skills/skills.repository';
 import { SkillManager } from '../manager';
 import { OpenClawDeployAdapter } from '../deploy/adapters/openclaw.adapter';
@@ -33,8 +32,7 @@ function createTestDb() {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
-  new SkillsManagerColumnsMigration().up(db);
+  new SchemaMigration().up(db);
 
   // Add source_origin column if not present (from migration 023)
   const columns = (db.prepare("PRAGMA table_info('skills')").all() as Array<{ name: string }>).map(c => c.name);

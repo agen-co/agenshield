@@ -10,11 +10,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { BrokerClient, type SkillInstallFile, type SkillInstallResult, type SkillUninstallResult } from '@agenshield/broker';
 import type { SyncedSecrets } from '@agenshield/ipc';
+import { socketPath } from '@agenshield/ipc';
 
 // Singleton broker client instance
 let brokerClient: BrokerClient | null = null;
 
-const SYSTEM_SOCKET = '/var/run/agenshield/agenshield.sock';
+const SYSTEM_SOCKET = socketPath();
 
 /**
  * Resolve the broker socket path.
@@ -22,7 +23,7 @@ const SYSTEM_SOCKET = '/var/run/agenshield/agenshield.sock';
  * Priority:
  * 1. `AGENSHIELD_SOCKET` environment variable (explicit override)
  * 2. Per-profile socket at `$AGENSHIELD_AGENT_HOME/.agenshield/run/agenshield.sock`
- * 3. System socket at `/var/run/agenshield/agenshield.sock`
+ * 3. Default socket at `~/.agenshield/run/agenshield.sock`
  */
 function resolveSocketPath(): string {
   const envSocket = process.env['AGENSHIELD_SOCKET'];

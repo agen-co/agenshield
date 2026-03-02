@@ -171,7 +171,7 @@ const path = require('path');
 
 const COMMAND_NAME = path.basename(process.argv[1]);
 const ARGS = process.argv.slice(2);
-const DAEMON_SOCKET = process.env.AGENSHIELD_SOCKET || '/var/run/agenshield/daemon.sock';
+const DAEMON_SOCKET = process.env.AGENSHIELD_SOCKET || '~/.agenshield/run/agenshield.sock';
 const REF_PREFIX = '__AGENSHIELD_REF_';
 
 // Detect if any argument contains a secret reference
@@ -527,7 +527,7 @@ const { execFileSync } = require('child_process');
 
 const CMD = '${commandName}';
 const ARGS = process.argv.slice(2);
-const SOCKET = process.env.AGENSHIELD_SOCKET || '/var/run/agenshield/daemon.sock';
+const SOCKET = process.env.AGENSHIELD_SOCKET || '~/.agenshield/run/agenshield.sock';
 const REF_PREFIX = '__AGENSHIELD_REF_';
 const REF_PATTERN = new RegExp(REF_PREFIX + '[a-f0-9]{16}', 'g');
 

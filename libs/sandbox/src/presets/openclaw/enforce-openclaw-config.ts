@@ -48,13 +48,14 @@ export const enforceOpenclawConfigStep: InstallStep = {
 
     // Apply enforcements
     const patches = resolveEnforcements(version);
-    if (patches.length === 0) {
-      return { changed: false };
-    }
 
     for (const patch of patches) {
       setDeep(config, patch.path, patch.value);
     }
+
+    // Always enforce the workspace path to match the agent's home
+    const workspacePath = 'agents.defaults.workspace';
+    setDeep(config, workspacePath, `${ctx.agentHome}/.openclaw/workspace`);
 
     // Write back patched config
     const json = JSON.stringify(config, null, 2);
@@ -65,7 +66,7 @@ export const enforceOpenclawConfigStep: InstallStep = {
       `chown ${ctx.agentUsername}:${ctx.socketGroupName} "${configFile}"`,
     ].join('\n'), { timeout: 10_000 });
 
-    const titles = patches.map(p => p.path).join(', ');
+    const titles = [...patches.map(p => p.path), workspacePath].join(', ');
     ctx.onLog?.(`Enforced config: ${titles}`);
 
     return { changed: true };

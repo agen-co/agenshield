@@ -1235,8 +1235,28 @@ export async function deployInterceptor(
   const socketGroupName = userConfig?.groups?.socket?.name || 'ash_socket';
 
   try {
-    // Resolve via package name so it works regardless of directory layout
-    const srcPath = require.resolve('@agenshield/interceptor/register');
+    let srcPath: string;
+
+    if (isSEA()) {
+      // In SEA mode, the interceptor is already extracted to the lib dir
+      const libDir = getSEALibDir();
+      srcPath = libDir
+        ? path.join(libDir, 'interceptor', 'register.cjs')
+        : `${baseDir}/lib/interceptor/register.cjs`;
+
+      // If source equals target, already deployed
+      if (srcPath === targetPath) {
+        return {
+          success: true,
+          name: 'interceptor',
+          path: targetPath,
+          message: 'Interceptor already at target path (SEA mode)',
+        };
+      }
+    } else {
+      // Resolve via package name so it works regardless of directory layout
+      srcPath = require.resolve('@agenshield/interceptor/register');
+    }
 
     // Verify source exists
     await fs.access(srcPath);
@@ -1276,8 +1296,31 @@ export async function copyBrokerBinary(
 ): Promise<WrapperResult> {
   const resolvedHostHome = hostHome || process.env['HOME'] || '';
   const baseDir = resolvedHostHome ? `${resolvedHostHome}/.agenshield` : '/opt/agenshield';
-  const targetPath = `${baseDir}/bin/agenshield-broker`;
   const socketGroupName = userConfig?.groups?.socket?.name || 'ash_socket';
+
+  if (isSEA()) {
+    // In SEA mode, the broker binary is already installed at libexec/ by install.sh.
+    // Just verify it exists — no copying needed.
+    const seaBrokerPath = `${baseDir}/libexec/agenshield-broker`;
+    try {
+      await fs.access(seaBrokerPath);
+      return {
+        success: true,
+        name: 'agenshield-broker',
+        path: seaBrokerPath,
+        message: `Broker SEA binary already at ${seaBrokerPath}`,
+      };
+    } catch {
+      return {
+        success: false,
+        name: 'agenshield-broker',
+        path: seaBrokerPath,
+        message: `Broker SEA binary not found at ${seaBrokerPath}`,
+      };
+    }
+  }
+
+  const targetPath = `${baseDir}/bin/agenshield-broker`;
 
   try {
     // Get the broker main.js from this package's installed location
@@ -1350,7 +1393,41 @@ export async function copyShieldClient(
   const socketGroupName = userConfig?.groups?.socket?.name || 'ash_socket';
 
   try {
-    // Resolve the shield-client from the broker package
+    if (isSEA()) {
+      // In SEA mode, read the extracted CJS bundle and create a bash wrapper
+      // that invokes node-bin + the CJS file (avoids interceptor recursion)
+      const resolvedHostHome = hostHome || process.env['HOME'] || '';
+      const libDir = getSEALibDir()
+        || `${resolvedHostHome}/.agenshield/lib`;
+      const clientCjsPath = path.join(libDir, 'client', 'shield-client.cjs');
+
+      // Verify extracted source exists
+      await fs.access(clientCjsPath);
+
+      // Create a bash wrapper that uses node-bin (no interceptor) to run the CJS bundle
+      const wrapperContent = `#!/bin/bash
+# Shield-client wrapper (SEA mode)
+# Uses node-bin to avoid interceptor recursion
+exec "${agentHome}/bin/node-bin" "${clientCjsPath}" "$@"
+`;
+
+      const tmpPath = '/tmp/shield-client-install';
+      await fs.writeFile(tmpPath, wrapperContent, { mode: 0o755 });
+
+      await execAsync(`sudo mkdir -p "${baseDir}/bin"`);
+      await execAsync(`sudo mv "${tmpPath}" "${targetPath}"`);
+      await execAsync(`sudo chmod 755 "${targetPath}"`);
+      await execAsync(`sudo chown root:${socketGroupName} "${targetPath}"`);
+
+      return {
+        success: true,
+        name: 'shield-client',
+        path: targetPath,
+        message: `Shield-client wrapper installed to ${targetPath} (SEA mode)`,
+      };
+    }
+
+    // Non-SEA mode: resolve from broker package
     const brokerPkgPath = require.resolve('@agenshield/broker/package.json');
     const brokerDir = path.dirname(brokerPkgPath);
     const brokerPkg = JSON.parse(await fs.readFile(brokerPkgPath, 'utf-8'));

@@ -24,10 +24,15 @@ export const rewriteOpenclawPathsStep: InstallStep = {
 
     await ctx.execAsRoot([
       `if [ -f "${agentConfigDir}/openclaw.json" ]; then`,
-      // Pass 1: unescaped paths (e.g. /Users/david → /Users/ash_openclaw_agent)
+      // Pass 1: host-user unescaped paths (e.g. /Users/david → /Users/ash_openclaw_agent)
       `  sed -i '' 's|/Users/${ctx.hostUsername}|${ctx.agentHome}|g' "${agentConfigDir}/openclaw.json"`,
-      // Pass 2: escaped paths — OpenClaw's JSON serializer uses \/ (e.g. \/Users\/david → \/Users\/ash_openclaw_agent)
+      // Pass 2: host-user escaped paths — OpenClaw's JSON serializer uses \/ (e.g. \/Users\/david → \/Users\/ash_openclaw_agent)
       `  sed -i '' 's|\\/Users\\/${ctx.hostUsername}|\\/Users\\/${agentBasename}|g' "${agentConfigDir}/openclaw.json"`,
+      // Pass 3-4: legacy agent-user paths (e.g. /Users/openclaw → /Users/ash_openclaw_agent)
+      ...(ctx.profileBaseName !== ctx.hostUsername && ctx.profileBaseName !== agentBasename ? [
+        `  sed -i '' 's|/Users/${ctx.profileBaseName}|${ctx.agentHome}|g' "${agentConfigDir}/openclaw.json"`,
+        `  sed -i '' 's|\\/Users\\/${ctx.profileBaseName}|\\/Users\\/${agentBasename}|g' "${agentConfigDir}/openclaw.json"`,
+      ] : []),
       '  echo "PATHS_REWRITTEN"',
       'else',
       '  echo "NO_CONFIG_FILE"',

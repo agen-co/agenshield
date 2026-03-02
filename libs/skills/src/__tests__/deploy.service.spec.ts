@@ -8,8 +8,7 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../storage/src/migrations/001-initial-schema';
-import { SkillsManagerColumnsMigration } from '../../../storage/src/migrations/003-skills-manager-columns';
+import { SchemaMigration } from '../../../storage/src/migrations/001-schema';
 import { SkillsRepository } from '../../../storage/src/repositories/skills/skills.repository';
 import { DeployService } from '../deploy/deploy.service';
 import { OpenClawDeployAdapter } from '../deploy/adapters/openclaw.adapter';
@@ -23,8 +22,7 @@ function createTestDb() {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
-  new SkillsManagerColumnsMigration().up(db);
+  new SchemaMigration().up(db);
   return { db, dir, cleanup: () => { db.close(); try { fs.rmSync(dir, { recursive: true }); } catch { /* */ } } };
 }
 
@@ -55,7 +53,7 @@ function createMockAdapter(id = 'mock', canDeploy = true): DeployAdapter & { cal
     canDeploy: (targetId) => { calls.push({ method: 'canDeploy', args: [targetId] }); return canDeploy; },
     deploy: async (ctx) => { calls.push({ method: 'deploy', args: [ctx] }); return { deployedPath: '/deployed', deployedHash: 'hash123' }; },
     undeploy: async (inst, ver, skill) => { calls.push({ method: 'undeploy', args: [inst, ver, skill] }); },
-    checkIntegrity: async (inst, ver, files) => { calls.push({ method: 'checkIntegrity', args: [inst, ver, files] }); return { intact: true, modifiedFiles: [], missingFiles: [], unexpectedFiles: [] }; },
+    checkIntegrity: async (inst, ver, files, skill) => { calls.push({ method: 'checkIntegrity', args: [inst, ver, files, skill] }); return { intact: true, modifiedFiles: [], missingFiles: [], unexpectedFiles: [] }; },
   };
 }
 
@@ -213,10 +211,14 @@ describe('DeployService', () => {
       const adapter = createMockAdapter();
       const service = new DeployService(repo, [adapter], emitter);
 
+      // Insert profiles so installations get distinct profile_id values (UNIQUE constraint)
+      db.prepare("INSERT INTO profiles (id, name, type) VALUES ('p1', 'P1', 'target')").run();
+      db.prepare("INSERT INTO profiles (id, name, type) VALUES ('p2', 'P2', 'target')").run();
+
       const skill = repo.create(makeSkillInput());
       const version = repo.addVersion(makeVersionInput(skill.id));
-      repo.install({ skillVersionId: version.id, status: 'active' });
-      repo.install({ skillVersionId: version.id, status: 'active' });
+      repo.install({ skillVersionId: version.id, status: 'active', profileId: 'p1' });
+      repo.install({ skillVersionId: version.id, status: 'active', profileId: 'p2' });
 
       const results = await service.checkAllIntegrity();
       expect(results).toHaveLength(2);
@@ -469,6 +471,8 @@ describe('OpenClawDeployAdapter', () => {
   });
 
   describe('checkIntegrity', () => {
+    const skill: Skill = { id: '1', name: 'Test', slug: 'test-skill', tags: [], source: 'manual', sourceOrigin: 'unknown', isPublic: true, createdAt: '', updatedAt: '' };
+
     it('reports intact when all files match', async () => {
       const deployDir = path.join(skillsDir, 'test-skill');
       fs.mkdirSync(deployDir, { recursive: true });
@@ -482,7 +486,7 @@ describe('OpenClawDeployAdapter', () => {
         { id: '1', skillVersionId: '1', relativePath: 'index.ts', fileHash: hash, sizeBytes: content.length, createdAt: '', updatedAt: '' },
       ];
 
-      const result = await adapter.checkIntegrity(installation, version, files);
+      const result = await adapter.checkIntegrity(installation, version, files, skill);
       expect(result.intact).toBe(true);
       expect(result.modifiedFiles).toHaveLength(0);
       expect(result.missingFiles).toHaveLength(0);
@@ -500,7 +504,7 @@ describe('OpenClawDeployAdapter', () => {
         { id: '1', skillVersionId: '1', relativePath: 'index.ts', fileHash: 'original-hash', sizeBytes: 10, createdAt: '', updatedAt: '' },
       ];
 
-      const result = await adapter.checkIntegrity(installation, version, files);
+      const result = await adapter.checkIntegrity(installation, version, files, skill);
       expect(result.intact).toBe(false);
       expect(result.modifiedFiles).toContain('index.ts');
     });
@@ -515,7 +519,7 @@ describe('OpenClawDeployAdapter', () => {
         { id: '1', skillVersionId: '1', relativePath: 'missing.ts', fileHash: 'abc', sizeBytes: 10, createdAt: '', updatedAt: '' },
       ];
 
-      const result = await adapter.checkIntegrity(installation, version, files);
+      const result = await adapter.checkIntegrity(installation, version, files, skill);
       expect(result.intact).toBe(false);
       expect(result.missingFiles).toContain('missing.ts');
     });
@@ -534,7 +538,7 @@ describe('OpenClawDeployAdapter', () => {
         { id: '1', skillVersionId: '1', relativePath: 'index.ts', fileHash: hash, sizeBytes: content.length, createdAt: '', updatedAt: '' },
       ];
 
-      const result = await adapter.checkIntegrity(installation, version, files);
+      const result = await adapter.checkIntegrity(installation, version, files, skill);
       expect(result.intact).toBe(false);
       expect(result.unexpectedFiles).toContain('extra.ts');
     });

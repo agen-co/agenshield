@@ -12,7 +12,7 @@ import { join } from 'path';
 import { BrokerClient } from './broker-client.js';
 
 const client = new BrokerClient({
-  socketPath: process.env['AGENSHIELD_SOCKET'] || '/var/run/agenshield/agenshield.sock',
+  socketPath: process.env['AGENSHIELD_SOCKET'] || `${process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || ''}/.agenshield/run/agenshield.sock`,
   httpHost: process.env['AGENSHIELD_HTTP_HOST'] || 'localhost',
   httpPort: parseInt(process.env['AGENSHIELD_HTTP_PORT'] || '5201', 10),
 });
@@ -95,7 +95,7 @@ Commands:
   skill run <name> [args...]         Run a skill with policy-enforced context
 
 Environment:
-  AGENSHIELD_SOCKET      Unix socket path (default: /var/run/agenshield/agenshield.sock)
+  AGENSHIELD_SOCKET      Unix socket path (default: ~/.agenshield/run/agenshield.sock)
   AGENSHIELD_HTTP_HOST   HTTP fallback host (default: localhost)
   AGENSHIELD_HTTP_PORT   HTTP fallback port (default: 5201)
 

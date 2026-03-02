@@ -53,10 +53,13 @@ export function deriveKey(machineId: string): Buffer {
  * @param data - Plaintext data to encrypt
  * @param key - 32-byte encryption key
  * @returns Encrypted data in format: iv:authTag:ciphertext (base64 encoded)
+ *
+ * Note: Uses 12-byte IV per NIST GCM specification (SP 800-38D).
+ * Older vaults may have 16-byte IVs — decrypt() handles both.
  */
 export function encrypt(data: string, key: Buffer): string {
-  // Generate random IV for each encryption
-  const iv = crypto.randomBytes(16);
+  // Generate random IV for each encryption (12 bytes per AES-GCM standard)
+  const iv = crypto.randomBytes(12);
 
   // Create cipher
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);

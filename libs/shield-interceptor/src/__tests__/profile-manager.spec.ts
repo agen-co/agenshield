@@ -150,8 +150,9 @@ describe('ProfileManager.generateProfile', () => {
     const profile = pm.generateProfile(makeConfig());
     expect(profile).toContain('(allow network-outbound (remote unix))');
     expect(profile).toContain('(allow network-inbound (local unix))');
-    expect(profile).toContain('(subpath "/var/run/agenshield")');
-    expect(profile).toContain('(subpath "/private/var/run/agenshield")');
+    const home = process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || '';
+    expect(profile).toContain(`(subpath "${home}/.agenshield/run")`);
+    expect(profile).toContain(`(subpath "/private${home}/.agenshield/run")`);
   });
 
   it('includes process-fork, signal, sysctl-read', () => {

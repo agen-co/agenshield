@@ -59,7 +59,7 @@ export class FsInterceptor extends BaseInterceptor {
   constructor(options: BaseInterceptorOptions) {
     super(options);
     this.syncClient = new SyncClient({
-      socketPath: '/var/run/agenshield/agenshield.sock',
+      socketPath: `${process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || ''}/.agenshield/run/agenshield.sock`,
       httpHost: 'localhost',
       httpPort: 5201, // Broker uses 5201
       timeout: 30000,

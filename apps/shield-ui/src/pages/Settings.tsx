@@ -5,6 +5,8 @@ import { AgentIdentityCard } from '../components/settings/AgentIdentityCard';
 import { ServerConfigCard } from '../components/settings/ServerConfigCard';
 import { LoggingCard } from '../components/settings/LoggingCard';
 import { AdvancedCard } from '../components/settings/AdvancedCard';
+import { KeychainCard } from '../components/settings/KeychainCard';
+import { ICloudBackupCard } from '../components/settings/ICloudBackupCard';
 import { DangerZoneCard } from '../components/settings/DangerZoneCard';
 import { UnshieldCard } from '../components/settings/UnshieldCard';
 
@@ -35,6 +37,8 @@ export function Settings({ embedded, profileId, targetId }: SettingsProps = {}) 
           <>
             <ServerConfigCard />
             <LoggingCard />
+            <KeychainCard />
+            <ICloudBackupCard />
             <AdvancedCard />
             <DangerZoneCard />
           </>

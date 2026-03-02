@@ -8,6 +8,7 @@
     "interceptor-register.cjs": "dist/sea/apps/daemon-bin/interceptor/register.cjs",
     "interceptor-register.mjs": "dist/sea/apps/daemon-bin/interceptor/register.mjs",
     "ui-assets.tar.gz": "dist/sea/assets/ui-assets.tar.gz",
+    "shield-client.cjs": "dist/sea/apps/daemon-bin/client/shield-client.cjs",
     "VERSION": "dist/sea/VERSION"
   }
 }

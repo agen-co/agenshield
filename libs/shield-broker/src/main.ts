@@ -183,7 +183,7 @@ function ensureProxiedCommandWrappers(binDir: string): void {
 
   // Resolve shared binary dir: AGENSHIELD_HOST_HOME > ~/.agenshield
   const hostHome = process.env['AGENSHIELD_HOST_HOME'] || '';
-  const sharedBinDir = hostHome ? `${hostHome}/.agenshield/bin` : `${os.homedir()}/.agenshield/bin`;
+  const sharedBinDir = hostHome ? `${hostHome}/.agenshield/bin` : `${process.env['AGENSHIELD_BROKER_HOME'] || os.homedir()}/.agenshield/bin`;
   const shieldExecPath = `${sharedBinDir}/shield-exec`;
   const shieldClientPath = `${sharedBinDir}/shield-client`;
   const hasShieldExec = fs.existsSync(shieldExecPath);
@@ -270,12 +270,14 @@ async function main(): Promise<void> {
     failOpen: config.failOpen,
   });
 
+  const brokerHome = process.env['AGENSHIELD_BROKER_HOME'] || process.env['AGENSHIELD_AGENT_HOME'] || os.homedir();
+
   const secretVault = new SecretVault({
-    vaultPath: `${os.homedir()}/.agenshield/vault.enc`,
+    vaultPath: `${brokerHome}/.agenshield/vault.enc`,
   });
 
   const commandAllowlist = new CommandAllowlist(
-    `${os.homedir()}/.agenshield/config/allowed-commands.json`
+    `${brokerHome}/.agenshield/config/allowed-commands.json`
   );
 
   // SecretResolver holds secrets in memory — populated via secrets_sync IPC push from daemon

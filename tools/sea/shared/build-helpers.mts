@@ -64,13 +64,21 @@ export interface InjectOptions {
   binaryPath: string;
   blobPath: string;
   platform?: string;
+  /** Code signing identity (e.g. "Developer ID Application: ..."). When absent, ad-hoc signing is used. */
+  codesignIdentity?: string;
+  /** Path to entitlements.plist for hardened runtime. Used with both real and ad-hoc signing. */
+  entitlementsPath?: string;
 }
 
 /**
  * Copy the Node binary, remove existing signature, inject SEA blob, re-sign.
+ *
+ * Signing modes:
+ * - No identity → `codesign --sign - --options runtime --entitlements` (ad-hoc with hardened runtime)
+ * - Identity provided → `codesign --sign "Developer ID..." --timestamp --options runtime --entitlements`
  */
 export function injectBlob(opts: InjectOptions): void {
-  const { binaryPath, blobPath, platform = os.platform() } = opts;
+  const { binaryPath, blobPath, platform = os.platform(), codesignIdentity, entitlementsPath } = opts;
 
   // Copy the node binary
   const nodePath = process.execPath;
@@ -101,12 +109,61 @@ export function injectBlob(opts: InjectOptions): void {
     'Inject SEA blob into binary',
   );
 
-  // macOS: ad-hoc re-sign
+  // macOS: code signing
   if (platform === 'darwin') {
+    codesignBinary(binaryPath, codesignIdentity, entitlementsPath);
+  }
+
+  // Post-injection validation: ensure binary runs
+  validateBinary(binaryPath);
+}
+
+/**
+ * Sign a binary with the given identity, or ad-hoc if none provided.
+ * Both modes use hardened runtime + entitlements (required for macOS Sequoia).
+ */
+export function codesignBinary(
+  binaryPath: string,
+  identity?: string,
+  entitlementsPath?: string,
+): void {
+  if (identity) {
+    const entitlementFlag = entitlementsPath ? ` --entitlements "${entitlementsPath}"` : '';
     run(
-      `codesign --sign - "${binaryPath}"`,
-      'Ad-hoc code signing (macOS)',
+      `codesign --force --sign "${identity}" --timestamp --options runtime${entitlementFlag} "${binaryPath}"`,
+      `Code signing with identity: ${identity.slice(0, 40)}...`,
     );
+  } else {
+    const defaultEntitlements = path.join(ROOT, 'tools', 'sea', 'entitlements.plist');
+    const resolvedEntitlements = entitlementsPath ?? defaultEntitlements;
+    if (fs.existsSync(resolvedEntitlements)) {
+      run(
+        `codesign --force --sign - --options runtime --entitlements "${resolvedEntitlements}" "${binaryPath}"`,
+        'Ad-hoc code signing with hardened runtime (macOS)',
+      );
+    } else {
+      console.log('[WARN] Entitlements plist not found — falling back to plain ad-hoc signing');
+      run(
+        `codesign --force --sign - "${binaryPath}"`,
+        'Ad-hoc code signing (macOS)',
+      );
+    }
+  }
+}
+
+/**
+ * Post-injection validation: run the binary with --version to ensure it works.
+ */
+function validateBinary(binaryPath: string): void {
+  try {
+    const output = execSync(`"${binaryPath}" --version`, {
+      encoding: 'utf-8',
+      timeout: 10_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    console.log(`[VALIDATE] ${path.basename(binaryPath)} --version → ${output}`);
+  } catch (err) {
+    console.log(`[WARN] Post-injection validation failed for ${path.basename(binaryPath)}: ${(err as Error).message}`);
   }
 }
 
@@ -139,6 +196,10 @@ export interface PackageOptions {
   arch?: string;
   /** Output directory for the archive */
   outDir?: string;
+  /** Code signing identity for .node native modules on macOS */
+  codesignIdentity?: string;
+  /** Path to entitlements.plist */
+  entitlementsPath?: string;
 }
 
 /**
@@ -177,9 +238,15 @@ export function createArchive(opts: PackageOptions): string {
   let nativeFound = false;
   for (const searchPath of nativeSearchPaths) {
     if (fs.existsSync(searchPath)) {
-      fs.copyFileSync(searchPath, path.join(nativeDir, 'better_sqlite3.node'));
+      const destPath = path.join(nativeDir, 'better_sqlite3.node');
+      fs.copyFileSync(searchPath, destPath);
       nativeFound = true;
       console.log(`[NATIVE] Copied better_sqlite3.node from ${searchPath}`);
+
+      // Sign .node native modules when a real signing identity is provided
+      if (platform === 'darwin' && opts.codesignIdentity) {
+        codesignBinary(destPath, opts.codesignIdentity, opts.entitlementsPath);
+      }
       break;
     }
   }
@@ -189,7 +256,7 @@ export function createArchive(opts: PackageOptions): string {
 
   // Copy worker and interceptor from daemon build output (if exists)
   const daemonDistDir = path.join(outDir, 'apps', 'daemon-bin');
-  for (const subDir of ['workers', 'interceptor']) {
+  for (const subDir of ['workers', 'interceptor', 'client']) {
     const srcDir = path.join(daemonDistDir, subDir);
     if (fs.existsSync(srcDir)) {
       const destDir = path.join(stagingDir, subDir);

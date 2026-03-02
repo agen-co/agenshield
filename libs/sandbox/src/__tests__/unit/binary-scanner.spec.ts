@@ -5,6 +5,8 @@ jest.mock('@agenshield/ipc', () => ({
     python: { category: 'runtime' },
     node: { category: 'runtime' },
   },
+  seatbeltDirPath: () => '/tmp/.agenshield/seatbelt',
+  socketPath: () => '/tmp/.agenshield/run/agenshield.sock',
 }));
 
 jest.mock('../../wrappers/wrappers', () => ({

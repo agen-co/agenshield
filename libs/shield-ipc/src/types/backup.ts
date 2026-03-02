@@ -85,6 +85,6 @@ export const BACKUP_CONFIG = {
 
 /** Resolve backup file path under the host user's ~/.agenshield/ */
 export function backupConfigPath(hostHome?: string): string {
-  const home = hostHome || process.env['HOME'] || '';
+  const home = hostHome || process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || '';
   return `${home}/.agenshield/backup.json`;
 }

@@ -25,7 +25,7 @@ export class PythonPatcher {
       brokerPort: config.brokerPort || 5200,
       useSandbox: config.useSandbox ?? true,
       workspacePath: config.workspacePath || '/Users/clawagent/workspace',
-      socketPath: config.socketPath || '/var/run/agenshield/agenshield.sock',
+      socketPath: config.socketPath || `${process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || ''}/.agenshield/run/agenshield.sock`,
       installDir: config.installDir,
     };
   }
@@ -67,7 +67,7 @@ export class PythonPatcher {
           sitecustomizePath,
           useSandbox: this.config.useSandbox,
           sandboxProfilePath: this.config.useSandbox
-            ? '/etc/agenshield/seatbelt/python.sb'
+            ? `${process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || ''}/.agenshield/seatbelt/python.sb`
             : undefined,
         });
 
@@ -76,7 +76,7 @@ export class PythonPatcher {
 
         // Install sandbox profile if using sandbox
         if (this.config.useSandbox) {
-          const profilePath = '/etc/agenshield/seatbelt/python.sb';
+          const profilePath = `${process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || ''}/.agenshield/seatbelt/python.sb`;
           const profileDir = path.dirname(profilePath);
 
           await fs.mkdir(profileDir, { recursive: true });

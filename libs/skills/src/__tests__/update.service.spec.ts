@@ -7,8 +7,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { EventEmitter } from 'node:events';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../storage/src/migrations/001-initial-schema';
-import { SkillsManagerColumnsMigration } from '../../../storage/src/migrations/003-skills-manager-columns';
+import { SchemaMigration } from '../../../storage/src/migrations/001-schema';
 import { SkillsRepository } from '../../../storage/src/repositories/skills/skills.repository';
 import { UpdateService } from '../update/update.service';
 import type { SkillEvent } from '../events';
@@ -19,8 +18,7 @@ function createTestDb() {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
-  new SkillsManagerColumnsMigration().up(db);
+  new SchemaMigration().up(db);
   return { db, cleanup: () => { db.close(); try { fs.rmSync(dir, { recursive: true }); } catch { /* */ } } };
 }
 
@@ -66,9 +64,13 @@ describe('UpdateService', () => {
       requiredBins: [], requiredEnv: [], extractedCommands: [],
     });
 
-    // Two installations: one auto-update, one pinned
-    const inst1 = repo.install({ skillVersionId: v1.id, status: 'active', autoUpdate: true });
-    const inst2 = repo.install({ skillVersionId: v1.id, status: 'active', autoUpdate: true });
+    // Insert profiles so FK constraints pass
+    db.prepare("INSERT INTO profiles (id, name, type) VALUES ('p1', 'P1', 'target')").run();
+    db.prepare("INSERT INTO profiles (id, name, type) VALUES ('p2', 'P2', 'target')").run();
+
+    // Two installations with different profiles: one auto-update, one pinned
+    const inst1 = repo.install({ skillVersionId: v1.id, status: 'active', autoUpdate: true, profileId: 'p1' });
+    const inst2 = repo.install({ skillVersionId: v1.id, status: 'active', autoUpdate: true, profileId: 'p2' });
     repo.pinVersion(inst2.id, '1.0.0');
 
     const result = service.propagateUpdate(skill.id, v2.id);

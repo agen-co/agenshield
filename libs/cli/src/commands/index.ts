@@ -17,4 +17,5 @@ export { registerLogsCommand } from './logs.js';
 export { registerExecCommand } from './exec.js';
 export { registerAuthCommands } from './auth-cmd.js';
 export { registerCompletionCommand } from './completion.js';
+export { registerServiceCommand } from './service.js';
 export { withGlobals, withGlobalsPositional, handleError } from './base.js';

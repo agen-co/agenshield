@@ -9,6 +9,7 @@
 
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
+import { backupConfigPath } from '@agenshield/ipc';
 import {
   getTestPrefix,
   getAgentUsername,
@@ -59,11 +60,11 @@ describe('agenshield setup', () => {
   });
 
   it('should have created a backup file', () => {
-    expect(fs.existsSync('/etc/agenshield/backup.json')).toBe(true);
+    expect(fs.existsSync(backupConfigPath())).toBe(true);
   });
 
   it('backup file should contain valid JSON with our prefix', () => {
-    const content = fs.readFileSync('/etc/agenshield/backup.json', 'utf-8');
+    const content = fs.readFileSync(backupConfigPath(), 'utf-8');
     const backup = JSON.parse(content);
     expect(backup).toBeDefined();
     // The backup should reference our prefix

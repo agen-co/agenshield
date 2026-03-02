@@ -1,7 +1,7 @@
 /**
  * Debug Logger
  *
- * Writes diagnostic logs to /var/log/agenshield/interceptor.log using
+ * Writes diagnostic logs to ~/.agenshield/logs/interceptor.log using
  * a captured (pre-patch) appendFileSync. Safe from interception.
  * Falls back to /tmp/agenshield-interceptor.log if primary path is not writable.
  */
@@ -12,7 +12,7 @@ import * as fs from 'node:fs';
 const _appendFileSync = fs.appendFileSync.bind(fs);
 const _writeSync = fs.writeSync.bind(fs);
 
-const LOG_PATH = '/var/log/agenshield/interceptor.log';
+const LOG_PATH = `${process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || '/tmp'}/.agenshield/logs/interceptor.log`;
 const FALLBACK_LOG_PATH = '/tmp/agenshield-interceptor.log';
 
 let resolvedLogPath: string | null = null;

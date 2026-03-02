@@ -231,19 +231,32 @@ export class UnixSocketServer {
         brokerAuth: this.brokerAuth,
       });
 
-      // Log success
+      // For policy_check, the meaningful outcome is in result.data, not finalPolicy.
+      const isPolicyCheck = request.method === 'policy_check';
+      const policyCheckData = isPolicyCheck
+        ? (result.data as { allowed?: boolean; policyId?: string } | undefined)
+        : undefined;
+      const auditAllowed = isPolicyCheck ? Boolean(policyCheckData?.allowed) : true;
+      const auditPolicyId = isPolicyCheck ? policyCheckData?.policyId : finalPolicy.policyId;
+      const auditTarget = isPolicyCheck
+        ? String(request.params['target'] ?? 'policy_check')
+        : this.extractTarget(request);
+      const auditMetadata: Record<string, unknown> | undefined = isPolicyCheck
+        ? { ...result.audit, operation: request.params['operation'] }
+        : result.audit;
+
       await this.auditLogger.log({
         id: requestId,
         timestamp: new Date(),
         operation: request.method,
         channel: 'socket',
-        allowed: true,
-        policyId: finalPolicy.policyId,
-        target: this.extractTarget(request),
+        allowed: auditAllowed,
+        policyId: auditPolicyId,
+        target: auditTarget,
         result: result.success ? 'success' : 'error',
         errorMessage: result.error?.message,
         durationMs: Date.now() - startTime,
-        metadata: result.audit,
+        metadata: auditMetadata,
       });
 
       if (result.success) {

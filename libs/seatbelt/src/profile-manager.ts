@@ -196,14 +196,16 @@ export class ProfileManager {
 
     // Unix socket for broker communication (always allowed).
     const brokerPort = sandbox.brokerHttpPort || 5201;
+    const userHome = process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || '';
+    const runDir = `${userHome}/.agenshield/run`;
     lines.push(
       ';; Broker / local unix sockets + HTTP fallback',
       '(allow network-outbound (remote unix))',
       '(allow network-inbound (local unix))',
       `(allow network-outbound (remote tcp "localhost:${brokerPort}"))`,
       '(allow file-read* file-write*',
-      '  (subpath "/var/run/agenshield")',
-      '  (subpath "/private/var/run/agenshield"))',
+      `  (subpath "${runDir}")`,
+      `  (subpath "/private${runDir}"))`,
       '',
     );
 

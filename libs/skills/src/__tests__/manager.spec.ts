@@ -14,7 +14,8 @@ import type { SkillEvent } from '../events';
 function createTestStorage() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-mgr-test-'));
   const dbPath = path.join(dir, 'test.db');
-  const storage = Storage.open(dbPath);
+  const activityDbPath = path.join(dir, 'activity.db');
+  const storage = Storage.open(dbPath, activityDbPath);
   return { storage, cleanup: () => { storage.close(); try { fs.rmSync(dir, { recursive: true }); } catch { /* */ } } };
 }
 

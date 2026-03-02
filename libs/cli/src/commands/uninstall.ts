@@ -582,6 +582,20 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
   }
 
   storage.close();
+
+  // Remove daemon LaunchDaemon service (macOS)
+  if (process.platform === 'darwin') {
+    try {
+      const { uninstallDaemonService } = await import('@agenshield/integrations');
+      const result = uninstallDaemonService();
+      if (result.success) {
+        output.success('Removed daemon LaunchDaemon service');
+      }
+    } catch {
+      // Best effort — service may not be installed
+    }
+  }
+
   await systemCleanup(dataDir);
 
   // Orphan cleanup — best-effort, failure doesn't affect main uninstall

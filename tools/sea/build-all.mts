@@ -42,6 +42,8 @@ const flags = {
   minify: argv.includes('--minify'),
   platform: getArg('--platform') || os.platform(),
   arch: getArg('--arch') || os.arch(),
+  codesignIdentity: getArg('--codesign-identity'),
+  entitlements: getArg('--entitlements'),
 };
 
 function getArg(name: string): string | undefined {
@@ -150,6 +152,8 @@ async function step5_generateBlobsAndInject(): Promise<void> {
       binaryPath,
       blobPath,
       platform: flags.platform,
+      codesignIdentity: flags.codesignIdentity,
+      entitlementsPath: flags.entitlements,
     });
   }
 }
@@ -167,6 +171,8 @@ async function step6_package(): Promise<void> {
     })),
     platform: flags.platform,
     arch: flags.arch,
+    codesignIdentity: flags.codesignIdentity,
+    entitlementsPath: flags.entitlements,
   });
 }
 

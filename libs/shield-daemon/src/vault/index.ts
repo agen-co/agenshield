@@ -55,7 +55,8 @@ export class Vault {
   }
 
   /**
-   * Save vault contents to disk
+   * Save vault contents to disk using atomic write (temp file + rename).
+   * Creates a backup of the existing vault before overwriting.
    */
   async save(contents: VaultContents): Promise<void> {
     const configDir = getConfigDir();
@@ -68,8 +69,22 @@ export class Vault {
     const json = JSON.stringify(contents, null, 2);
     const encrypted = encrypt(json, this.key);
 
-    // Write with restrictive permissions (owner read/write only)
-    fs.writeFileSync(this.vaultPath, encrypted, { mode: 0o600 });
+    // Backup existing vault before overwrite
+    if (fs.existsSync(this.vaultPath)) {
+      const backupPath = this.vaultPath + '.bak';
+      try {
+        fs.copyFileSync(this.vaultPath, backupPath);
+        fs.chmodSync(backupPath, 0o600);
+      } catch {
+        // Best effort — don't fail the save
+      }
+    }
+
+    // Atomic write: write to temp file, then rename
+    const tmpPath = this.vaultPath + '.tmp';
+    fs.writeFileSync(tmpPath, encrypted, { mode: 0o600 });
+    fs.renameSync(tmpPath, this.vaultPath);
+
     this.cache = contents;
   }
 
@@ -172,4 +187,5 @@ export {
   getVaultKey,
   getVaultKeyPath,
   clearVaultKeyCache,
+  setKeyProvider,
 } from './vault-key';

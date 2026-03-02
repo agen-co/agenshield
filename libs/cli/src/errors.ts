@@ -121,6 +121,23 @@ export class ConnectionError extends CliError {
 }
 
 /**
+ * Service management operation failed (install, uninstall, status).
+ */
+export class ServiceError extends CliError {
+  public readonly operation: string;
+
+  constructor(message: string, operation: string) {
+    super(message, 'SERVICE_ERROR');
+    this.name = 'ServiceError';
+    this.operation = operation;
+  }
+
+  override toJSON(): Record<string, unknown> {
+    return { ...super.toJSON(), operation: this.operation };
+  }
+}
+
+/**
  * Setup has not been completed yet.
  */
 export class SetupRequiredError extends CliError {

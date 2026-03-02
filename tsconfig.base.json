@@ -36,6 +36,7 @@
       "@agenshield/policies": ["libs/policies/src/index.ts"],
       "@agenshield/seatbelt": ["libs/seatbelt/src/index.ts"],
       "@agenshield/auth": ["libs/auth/src/index.ts"],
+      "@agenshield/keychain": ["libs/keychain/src/index.ts"],
       "@agenshield/ui": ["apps/shield-ui/src/index.ts"]
     }
   },

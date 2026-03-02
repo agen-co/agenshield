@@ -19,7 +19,7 @@ describe('Install Flow (real filesystem)', () => {
 # AgenShield test wrapper
 # Routes through broker for monitoring
 
-SOCKET_PATH="/var/run/agenshield/agenshield.sock"
+SOCKET_PATH="$HOME/.agenshield/run/agenshield.sock"
 
 case "$1" in
   clone|fetch|push|pull)

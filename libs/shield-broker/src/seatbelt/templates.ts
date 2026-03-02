@@ -185,7 +185,7 @@ ${agenshieldReadWrite}
 ;; Allow socket operations
 (allow file-read* file-write*
   (literal "${socketPath}")
-  (subpath "/var/run/agenshield"))
+  (subpath "${socketPath.substring(0, socketPath.lastIndexOf('/'))}"))
 
 ;; Allow outbound network (broker needs it)
 (allow network*)

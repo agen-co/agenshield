@@ -288,16 +288,16 @@ Policies are stored in `/opt/agenshield/policies/` and can be managed through th
 └── quarantine/
     └── skills/                  # Quarantined skill packages
 
-/etc/agenshield/
+~/.agenshield/
 ├── seatbelt/
 │   ├── agent.sb                 # Agent sandbox profile
 │   └── ops/                     # Per-operation seatbelt profiles
 └── zdot/                        # Guarded shell configuration
 
-/var/run/agenshield/
+~/.agenshield/run/
 └── agenshield.sock              # Unix socket (mode 0770)
 
-/var/log/agenshield/
+~/.agenshield/logs/
 ├── broker.log                   # Broker stdout
 ├── broker.error.log             # Broker stderr
 ├── openclaw-daemon.log          # OpenClaw daemon stdout
@@ -334,7 +334,7 @@ Policies are stored in `/opt/agenshield/policies/` and can be managed through th
 |----------|-------------|---------|
 | `AGENSHIELD_PORT` | Daemon HTTP port | `5200` |
 | `AGENSHIELD_HOST` | Daemon HTTP host | `127.0.0.1` |
-| `AGENSHIELD_SOCKET` | Unix socket path | `/var/run/agenshield/agenshield.sock` |
+| `AGENSHIELD_SOCKET` | Unix socket path | `~/.agenshield/run/agenshield.sock` |
 | `AGENSHIELD_CONFIG` | Path to config file | `/opt/agenshield/config/shield.json` |
 | `AGENSHIELD_AGENT_HOME` | Agent home directory | `/Users/ash_default_agent` |
 | `AGENSHIELD_LOG_LEVEL` | Log level (`warn`, `debug`, `info`, `error`) | `warn` |
@@ -364,7 +364,7 @@ Policies are stored in `/opt/agenshield/policies/` and can be managed through th
 npx agenshield@latest setup
 
 # Check file ownership
-ls -la /var/run/agenshield/
+ls -la ~/.agenshield/run/
 ls -la /opt/agenshield/
 ```
 
@@ -377,13 +377,13 @@ lsof -i :5200
 agenshield daemon start --foreground
 
 # Check logs
-cat /var/log/agenshield/broker.error.log
+cat ~/.agenshield/logs/broker.error.log
 ```
 
 **Socket connection refused**
 ```bash
 # Check socket exists
-ls -la /var/run/agenshield/agenshield.sock
+ls -la ~/.agenshield/run/agenshield.sock
 
 # Check broker is running
 sudo launchctl list | grep agenshield
@@ -395,7 +395,7 @@ sudo launchctl kickstart -k system/com.agenshield.broker
 **Agent still has network access**
 ```bash
 # Verify seatbelt profile is loaded
-sudo -u ash_default_agent sandbox-exec -f /etc/agenshield/seatbelt/agent.sb -- curl https://example.com
+sudo -u ash_default_agent sandbox-exec -f ~/.agenshield/seatbelt/agent.sb -- curl https://example.com
 # Should fail with "Operation not permitted"
 
 # Check wrapper PATH
@@ -415,7 +415,7 @@ sudo agenshield uninstall
 
 This removes:
 - Created users (`ash_default_agent`, `ash_default_broker`) and groups (`ash_default`, `ash_default_workspace`)
-- System directories (`/opt/agenshield/`, `/etc/agenshield/`, `/var/run/agenshield/`, `/var/log/agenshield/`)
+- System directories (`/opt/agenshield/`, `~/.agenshield/`, `~/.agenshield/run/`, `~/.agenshield/logs/`)
 - LaunchDaemons (`com.agenshield.broker`, `com.agenshield.openclaw.daemon`, `com.agenshield.openclaw.gateway`)
 - Command wrappers and seatbelt profiles
 
@@ -603,7 +603,7 @@ Prettier config: 120 char width, single quotes, trailing commas.
 |---------|------|----------|
 | Daemon | 5200 | HTTP |
 | Broker HTTP fallback | 5201 | HTTP |
-| Broker primary | `/var/run/agenshield/agenshield.sock` | Unix Socket |
+| Broker primary | `~/.agenshield/run/agenshield.sock` | Unix Socket |
 
 ### Route Groups
 

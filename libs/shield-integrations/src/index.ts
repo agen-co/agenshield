@@ -31,6 +31,29 @@ export {
   type StopHostOpenClawResult,
 } from './openclaw-install';
 
+// AgenShield Daemon LaunchDaemon (daemon service management)
+export {
+  generateDaemonPlist,
+  installDaemonService,
+  startDaemonService,
+  stopDaemonService,
+  uninstallDaemonService,
+  getDaemonServiceStatus,
+  type DaemonServiceConfig,
+  type DaemonServiceStatus,
+  type DaemonServiceResult,
+} from './daemon-launchdaemon';
+
+// AgenShield Privilege Helper LaunchDaemon (root privilege helper)
+export {
+  generatePrivilegeHelperPlist,
+  installPrivilegeHelperService,
+  startPrivilegeHelperService,
+  stopPrivilegeHelperService,
+  uninstallPrivilegeHelperService,
+  getPrivilegeHelperServiceStatus,
+} from './privilege-helper-launchdaemon';
+
 // OpenClaw LaunchDaemon (gateway process lifecycle)
 export {
   generateOpenClawGatewayPlist,

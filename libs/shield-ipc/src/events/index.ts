@@ -126,3 +126,10 @@ export {
   type EnforcementProcessPayload,
   ENFORCEMENT_EVENT_TYPES,
 } from './enforcement.events';
+
+export {
+  type EnrollmentPendingPayload,
+  type EnrollmentCompletePayload,
+  type EnrollmentFailedPayload,
+  ENROLLMENT_EVENT_TYPES,
+} from './enrollment.events';

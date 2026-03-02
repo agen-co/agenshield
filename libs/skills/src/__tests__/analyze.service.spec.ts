@@ -7,8 +7,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { EventEmitter } from 'node:events';
 import Database from 'better-sqlite3';
-import { InitialSchemaMigration } from '../../../storage/src/migrations/001-initial-schema';
-import { SkillsManagerColumnsMigration } from '../../../storage/src/migrations/003-skills-manager-columns';
+import { SchemaMigration } from '../../../storage/src/migrations/001-schema';
 import { SkillsRepository } from '../../../storage/src/repositories/skills/skills.repository';
 import { AnalyzeService } from '../analyze/analyze.service';
 import { BasicAnalyzeAdapter } from '../analyze/adapters/basic.adapter';
@@ -22,8 +21,7 @@ function createTestDb() {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  new InitialSchemaMigration().up(db);
-  new SkillsManagerColumnsMigration().up(db);
+  new SchemaMigration().up(db);
   return { db, cleanup: () => { db.close(); try { fs.rmSync(dir, { recursive: true }); } catch { /* */ } } };
 }
 

@@ -365,7 +365,7 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
   {
     id: 'create-directories',
     name: 'Create Directories',
-    description: 'Create /opt/agenshield, /etc/agenshield, etc.',
+    description: 'Create /opt/agenshield, ~/.agenshield, etc.',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['create-agent-user', 'create-broker-user'],
@@ -373,7 +373,7 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
   {
     id: 'setup-socket',
     name: 'Setup Socket',
-    description: 'Create /var/run/agenshield/ with correct permissions',
+    description: 'Create ~/.agenshield/run/ with correct permissions',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['create-directories'],

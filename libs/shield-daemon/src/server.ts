@@ -50,6 +50,7 @@ import { startMetricsCollector, stopMetricsCollector } from './services/metrics-
 import { resolveTargetContext } from './services/target-context';
 import { ProcessManager } from './services/process-manager';
 import { getCloudConnector } from './services/cloud-connector';
+import { getEnrollmentService } from './services/enrollment';
 import { startProcessEnforcer, stopProcessEnforcer, restartProcessEnforcer } from './services/process-enforcer';
 import { startEventLoopMonitor, stopEventLoopMonitor } from './services/event-loop-monitor';
 import { initSystemExecutor, shutdownSystemExecutor } from './workers/system-command';
@@ -152,6 +153,10 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // Cloud connection happens AFTER listen — health checks work immediately
   connectToCloud(app);
 
+  // MDM org enrollment: if MDM config exists and not yet enrolled,
+  // initiate the device code flow asynchronously.
+  startEnrollmentIfNeeded(app);
+
   return app;
 }
 
@@ -170,6 +175,17 @@ function connectToCloud(app: FastifyInstance): void {
     .catch((err) => {
       app.log.warn({ err }, '[cloud] Failed to connect to AgenShield Cloud');
     });
+}
+
+/**
+ * Start MDM org enrollment if an MDM config is present and the device
+ * is not yet enrolled. Runs asynchronously (fire-and-forget).
+ */
+function startEnrollmentIfNeeded(app: FastifyInstance): void {
+  const enrollment = getEnrollmentService();
+  enrollment.checkAndEnroll().catch((err) => {
+    app.log.warn({ err }, '[enrollment] Enrollment check failed');
+  });
 }
 
 /**
@@ -268,17 +284,6 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
       } catch { /* best effort */ }
     }
     app.log.info(`Admin token written to ${configTokenPath}`);
-
-    // Secondary: system dir (best-effort, for root-level reads)
-    try {
-      const tokenDir = '/var/run/agenshield';
-      if (!fs.existsSync(tokenDir)) {
-        fs.mkdirSync(tokenDir, { recursive: true, mode: 0o755 });
-      }
-      fs.writeFileSync(path.join(tokenDir, '.admin-token'), adminToken, { mode: 0o644 });
-    } catch {
-      app.log.debug('Could not write token to /var/run/agenshield — using config dir only');
-    }
   } catch (err) {
     app.log.warn({ err }, 'Failed to write admin token file');
   }
@@ -437,6 +442,7 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
           modifiedFiles: event.modifiedFiles,
           missingFiles: event.missingFiles,
           unexpectedFiles: event.unexpectedFiles,
+          checkedPath: event.checkedPath,
         });
         break;
       }
@@ -539,9 +545,24 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   // Start target status watcher (10s, emits on change only)
   startTargetWatcher(10000);
 
-  // Initialize privilege executor for root operations (lazy — prompts user on first use)
-  const { OsascriptExecutor } = await import('./services/osascript-executor.js');
-  const executor = new OsascriptExecutor();
+  // Initialize privilege executor for root operations.
+  // Prefer launchd-managed helper (no password dialog) with osascript fallback for dev mode.
+  let executor: import('@agenshield/ipc').PrivilegeExecutor;
+  try {
+    const { PRIVILEGE_HELPER_LAUNCHD_PLIST } = await import('@agenshield/ipc');
+    if (fs.existsSync(PRIVILEGE_HELPER_LAUNCHD_PLIST)) {
+      const { LaunchdExecutor } = await import('./services/launchd-executor.js');
+      executor = new LaunchdExecutor();
+      app.log.info('Using launchd-managed privilege helper');
+    } else {
+      const { OsascriptExecutor } = await import('./services/osascript-executor.js');
+      executor = new OsascriptExecutor();
+      app.log.info('Using osascript privilege executor (privilege helper not installed)');
+    }
+  } catch {
+    const { OsascriptExecutor } = await import('./services/osascript-executor.js');
+    executor = new OsascriptExecutor();
+  }
   app.decorate('privilegeExecutor', executor);
 
   // Initialize gateway process manager
@@ -581,6 +602,8 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
     }
     // Shut down the system command worker thread
     await shutdownSystemExecutor();
+    // Stop enrollment service
+    getEnrollmentService().stop();
     // Disconnect cloud connector
     getCloudConnector().disconnect();
     // Clear broker's in-memory secrets on shutdown

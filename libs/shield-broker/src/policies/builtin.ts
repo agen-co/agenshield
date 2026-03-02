@@ -4,6 +4,7 @@
  * Default policies that ship with AgenShield.
  */
 
+import os from 'node:os';
 import type { PolicyConfig, PolicyRule } from './enforcer.js';
 
 /**
@@ -274,7 +275,7 @@ export const BuiltinPolicies: PolicyRule[] = [
 export function getDefaultPolicies(options?: { agentHome?: string }): PolicyConfig {
   const agentHome = options?.agentHome
     || process.env['AGENSHIELD_AGENT_HOME']
-    || '/Users/clawagent';
+    || os.homedir();
 
   return {
     version: '1.0.0',

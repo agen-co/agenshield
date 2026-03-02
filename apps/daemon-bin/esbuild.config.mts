@@ -1,10 +1,11 @@
 /**
  * esbuild config for the Daemon SEA binary.
  *
- * Produces three outputs:
+ * Produces four outputs:
  *   1. Main daemon bundle → agenshield-daemon.cjs
  *   2. Worker bundle → workers/system-command.worker.js
  *   3. Interceptor bundles → interceptor/register.cjs + register.mjs
+ *   4. Shield-client bundle → client/shield-client.cjs
  */
 
 import * as esbuild from 'esbuild';
@@ -67,6 +68,29 @@ async function buildWorkerBundle(): Promise<void> {
   console.log('[esbuild] Worker bundle complete');
 }
 
+async function buildShieldClientBundle(): Promise<void> {
+  console.log('[esbuild] Building shield-client bundle...');
+
+  const clientDir = path.join(OUT_DIR, 'client');
+  fs.mkdirSync(clientDir, { recursive: true });
+
+  await esbuild.build({
+    entryPoints: [path.join(ROOT, 'libs/shield-broker/src/client/shield-client.ts')],
+    bundle: true,
+    platform: 'node',
+    target: 'node24',
+    format: 'cjs',
+    outfile: path.join(clientDir, 'shield-client.cjs'),
+    external: NODE_BUILTINS,
+    plugins: [aliasPlugin(), tsExtensionPlugin(), importMetaPlugin()],
+    treeShaking: true,
+    minify,
+    logLevel: 'info',
+  });
+
+  console.log('[esbuild] Shield-client bundle complete');
+}
+
 async function buildInterceptorBundles(): Promise<void> {
   console.log('[esbuild] Building interceptor bundles...');
 
@@ -113,6 +137,7 @@ async function build(): Promise<void> {
     buildMainBundle(),
     buildWorkerBundle(),
     buildInterceptorBundles(),
+    buildShieldClientBundle(),
   ]);
 
   // Write VERSION file and compress UI assets (shared across all binaries)

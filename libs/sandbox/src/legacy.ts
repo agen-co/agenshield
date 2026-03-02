@@ -20,7 +20,7 @@ import { GUARDED_SHELL_CONTENT } from './shell/guarded-shell.js';
 export const GUARDED_SHELL_PATH = '/usr/local/bin/guarded-shell';
 
 /**
- * Shared ZDOTDIR path — kept for migration compat with old targets.
+ * @deprecated Shared ZDOTDIR path — kept for migration compat with old targets.
  * New targets use per-target zdotDir() under $agentHome/.zdot instead.
  */
 export const ZDOT_DIR = '/etc/agenshield/zdot';
@@ -76,7 +76,7 @@ export const SHIELD_EXEC_CONTENT = `#!/opt/agenshield/bin/node-bin
 import path from 'node:path';
 import net from 'node:net';
 
-const DEFAULT_SOCKET_PATH = '/var/run/agenshield/agenshield.sock';
+const DEFAULT_SOCKET_PATH = (process.env.AGENSHIELD_USER_HOME || process.env.HOME || '') + '/.agenshield/run/agenshield.sock';
 
 function sendRequest(socketPath, request) {
   return new Promise((resolve, reject) => {
@@ -153,8 +153,8 @@ main().catch((err) => { process.stderr.write('Fatal: ' + err.message + '\\n'); p
 `;
 
 /**
- * Legacy path-registry path.
- * Use pathRegistryPath() instead.
+ * @deprecated Legacy path-registry path.
+ * Use pathRegistryPath() from @agenshield/ipc instead.
  */
 export const PATH_REGISTRY_PATH = '/etc/agenshield/path-registry.json';
 
@@ -247,7 +247,7 @@ export function createSandboxUser(config: Partial<{
 } {
   const cfg = {
     username: config.username ?? 'openclaw',
-    homeDir: config.homeDir ?? '/Users/openclaw',
+    homeDir: config.homeDir ?? `/Users/${config.username ?? 'openclaw'}`,
     shell: config.shell ?? '/usr/local/bin/guarded-shell',
     realName: config.realName ?? 'OpenClaw Sandbox',
   };
@@ -375,7 +375,19 @@ export function generateBrokerPlistLegacy(options?: {
 }): string {
   const brokerBinary = options?.brokerBinary || '/opt/agenshield/bin/agenshield-broker';
   const configPath = options?.configPath || '/opt/agenshield/config/shield.json';
-  const socketPath = options?.socketPath || '/var/run/agenshield/agenshield.sock';
+  const home = process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || '';
+  const socketPath = options?.socketPath || `${home}/.agenshield/run/agenshield.sock`;
+  const logsDir = `${home}/.agenshield/logs`;
+
+  const hostAppExists = fs.existsSync('/Applications/AgenShieldES.app');
+  const associatedBundleBlock = hostAppExists
+    ? `
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>com.frontegg.AgenShieldES</string>
+    </array>
+`
+    : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -383,12 +395,7 @@ export function generateBrokerPlistLegacy(options?: {
 <dict>
     <key>Label</key>
     <string>com.agenshield.broker</string>
-
-    <key>AssociatedBundleIdentifiers</key>
-    <array>
-        <string>com.frontegg.AgenShieldES</string>
-    </array>
-
+${associatedBundleBlock}
     <key>ProgramArguments</key>
     <array>
         <string>${brokerBinary}</string>
@@ -410,10 +417,10 @@ export function generateBrokerPlistLegacy(options?: {
     <integer>10</integer>
 
     <key>StandardOutPath</key>
-    <string>/var/log/agenshield/broker.log</string>
+    <string>${logsDir}/broker.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/var/log/agenshield/broker.error.log</string>
+    <string>${logsDir}/broker.error.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>

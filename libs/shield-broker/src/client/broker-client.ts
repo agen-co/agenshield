@@ -65,7 +65,7 @@ export class BrokerClient {
   private preferSocket: boolean;
 
   constructor(options: BrokerClientOptions = {}) {
-    this.socketPath = options.socketPath || '/var/run/agenshield/agenshield.sock';
+    this.socketPath = options.socketPath || `${process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || ''}/.agenshield/run/agenshield.sock`;
     this.httpHost = options.httpHost || 'localhost';
     this.httpPort = options.httpPort || 5201;
     this.timeout = options.timeout || 30000;

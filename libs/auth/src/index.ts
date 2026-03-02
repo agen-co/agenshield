@@ -84,9 +84,23 @@ export {
   saveCloudCredentials,
   loadCloudCredentials,
   isCloudEnrolled,
+  initiateDeviceCode,
+  pollDeviceCode,
+  registerDevice,
 } from './cloud-auth';
 export type {
   Ed25519Keypair,
   CloudCredentials,
   AgentSigParts,
+  DeviceCodeResponse,
+  DeviceCodePollResult,
+  DeviceRegistrationResult,
 } from './cloud-auth';
+
+// MDM org config
+export {
+  loadMdmConfig,
+  saveMdmConfig,
+  hasMdmConfig,
+} from './mdm-config';
+export type { MdmOrgConfig } from './mdm-config';

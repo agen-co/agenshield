@@ -1,0 +1,24 @@
+{
+  "name": "keychain",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/keychain/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "libs/keychain/dist",
+        "main": "libs/keychain/src/index.ts",
+        "tsConfig": "libs/keychain/tsconfig.lib.json",
+        "format": ["esm"],
+        "declaration": true,
+        "declarationRootDir": "libs/keychain/src",
+        "bundle": true,
+        "thirdParty": false,
+        "platform": "node"
+      }
+    }
+  }
+}
