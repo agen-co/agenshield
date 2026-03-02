@@ -340,11 +340,21 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
   /**
    * POST /targets/lifecycle/:targetId/shield — Shield a detected target.
    */
-  app.post<{ Params: { targetId: string }; Body: { baseName?: string; hostUsername?: string; openclawVersion?: string; freshInstall?: boolean; configCopyCategories?: string[] } }>(
+  app.post<{ Params: { targetId: string }; Body: { baseName?: string; hostUsername?: string; openclawVersion?: string; freshInstall?: boolean; configCopyCategories?: string[]; enforcementMode?: 'proxy' | 'interceptor' | 'both' } }>(
     '/targets/lifecycle/:targetId/shield',
     async (request, reply) => {
       const { targetId } = request.params;
-      const body = (request.body ?? {}) as { baseName?: string; hostUsername?: string; openclawVersion?: string; freshInstall?: boolean; configCopyCategories?: string[] };
+      const body = (request.body ?? {}) as { baseName?: string; hostUsername?: string; openclawVersion?: string; freshInstall?: boolean; configCopyCategories?: string[]; enforcementMode?: 'proxy' | 'interceptor' | 'both' };
+
+      // Validate enforcement mode
+      const enforcementMode = body.enforcementMode ?? 'both';
+      const validModes = ['proxy', 'interceptor', 'both'] as const;
+      if (!validModes.includes(enforcementMode as typeof validModes[number])) {
+        return reply.code(400).send({
+          success: false,
+          error: { code: 'INVALID_ENFORCEMENT_MODE', message: `Invalid enforcementMode: ${enforcementMode}. Must be 'proxy', 'interceptor', or 'both'.` },
+        });
+      }
       const executor = app.privilegeExecutor;
 
       if (!executor) {
@@ -699,14 +709,19 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           tracker.completeStep('install_guarded_shell');
 
           // Write ZDOTDIR files to per-target directory (.zshenv and .zshrc)
+          // Compute effective shell features based on enforcement mode
+          const effectiveShellFeatures = {
+            ...preset.shellFeatures,
+            proxy: enforcementMode !== 'interceptor' ? (preset.shellFeatures?.proxy ?? false) : false,
+          };
           tracker.startStep('install_zdotdir');
           await executor.execAsRoot(`mkdir -p "${targetZdotDir}"`, { timeout: 10_000 });
           await executor.execAsRoot(
-            `cat > "${targetZdotDir}/.zshenv" << 'ZSHENV_EOF'\n${zdotZshenvContent(agentHome, preset.shellFeatures)}\nZSHENV_EOF`,
+            `cat > "${targetZdotDir}/.zshenv" << 'ZSHENV_EOF'\n${zdotZshenvContent(agentHome, effectiveShellFeatures)}\nZSHENV_EOF`,
             { timeout: 15_000 },
           );
           await executor.execAsRoot(
-            `cat > "${targetZdotDir}/.zshrc" << 'ZSHRC_EOF'\n${zdotZshrcContent(preset.shellFeatures)}\nZSHRC_EOF`,
+            `cat > "${targetZdotDir}/.zshrc" << 'ZSHRC_EOF'\n${zdotZshrcContent(effectiveShellFeatures)}\nZSHRC_EOF`,
             { timeout: 15_000 },
           );
           await executor.execAsRoot([
@@ -872,6 +887,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
               socketPath: `${agentHome}/.agenshield/run/agenshield.sock`,
               agentHome,
               denyWritePaths: preset.seatbeltDenyPaths,
+              networkMode: enforcementMode === 'interceptor' ? 'allow' : undefined,
             });
             await installSeatbeltProfiles(userConfig, { agentProfile });
             tracker.completeStep('install_seatbelt');
@@ -1129,6 +1145,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             profileBaseName: resolvedBaseName,
             freshInstall: body.freshInstall,
             configCopyCategories: body.configCopyCategories as import('@agenshield/sandbox').ClaudeConfigCategory[] | undefined,
+            enforcementMode,
           });
 
           // Complete the last preset tracker step
@@ -1165,6 +1182,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           socketPath: pathsConfig.socketPath,
           agentHome,
           denyWritePaths: preset.seatbeltDenyPaths,
+          networkMode: enforcementMode === 'interceptor' ? 'allow' : undefined,
         });
         const seatbeltPath = `${agentHome}/.agenshield/seatbelt/agent.sb`;
         shieldLog.fileContent('Seatbelt profile', seatbeltPath, seatbeltProfile);
@@ -1730,6 +1748,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           brokerUid: userConfig.brokerUser.uid,
           brokerHomeDir: agentHome,
           brokerToken: brokerJwt,
+          enforcementMode,
         });
         invalidateTokenCache();
 
@@ -2483,7 +2502,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         const agentHome = profile.agentHomeDir!;
         const presetId = profile.presetId!;
         const preset = getPreset(presetId);
-        const shellFeatures = preset?.shellFeatures ?? {};
+        const storedMode = profile.enforcementMode ?? 'both';
+        const shellFeatures = {
+          ...(preset?.shellFeatures ?? {}),
+          proxy: storedMode !== 'interceptor' ? (preset?.shellFeatures?.proxy ?? false) : false,
+        };
 
         try {
           // Guarded shell

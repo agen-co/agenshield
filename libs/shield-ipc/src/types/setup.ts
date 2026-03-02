@@ -5,6 +5,9 @@
 /** Known target application types */
 export type TargetType = 'openclaw' | 'claude-code' | 'dev-harness' | 'custom';
 
+/** Which enforcement layer(s) to apply when shielding a target */
+export type EnforcementMode = 'proxy' | 'interceptor' | 'both';
+
 /**
  * A detected target on the system that can be shielded
  */

@@ -41,10 +41,10 @@ export const targetsApi = {
       method: 'POST',
     }),
 
-  shield: (targetId: string, baseName?: string, openclawVersion?: string, configCopyCategories?: string[]) =>
+  shield: (targetId: string, baseName?: string, openclawVersion?: string, configCopyCategories?: string[], enforcementMode?: 'proxy' | 'interceptor' | 'both') =>
     targetRequest<{ success: boolean; data: { targetId: string; profileId: string } }>(
       `/targets/lifecycle/${targetId}/shield`,
-      { method: 'POST', body: JSON.stringify({ baseName, openclawVersion, configCopyCategories }) },
+      { method: 'POST', body: JSON.stringify({ baseName, openclawVersion, configCopyCategories, enforcementMode }) },
     ),
 
   unshield: (targetId: string) =>
@@ -102,8 +102,11 @@ export function useDetectTargets() {
 
 export function useShieldTarget() {
   return useMutation({
-    mutationFn: ({ targetId, baseName, openclawVersion, configCopyCategories }: { targetId: string; baseName?: string; openclawVersion?: string; configCopyCategories?: string[] }) =>
-      targetsApi.shield(targetId, baseName, openclawVersion, configCopyCategories),
+    mutationFn: ({ targetId, baseName, openclawVersion, configCopyCategories, enforcementMode }: {
+      targetId: string; baseName?: string; openclawVersion?: string; configCopyCategories?: string[];
+      enforcementMode?: 'proxy' | 'interceptor' | 'both'
+    }) =>
+      targetsApi.shield(targetId, baseName, openclawVersion, configCopyCategories, enforcementMode),
     // Target watcher handles SSE push — no query invalidation needed
   });
 }

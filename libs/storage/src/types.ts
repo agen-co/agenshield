@@ -21,6 +21,7 @@ export interface DbProfileRow {
   broker_token: string | null;
   install_manifest: string | null;
   gateway_port: number | null;
+  enforcement_mode: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -26,6 +26,7 @@ export const UpdateProfileSchema = z.object({
   brokerToken: z.string().min(1).optional(),
   installManifest: z.any().optional(),
   gatewayPort: z.number().int().min(1024).max(65535).optional(),
+  enforcementMode: z.enum(['proxy', 'interceptor', 'both']).optional(),
 });
 export type UpdateProfileInput = z.input<typeof UpdateProfileSchema>;
 
@@ -49,6 +50,7 @@ export const UpdateProfileCodec = z.codec(
       broker_token: data.brokerToken,
       install_manifest: data.installManifest !== undefined ? JSON.stringify(data.installManifest) : undefined,
       gateway_port: data.gatewayPort,
+      enforcement_mode: data.enforcementMode,
     }),
   },
 );

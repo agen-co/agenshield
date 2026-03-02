@@ -26,7 +26,10 @@ export const patchClaudeNodeStep: InstallStep = {
   weight: 2,
 
   skip(ctx) {
-    return process.platform !== 'darwin';
+    if (process.platform !== 'darwin') return true;
+    // In proxy-only mode, interceptor patching is unnecessary
+    if (ctx.enforcementMode === 'proxy') return true;
+    return false;
   },
 
   async run(ctx) {

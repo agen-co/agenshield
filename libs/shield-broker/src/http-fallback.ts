@@ -6,6 +6,7 @@
  */
 
 import * as http from 'node:http';
+import * as net from 'node:net';
 import { randomUUID } from 'node:crypto';
 import type {
   BrokerConfig,
@@ -48,6 +49,7 @@ export interface HttpFallbackServerOptions {
 
 export class HttpFallbackServer {
   private server: http.Server | null = null;
+  private activeTunnels = new Set<net.Socket>();
   private config: BrokerConfig;
   private policyEnforcer: PolicyEnforcer;
   private auditLogger: AuditLogger;
@@ -71,6 +73,10 @@ export class HttpFallbackServer {
         this.handleRequest(req, res);
       });
 
+      this.server.on('connect', (req, clientSocket, head) => {
+        this.handleConnect(req, clientSocket as net.Socket, head);
+      });
+
       this.server.on('error', (error) => {
         reject(error);
       });
@@ -89,6 +95,12 @@ export class HttpFallbackServer {
    * Stop the HTTP fallback server
    */
   async stop(): Promise<void> {
+    // Destroy all active CONNECT tunnels
+    for (const socket of this.activeTunnels) {
+      socket.destroy();
+    }
+    this.activeTunnels.clear();
+
     return new Promise((resolve) => {
       if (this.server) {
         this.server.close(() => {
@@ -107,6 +119,12 @@ export class HttpFallbackServer {
     req: http.IncomingMessage,
     res: http.ServerResponse
   ): Promise<void> {
+    // Handle plain HTTP proxy requests (absolute URLs from HTTP_PROXY clients)
+    if (req.url?.startsWith('http://')) {
+      this.handleHttpProxy(req, res);
+      return;
+    }
+
     // Only allow POST to /rpc
     if (req.method !== 'POST' || req.url !== '/rpc') {
       // Handle health check
@@ -159,6 +177,278 @@ export class HttpFallbackServer {
       address === '::ffff:127.0.0.1' ||
       address === 'localhost'
     );
+  }
+
+  /**
+   * Handle CONNECT requests for HTTPS tunneling.
+   *
+   * When HTTPS_PROXY is set, clients send CONNECT hostname:port to establish
+   * a TLS tunnel. We check the hostname against URL policies, then pipe
+   * the sockets bidirectionally.
+   */
+  private async handleConnect(
+    req: http.IncomingMessage,
+    clientSocket: net.Socket,
+    head: Buffer
+  ): Promise<void> {
+    const requestId = randomUUID();
+    const startTime = Date.now();
+
+    // Verify request is from localhost
+    const remoteAddr = req.socket.remoteAddress;
+    if (!this.isLocalhost(remoteAddr)) {
+      clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      clientSocket.destroy();
+      return;
+    }
+
+    const target = req.url || '';
+    const [hostname, portStr] = target.split(':');
+    const port = parseInt(portStr) || 443;
+
+    if (!hostname) {
+      clientSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+      clientSocket.destroy();
+      return;
+    }
+
+    // Check URL policy (CONNECT is for TLS, so use https://)
+    const policyUrl = `https://${hostname}`;
+    const context: HandlerContext = {
+      requestId,
+      channel: 'http',
+      timestamp: new Date(),
+      config: this.config,
+    };
+
+    let policyResult = await this.policyEnforcer.check(
+      'http_request',
+      { url: policyUrl },
+      context
+    );
+
+    // If broker denies, try forwarding to daemon for user-defined policies
+    if (!policyResult.allowed) {
+      const daemonUrl = this.config.daemonUrl || 'http://127.0.0.1:5200';
+      const override = await forwardPolicyToDaemon(
+        'http_request',
+        policyUrl,
+        daemonUrl,
+        undefined,
+        this.brokerAuth
+      );
+      if (override) {
+        policyResult = override;
+      }
+    }
+
+    if (!policyResult.allowed) {
+      await this.auditLogger.log({
+        id: requestId,
+        timestamp: new Date(),
+        operation: 'http_request' as any,
+        channel: 'http',
+        allowed: false,
+        policyId: policyResult.policyId,
+        target: `${hostname}:${port}`,
+        result: 'denied',
+        errorMessage: policyResult.reason,
+        durationMs: Date.now() - startTime,
+        metadata: { protocol: 'https', method: 'CONNECT' },
+      });
+
+      clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      clientSocket.destroy();
+      return;
+    }
+
+    // Establish tunnel
+    const serverSocket = net.connect(port, hostname, () => {
+      clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      serverSocket.write(head);
+      serverSocket.pipe(clientSocket);
+      clientSocket.pipe(serverSocket);
+    });
+
+    // Track for graceful shutdown
+    this.activeTunnels.add(clientSocket);
+    this.activeTunnels.add(serverSocket);
+
+    const cleanup = () => {
+      this.activeTunnels.delete(clientSocket);
+      this.activeTunnels.delete(serverSocket);
+    };
+
+    clientSocket.on('close', cleanup);
+    serverSocket.on('close', cleanup);
+
+    serverSocket.on('error', (err) => {
+      this.auditLogger.log({
+        id: requestId,
+        timestamp: new Date(),
+        operation: 'http_request' as any,
+        channel: 'http',
+        allowed: true,
+        target: `${hostname}:${port}`,
+        result: 'error',
+        errorMessage: `TUNNEL error: ${err.message}`,
+        durationMs: Date.now() - startTime,
+        metadata: { protocol: 'https', method: 'CONNECT' },
+      });
+      clientSocket.destroy();
+    });
+
+    clientSocket.on('error', () => {
+      serverSocket.destroy();
+    });
+
+    await this.auditLogger.log({
+      id: requestId,
+      timestamp: new Date(),
+      operation: 'http_request' as any,
+      channel: 'http',
+      allowed: true,
+      policyId: policyResult.policyId,
+      target: `${hostname}:${port}`,
+      result: 'success',
+      durationMs: Date.now() - startTime,
+      metadata: { protocol: 'https', method: 'CONNECT' },
+    });
+  }
+
+  /**
+   * Handle plain HTTP proxy requests (absolute-URL requests).
+   *
+   * When HTTP_PROXY is set, clients send requests like `GET http://host/path`
+   * through the proxy. We check the URL against policies and forward if allowed.
+   */
+  private async handleHttpProxy(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): Promise<void> {
+    const requestId = randomUUID();
+    const startTime = Date.now();
+    const url = req.url!;
+
+    // Verify request is from localhost
+    const remoteAddr = req.socket.remoteAddress;
+    if (!this.isLocalhost(remoteAddr)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Access denied: localhost only');
+      return;
+    }
+
+    // Check URL policy
+    const context: HandlerContext = {
+      requestId,
+      channel: 'http',
+      timestamp: new Date(),
+      config: this.config,
+    };
+
+    let policyResult = await this.policyEnforcer.check(
+      'http_request',
+      { url },
+      context
+    );
+
+    if (!policyResult.allowed) {
+      const daemonUrl = this.config.daemonUrl || 'http://127.0.0.1:5200';
+      const override = await forwardPolicyToDaemon(
+        'http_request',
+        url,
+        daemonUrl,
+        undefined,
+        this.brokerAuth
+      );
+      if (override) {
+        policyResult = override;
+      }
+    }
+
+    if (!policyResult.allowed) {
+      await this.auditLogger.log({
+        id: requestId,
+        timestamp: new Date(),
+        operation: 'http_request' as any,
+        channel: 'http',
+        allowed: false,
+        policyId: policyResult.policyId,
+        target: url,
+        result: 'denied',
+        errorMessage: policyResult.reason,
+        durationMs: Date.now() - startTime,
+        metadata: { protocol: 'http', method: req.method },
+      });
+
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Blocked by AgenShield URL policy');
+      return;
+    }
+
+    // Parse and forward the request
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Invalid URL');
+      return;
+    }
+
+    // Strip proxy-specific headers before forwarding
+    const headers = { ...req.headers };
+    delete headers['proxy-connection'];
+    delete headers['proxy-authorization'];
+
+    const proxyReq = http.request(
+      {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || 80,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: req.method,
+        headers,
+      },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+        proxyRes.pipe(res);
+      }
+    );
+
+    proxyReq.on('error', (err) => {
+      this.auditLogger.log({
+        id: requestId,
+        timestamp: new Date(),
+        operation: 'http_request' as any,
+        channel: 'http',
+        allowed: true,
+        target: url,
+        result: 'error',
+        errorMessage: `HTTP proxy error: ${err.message}`,
+        durationMs: Date.now() - startTime,
+        metadata: { protocol: 'http', method: req.method },
+      });
+
+      if (!res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'text/plain' });
+        res.end('Proxy error');
+      }
+    });
+
+    req.pipe(proxyReq);
+
+    await this.auditLogger.log({
+      id: requestId,
+      timestamp: new Date(),
+      operation: 'http_request' as any,
+      channel: 'http',
+      allowed: true,
+      policyId: policyResult.policyId,
+      target: url,
+      result: 'success',
+      durationMs: Date.now() - startTime,
+      metadata: { protocol: 'http', method: req.method },
+    });
   }
 
   /**

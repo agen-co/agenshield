@@ -25,6 +25,8 @@ export function generateAgentProfile(options: {
   additionalReadPaths?: string[];
   /** Paths relative to agentHome to deny writes to (e.g., ['.openclaw', '.claude']). */
   denyWritePaths?: string[];
+  /** Network mode: 'deny' (default) blocks all network, 'allow' permits outbound (interceptor-only mode). */
+  networkMode?: 'deny' | 'allow';
 }): string {
   const additionalReads = (options.additionalReadPaths || [])
     .map((p) => `(allow file-read* (subpath "${p}"))`)
@@ -170,9 +172,9 @@ ${additionalReads}
   (local unix-socket "${options.socketPath}"))
 
 ;; ========================================
-;; Network DENIAL (Critical)
+;; Network ${options.networkMode === 'allow' ? '(interceptor-only — app-level enforcement)' : 'DENIAL (Critical)'}
 ;; ========================================
-(deny network*)
+${options.networkMode === 'allow' ? '(allow network-outbound)' : '(deny network*)'}
 
 ;; ========================================
 ;; Process & Signal

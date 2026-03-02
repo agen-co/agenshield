@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
-import { Storage } from '../../../storage/src/storage';
+import { Storage } from '@agenshield/storage';
 import { SkillManager } from '../manager';
 import type { DeployAdapter, DeployResult, DeployContext } from '../deploy/types';
 import type { RemoteSkillClient } from '../remote/types';

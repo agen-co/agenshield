@@ -19,6 +19,7 @@ export const ProfileSchema = z.object({
   brokerHomeDir: z.string().max(500).optional(),
   brokerToken: z.string().min(1).optional(),
   installManifest: z.any().optional(),
+  enforcementMode: z.enum(['proxy', 'interceptor', 'both']).optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

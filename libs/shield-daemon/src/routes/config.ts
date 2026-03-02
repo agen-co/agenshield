@@ -29,6 +29,7 @@ import { generatePolicyMarkdown } from '../services/policy-markdown';
 import { resolveTargetContext } from '../services/target-context';
 import { syncAndWriteRouterHostPassthrough } from '../services/router-sync';
 import { restartProcessEnforcer } from '../services/process-enforcer';
+import { getPolicyManager, hasPolicyManager } from '../services/policy-manager';
 import {
   readPathRegistry,
   generateRouterWrapper,
@@ -93,6 +94,8 @@ async function syncPoliciesAfterChange(
       fs.writeFileSync(instructionsPath, markdown, 'utf-8');
     }
   } catch { /* non-fatal */ }
+
+  recompilePolicyEngine();
 }
 
 /**
@@ -123,6 +126,13 @@ async function syncRouterAfterManagedChange(app: FastifyInstance): Promise<void>
     }
   } catch (err) {
     app.log.warn(`[router-sync] Failed to sync router after managed policy change: ${(err as Error).message}`);
+  }
+}
+
+/** Recompile the in-memory policy engine after a policy mutation. */
+function recompilePolicyEngine(): void {
+  if (hasPolicyManager()) {
+    getPolicyManager().recompile();
   }
 }
 
@@ -339,6 +349,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         if (policy.target === 'router') {
           await syncRouterAfterManagedChange(app);
         }
+        recompilePolicyEngine();
         return { success: true, data: policy };
       } catch (error) {
         return {
@@ -381,6 +392,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         if (existing.target === 'router' || updated.target === 'router') {
           await syncRouterAfterManagedChange(app);
         }
+        recompilePolicyEngine();
         return { success: true, data: updated };
       } catch (error) {
         return {
@@ -414,6 +426,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         if (existing.target === 'router') {
           await syncRouterAfterManagedChange(app);
         }
+        recompilePolicyEngine();
         return { success: true, data: { deleted } };
       } catch (error) {
         return {
@@ -454,6 +467,7 @@ export async function configRoutes(app: FastifyInstance): Promise<void> {
         if (hasRouterPolicy) {
           await syncRouterAfterManagedChange(app);
         }
+        recompilePolicyEngine();
         return { success: true, data: { synced } };
       } catch (error) {
         return {

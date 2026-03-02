@@ -16,6 +16,7 @@ import { installClaudeCodeStep } from './install-claude-code.js';
 import { verifyClaudeBinaryStep } from './verify-claude-binary.js';
 import { detectHostClaudeStep } from './detect-host-claude.js';
 import { copyClaudeCredentialsStep } from './copy-claude-credentials.js';
+import { copyClaudeNodeBinStep } from './copy-claude-node-bin.js';
 import { patchClaudeNodeStep } from './patch-claude-node.js';
 import { buildClaudeSearchPath } from './claude-paths.js';
 
@@ -28,6 +29,7 @@ export function getClaudeCodePipeline(): InstallStep[] {
     installClaudeCodeStep,                                      // weight 30, check: version match?
     createRestoreShellConfigStep('claude'),                     // weight 1
     verifyClaudeBinaryStep,                                     // weight 5
+    copyClaudeNodeBinStep,                                      // weight 3, copy embedded node to bin/node-bin for shield-client
 
     // Phase 9: Configuration
     createAppWrapperStep('claude', async (ctx) => {             // weight 2

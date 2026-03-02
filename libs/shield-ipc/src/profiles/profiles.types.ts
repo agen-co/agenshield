@@ -8,7 +8,7 @@
  * - 'target' profile: a managed AI agent runtime (e.g. 'openclaw', 'cloudcode')
  */
 
-import type { InstallManifest } from '../types/setup';
+import type { InstallManifest, EnforcementMode } from '../types/setup';
 
 export type ProfileType = 'global' | 'target';
 
@@ -30,6 +30,8 @@ export interface Profile {
   installManifest?: InstallManifest;
   /** Per-target gateway port allocation (openclaw targets) */
   gatewayPort?: number;
+  /** Which enforcement layer(s) are active for this profile */
+  enforcementMode?: EnforcementMode;
   createdAt: string;
   updatedAt: string;
 }

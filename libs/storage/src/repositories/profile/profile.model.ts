@@ -22,6 +22,7 @@ export function mapProfile(row: DbProfileRow): Profile {
     brokerToken: row.broker_token ?? undefined,
     installManifest: row.install_manifest ? JSON.parse(row.install_manifest) : undefined,
     gatewayPort: row.gateway_port ?? undefined,
+    enforcementMode: (row.enforcement_mode as Profile['enforcementMode']) ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

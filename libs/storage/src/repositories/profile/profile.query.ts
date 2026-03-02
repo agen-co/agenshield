@@ -8,10 +8,10 @@ export const Q = {
   insert: `
     INSERT INTO ${TABLE} (id, name, type, target_name, preset_id, description,
       agent_username, agent_uid, agent_home_dir, broker_username, broker_uid, broker_home_dir,
-      broker_token, install_manifest, created_at, updated_at)
+      broker_token, install_manifest, enforcement_mode, created_at, updated_at)
     VALUES (@id, @name, @type, @targetName, @presetId, @description,
       @agentUsername, @agentUid, @agentHomeDir, @brokerUsername, @brokerUid, @brokerHomeDir,
-      @brokerToken, @installManifest, @createdAt, @updatedAt)`,
+      @brokerToken, @installManifest, @enforcementMode, @createdAt, @updatedAt)`,
   selectById: `SELECT * FROM ${TABLE} WHERE id = ?`,
   selectAll: `SELECT * FROM ${TABLE} ORDER BY name`,
   selectByType: `SELECT * FROM ${TABLE} WHERE type = ? ORDER BY name`,

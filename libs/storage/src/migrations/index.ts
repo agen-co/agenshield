@@ -21,6 +21,7 @@ import { PolicyTargetRouterMigration } from './021-policy-target-router';
 import { ProfileIdToUsernameMigration } from './022-profile-id-to-username';
 import { RemoveSlugPrefixMigration } from './023-remove-slug-prefix';
 import { EnforcerIntervalMigration } from './024-enforcer-interval';
+import { ProfileEnforcementModeMigration } from './025-profile-enforcement-mode';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -44,6 +45,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   new ProfileIdToUsernameMigration(),
   new RemoveSlugPrefixMigration(),
   new EnforcerIntervalMigration(),
+  new ProfileEnforcementModeMigration(),
 ];
 
 /**

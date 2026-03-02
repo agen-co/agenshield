@@ -35,6 +35,7 @@ export class ProfileRepository extends BaseRepository {
       brokerHomeDir: full.brokerHomeDir ?? null,
       brokerToken: full.brokerToken ?? null,
       installManifest: null,
+      enforcementMode: full.enforcementMode ?? null,
       createdAt: full.createdAt, updatedAt: full.updatedAt,
     });
     return full;

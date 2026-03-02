@@ -7,7 +7,7 @@
  * Also includes pipeline step types (merged from actions/types.ts).
  */
 
-import type { UserDefinition, MigrationScanResult, MigrationSelection, PrivilegeExecResult, PrivilegeExecOptions, ManifestEntry, TargetType } from '@agenshield/ipc';
+import type { UserDefinition, MigrationScanResult, MigrationSelection, PrivilegeExecResult, PrivilegeExecOptions, ManifestEntry, TargetType, EnforcementMode } from '@agenshield/ipc';
 import type { HostShellConfigBackup } from './shared/install-helpers.js';
 
 /**
@@ -112,6 +112,8 @@ export interface InstallContext {
   freshInstall?: boolean;
   /** Which config categories to copy from host (each preset validates its own categories) */
   configCopyCategories?: string[];
+  /** Which enforcement layer(s) are active ('proxy', 'interceptor', or 'both') */
+  enforcementMode?: EnforcementMode;
 }
 
 /**
