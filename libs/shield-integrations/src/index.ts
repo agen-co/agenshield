@@ -76,3 +76,14 @@ export {
   type OpenClawStatus,
   type OpenClawDaemonResult,
 } from './openclaw-launchdaemon';
+
+// Menu Bar LaunchAgent (user-level menu bar app lifecycle)
+export {
+  installMenuBarAgent,
+  uninstallMenuBarAgent,
+  getMenuBarAgentStatus,
+  MENUBAR_LABEL,
+  MENUBAR_PLIST_NAME,
+  type MenuBarAgentResult,
+  type MenuBarAgentStatus,
+} from './menubar-launchagent';

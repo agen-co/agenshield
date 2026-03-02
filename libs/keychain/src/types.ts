@@ -31,7 +31,7 @@ export type KeychainAccessibility =
 
 /** A Keychain item to store or retrieve */
 export interface KeychainItem {
-  /** Service name (e.g. 'com.frontegg.AgenShieldES') */
+  /** Service name (e.g. 'com.frontegg.AgenShield') */
   service: string;
   /** Account identifier (e.g. 'vault-key', 'oauth-access-token') */
   account: string;

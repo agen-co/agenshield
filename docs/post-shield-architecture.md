@@ -495,7 +495,7 @@ OpenClaw targets additionally get:
 > 6 total plists — no gateway for claude_code.
 
 All plists share:
-- `AssociatedBundleIdentifiers: com.frontegg.AgenShieldES`
+- `AssociatedBundleIdentifiers: com.frontegg.AgenShield`
 - `SoftResourceLimits.NumberOfFiles: 4096`
 - `RunAtLoad: true` (broker plists) or `false` (gateway plists)
 - `ExitTimeOut: 10` (broker only)

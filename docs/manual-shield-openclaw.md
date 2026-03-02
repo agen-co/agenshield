@@ -1429,7 +1429,7 @@ chmod 755 "$AGENT_HOME/.agenshield/bin/broker-launcher.sh"
 ### 10.4 Write broker plist
 
 > **Note:** `AssociatedBundleIdentifiers` is only included when
-> `/Applications/AgenShieldES.app` exists on the host. It is shown
+> `/Applications/AgenShield.app` exists on the host. It is shown
 > commented out below — uncomment if the ES app is installed.
 
 ```bash
@@ -1444,11 +1444,11 @@ cat > "$PLIST_PATH" << 'PLIST_EOF'
     <key>Label</key>
     <string>com.agenshield.broker.openclaw</string>
 
-    <!-- Only include AssociatedBundleIdentifiers when /Applications/AgenShieldES.app exists -->
+    <!-- Only include AssociatedBundleIdentifiers when /Applications/AgenShield.app exists -->
     <!--
     <key>AssociatedBundleIdentifiers</key>
     <array>
-        <string>com.frontegg.AgenShieldES</string>
+        <string>com.frontegg.AgenShield</string>
     </array>
     -->
 

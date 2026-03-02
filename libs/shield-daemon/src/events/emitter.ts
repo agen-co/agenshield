@@ -43,6 +43,7 @@ export interface DaemonEvent {
 
 class DaemonEventEmitter extends EventEmitter {
   private static instance: DaemonEventEmitter;
+  private _sseClientCount = 0;
 
   private constructor() {
     super();
@@ -55,6 +56,11 @@ class DaemonEventEmitter extends EventEmitter {
     }
     return DaemonEventEmitter.instance;
   }
+
+  /** Track SSE client connections for fallback notification decisions. */
+  incrementSseClients(): void { this._sseClientCount++; }
+  decrementSseClients(): void { this._sseClientCount = Math.max(0, this._sseClientCount - 1); }
+  get sseClientCount(): number { return this._sseClientCount; }
 
   /**
    * Emit a typed event to all SSE subscribers

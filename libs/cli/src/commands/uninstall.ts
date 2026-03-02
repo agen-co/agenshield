@@ -426,10 +426,22 @@ async function systemCleanup(dataDir: string): Promise<void> {
     // Best effort
   }
 
+  // Remove menu bar LaunchAgent and app (user-level, no sudo needed)
+  const menubarPlist = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.agenshield.menubar.plist');
+  const menubarAppsDir = path.join(os.homedir(), '.agenshield', 'apps');
+  try {
+    execSync(`launchctl bootout gui/$(id -u) "${menubarPlist}" 2>/dev/null`, { stdio: 'pipe' });
+  } catch { /* not loaded */ }
+  for (const mp of [menubarPlist, menubarAppsDir]) {
+    if (fs.existsSync(mp)) {
+      fs.rmSync(mp, { recursive: true, force: true });
+    }
+  }
+
   const cleanupPaths = [
     '/etc/agenshield',
     '/opt/agenshield',
-    '/Applications/AgenShieldES.app',
+    '/Applications/AgenShield.app',
   ];
   for (const p of cleanupPaths) {
     if (fs.existsSync(p)) {

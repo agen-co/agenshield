@@ -85,6 +85,9 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
     };
     reply.raw.write(formatSSE(statusEvent));
 
+    // Track SSE client for fallback notification decisions
+    daemonEvents.incrementSseClients();
+
     // Subscribe to events — auth check is dynamic per event
     const unsubscribe = daemonEvents.subscribe(async (event) => {
       try {
@@ -121,6 +124,7 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
     request.raw.on('close', () => {
       clearInterval(heartbeatInterval);
       unsubscribe();
+      daemonEvents.decrementSseClients();
     });
 
     // Keep the connection open (don't call reply.send())
@@ -151,6 +155,9 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
       data: { connected: true, filter, message: `SSE connection established for ${filter} events` },
     };
     reply.raw.write(formatSSE(connectEvent));
+
+    // Track SSE client for fallback notification decisions
+    daemonEvents.incrementSseClients();
 
     // Subscribe to filtered events — auth check is dynamic per event
     const unsubscribe = daemonEvents.subscribe(async (event) => {
@@ -188,6 +195,7 @@ export async function sseRoutes(app: FastifyInstance): Promise<void> {
     request.raw.on('close', () => {
       clearInterval(heartbeatInterval);
       unsubscribe();
+      daemonEvents.decrementSseClients();
     });
 
     return reply;

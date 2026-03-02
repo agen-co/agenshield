@@ -110,7 +110,7 @@ describe('generateBrokerPlist', () => {
     });
 
     expect(plist).toContain('AssociatedBundleIdentifiers');
-    expect(plist).toContain('com.frontegg.AgenShieldES');
+    expect(plist).toContain('com.frontegg.AgenShield');
   });
 
   it('omits the associated bundle identifier when includeAssociatedBundle is false', () => {
@@ -120,14 +120,14 @@ describe('generateBrokerPlist', () => {
     });
 
     expect(plist).not.toContain('AssociatedBundleIdentifiers');
-    expect(plist).not.toContain('com.frontegg.AgenShieldES');
+    expect(plist).not.toContain('com.frontegg.AgenShield');
   });
 
   it('omits the associated bundle identifier by default', () => {
     const plist = generateBrokerPlist(mockUserConfig, { hostHome: '/Users/testuser' });
 
     expect(plist).not.toContain('AssociatedBundleIdentifiers');
-    expect(plist).not.toContain('com.frontegg.AgenShieldES');
+    expect(plist).not.toContain('com.frontegg.AgenShield');
   });
 
   it('uses per-target node-bin and shared broker binary', () => {

@@ -24,7 +24,11 @@ import {
   startPrivilegeHelperService,
   stopPrivilegeHelperService,
   getPrivilegeHelperServiceStatus,
+  installMenuBarAgent,
+  uninstallMenuBarAgent,
+  getMenuBarAgentStatus,
 } from '@agenshield/integrations';
+import { getESExtensionAppPath } from '@agenshield/sandbox';
 
 export function registerServiceCommand(program: Command): void {
   const service = program
@@ -194,6 +198,90 @@ export function registerServiceCommand(program: Command): void {
           output.success('Privilege helper service restarted');
         } else {
           output.warn(`Privilege helper start: ${helperStartResult.message}`);
+        }
+      }
+    }));
+
+  // ── menubar ──────────────────────────────────────────────────────────
+  const menubar = service
+    .command('menubar')
+    .description('Manage the AgenShield menu bar app (macOS LaunchAgent)');
+
+  menubar
+    .command('install')
+    .description('Install menu bar app and LaunchAgent (auto-starts on login)')
+    .action(withGlobals(async () => {
+      if (process.platform !== 'darwin') {
+        throw new ServiceError('Menu bar app is only supported on macOS.', 'menubar install');
+      }
+
+      // Find the AgenShield.app bundle
+      const embeddedApp = getESExtensionAppPath();
+      const systemApp = '/Applications/AgenShield.app';
+      const sourceApp = embeddedApp
+        ? embeddedApp
+        : require('node:fs').existsSync(systemApp)
+          ? systemApp
+          : null;
+
+      if (!sourceApp) {
+        throw new ServiceError(
+          'AgenShield.app not found. Build it with `npx nx build shield-macos` or install it to /Applications.',
+          'menubar install',
+        );
+      }
+
+      output.info(`Installing menu bar app from ${sourceApp}...`);
+      const result = installMenuBarAgent(sourceApp);
+
+      if (result.success) {
+        output.success(result.message);
+        output.info('The menu bar app will start automatically on login.');
+      } else {
+        throw new ServiceError(result.message, 'menubar install');
+      }
+    }));
+
+  menubar
+    .command('uninstall')
+    .description('Remove menu bar LaunchAgent and app bundle')
+    .action(withGlobals(async () => {
+      if (process.platform !== 'darwin') {
+        throw new ServiceError('Menu bar app is only supported on macOS.', 'menubar uninstall');
+      }
+
+      output.info('Uninstalling menu bar agent...');
+      const result = uninstallMenuBarAgent();
+
+      if (result.success) {
+        output.success(result.message);
+      } else {
+        throw new ServiceError(result.message, 'menubar uninstall');
+      }
+    }));
+
+  menubar
+    .command('status')
+    .description('Show menu bar LaunchAgent status')
+    .action(withGlobals(async (opts) => {
+      if (process.platform !== 'darwin') {
+        throw new ServiceError('Menu bar app is only supported on macOS.', 'menubar status');
+      }
+
+      const status = getMenuBarAgentStatus();
+
+      if (opts['json']) {
+        output.data(status);
+        return;
+      }
+
+      output.info(`Service: ${status.label}`);
+      output.info(`Installed: ${status.installed ? 'yes' : 'no'}`);
+      output.info(`App path: ${status.appPath}`);
+      if (status.installed) {
+        output.info(`Running: ${status.running ? 'yes' : 'no'}`);
+        if (status.pid) {
+          output.info(`PID: ${status.pid}`);
         }
       }
     }));

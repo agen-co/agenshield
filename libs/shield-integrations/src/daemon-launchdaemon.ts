@@ -23,7 +23,7 @@ import {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShieldES';
+const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShield';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ export function generateDaemonPlist(config: DaemonServiceConfig): string {
   const port = config.port || 5200;
   const host = config.host || '127.0.0.1';
 
-  const hostAppExists = fs.existsSync('/Applications/AgenShieldES.app');
+  const hostAppExists = fs.existsSync('/Applications/AgenShield.app');
   const associatedBundleBlock = hostAppExists
     ? `
     <key>AssociatedBundleIdentifiers</key>

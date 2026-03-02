@@ -60,5 +60,5 @@ Profile generation functions are pure and can be unit tested by verifying the ou
 ## Notes
 
 - The plist label is `com.agenshield.broker` (with optional `.{baseName}` suffix).
-- The plist includes `AssociatedBundleIdentifiers` linking to `com.frontegg.AgenShieldES` for the host app.
+- The plist includes `AssociatedBundleIdentifiers` linking to `com.frontegg.AgenShield` for the host app.
 - The broker intentionally runs without `NODE_OPTIONS`/interceptor since it IS the enforcement point.

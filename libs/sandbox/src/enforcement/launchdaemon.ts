@@ -13,7 +13,7 @@ const execAsync = promisify(exec);
 
 const PLIST_PATH = '/Library/LaunchDaemons/com.agenshield.broker.plist';
 const LABEL = 'com.agenshield.broker';
-const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShieldES';
+const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShield';
 
 /**
  * Generate the broker LaunchDaemon plist (with UserConfig)
@@ -31,7 +31,7 @@ export function generateBrokerPlist(
     isSEABinary?: boolean;
     daemonUrl?: string;
     nativeModulePath?: string;
-    /** Include AssociatedBundleIdentifiers block. Only set to true when /Applications/AgenShieldES.app exists. */
+    /** Include AssociatedBundleIdentifiers block. Only set to true when /Applications/AgenShield.app exists. */
     includeAssociatedBundle?: boolean;
     /** Path to broker launcher shell script. When set, ProgramArguments uses /bin/bash + this path instead of the binary directly. */
     launcherScriptPath?: string;

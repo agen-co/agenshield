@@ -11,7 +11,7 @@
 	<key>CFBundleExecutable</key>
 	<string>ESExtension</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.frontegg.AgenShieldES.es-extension</string>
+	<string>com.frontegg.AgenShield.es-extension</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -45,13 +45,13 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSEndpointSecurityMachServiceName</key>
-	<string>com.frontegg.AgenShieldES.es-extension</string>
+	<string>com.frontegg.AgenShield.es-extension</string>
 	<key>NSSystemExtensionUsageDescription</key>
 	<string>AgenShield monitors process execution for security policy enforcement.</string>
 	<key>NetworkExtension</key>
 	<dict>
 		<key>NEMachServiceName</key>
-		<string>com.frontegg.AgenShieldES.es-extension</string>
+		<string>com.frontegg.AgenShield.es-extension</string>
 	</dict>
 </dict>
 </plist>

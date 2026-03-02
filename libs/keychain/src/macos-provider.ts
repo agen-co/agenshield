@@ -17,7 +17,7 @@ import type { KeyProvider, KeychainAccessibility } from './types';
 import { KeychainError, KeychainAccessDeniedError } from './errors';
 
 /** Default service name for Keychain items */
-const DEFAULT_SERVICE = 'com.frontegg.AgenShieldES';
+const DEFAULT_SERVICE = 'com.frontegg.AgenShield';
 
 /** Known locations to find the KeychainHelper binary */
 function findHelperBinary(): string | null {

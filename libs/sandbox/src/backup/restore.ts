@@ -414,7 +414,7 @@ function cleanup(): RestoreProgress {
     // Legacy directories (backward compat cleanup)
     BACKUP_CONFIG.configDir, // /etc/agenshield (legacy)
     '/opt/agenshield', // Legacy installation directory
-    '/Applications/AgenShieldES.app', // ES extension app bundle
+    '/Applications/AgenShield.app', // ES extension app bundle
     // Host-level shared binaries + config
     ...(home ? [
       `${home}/.agenshield/bin`,

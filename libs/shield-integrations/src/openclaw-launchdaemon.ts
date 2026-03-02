@@ -35,7 +35,7 @@ const OPENCLAW_GATEWAY_PLIST = '/Library/LaunchDaemons/com.agenshield.openclaw.g
 /** @deprecated Use per-target path under hostHome/.agenshield/bin/ */
 const OPENCLAW_LAUNCHER_PATH = '/opt/agenshield/bin/openclaw-launcher.sh';
 const BROKER_LABEL = 'com.agenshield.broker';
-const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShieldES';
+const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShield';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -149,7 +149,7 @@ export function generateOpenClawDaemonPlist(config: OpenClawLaunchConfig): strin
   const httpPort = config.httpPort || 5201;
   const logsDir = logDir(config.agentHome);
 
-  const hostAppExists = fsSync.existsSync('/Applications/AgenShieldES.app');
+  const hostAppExists = fsSync.existsSync('/Applications/AgenShield.app');
   const associatedBundleBlock = hostAppExists
     ? `
     <key>AssociatedBundleIdentifiers</key>
@@ -258,7 +258,7 @@ export function generateOpenClawGatewayPlist(config: OpenClawLaunchConfig): stri
   const httpPort = config.httpPort || 5201;
   const logsDir = logDir(config.agentHome);
 
-  const hostAppExists = fsSync.existsSync('/Applications/AgenShieldES.app');
+  const hostAppExists = fsSync.existsSync('/Applications/AgenShield.app');
   const associatedBundleBlock = hostAppExists
     ? `
     <key>AssociatedBundleIdentifiers</key>

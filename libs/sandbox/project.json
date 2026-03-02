@@ -40,7 +40,7 @@
         "commands": [
           "rm -rf libs/sandbox/dist/es-extension",
           "mkdir -p libs/sandbox/dist/es-extension",
-          "if [ -d dist/apps/shield-macos/Release/AgenShieldES.app ]; then cp -r dist/apps/shield-macos/Release/AgenShieldES.app libs/sandbox/dist/es-extension/AgenShieldES.app; elif [ -d libs/sandbox/es-extension/AgenShieldES.app ]; then cp -r libs/sandbox/es-extension/AgenShieldES.app libs/sandbox/dist/es-extension/AgenShieldES.app; else echo 'WARNING: No AgenShieldES.app found'; fi"
+          "if [ -d dist/apps/shield-macos/Release/AgenShield.app ]; then cp -r dist/apps/shield-macos/Release/AgenShield.app libs/sandbox/dist/es-extension/AgenShield.app; elif [ -d libs/sandbox/es-extension/AgenShield.app ]; then cp -r libs/sandbox/es-extension/AgenShield.app libs/sandbox/dist/es-extension/AgenShield.app; else echo 'WARNING: No AgenShield.app found'; fi"
         ],
         "parallel": false
       }

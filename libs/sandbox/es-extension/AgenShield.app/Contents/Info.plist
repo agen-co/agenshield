@@ -9,13 +9,13 @@
 	<key>CFBundleDisplayName</key>
 	<string>AgenShield</string>
 	<key>CFBundleExecutable</key>
-	<string>AgenShieldES</string>
+	<string>AgenShield</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.frontegg.AgenShieldES</string>
+	<string>com.frontegg.AgenShield</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>AgenShieldES</string>
+	<string>AgenShield</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

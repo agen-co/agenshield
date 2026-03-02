@@ -23,7 +23,7 @@ Skill injection and ES extension resolution. Injects security-related skills int
 
 #### Functions
 
-- **`getESExtensionAppPath()`** -- Resolve the path to the embedded `AgenShieldES.app` bundle that ships inside the `@agenshield/sandbox` npm package. Returns `null` if the bundle is not found (development mode or Xcode build was skipped).
+- **`getESExtensionAppPath()`** -- Resolve the path to the embedded `AgenShield.app` bundle that ships inside the `@agenshield/sandbox` npm package. Returns `null` if the bundle is not found (development mode or Xcode build was skipped).
 
 ## Internal Dependencies
 

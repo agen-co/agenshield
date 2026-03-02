@@ -396,10 +396,10 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
       sudo('rm -f /etc/sudoers.d/agenshield');
     }
 
-    // 8. Remove AgenShieldES.app from /Applications
-    if (fs.existsSync('/Applications/AgenShieldES.app')) {
-      logVerbose('[cleanup] Removing /Applications/AgenShieldES.app', context);
-      sudo('rm -rf /Applications/AgenShieldES.app');
+    // 8. Remove AgenShield.app from /Applications
+    if (fs.existsSync('/Applications/AgenShield.app')) {
+      logVerbose('[cleanup] Removing /Applications/AgenShield.app', context);
+      sudo('rm -rf /Applications/AgenShield.app');
     }
 
     // 9. Clean up directories
@@ -1456,7 +1456,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       const fs = await import('node:fs');
       const embeddedApp = getESExtensionAppPath();
       if (embeddedApp) {
-        const installedApp = '/Applications/AgenShieldES.app';
+        const installedApp = '/Applications/AgenShield.app';
         const installedPlist = `${installedApp}/Contents/Info.plist`;
         const embeddedPlist = `${embeddedApp}/Contents/Info.plist`;
 
@@ -1475,24 +1475,24 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
 
             if (installedVersion && embeddedVersion && installedVersion === embeddedVersion) {
               needsInstall = false;
-              logVerbose(`AgenShieldES.app already up to date (version ${installedVersion}), skipping`, context);
+              logVerbose(`AgenShield.app already up to date (version ${installedVersion}), skipping`, context);
             } else {
-              logVerbose(`AgenShieldES.app version changed (${installedVersion} → ${embeddedVersion}), reinstalling`, context);
+              logVerbose(`AgenShield.app version changed (${installedVersion} → ${embeddedVersion}), reinstalling`, context);
             }
           } catch {
-            logVerbose('Could not read AgenShieldES.app version, reinstalling', context);
+            logVerbose('Could not read AgenShield.app version, reinstalling', context);
           }
         }
 
         if (needsInstall) {
           if (fs.existsSync(installedApp)) {
-            logVerbose('Removing old AgenShieldES.app', context);
+            logVerbose('Removing old AgenShield.app', context);
             execSync(`sudo rm -rf "${installedApp}"`, {
               encoding: 'utf-8',
               stdio: ['pipe', 'pipe', 'pipe'],
             });
           }
-          logVerbose(`Copying AgenShieldES.app to /Applications for Login Items attribution`, context);
+          logVerbose(`Copying AgenShield.app to /Applications for Login Items attribution`, context);
           execSync(`sudo cp -r "${embeddedApp}" "${installedApp}"`, {
             encoding: 'utf-8',
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -1503,7 +1503,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
           });
         }
       } else {
-        logVerbose('AgenShieldES.app not bundled — Login Items will show NodeJS Foundation', context);
+        logVerbose('AgenShield.app not bundled — Login Items will show NodeJS Foundation', context);
       }
     }
 
@@ -1532,18 +1532,18 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     }
 
     // Copy the embedded .app to /Applications for system extension loading
-    logVerbose(`Copying ES extension from ${embeddedApp} to /Applications/AgenShieldES.app`, context);
-    execSync(`sudo cp -r "${embeddedApp}" /Applications/AgenShieldES.app`, {
+    logVerbose(`Copying ES extension from ${embeddedApp} to /Applications/AgenShield.app`, context);
+    execSync(`sudo cp -r "${embeddedApp}" /Applications/AgenShield.app`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    execSync(`sudo chown -R root:wheel /Applications/AgenShieldES.app`, {
+    execSync(`sudo chown -R root:wheel /Applications/AgenShield.app`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    const appBundlePath = '/Applications/AgenShieldES.app';
-    const hostBinary = `${appBundlePath}/Contents/MacOS/AgenShieldES`;
+    const appBundlePath = '/Applications/AgenShield.app';
+    const hostBinary = `${appBundlePath}/Contents/MacOS/AgenShield`;
 
     try {
       // Step 1: Discover all ash_* agent users and write ES config
@@ -1639,7 +1639,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
 
         // Poll for approval (up to 120s)
         logVerbose('Waiting for user to approve extension in System Settings...', context);
-        const extensionId = 'com.frontegg.AgenShieldES.es-extension';
+        const extensionId = 'com.frontegg.AgenShield.es-extension';
         const startTime = Date.now();
         const maxWait = 120000;
 

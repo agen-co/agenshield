@@ -379,12 +379,12 @@ export function generateBrokerPlistLegacy(options?: {
   const socketPath = options?.socketPath || `${home}/.agenshield/run/agenshield.sock`;
   const logsDir = `${home}/.agenshield/logs`;
 
-  const hostAppExists = fs.existsSync('/Applications/AgenShieldES.app');
+  const hostAppExists = fs.existsSync('/Applications/AgenShield.app');
   const associatedBundleBlock = hostAppExists
     ? `
     <key>AssociatedBundleIdentifiers</key>
     <array>
-        <string>com.frontegg.AgenShieldES</string>
+        <string>com.frontegg.AgenShield</string>
     </array>
 `
     : '';

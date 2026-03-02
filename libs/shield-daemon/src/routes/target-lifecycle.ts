@@ -1229,14 +1229,14 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
         }
 
-        // Check if /Applications/AgenShieldES.app exists for AssociatedBundleIdentifiers
+        // Check if /Applications/AgenShield.app exists for AssociatedBundleIdentifiers
         let hostAppInstalled = false;
-        const hostAppPath = '/Applications/AgenShieldES.app';
+        const hostAppPath = '/Applications/AgenShield.app';
         try {
           const fsSync = await import('node:fs');
           if (fsSync.existsSync(hostAppPath)) {
             hostAppInstalled = true;
-            shieldLog.info('Host app found at /Applications/AgenShieldES.app');
+            shieldLog.info('Host app found at /Applications/AgenShield.app');
           } else {
             // Try to install from embedded bundle (best-effort)
             try {
@@ -1249,9 +1249,9 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
                 );
                 if (cpResult.success) {
                   hostAppInstalled = true;
-                  shieldLog.info(`Installed AgenShieldES.app from embedded bundle to ${hostAppPath}`);
+                  shieldLog.info(`Installed AgenShield.app from embedded bundle to ${hostAppPath}`);
                 } else {
-                  shieldLog.warn(`Failed to install AgenShieldES.app: ${cpResult.error ?? cpResult.output}`);
+                  shieldLog.warn(`Failed to install AgenShield.app: ${cpResult.error ?? cpResult.output}`);
                 }
               } else {
                 shieldLog.info('Host app not bundled — omitting AssociatedBundleIdentifiers');

@@ -54,6 +54,7 @@ import { getEnrollmentService } from './services/enrollment';
 import { startProcessEnforcer, stopProcessEnforcer, restartProcessEnforcer } from './services/process-enforcer';
 import { startEventLoopMonitor, stopEventLoopMonitor } from './services/event-loop-monitor';
 import { initSystemExecutor, shutdownSystemExecutor } from './workers/system-command';
+import { startFallbackNotifications, stopFallbackNotifications } from './services/notifications';
 
 /**
  * Create and configure the Fastify server
@@ -574,9 +575,13 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   const daemonConfig = loadConfig();
   startProcessEnforcer({ intervalMs: daemonConfig.daemon.enforcerIntervalMs ?? 1000 });
 
+  // Start fallback notifications (native macOS alerts when no SSE clients connected)
+  startFallbackNotifications();
+
   // Stop watchers, proxy pool, and MCP on server close
   app.addHook('onClose', async () => {
     emitProcessStopped('daemon', { pid: process.pid });
+    stopFallbackNotifications();
     stopProcessEnforcer();
     stopEventLoopMonitor();
     stopSecurityWatcher();
