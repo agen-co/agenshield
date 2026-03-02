@@ -129,10 +129,13 @@ describe('generateRouterWrapper', () => {
     expect(content).toContain('env "HOME=$AGENT_HOME"');
   });
 
-  it('includes inline cd to AGENSHIELD_HOST_CWD in the -c command', () => {
+  it('passes AGENSHIELD_HOST_CWD via env and delegates cd to guarded shell zshrc', () => {
     const content = generateRouterWrapper('openclaw');
 
-    expect(content).toContain('cd "$AGENSHIELD_HOST_CWD"');
+    // The router passes AGENSHIELD_HOST_CWD as an env var to the guarded shell
+    expect(content).toContain('AGENSHIELD_HOST_CWD=$PWD');
+    // The inline -c command just execs the binary — cd is handled by .zshrc
+    expect(content).toContain("'exec");
   });
 
   it('passes HOME via env in fallback path (no guarded shell)', () => {

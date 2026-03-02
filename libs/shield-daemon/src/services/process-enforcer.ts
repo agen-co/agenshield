@@ -161,6 +161,19 @@ async function runEnforcementScan(): Promise<void> {
 
   if (processes.length === 0) return;
 
+  // Build policyId→profileId map for enforcement event attribution
+  const policyToProfileId = new Map<string, string>();
+  try {
+    const sections = getStorage().policies.getAllTargetSections();
+    if (sections) {
+      for (const section of sections) {
+        for (const pol of section.policies) {
+          policyToProfileId.set(pol.id, section.profileId);
+        }
+      }
+    }
+  } catch { /* storage not ready */ }
+
   // Collect daemon's own process tree — never kill our own children
   // (e.g., installation scripts running openclaw onboarding)
   // Cached with 10s TTL to avoid calling pgrep every 1s scan.
@@ -236,20 +249,23 @@ async function runEnforcementScan(): Promise<void> {
       reason: result.reason ?? 'Denied by process policy',
     };
 
+    // Resolve profileId from policy → profile mapping
+    const matchedProfileId = result.policyId ? policyToProfileId.get(result.policyId) : undefined;
+
     if (result.enforcement === 'kill') {
       log.warn(
         `[enforcer] Killing denied process PID ${proc.pid}: ${proc.command.slice(0, 120)} (policy: ${result.policyId})`,
       );
-      emitProcessViolation(payload);
+      emitProcessViolation(payload, matchedProfileId);
       recentlyKilledPids.add(proc.pid);
       killProcessTree(proc.pid);
-      emitProcessKilled(payload);
+      emitProcessKilled(payload, matchedProfileId);
     } else {
       // alert mode (default)
       log.info(
         `[enforcer] Process violation (alert): PID ${proc.pid}: ${proc.command.slice(0, 120)} (policy: ${result.policyId})`,
       );
-      emitProcessViolation(payload);
+      emitProcessViolation(payload, matchedProfileId);
     }
   }
 

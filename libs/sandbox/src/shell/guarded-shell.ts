@@ -24,6 +24,8 @@ export interface ShellFeatures {
   homebrew?: boolean;
   /** Include NVM initialization and Node.js (default: false) */
   nvm?: boolean;
+  /** Set HTTP_PROXY/HTTPS_PROXY to route all traffic through broker (default: false) */
+  proxy?: boolean;
 }
 
 /**
@@ -76,9 +78,9 @@ exec /bin/zsh "\$@"
  * When features.nvm is false, omits NVM initialization.
  */
 export function zdotZshenvContent(agentHome: string, features: ShellFeatures = {}): string {
-  const { homebrew = false, nvm = false } = features;
+  const { homebrew = false, nvm = false, proxy = false } = features;
 
-  const pathParts = ['$HOME/bin'];
+  const pathParts = ['$HOME/bin', '$HOME/.local/bin'];
   if (homebrew) pathParts.push('$HOME/homebrew/bin');
   const pathLine = `export PATH="${pathParts.join(':')}"`;
 
@@ -105,6 +107,13 @@ if [ -d "$NVM_DIR/versions/node" ]; then
 fi
 ` : '';
 
+  const proxySection = proxy ? `
+# Route all HTTP traffic through broker proxy (catches embedded Node.js, etc.)
+export HTTP_PROXY="http://127.0.0.1:5201"
+export HTTPS_PROXY="http://127.0.0.1:5201"
+export NO_PROXY="localhost,127.0.0.1"
+` : '';
+
   return `# AgenShield restricted .zshenv
 # Runs AFTER /etc/zshenv — overrides path_helper's full system PATH.
 
@@ -117,7 +126,7 @@ export LC_ALL=C LANG=C
 
 ${pathLine}
 export SHELL="${guardedShellPath(agentHome)}"
-${brewSection}${nvmSection}
+${brewSection}${nvmSection}${proxySection}
 # Clear any leftover env tricks
 unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_INSERT_LIBRARIES
 unset PYTHONPATH NODE_PATH RUBYLIB PERL5LIB
@@ -140,12 +149,12 @@ setopt NO_GLOBAL_RCS
 export function zdotZshrcContent(features: ShellFeatures = {}): string {
   const { homebrew = false, nvm = false } = features;
 
-  const pathParts = ['$HOME/bin'];
+  const pathParts = ['$HOME/bin', '$HOME/.local/bin'];
   if (homebrew) pathParts.push('$HOME/homebrew/bin');
   const pathLine = `PATH="${pathParts.join(':')}"`;
   const pathComment = homebrew
-    ? '# Re-set PATH (~/bin + ~/homebrew/bin — override anything that may have been added)'
-    : '# Re-set PATH (~/bin only — override anything that may have been added)';
+    ? '# Re-set PATH (~/bin + ~/.local/bin + ~/homebrew/bin — override anything that may have been added)'
+    : '# Re-set PATH (~/bin + ~/.local/bin — override anything that may have been added)';
 
   const brewSection = homebrew ? `
 # Homebrew environment (agent-local prefix)
@@ -228,6 +237,7 @@ is_allowed_cmd() {
   # Allow if command exists in any allowed directory (handles symlinks correctly)
   # -x checks file existence + execute permission at the symlink path, not the target
   [[ -x "$HOME/bin/$cmd" ]] && return 0
+  [[ -x "$HOME/.local/bin/$cmd" ]] && return 0
 ${homebrewCheck}${nvmCheck}
   return 1
 }

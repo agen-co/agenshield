@@ -326,12 +326,12 @@ export function emitTargetStatus(targets: TargetStatusInfo[]): void {
 
 // ===== Enforcement event helpers =====
 
-export function emitProcessViolation(data: EnforcementProcessPayload): void {
-  broadcast('enforcement:process_violation', data);
+export function emitProcessViolation(data: EnforcementProcessPayload, profileId?: string): void {
+  broadcast('enforcement:process_violation', data, profileId);
 }
 
-export function emitProcessKilled(data: EnforcementProcessPayload): void {
-  broadcast('enforcement:process_killed', data);
+export function emitProcessKilled(data: EnforcementProcessPayload, profileId?: string): void {
+  broadcast('enforcement:process_killed', data, profileId);
 }
 
 // ===== Config event helpers =====

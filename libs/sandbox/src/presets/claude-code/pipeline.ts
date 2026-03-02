@@ -15,6 +15,8 @@ import {
 import { installClaudeCodeStep } from './install-claude-code.js';
 import { verifyClaudeBinaryStep } from './verify-claude-binary.js';
 import { detectHostClaudeStep } from './detect-host-claude.js';
+import { copyClaudeCredentialsStep } from './copy-claude-credentials.js';
+import { patchClaudeNodeStep } from './patch-claude-node.js';
 import { buildClaudeSearchPath } from './claude-paths.js';
 
 export function getClaudeCodePipeline(): InstallStep[] {
@@ -37,5 +39,7 @@ export function getClaudeCodePipeline(): InstallStep[] {
     }),
     createStopHostProcessesStep('claude', '[c]laude'),          // weight 3
     detectHostClaudeStep,                                       // weight 2, resolve -> copy + rewrite
+    copyClaudeCredentialsStep,                                  // weight 2, best-effort Keychain → .credentials.json
+    patchClaudeNodeStep,                                        // weight 2, defense-in-depth: inject interceptor into embedded node
   ];
 }

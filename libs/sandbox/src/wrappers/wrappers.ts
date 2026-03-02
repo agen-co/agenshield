@@ -576,6 +576,43 @@ exec ${config.shieldClientPath} open "$URL"
 `,
   },
 
+  open: {
+    description: 'open command wrapper that routes URLs through broker',
+    generate: (config) => `#!/bin/bash
+# open wrapper - routes URL opens through AgenShield broker
+# Claude Code calls \`open <url>\` for OAuth browser authentication.
+# This wrapper intercepts URL arguments and routes them through
+# the broker's open_url handler on the host side.
+
+# Ensure accessible working directory
+if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
+# Find the first non-flag argument (URL or file path)
+TARGET=""
+for arg in "$@"; do
+  case "$arg" in
+    -*) ;; # skip flags
+    *) TARGET="$arg"; break ;;
+  esac
+done
+
+# Route URLs through broker; reject everything else (agent shouldn't open files on host)
+case "$TARGET" in
+  http://*|https://*)
+    exec ${config.shieldClientPath} open "$TARGET"
+    ;;
+  "")
+    echo "Usage: open <url>" >&2
+    exit 1
+    ;;
+  *)
+    echo "open: only URL opens are allowed in shielded mode" >&2
+    exit 1
+    ;;
+esac
+`,
+  },
+
   ssh: {
     description: 'ssh wrapper that routes through broker',
     generate: (config) => `#!/bin/bash

@@ -33,15 +33,12 @@ export function createAppWrapperStep(
     async run(ctx) {
       const resolvedPath = await resolvePath(ctx);
       const wrapperPath = `${ctx.agentHome}/bin/${appName}`;
+      // The guarded shell's .zshrc already handles cd to AGENSHIELD_HOST_CWD
+      // and unsets the variable. This wrapper runs AFTER .zshrc, so the cwd
+      // is already correct. No additional cd needed.
       const wrapper = `#!/bin/bash
 # AgenShield ${appName} wrapper
 set -euo pipefail
-if [ -n "\${AGENSHIELD_HOST_CWD:-}" ] && [ -d "\${AGENSHIELD_HOST_CWD:-}" ]; then
-  cd "\$AGENSHIELD_HOST_CWD" 2>/dev/null || cd ~ 2>/dev/null || cd /
-else
-  cd ~ 2>/dev/null || cd /
-fi
-unset AGENSHIELD_HOST_CWD
 exec "${resolvedPath}" "$@"
 `;
       await checkedExecAsRoot(ctx, [

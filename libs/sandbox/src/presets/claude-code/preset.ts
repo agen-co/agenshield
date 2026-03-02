@@ -26,10 +26,10 @@ export const claudeCodePreset: TargetPreset = {
   name: 'Claude Code',
   description: 'Anthropic Claude Code CLI agent',
 
-  requiredBins: ['node', 'npm', 'git', 'bash', 'curl', 'brew', 'python3', 'pip'],
+  requiredBins: ['node', 'npm', 'git', 'bash', 'curl', 'brew', 'python3', 'pip', 'open'],
   optionalBins: ['npx', 'ssh', 'yarn', 'pnpm'],
   policyPresetIds: ['claudecode'],
-  shellFeatures: { homebrew: true },
+  shellFeatures: { homebrew: true, nvm: true, proxy: true },
   seatbeltDenyPaths: ['.claude', '.local'],
 
   async detect(): Promise<PresetDetectionResult | null> {

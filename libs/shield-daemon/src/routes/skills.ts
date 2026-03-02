@@ -452,7 +452,22 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      // 2. Fall back to disk only for workspace skills without DB backing
+      // 2. Fall back to DB files (skill may be in DB but not yet on disk)
+      if (!content && result) {
+        try {
+          const version = result.versions[0];
+          if (version) {
+            const dbFiles = manager.getRepository().getFiles(version.id);
+            const mdFile = dbFiles.find((f) => /skill\.md/i.test(f.relativePath));
+            if (mdFile && version.folderPath) {
+              const mdPath = findSkillMdRecursive(version.folderPath);
+              if (mdPath) content = fs.readFileSync(mdPath, 'utf-8');
+            }
+          }
+        } catch { /* */ }
+      }
+
+      // 3. Fall back to disk only for workspace skills without DB backing
       if (!content) {
         const dirToRead = summary.path || path.join(skillsDir, name);
         if (dirToRead) {
@@ -463,7 +478,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      // 3. Fall back to marketplace download cache
+      // 4. Fall back to marketplace download cache
       if (!content) {
         try {
           const localFiles = getDownloadedSkillFiles(name);

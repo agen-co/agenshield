@@ -64,6 +64,11 @@ function categorySnippet(cat: ClaudeConfigCategory, src: string, dst: string): s
         '  echo "COPIED_PLANS"',
         'fi',
       ].join('\n');
+
+    case 'credentials':
+      // Credentials are handled by the separate copyClaudeCredentialsStep
+      // (reads from macOS Keychain, not from files).
+      return '# credentials: handled by copy_claude_credentials step';
   }
 }
 

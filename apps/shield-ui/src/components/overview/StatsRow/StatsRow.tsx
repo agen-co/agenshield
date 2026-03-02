@@ -46,35 +46,40 @@ export function StatsRow({ status, config, security, statusLoading, configLoadin
   return (
     <Root>
       <StatCard
+        inline
         title="Status"
         value={daemonStatus?.running ? 'Running' : 'Stopped'}
-        icon={<Activity size={20} />}
+        icon={<Activity size={16} />}
         color={daemonStatus?.running ? theme.palette.success.main : theme.palette.error.main}
         loading={statusPending}
       />
       <StatCard
+        inline
         title="Uptime"
         value={daemonStatus?.uptime ? formatUptime(daemonStatus.uptime) : '—'}
-        icon={<Clock size={20} />}
+        icon={<Clock size={16} />}
         loading={statusPending}
       />
       <StatCard
-        title="Process ID"
+        inline
+        title="PID"
         value={daemonStatus?.pid ?? '—'}
-        icon={<Cpu size={20} />}
+        icon={<Cpu size={16} />}
         loading={statusPending}
       />
       <StatCard
-        title="Active Policies"
+        inline
+        title="Policies"
         value={shieldConfig?.policies?.filter((p) => p.enabled).length ?? 0}
-        icon={<ShieldCheck size={20} />}
+        icon={<ShieldCheck size={16} />}
         color={theme.palette.secondary.main}
         loading={configPending}
       />
       <StatCard
-        title="Security Level"
+        inline
+        title="Security"
         value={security?.data?.level ? security.data.level.charAt(0).toUpperCase() + security.data.level.slice(1) : '—'}
-        icon={<ShieldAlert size={20} />}
+        icon={<ShieldAlert size={16} />}
         color={
           security?.data?.level === 'secure'
             ? theme.palette.success.main
@@ -85,9 +90,10 @@ export function StatsRow({ status, config, security, statusLoading, configLoadin
         loading={securityPending}
       />
       <StatCard
+        inline
         title="Warnings"
         value={security?.data?.warnings?.length ?? 0}
-        icon={<BarChart3 size={20} />}
+        icon={<BarChart3 size={16} />}
         color={
           (security?.data?.warnings?.length ?? 0) > 0
             ? theme.palette.warning.main

@@ -250,7 +250,7 @@ _agenshield_exec() {
       exec sudo -H -u "$AGENT_USER" \
         env "HOME=$AGENT_HOME" "AGENSHIELD_HOST_HOME=$HOME" "AGENSHIELD_HOST_CWD=$PWD" \
         "$GUARDED_SHELL" -c \
-        'cd "$AGENSHIELD_HOST_CWD" 2>/dev/null || cd "$HOME" 2>/dev/null || cd /; unset AGENSHIELD_HOST_CWD; exec "'"$BIN"'" "$@"' -- "$@"
+        'exec "'"$BIN"'" "$@"' -- "$@"
     else
       # Fallback if guarded shell not installed
       exec sudo -H -u "$AGENT_USER" \

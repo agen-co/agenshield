@@ -68,6 +68,11 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   'skills:analysis_failed': { icon: Zap, label: 'Skill Analysis Failed', color: 'error' },
   'skills:integrity_violation': { icon: AlertTriangle, label: 'Integrity Violation', color: 'error' },
   'skills:integrity_restored': { icon: RefreshCw, label: 'Skill Restored', color: 'success' },
+  'skills:download_started': { icon: Download, label: 'Skill Downloading', color: 'info' },
+  'skills:downloaded': { icon: Download, label: 'Skill Downloaded', color: 'success' },
+  'skills:download_failed': { icon: Download, label: 'Skill Download Failed', color: 'error' },
+  'skills:deployed': { icon: Package, label: 'Skill Deployed', color: 'success' },
+  'skills:deploy_failed': { icon: Package, label: 'Skill Deploy Failed', color: 'error' },
 
   // Wrappers
   'wrappers:installed': { icon: Package, label: 'Wrapper Installed', color: 'success' },
@@ -85,6 +90,10 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   'agenco:auth_completed': { icon: Link2, label: 'Auth Completed', color: 'success' },
   'agenco:tool_executed': { icon: Link2, label: 'Tool Executed', color: 'info' },
   'agenco:error': { icon: Link2, label: 'AgenCo Error', color: 'error' },
+
+  // Enforcement
+  'enforcement:process_violation': { icon: AlertTriangle, label: 'Process Violation', color: 'warning' },
+  'enforcement:process_killed': { icon: ShieldBan, label: 'Process Killed', color: 'error' },
 
   // Process
   'process:started': { icon: Play, label: 'Process Started', color: 'success' },
@@ -137,6 +146,7 @@ export const BLOCKED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'security:warning',
   'security:critical',
   'security:alert',
+  'enforcement:process_killed',
 ]);
 
 /** Resolve a semantic color key (e.g. 'error', 'info') to a palette color value */
@@ -189,6 +199,10 @@ export function getEventSeverity(event: SSEEvent): EventSeverity {
     // Allowed interceptor events are info
     if (dtype === 'allowed' || dtype === 'allow') return 'info';
   }
+
+  // Enforcement
+  if (t === 'enforcement:process_killed') return 'error';
+  if (t === 'enforcement:process_violation') return 'warn';
 
   // Trace
   if (t === 'trace:anomaly') return 'warn';
@@ -353,6 +367,15 @@ export function getEventSummary(event: SSEEvent): string {
     return step ? `${targetId}: ${step}` : `Shielding ${targetId}`;
   }
 
+  if (event.type === 'enforcement:process_violation' || event.type === 'enforcement:process_killed') {
+    const command = String(d.command ?? '');
+    const pid = d.pid;
+    const policyName = d.policyName ? ` — ${d.policyName}` : '';
+    const truncated = command.length > 80 ? command.slice(0, 77) + '...' : command;
+    const action = event.type === 'enforcement:process_killed' ? 'Killed' : 'Violation';
+    return pid ? `${action}: ${truncated} (PID ${pid})${policyName}` : `${action}: ${truncated}${policyName}`;
+  }
+
   if (event.type.startsWith('process:')) {
     const process = String(d.process ?? '').replace(/^\w/, (c) => c.toUpperCase());
     const action = String(d.action ?? '');
@@ -428,6 +451,8 @@ export function getEventStatus(event: SSEEvent): { label: string; variant: Statu
     if (d.allowed === false) return { label: 'deny', variant: 'error' };
     return { label: 'trace', variant: 'info' };
   }
+  if (event.type === 'enforcement:process_killed') return { label: 'killed', variant: 'error' };
+  if (event.type === 'enforcement:process_violation') return { label: 'violation', variant: 'warning' };
   if (event.type === 'trace:anomaly') return { label: 'anomaly', variant: 'warning' };
   if (BLOCKED_EVENT_TYPES.has(event.type)) return { label: 'deny', variant: 'error' };
   if (event.type.startsWith('process:')) {

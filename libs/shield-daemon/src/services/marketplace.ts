@@ -731,14 +731,38 @@ export async function getMarketplaceSkill(slug: string, explicitSource?: Marketp
   // ── ClawHub (ch-* or unprefixed): query Convex ──
   const raw = toRawSlug(slug);
 
-  const detail = await convexQuery<ConvexSkillBySlug>(
+  let detail = await convexQuery<ConvexSkillBySlug>(
     'skills:getBySlug',
     { slug: raw },
     SHORT_TIMEOUT,
   );
 
   if (!detail) {
-    throw new Error(`Skill "${slug}" not found in marketplace`);
+    // Fallback: search for partial match
+    try {
+      const searchResults = await convexAction<ConvexSearchResult[]>(
+        'search:searchSkills',
+        { query: raw, highlightedOnly: false, limit: 5 },
+        SHORT_TIMEOUT,
+      );
+      if (searchResults?.length > 0) {
+        const bestMatch = searchResults[0];
+        const resolved = await convexQuery<ConvexSkillBySlug>(
+          'skills:getBySlug',
+          { slug: bestMatch.skill.slug },
+          SHORT_TIMEOUT,
+        );
+        if (resolved) {
+          detail = resolved;
+          console.log(`[Marketplace] Resolved "${raw}" → "${bestMatch.skill.slug}" via search fallback`);
+        }
+      }
+    } catch (searchErr) {
+      console.warn(`[Marketplace] Search fallback failed for "${raw}": ${(searchErr as Error).message}`);
+    }
+    if (!detail) {
+      throw new Error(`Skill "${slug}" not found in marketplace`);
+    }
   }
 
   const { skill, owner, latestVersion } = detail;

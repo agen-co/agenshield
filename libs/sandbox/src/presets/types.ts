@@ -190,7 +190,7 @@ export interface TargetPreset {
    * Shell feature flags for the guarded shell environment.
    * Controls which toolchains are included in .zshenv / .zshrc.
    */
-  shellFeatures?: { homebrew?: boolean; nvm?: boolean };
+  shellFeatures?: { homebrew?: boolean; nvm?: boolean; proxy?: boolean };
 
   /**
    * Paths relative to agentHome to deny writes to in the seatbelt profile.
@@ -210,7 +210,7 @@ export interface TargetPreset {
 // ── Claude Config Copy Categories ───────────────────────────────
 
 /** Categories of host Claude config that can be selectively copied */
-export type ClaudeConfigCategory = 'settings' | 'plugins' | 'memory' | 'statsig' | 'plans';
+export type ClaudeConfigCategory = 'settings' | 'plugins' | 'memory' | 'statsig' | 'plans' | 'credentials';
 
 /** Default categories copied when no explicit selection is provided */
 export const DEFAULT_CLAUDE_CONFIG_CATEGORIES: ClaudeConfigCategory[] = ['settings', 'plugins', 'memory', 'statsig'];
