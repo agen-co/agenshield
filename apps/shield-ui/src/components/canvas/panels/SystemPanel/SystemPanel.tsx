@@ -240,6 +240,15 @@ export function SystemPanel({ open, onShieldComplete }: SystemPanelProps) {
     onShieldComplete?.();
   }, [refetchTargets, onShieldComplete]);
 
+  // Auto-return to status mode after shield completes (3s delay)
+  useEffect(() => {
+    if (currentStep !== 'complete' || mode !== 'setup') return;
+    const timer = setTimeout(() => {
+      handleComplete();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [currentStep, mode, handleComplete]);
+
   const handleAddAnother = useCallback(() => {
     setCurrentStep('scan-results');
     setSelectedTargetId(null);

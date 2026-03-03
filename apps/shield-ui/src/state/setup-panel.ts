@@ -20,6 +20,7 @@ export interface ShieldStepEntry {
   name: string;
   description: string;
   status: ShieldStepState['status'];
+  phase?: number;
   durationMs?: number;
   error?: string;
   logs: ShieldLogEntry[];
@@ -236,6 +237,7 @@ export function updateShieldSteps(
       name: s.name,
       description: s.description,
       status: s.status,
+      phase: s.phase,
       durationMs: s.durationMs,
       error: s.error,
       logs: prev?.logs ?? [],

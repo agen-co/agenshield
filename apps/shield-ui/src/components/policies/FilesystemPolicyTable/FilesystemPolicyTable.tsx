@@ -9,6 +9,8 @@ import {
   Typography,
   Button,
   Autocomplete,
+  ToggleButtonGroup,
+  ToggleButton,
 } from '@mui/material';
 import { Trash2, Plus, Folder, File } from 'lucide-react';
 import type { PolicyConfig, FsBrowseEntry } from '@agenshield/ipc';
@@ -35,6 +37,7 @@ interface InlineRow {
   pattern: string;
   read: boolean;
   write: boolean;
+  action: 'allow' | 'deny';
 }
 
 const rowSx = (theme: any) => ({
@@ -176,6 +179,7 @@ interface FilesystemRowProps {
   onCancelEdit: () => void;
   onToggle: (id: string, enabled: boolean) => void;
   onToggleOp: (policy: PolicyConfig, op: string) => void;
+  onToggleAction: (policy: PolicyConfig, action: 'allow' | 'deny') => void;
   onDelete: (id: string) => void;
   busy?: boolean;
 }
@@ -190,6 +194,7 @@ const FilesystemRow = memo(function FilesystemRow({
   onCancelEdit,
   onToggle,
   onToggleOp,
+  onToggleAction,
   onDelete,
   busy,
 }: FilesystemRowProps) {
@@ -253,12 +258,26 @@ const FilesystemRow = memo(function FilesystemRow({
         <Typography variant="caption" color="text.secondary">Write</Typography>
       </Box>
 
-      <StatusBadge
-        label={policy.action}
-        variant={ACTION_VARIANT[policy.action] ?? 'success'}
-        dot={false}
-        size="small"
-      />
+      {policy.preset ? (
+        <StatusBadge
+          label={policy.action}
+          variant={ACTION_VARIANT[policy.action] ?? 'success'}
+          dot={false}
+          size="small"
+        />
+      ) : (
+        <ToggleButtonGroup
+          value={policy.action}
+          exclusive
+          size="small"
+          onChange={(_, val) => { if (val) onToggleAction(policy, val); }}
+          disabled={busy}
+          sx={{ height: 24 }}
+        >
+          <ToggleButton value="allow" sx={{ fontSize: 11, px: 1, py: 0, textTransform: 'none' }}>Allow</ToggleButton>
+          <ToggleButton value="deny" sx={{ fontSize: 11, px: 1, py: 0, textTransform: 'none' }}>Deny</ToggleButton>
+        </ToggleButtonGroup>
+      )}
 
       {policy.preset ? (
         <Chip
@@ -284,7 +303,7 @@ const FilesystemRow = memo(function FilesystemRow({
   if (prev.busy !== next.busy) return false;
   if (prev.isEditing !== next.isEditing) return false;
   if (prev.isEditing && prev.editValue !== next.editValue) return false;
-  if (prev.onToggle !== next.onToggle || prev.onDelete !== next.onDelete || prev.onToggleOp !== next.onToggleOp) return false;
+  if (prev.onToggle !== next.onToggle || prev.onDelete !== next.onDelete || prev.onToggleOp !== next.onToggleOp || prev.onToggleAction !== next.onToggleAction) return false;
   if (prev.onStartEdit !== next.onStartEdit || prev.onCommitEdit !== next.onCommitEdit || prev.onCancelEdit !== next.onCancelEdit) return false;
   if (prev.onEditValueChange !== next.onEditValueChange) return false;
   const a = prev.policy, b = next.policy;
@@ -307,7 +326,7 @@ export function FilesystemPolicyTable({
   readOnly,
   busy,
 }: FilesystemPolicyTableProps) {
-  const [newRow, setNewRow] = useState<InlineRow>({ pattern: '', read: false, write: false });
+  const [newRow, setNewRow] = useState<InlineRow>({ pattern: '', read: false, write: false, action: 'allow' });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
@@ -321,14 +340,14 @@ export function FilesystemPolicyTable({
     const policy: PolicyConfig = {
       id: crypto.randomUUID(),
       name: newRow.pattern.trim(),
-      action: 'allow',
+      action: newRow.action,
       target: 'filesystem',
       patterns: [newRow.pattern.trim()],
       operations: ops,
       enabled: true,
     };
     onAdd(policy);
-    setNewRow({ pattern: '', read: false, write: false });
+    setNewRow({ pattern: '', read: false, write: false, action: 'allow' });
   }, [newRow, onAdd]);
 
   const startEdit = useCallback((policy: PolicyConfig) => {
@@ -358,6 +377,10 @@ export function FilesystemPolicyTable({
     setEditValue(value);
   }, []);
 
+  const toggleAction = useCallback((policy: PolicyConfig, action: 'allow' | 'deny') => {
+    onUpdate({ ...policy, action });
+  }, [onUpdate]);
+
   const toggleOp = useCallback((policy: PolicyConfig, op: string) => {
     const ops = policy.operations ?? [];
     const newOps = ops.includes(op)
@@ -381,6 +404,7 @@ export function FilesystemPolicyTable({
           onCancelEdit={cancelEdit}
           onToggle={onToggle}
           onToggleOp={toggleOp}
+          onToggleAction={toggleAction}
           onDelete={onDelete}
           busy={busy}
         />
@@ -420,6 +444,17 @@ export function FilesystemPolicyTable({
             />
             <Typography variant="caption" color="text.secondary">Write</Typography>
           </Box>
+
+          <ToggleButtonGroup
+            value={newRow.action}
+            exclusive
+            size="small"
+            onChange={(_, val) => { if (val) setNewRow({ ...newRow, action: val }); }}
+            sx={{ height: 24 }}
+          >
+            <ToggleButton value="allow" sx={{ fontSize: 11, px: 1, py: 0, textTransform: 'none' }}>Allow</ToggleButton>
+            <ToggleButton value="deny" sx={{ fontSize: 11, px: 1, py: 0, textTransform: 'none' }}>Deny</ToggleButton>
+          </ToggleButtonGroup>
 
           <Button
             size="small"

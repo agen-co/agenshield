@@ -71,9 +71,13 @@ export interface PrerequisitesResult {
 /**
  * Execute a command and return stdout, or null if it fails
  */
-function execSafe(cmd: string): string | null {
+function execSafe(cmd: string, timeoutMs = 5_000): string | null {
   try {
-    return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    return execSync(cmd, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: timeoutMs,
+    }).trim();
   } catch {
     return null;
   }

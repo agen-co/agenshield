@@ -7,6 +7,7 @@ import { LoggingCard } from '../components/settings/LoggingCard';
 import { AdvancedCard } from '../components/settings/AdvancedCard';
 import { KeychainCard } from '../components/settings/KeychainCard';
 import { ICloudBackupCard } from '../components/settings/ICloudBackupCard';
+import { DiagnosticsCard } from '../components/settings/DiagnosticsCard';
 import { DangerZoneCard } from '../components/settings/DangerZoneCard';
 import { UnshieldCard } from '../components/settings/UnshieldCard';
 
@@ -37,6 +38,7 @@ export function Settings({ embedded, profileId, targetId }: SettingsProps = {}) 
           <>
             <ServerConfigCard />
             <LoggingCard />
+            <DiagnosticsCard />
             <KeychainCard />
             <ICloudBackupCard />
             <AdvancedCard />

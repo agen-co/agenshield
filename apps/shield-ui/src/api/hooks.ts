@@ -451,6 +451,15 @@ export function useFactoryReset() {
   });
 }
 
+// --- Diagnostics hooks ---
+
+export function useDownloadLogs() {
+  return useMutation({
+    mutationFn: (params?: { target?: string; maxFiles?: number }) =>
+      api.downloadLogs(params),
+  });
+}
+
 // --- OpenClaw hooks ---
 
 export function useOpenClawStatus() {

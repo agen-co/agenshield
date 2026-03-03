@@ -90,7 +90,27 @@ describe('generateRouterWrapper', () => {
   it('handles multi-instance selection', () => {
     const content = generateRouterWrapper('openclaw');
 
-    expect(content).toContain('Select instance');
+    expect(content).toContain('Select an instance');
+  });
+
+  it('contains the _agenshield_select function definition', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    expect(content).toContain('_agenshield_select()');
+    expect(content).toContain('_AGENSHIELD_SELECTION');
+  });
+
+  it('includes ANSI escape codes for interactive rendering', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    expect(content).toContain('\\x1b');
+  });
+
+  it('includes non-TTY fallback path', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    expect(content).toContain('! [ -t 0 ]');
+    expect(content).toContain('! [ -t 2 ]');
   });
 
   it('includes allowHostPassthrough in awk parser', () => {

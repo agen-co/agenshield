@@ -18,6 +18,7 @@ import { detectHostClaudeStep } from './detect-host-claude.js';
 import { copyClaudeCredentialsStep } from './copy-claude-credentials.js';
 import { copyClaudeNodeBinStep } from './copy-claude-node-bin.js';
 import { patchClaudeNodeStep } from './patch-claude-node.js';
+import { validateGuardedShellStep } from './validate-guarded-shell.js';
 import { buildClaudeSearchPath } from './claude-paths.js';
 
 export function getClaudeCodePipeline(): InstallStep[] {
@@ -33,9 +34,12 @@ export function getClaudeCodePipeline(): InstallStep[] {
 
     // Phase 9: Configuration
     createAppWrapperStep('claude', async (ctx) => {             // weight 2
+      // Use checkedExecAsUserDirect — this is install-time path resolution,
+      // not a runtime agent operation. The guarded shell's readonly PATH
+      // blocks `export PATH=...` needed here.
       const searchPath = buildClaudeSearchPath(ctx.agentHome);
-      const { checkedExecAsUser } = await import('../shared/install-helpers.js');
-      return (await checkedExecAsUser(ctx,
+      const { checkedExecAsUserDirect } = await import('../shared/install-helpers.js');
+      return (await checkedExecAsUserDirect(ctx,
         `export PATH="${searchPath}:$PATH" && command -v claude`,
         'resolve_claude', 10_000)).trim();
     }),
@@ -43,5 +47,8 @@ export function getClaudeCodePipeline(): InstallStep[] {
     detectHostClaudeStep,                                       // weight 2, resolve -> copy + rewrite
     copyClaudeCredentialsStep,                                  // weight 2, best-effort Keychain → .credentials.json
     patchClaudeNodeStep,                                        // weight 2, defense-in-depth: inject interceptor into embedded node
+
+    // Phase 10: Security Profile — validate guarded shell works post-install
+    validateGuardedShellStep,                                    // weight 2, confirm sandbox environment
   ];
 }

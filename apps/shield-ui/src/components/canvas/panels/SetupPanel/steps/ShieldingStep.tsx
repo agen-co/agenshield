@@ -67,15 +67,17 @@ const STEP_LABELS: Record<string, string> = {
   complete: 'Complete',
 };
 
-/** Group steps by phase using static definitions. */
+/** Group steps by phase, using SSE-provided phase with fallback to static definitions. */
 function groupByPhase(steps: ShieldStepEntry[]): Map<number, ShieldStepEntry[]> {
-  const phaseMap = new Map<string, number>();
+  // Fallback lookup for older daemons that don't send phase in SSE data
+  const fallbackMap = new Map<string, number>();
   for (const def of OPENCLAW_SHIELD_STEPS) {
-    phaseMap.set(def.id, def.phase);
+    fallbackMap.set(def.id, def.phase);
   }
   const groups = new Map<number, ShieldStepEntry[]>();
   for (const step of steps) {
-    const phase = phaseMap.get(step.id) ?? -1;
+    const phase = step.phase ?? fallbackMap.get(step.id) ?? -1;
+    if (phase < 0) continue; // Skip unmapped steps instead of showing "Phase -1"
     if (!groups.has(phase)) groups.set(phase, []);
     groups.get(phase)!.push(step);
   }
@@ -108,6 +110,15 @@ function PhaseGroup({
   const hasRunning = steps.some((s) => s.status === 'running');
   const hasFailed = steps.some((s) => s.status === 'failed');
   const [collapsed, setCollapsed] = useState(false);
+  const prevAllDone = useRef(false);
+
+  // Auto-collapse on transition from "not done" to "all done" (unless failed)
+  useEffect(() => {
+    if (allDone && !hasFailed && !prevAllDone.current) {
+      setCollapsed(true);
+    }
+    prevAllDone.current = allDone;
+  }, [allDone, hasFailed]);
 
   const label = SHIELD_PHASE_LABELS[phase] ?? `Phase ${phase}`;
 

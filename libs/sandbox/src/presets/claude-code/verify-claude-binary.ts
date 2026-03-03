@@ -18,7 +18,10 @@ export const verifyClaudeBinaryStep: InstallStep = {
   weight: 5,
 
   async run(ctx) {
-    const result = await ctx.execAsUser(
+    // Use execAsUserDirect (plain /bin/bash) for all install-time verification.
+    // The guarded shell's readonly PATH/HOME and TRAPDEBUG restrictions
+    // interfere with install-time operations — these are daemon-verified actions.
+    const result = await ctx.execAsUserDirect(
       `export HOME="${ctx.agentHome}" && export PATH="${buildClaudeSearchPath(ctx.agentHome)}:$PATH" && claude --version`,
       { timeout: 15_000 },
     );
@@ -37,7 +40,7 @@ export const verifyClaudeBinaryStep: InstallStep = {
 
     // Resolve and hash the claude binary for integrity tracking
     try {
-      const whichResult = await ctx.execAsUser(
+      const whichResult = await ctx.execAsUserDirect(
         `export HOME="${ctx.agentHome}" && export PATH="${buildClaudeSearchPath(ctx.agentHome)}:$PATH" && which claude`,
         { timeout: 5_000 },
       );
@@ -45,13 +48,13 @@ export const verifyClaudeBinaryStep: InstallStep = {
       if (claudePath) {
         outputs['claudeBinaryPath'] = claudePath;
         // Resolve the real path (may be a symlink)
-        const realResult = await ctx.execAsUser(
+        const realResult = await ctx.execAsUserDirect(
           `readlink -f "${claudePath}" 2>/dev/null || echo "${claudePath}"`,
           { timeout: 5_000 },
         );
         const realPath = (realResult.output ?? '').trim();
         if (realPath) {
-          const hashResult = await ctx.execAsUser(
+          const hashResult = await ctx.execAsUserDirect(
             `shasum -a 256 "${realPath}" 2>/dev/null | awk '{print $1}'`,
             { timeout: 10_000 },
           );

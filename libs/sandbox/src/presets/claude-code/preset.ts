@@ -55,7 +55,7 @@ export const claudeCodePreset: TargetPreset = {
     try {
       const { stdout: versionOut } = await execAsync('claude --version 2>/dev/null', {
         encoding: 'utf-8',
-        timeout: 10_000,
+        timeout: 3_000,
       });
       const versionOutput = versionOut.trim();
       // Version output may be multi-line; take first line

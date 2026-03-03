@@ -1,53 +1,86 @@
 /**
- * PolicyOverview — grouped summary of all policy types.
+ * PolicyOverview — card-based summary of all policy types.
  *
- * Shows a section card for each policy target type (Commands, Network, Filesystem, Process)
- * plus a Policy Graph section. Each card shows a count and preview chips of top patterns.
- * Clicking navigates to the drill-down view.
+ * Each policy type renders as a card with description and stats.
+ * Clicking navigates to the drill-down view via onNavigate callback
+ * (when embedded) or router navigation (standalone page).
  */
 
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Typography, Chip } from '@mui/material';
-import { Terminal, Globe, FolderOpen, Cpu, GitBranch, ChevronRight } from 'lucide-react';
+import { Typography, Chip } from '@mui/material';
+import { Terminal, Globe, FolderOpen, Cpu, GitBranch, Play, ChevronRight } from 'lucide-react';
 import { useTheme } from '@mui/material/styles';
 import type { PolicyConfig } from '@agenshield/ipc';
-import { useTieredPolicies } from '../../../api/hooks';
-import { PolicyGraphPreview } from '../PolicyGraphPreview';
+import { useSnapshot } from 'valtio';
+import { useTieredPolicies, usePolicyGraph } from '../../../api/hooks';
+import { scopeStore } from '../../../state/scope';
 import {
-  SectionCard,
-  SectionHeader,
-  SectionTitle,
-  ChipRow,
+  CardGrid,
+  TypeCard,
+  CardHeader,
+  CardTitleGroup,
+  StatsRow,
+  SecondaryRow,
+  SecondaryCard,
 } from './PolicyOverview.styles';
-import type { PolicyOverviewProps } from './PolicyOverview.types';
+import type { PolicyOverviewProps, SectionCounts } from './PolicyOverview.types';
 
 const SECTIONS = [
-  { key: 'commands', label: 'Commands', icon: Terminal, target: 'command' },
-  { key: 'network', label: 'Network', icon: Globe, target: 'url' },
-  { key: 'filesystem', label: 'Filesystem', icon: FolderOpen, target: 'filesystem' },
-  { key: 'process', label: 'Process', icon: Cpu, target: 'process' },
+  {
+    key: 'commands',
+    label: 'Commands',
+    icon: Terminal,
+    target: 'command',
+    description: 'Control which CLI commands agents can execute. Define allow/deny rules with glob patterns.',
+  },
+  {
+    key: 'network',
+    label: 'Network',
+    icon: Globe,
+    target: 'url',
+    description: 'Control which URLs and endpoints agents can access, with HTTP method filtering.',
+  },
+  {
+    key: 'filesystem',
+    label: 'Filesystem',
+    icon: FolderOpen,
+    target: 'filesystem',
+    description: 'Control read and write access to file system paths with directory-level granularity.',
+  },
+  {
+    key: 'process',
+    label: 'Process',
+    icon: Cpu,
+    target: 'process',
+    description: 'Control process execution with configurable enforcement modes.',
+  },
 ] as const;
 
-const MAX_PREVIEW_CHIPS = 5;
-
-function getPreviewChips(policies: PolicyConfig[]): Array<{ label: string; action: string }> {
-  const chips: Array<{ label: string; action: string }> = [];
+function countByAction(policies: PolicyConfig[]): SectionCounts {
+  let allow = 0;
+  let deny = 0;
+  let disabled = 0;
   for (const p of policies) {
-    for (const pattern of p.patterns) {
-      chips.push({ label: pattern, action: p.action });
-      if (chips.length >= MAX_PREVIEW_CHIPS) return chips;
+    if (p.enabled === false) {
+      disabled++;
+    } else if (p.action === 'allow') {
+      allow++;
+    } else if (p.action === 'deny') {
+      deny++;
     }
   }
-  return chips;
+  return { allow, deny, disabled, total: policies.length };
 }
 
-export function PolicyOverview({ embedded }: PolicyOverviewProps) {
+export function PolicyOverview({ embedded, onNavigate }: PolicyOverviewProps) {
   const navigate = useNavigate();
   const theme = useTheme();
   const { data: tiered } = useTieredPolicies();
+  const { data: graph } = usePolicyGraph();
+  const { profileId } = useSnapshot(scopeStore);
+  const isScoped = !!profileId;
 
-  // Merge all tiers for counts and previews
   const allPolicies = useMemo(() => {
     if (!tiered) return [];
     return [...(tiered.managed ?? []), ...(tiered.global ?? []), ...(tiered.target ?? [])];
@@ -56,78 +89,155 @@ export function PolicyOverview({ embedded }: PolicyOverviewProps) {
   const sectionData = useMemo(() => {
     return SECTIONS.map((s) => {
       const filtered = allPolicies.filter((p) => p.target === s.target);
-      return {
-        ...s,
-        count: filtered.length,
-        chips: getPreviewChips(filtered),
-      };
+      return { ...s, counts: countByAction(filtered) };
     });
   }, [allPolicies]);
 
-  const handleNavigate = (key: string) => {
-    navigate(`/policies/${key}`, { replace: true });
+  const nodeCount = graph?.nodes?.length ?? 0;
+  const edgeCount = graph?.edges?.length ?? 0;
+
+  const handleClick = (key: string) => {
+    if (onNavigate) {
+      onNavigate(key);
+    } else {
+      navigate(`/policies/${key}`);
+    }
   };
 
+  let delayIndex = 0;
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      {sectionData.map((section) => {
-        const Icon = section.icon;
-        return (
-          <SectionCard key={section.key} onClick={() => handleNavigate(section.key)}>
-            <SectionHeader>
-              <SectionTitle>
-                <Icon size={18} color={theme.palette.text.secondary} />
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                  {section.label}
-                </Typography>
-              </SectionTitle>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                  {section.count} {section.count === 1 ? 'policy' : 'policies'}
-                </Typography>
-                <ChevronRight size={16} color={theme.palette.text.secondary} />
-              </Box>
-            </SectionHeader>
-            {section.chips.length > 0 ? (
-              <ChipRow>
-                {section.chips.map((chip, i) => (
-                  <Chip
-                    key={i}
-                    label={chip.label}
-                    size="small"
-                    variant="outlined"
-                    sx={{
-                      fontSize: 12,
-                      borderColor: chip.action === 'deny'
-                        ? theme.palette.error.main
-                        : chip.action === 'allow'
-                          ? theme.palette.success.main
-                          : theme.palette.divider,
-                      color: chip.action === 'deny'
-                        ? theme.palette.error.main
-                        : chip.action === 'allow'
-                          ? theme.palette.success.main
-                          : theme.palette.text.secondary,
-                    }}
-                  />
-                ))}
-                {allPolicies.filter((p) => p.target === section.target).length > MAX_PREVIEW_CHIPS && (
-                  <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center', ml: 0.5 }}>
-                    +{allPolicies.filter((p) => p.target === section.target).flatMap(p => p.patterns).length - MAX_PREVIEW_CHIPS} more
+    <>
+      <CardGrid>
+        {sectionData.map((section) => {
+          const Icon = section.icon;
+          const { allow, deny, disabled, total } = section.counts;
+          const delay = delayIndex++ * 60;
+          return (
+            <TypeCard key={section.key} $delay={delay} onClick={() => handleClick(section.key)}>
+              <CardHeader>
+                <CardTitleGroup>
+                  <Icon size={20} color={theme.palette.text.secondary} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, fontSize: 16 }}>
+                    {section.label}
+                  </Typography>
+                </CardTitleGroup>
+                <ChevronRight size={16} color={theme.palette.text.disabled} />
+              </CardHeader>
+
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 1.5 }}>
+                {section.description}
+              </Typography>
+
+              <StatsRow>
+                {total > 0 ? (
+                  <>
+                    <Chip
+                      label={`${total} total`}
+                      size="small"
+                      variant="outlined"
+                      sx={{ fontSize: 11, height: 20 }}
+                    />
+                    {allow > 0 && (
+                      <Chip
+                        label={`${allow} allow`}
+                        size="small"
+                        sx={{
+                          fontSize: 11,
+                          height: 20,
+                          bgcolor: `${theme.palette.success.main}18`,
+                          color: theme.palette.success.main,
+                          border: 'none',
+                        }}
+                      />
+                    )}
+                    {deny > 0 && (
+                      <Chip
+                        label={`${deny} deny`}
+                        size="small"
+                        sx={{
+                          fontSize: 11,
+                          height: 20,
+                          bgcolor: `${theme.palette.error.main}18`,
+                          color: theme.palette.error.main,
+                          border: 'none',
+                        }}
+                      />
+                    )}
+                    {disabled > 0 && (
+                      <Chip
+                        label={`${disabled} off`}
+                        size="small"
+                        variant="outlined"
+                        sx={{ fontSize: 11, height: 20, opacity: 0.5 }}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+                    No policies configured
                   </Typography>
                 )}
-              </ChipRow>
+              </StatsRow>
+            </TypeCard>
+          );
+        })}
+      </CardGrid>
+
+      <SecondaryRow>
+        {/* Policy Graph card */}
+        <SecondaryCard $delay={delayIndex++ * 60} onClick={() => handleClick('graph')}>
+          <CardHeader>
+            <CardTitleGroup>
+              <GitBranch size={20} color={theme.palette.text.secondary} />
+              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: 16 }}>
+                Policy Graph
+              </Typography>
+            </CardTitleGroup>
+            <ChevronRight size={16} color={theme.palette.text.disabled} />
+          </CardHeader>
+          <StatsRow sx={{ mt: 1 }}>
+            {nodeCount > 0 ? (
+              <>
+                <Chip
+                  label={`${nodeCount} ${nodeCount === 1 ? 'node' : 'nodes'}`}
+                  size="small"
+                  variant="outlined"
+                  sx={{ fontSize: 11, height: 20 }}
+                />
+                <Chip
+                  label={`${edgeCount} ${edgeCount === 1 ? 'edge' : 'edges'}`}
+                  size="small"
+                  variant="outlined"
+                  sx={{ fontSize: 11, height: 20 }}
+                />
+              </>
             ) : (
-              <Typography variant="body2" color="text.disabled" sx={{ fontStyle: 'italic' }}>
-                No policies configured
+              <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+                Visualize conditional policy chains
               </Typography>
             )}
-          </SectionCard>
-        );
-      })}
+          </StatsRow>
+        </SecondaryCard>
 
-      {/* Policy Graph section */}
-      <PolicyGraphPreview onNavigate={() => handleNavigate('graph')} />
-    </Box>
+        {/* Simulate card — only visible in scoped context */}
+        {isScoped && (
+          <SecondaryCard $delay={delayIndex++ * 60} onClick={() => handleClick('simulate')}>
+            <CardHeader>
+              <CardTitleGroup>
+                <Play size={20} color={theme.palette.text.secondary} />
+                <Typography variant="h6" sx={{ fontWeight: 700, fontSize: 16 }}>
+                  Simulate
+                </Typography>
+              </CardTitleGroup>
+              <ChevronRight size={16} color={theme.palette.text.disabled} />
+            </CardHeader>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Test policy evaluation against simulated requests
+            </Typography>
+          </SecondaryCard>
+        )}
+      </SecondaryRow>
+    </>
   );
 }

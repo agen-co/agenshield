@@ -100,6 +100,7 @@ export interface ShieldStepState {
   name: string;
   description: string;
   status: ShieldStepStatus;
+  phase?: number;
   error?: string;
   durationMs?: number;
   startedAt?: string;
@@ -216,3 +217,71 @@ export const OPENCLAW_SHIELD_STEPS: ShieldStepDefinition[] = [
   // Phase 14: Finalize
   { id: 'finalize', phase: 14, name: 'Finalize', description: 'Complete shielding and emit completion event' },
 ];
+
+/**
+ * Granular step definitions for the Claude Code shield process.
+ * Shares infra phases 0-5 and 10-14 with OpenClaw, but replaces
+ * phases 6-9 with Claude-specific steps (no Homebrew/NVM/Node phases).
+ */
+export const CLAUDE_CODE_SHIELD_STEPS: ShieldStepDefinition[] = [
+  // Phase 0: Cleanup
+  { id: 'cleanup_stale_check', phase: 0, name: 'Check stale installations', description: 'Detect and remove orphaned ash_default_* users and artifacts' },
+  // Phase 1: Detection
+  { id: 'resolve_preset', phase: 1, name: 'Resolve target preset', description: 'Identify the preset and run target detection' },
+  { id: 'stop_host', phase: 1, name: 'Stop host processes', description: 'Stop host Claude Code processes' },
+  // Phase 2: Users & Groups
+  { id: 'create_socket_group', phase: 2, name: 'Create socket group', description: 'Create the ash_ socket group for IPC' },
+  { id: 'create_agent_user', phase: 2, name: 'Create agent user', description: 'Create the sandboxed agent user account' },
+  { id: 'create_broker_user', phase: 2, name: 'Create broker user', description: 'Create the broker user account' },
+  // Phase 3: Directories & Shell
+  { id: 'create_directories', phase: 3, name: 'Create directories', description: 'Create agent home, bin, config, socket, and log directories' },
+  { id: 'create_marker', phase: 3, name: 'Create .agenshield marker', description: 'Write root-owned meta.json for user identification' },
+  { id: 'install_guarded_shell', phase: 3, name: 'Install guarded shell', description: 'Write guarded-shell launcher to /usr/local/bin' },
+  { id: 'install_zdotdir', phase: 3, name: 'Install ZDOTDIR', description: 'Write .zshenv and .zshrc to agent ZDOTDIR' },
+  { id: 'verify_shell', phase: 3, name: 'Verify shell', description: 'Confirm guarded-shell is executable and registered in /etc/shells' },
+  // Phase 4: Command Wrappers
+  { id: 'deploy_interceptor', phase: 4, name: 'Deploy interceptor', description: 'Copy interceptor binary to shared lib directory' },
+  { id: 'deploy_broker_binary', phase: 4, name: 'Deploy broker binary', description: 'Copy agenshield-broker to shared bin directory' },
+  { id: 'deploy_shield_client', phase: 4, name: 'Deploy shield-client', description: 'Installing shield-client for wrapper scripts' },
+  { id: 'install_wrapper_scripts', phase: 4, name: 'Install wrapper scripts', description: 'Generate and install command wrapper scripts' },
+  { id: 'install_seatbelt', phase: 4, name: 'Install seatbelt profiles', description: 'Generate and install macOS sandbox seatbelt profiles' },
+  { id: 'install_basic_commands', phase: 4, name: 'Install basic commands', description: 'Create symlinks for basic system commands (ls, cat, grep, etc.)' },
+  { id: 'lockdown_permissions', phase: 4, name: 'Lock down permissions', description: 'Set root ownership and restrict permissions on wrappers' },
+  // Phase 5: PATH Router
+  { id: 'install_path_registry', phase: 5, name: 'Install PATH registry', description: 'Register instance in ~/.agenshield/path-registry.json' },
+  { id: 'install_path_router', phase: 5, name: 'Install PATH router', description: 'Write router wrapper to /usr/local/bin' },
+  { id: 'install_path_shell_override', phase: 5, name: 'Install PATH shell override', description: 'Append PATH override to host shell rc (after NVM)' },
+  // Phase 8: Target App (Claude Code)
+  { id: 'save_host_shell_config', phase: 8, name: 'Save host shell config', description: 'Snapshot .zshrc/.bashrc before external installers run' },
+  { id: 'install_claude', phase: 8, name: 'Install Claude Code', description: 'Install Claude Code via official installer' },
+  { id: 'restore_shell_config_claude', phase: 8, name: 'Check shell config after install', description: 'Check and restore host shell configs if modified by Claude installer' },
+  { id: 'verify_claude', phase: 8, name: 'Verify Claude Code', description: 'Run claude --version to verify installation' },
+  { id: 'copy_claude_node_bin', phase: 8, name: 'Copy Node.js binary', description: "Copy Claude Code's embedded Node.js to bin/node-bin for shield-client" },
+  // Phase 9: Configuration (Claude Code)
+  { id: 'create_claude_wrapper', phase: 9, name: 'Create claude wrapper', description: 'Create agent bin wrapper for claude' },
+  { id: 'detect_host_claude', phase: 9, name: 'Detect host Claude Code', description: 'Check if Claude Code is installed on the host user' },
+  { id: 'copy_claude_credentials', phase: 9, name: 'Copy Claude credentials', description: 'Extract OAuth tokens from host Keychain and write .credentials.json for agent' },
+  { id: 'patch_claude_node', phase: 9, name: 'Patch embedded Node.js', description: "Wrap Claude Code's bundled Node.js to inject interceptor" },
+  // Phase 10: Security Profile
+  { id: 'validate_guarded_shell', phase: 10, name: 'Validate guarded shell', description: 'Verify claude runs correctly in the restricted sandbox environment' },
+  { id: 'generate_seatbelt', phase: 10, name: 'Generate seatbelt', description: 'Generate and install macOS sandbox profile' },
+  // Phase 11: Broker Daemon
+  { id: 'install_sudoers', phase: 11, name: 'Install sudoers', description: 'Configure passwordless sudo rules for host user' },
+  { id: 'install_broker_daemon', phase: 11, name: 'Install broker daemon', description: 'Write and load broker LaunchDaemon plist' },
+  { id: 'wait_broker_socket', phase: 11, name: 'Wait for broker', description: 'Wait for broker socket to become available' },
+  // Phase 12: Gateway
+  { id: 'gateway_preflight', phase: 12, name: 'Gateway pre-flight', description: 'Verify all gateway dependencies' },
+  { id: 'write_gateway_plist', phase: 12, name: 'Write gateway plist', description: 'Write gateway launcher and LaunchDaemon plist' },
+  { id: 'start_gateway', phase: 12, name: 'Start gateway', description: 'Load and start the Claude Code gateway' },
+  // Phase 13: Profile & Policies
+  { id: 'create_profile', phase: 13, name: 'Save profile', description: 'Create profile in storage database' },
+  { id: 'seed_policies', phase: 13, name: 'Seed policies', description: 'Apply preset security policies' },
+  // Phase 14: Finalize
+  { id: 'finalize', phase: 14, name: 'Finalize', description: 'Complete shielding and emit completion event' },
+];
+
+/** Get the step definitions for a given preset ID. */
+export function getShieldStepsForPreset(presetId: string): ShieldStepDefinition[] {
+  if (presetId === 'claude-code') return CLAUDE_CODE_SHIELD_STEPS;
+  return OPENCLAW_SHIELD_STEPS;
+}

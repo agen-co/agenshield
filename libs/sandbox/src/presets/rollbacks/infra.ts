@@ -150,6 +150,67 @@ registerRollback('install_path_shell_override', async (ctx, entry) => {
   }
 });
 
+// ── Deploy broker binary ─────────────────────────────────────
+// Active handler: removes the broker binary installed outside agentHome
+// (at $hostHome/.agenshield/libexec/agenshield-broker), which is NOT
+// covered by the create_directories rollback (rm -rf agentHome).
+
+registerRollback('deploy_broker_binary', async (ctx, entry) => {
+  const hostHome = entry.outputs['hostHome'] || ctx.hostHome;
+  if (!hostHome) return;
+  const brokerPath = `${hostHome}/.agenshield/libexec/agenshield-broker`;
+  ctx.onLog(`Rollback: removing broker binary at ${brokerPath}`);
+  await ctx.execAsRoot(`rm -f "${brokerPath}" 2>/dev/null; true`, { timeout: 10_000 });
+});
+
+// ── Deploy interceptor ──────────────────────────────────────
+// Log-only: interceptor is deployed inside agentHome, covered by
+// create_directories rollback (rm -rf agentHome).
+
+registerRollback('deploy_interceptor', async (ctx) => {
+  ctx.onLog('Rollback: deploy_interceptor — covered by create_directories rollback');
+});
+
+// ── Deploy shield-client ────────────────────────────────────
+// Log-only: shield-client is deployed inside agentHome, covered by
+// create_directories rollback.
+
+registerRollback('deploy_shield_client', async (ctx) => {
+  ctx.onLog('Rollback: deploy_shield_client — covered by create_directories rollback');
+});
+
+// ── Install wrapper scripts ─────────────────────────────────
+// Log-only: wrappers are installed inside agentHome/bin, covered by
+// create_directories rollback.
+
+registerRollback('install_wrapper_scripts', async (ctx) => {
+  ctx.onLog('Rollback: install_wrapper_scripts — covered by create_directories rollback');
+});
+
+// ── Install seatbelt profiles ───────────────────────────────
+// Log-only: seatbelt profiles are installed inside agentHome, covered
+// by create_directories rollback.
+
+registerRollback('install_seatbelt', async (ctx) => {
+  ctx.onLog('Rollback: install_seatbelt — covered by create_directories rollback');
+});
+
+// ── Install basic commands ──────────────────────────────────
+// Log-only: basic commands are installed inside agentHome/bin, covered
+// by create_directories rollback.
+
+registerRollback('install_basic_commands', async (ctx) => {
+  ctx.onLog('Rollback: install_basic_commands — covered by create_directories rollback');
+});
+
+// ── Lockdown permissions ────────────────────────────────────
+// Log-only: permission changes apply to directories that get removed
+// by create_directories rollback.
+
+registerRollback('lockdown_permissions', async (ctx) => {
+  ctx.onLog('Rollback: lockdown_permissions — covered by create_directories rollback');
+});
+
 // ── Seatbelt ─────────────────────────────────────────────────
 
 registerRollback('generate_seatbelt', async (ctx, entry) => {

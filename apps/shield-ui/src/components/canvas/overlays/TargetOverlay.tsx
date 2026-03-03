@@ -122,15 +122,6 @@ export const TargetOverlay = memo(({ targetId, tab, skipAnimation }: TargetOverl
     }
   }, [skipAnimation]);
 
-  // Escape key closes overlay
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') navigate('/');
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate]);
-
   const handleBack = useCallback(() => {
     navigate('/');
   }, [navigate]);
@@ -138,11 +129,30 @@ export const TargetOverlay = memo(({ targetId, tab, skipAnimation }: TargetOverl
   const activeTab = tab || 'overview';
   const tabIdx = Math.max(0, TARGET_TABS.findIndex(t => t.slug === activeTab));
 
-  // Track embedded policy sub-tab locally so Policies doesn't use relative navigate()
-  const [policiesTab, setPoliciesTab] = useState('commands');
+  // Track embedded policy sub-tab locally — null = overview, string = drill-down
+  const [policiesTab, setPoliciesTab] = useState<string | null>(null);
 
   // Track inline skill detail within skills tab
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+
+  // Escape key — context-aware: drill-down → overview → close overlay
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (activeTab === 'policies' && policiesTab) {
+          setPoliciesTab(null);
+          return;
+        }
+        if (activeTab === 'skills' && selectedSkillId) {
+          setSelectedSkillId(null);
+          return;
+        }
+        navigate('/');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [navigate, activeTab, policiesTab, selectedSkillId]);
 
   const handleTabChange = useCallback((_: React.SyntheticEvent, newIdx: number) => {
     setSelectedSkillId(null); // Reset inline skill detail on tab switch
@@ -267,7 +277,27 @@ export const TargetOverlay = memo(({ targetId, tab, skipAnimation }: TargetOverl
                   <LazySkills embedded targetId={targetId} onSkillClick={setSelectedSkillId} />
                 )
               )}
-              {activeTab === 'policies' && <LazyPolicies embedded embeddedTab={policiesTab} />}
+              {activeTab === 'policies' && (
+                <Box>
+                  {policiesTab && (
+                    <Button
+                      size="small"
+                      variant="text"
+                      color="secondary"
+                      startIcon={<ArrowLeft size={16} />}
+                      onClick={() => setPoliciesTab(null)}
+                      sx={{ mb: 2 }}
+                    >
+                      All Policies
+                    </Button>
+                  )}
+                  <LazyPolicies
+                    embedded
+                    embeddedTab={policiesTab ?? undefined}
+                    onPoliciesNavigate={setPoliciesTab}
+                  />
+                </Box>
+              )}
               {activeTab === 'secrets' && <LazySecrets embedded />}
               {activeTab === 'settings' && <LazySettings embedded profileId={profileId} targetId={targetId} />}
             </Suspense>

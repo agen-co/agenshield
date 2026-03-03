@@ -127,90 +127,29 @@ exec ${config.shieldClientPath} "$@"
   },
 
   curl: {
-    description: 'curl wrapper that routes through broker',
+    description: 'curl wrapper that routes through broker proxy',
     generate: (config) => `#!/bin/bash
-# curl wrapper - routes HTTP requests through AgenShield broker
-# Usage: curl [options] <url>
-
-# Ensure accessible working directory
+# curl wrapper — routes through AgenShield broker proxy.
+# HTTPS: CONNECT tunnel (policy enforced at broker). HTTP: HTTP proxy handler.
+# All curl features (headers, auth, multipart, etc.) work natively.
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
-
-SOCKET_PATH="\${AGENSHIELD_SOCKET:-${config.socketPath}}"
-
-# Extract URL and method from arguments
-URL=""
-METHOD="GET"
-DATA=""
-
-# curl flags that take a value argument (shift 2 required)
-# This prevents the catch-all from swallowing the next argument
-VALUE_FLAGS="-o --output -O --remote-name -u --user -e --referer -A --user-agent"
-VALUE_FLAGS="$VALUE_FLAGS --connect-timeout -m --max-time --retry --retry-delay"
-VALUE_FLAGS="$VALUE_FLAGS -w --write-out -T --upload-file -b --cookie -c --cookie-jar"
-VALUE_FLAGS="$VALUE_FLAGS --resolve --cacert --cert --key -x --proxy --interface"
-
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    -X|--request)
-      METHOD="$2"
-      shift 2
-      ;;
-    -H|--header)
-      # Headers are not forwarded — broker handles its own headers
-      shift 2
-      ;;
-    -d|--data|--data-raw|--data-binary|--data-urlencode)
-      DATA="$2"
-      shift 2
-      ;;
-    -*)
-      # Check if this flag takes a value argument
-      NEEDS_VALUE=false
-      for vf in $VALUE_FLAGS; do
-        if [ "$1" = "$vf" ]; then
-          NEEDS_VALUE=true
-          break
-        fi
-      done
-      if [ "$NEEDS_VALUE" = true ] && [ $# -ge 2 ]; then
-        shift 2
-      else
-        shift
-      fi
-      ;;
-    *)
-      URL="$1"
-      shift
-      ;;
-  esac
-done
-
-if [ -z "$URL" ]; then
-  echo "Usage: curl [options] <url>" >&2
-  exit 1
-fi
-
-# Route through broker with --raw to output only the response body
-exec ${config.shieldClientPath} http --raw "$METHOD" "$URL" $DATA
+export HTTPS_PROXY="http://127.0.0.1:${config.httpPort}"
+export HTTP_PROXY="http://127.0.0.1:${config.httpPort}"
+export NO_PROXY="localhost,127.0.0.1"
+exec /usr/bin/curl "$@"
 `,
   },
 
   wget: {
-    description: 'wget wrapper that routes through broker',
+    description: 'wget wrapper that routes through broker proxy',
     generate: (config) => `#!/bin/bash
-# wget wrapper - routes HTTP requests through AgenShield broker
-
-# Ensure accessible working directory
+# wget wrapper — routes through AgenShield broker proxy.
+# HTTPS: CONNECT tunnel (policy enforced at broker). HTTP: HTTP proxy handler.
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
-
-URL="$1"
-
-if [ -z "$URL" ]; then
-  echo "Usage: wget <url>" >&2
-  exit 1
-fi
-
-exec ${config.shieldClientPath} http GET "$URL"
+export HTTPS_PROXY="http://127.0.0.1:${config.httpPort}"
+export HTTP_PROXY="http://127.0.0.1:${config.httpPort}"
+export NO_PROXY="localhost,127.0.0.1"
+exec /usr/bin/wget "$@"
 `,
   },
 

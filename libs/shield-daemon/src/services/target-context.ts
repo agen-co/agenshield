@@ -18,6 +18,21 @@ export interface TargetContext {
   agentUsername: string;
   brokerUsername: string;
   socketGroup: string;
+  presetId?: string;
+  skillsDir: string;
+}
+
+/**
+ * Resolve the skills directory for a given agent home and preset.
+ *
+ * - Claude Code targets use `~/.claude/skills`
+ * - OpenClaw / default targets use `~/.openclaw/workspace/skills`
+ */
+export function resolveSkillsDir(agentHome: string, presetId?: string): string {
+  if (presetId === 'claude-code') {
+    return path.join(agentHome, '.claude', 'skills');
+  }
+  return path.join(agentHome, '.openclaw', 'workspace', 'skills');
 }
 
 /**
@@ -45,6 +60,8 @@ export function resolveTargetContext(presetOrTargetId?: string): TargetContext |
         agentUsername: profile.agentUsername,
         brokerUsername: profile.brokerUsername || `ash_${baseName}_broker`,
         socketGroup: `ash_${baseName}`,
+        presetId: profile.presetId,
+        skillsDir: resolveSkillsDir(profile.agentHomeDir, profile.presetId),
       };
     }
   } catch {
@@ -64,6 +81,7 @@ export function resolveTargetContext(presetOrTargetId?: string): TargetContext |
     agentUsername,
     brokerUsername: `ash_${baseName}_broker`,
     socketGroup: `ash_${baseName}`,
+    skillsDir: resolveSkillsDir(agentHome),
   };
 }
 

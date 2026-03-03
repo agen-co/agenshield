@@ -9,6 +9,7 @@
 import type { Command } from 'commander';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 import { withGlobals } from './base.js';
 import { stopDaemon, startDaemon, getDaemonStatus, DAEMON_CONFIG } from '../utils/daemon.js';
 import {
@@ -17,6 +18,7 @@ import {
   writeVersionInfo,
   getDistDir,
   getBinDir,
+  AGENSHIELD_HOME,
   queryLatestVersion,
   downloadAndExtract,
   installFromLocal,
@@ -639,13 +641,23 @@ async function upgradeSEAInstall(options: {
 
   // Backup current binaries (multi-binary layout)
   const binDir = getBinDir();
-  const binaryNames = ['agenshield', 'agenshield-daemon', 'agenshield-broker'];
-  for (const name of binaryNames) {
-    const binPath = path.join(binDir, name);
-    const backupPath = `${binPath}.bak`;
-    if (fs.existsSync(binPath)) {
+  const libexecDir = path.join(AGENSHIELD_HOME, 'libexec');
+  // CLI lives in bin/, daemon+broker live in libexec/ (root-owned)
+  const backupEntries = [
+    { name: 'agenshield', dir: binDir },
+    { name: 'agenshield-daemon', dir: libexecDir },
+    { name: 'agenshield-broker', dir: libexecDir },
+  ];
+  for (const { name, dir } of backupEntries) {
+    const srcPath = path.join(dir, name);
+    const backupPath = `${srcPath}.bak`;
+    if (fs.existsSync(srcPath)) {
       try {
-        fs.copyFileSync(binPath, backupPath);
+        if (dir === libexecDir) {
+          execSync(`sudo cp "${srcPath}" "${backupPath}"`, { stdio: 'pipe' });
+        } else {
+          fs.copyFileSync(srcPath, backupPath);
+        }
       } catch { /* best effort */ }
     }
   }
@@ -658,12 +670,19 @@ async function upgradeSEAInstall(options: {
 
     // Restore backups
     let restored = false;
-    for (const name of binaryNames) {
-      const binPath = path.join(binDir, name);
-      const bkPath = `${binPath}.bak`;
+    for (const { name, dir } of backupEntries) {
+      const srcPath = path.join(dir, name);
+      const bkPath = `${srcPath}.bak`;
       if (fs.existsSync(bkPath)) {
-        fs.copyFileSync(bkPath, binPath);
-        fs.chmodSync(binPath, 0o755);
+        if (dir === libexecDir) {
+          try {
+            execSync(`sudo cp "${bkPath}" "${srcPath}"`, { stdio: 'pipe' });
+            execSync(`sudo chmod 755 "${srcPath}"`, { stdio: 'pipe' });
+          } catch { /* best effort */ }
+        } else {
+          fs.copyFileSync(bkPath, srcPath);
+          fs.chmodSync(srcPath, 0o755);
+        }
         restored = true;
       }
     }
@@ -682,10 +701,16 @@ async function upgradeSEAInstall(options: {
   dlSpinner.succeed(`Built agenshield@${targetVersion} SEA binary`);
 
   // Clean up backups
-  for (const name of binaryNames) {
-    const bkPath = path.join(binDir, name) + '.bak';
+  for (const { name, dir } of backupEntries) {
+    const bkPath = path.join(dir, name) + '.bak';
     try {
-      if (fs.existsSync(bkPath)) fs.unlinkSync(bkPath);
+      if (fs.existsSync(bkPath)) {
+        if (dir === libexecDir) {
+          execSync(`sudo rm -f "${bkPath}"`, { stdio: 'pipe' });
+        } else {
+          fs.unlinkSync(bkPath);
+        }
+      }
     } catch { /* ignore */ }
   }
 

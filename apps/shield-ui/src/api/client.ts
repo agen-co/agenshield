@@ -24,6 +24,7 @@ import type {
   Alert,
   SimulateRequest,
   SimulateResponse,
+  LogBundle,
 } from '@agenshield/ipc';
 
 import { scopeStore } from '../state/scope';
@@ -427,5 +428,14 @@ export const api = {
       request<{ success: boolean; data: { id: number } }>(`/alerts/${id}/acknowledge`, { method: 'POST' }),
     acknowledgeAll: () =>
       request<{ success: boolean; data: { count: number } }>('/alerts/acknowledge-all', { method: 'POST' }),
+  },
+
+  // Diagnostics — log bundle download
+  downloadLogs: (params?: { target?: string; maxFiles?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.target) qs.set('target', params.target);
+    if (params?.maxFiles) qs.set('maxFiles', String(params.maxFiles));
+    const query = qs.toString();
+    return request<{ success: boolean; data: LogBundle }>(`/logs/download${query ? `?${query}` : ''}`);
   },
 };

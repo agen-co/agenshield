@@ -62,6 +62,7 @@ const TAB_META: Record<string, { label: string; icon: typeof Terminal; target: s
 interface PoliciesProps {
   embedded?: boolean;
   embeddedTab?: string;
+  onPoliciesNavigate?: (key: string) => void;
 }
 
 /** Filter policies by target type */
@@ -69,7 +70,7 @@ function filterByTarget(policies: PolicyConfig[], target: string) {
   return policies.filter((p) => p.target === target);
 }
 
-export function Policies({ embedded, embeddedTab }: PoliciesProps = {}) {
+export function Policies({ embedded, embeddedTab, onPoliciesNavigate }: PoliciesProps = {}) {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
 
@@ -89,7 +90,7 @@ export function Policies({ embedded, embeddedTab }: PoliciesProps = {}) {
           />
         )}
         <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}><CircularLoader /></Box>}>
-          <LazyPolicyOverview embedded={embedded} />
+          <LazyPolicyOverview embedded={embedded} onNavigate={onPoliciesNavigate} />
         </Suspense>
       </Box>
     );
@@ -99,7 +100,7 @@ export function Policies({ embedded, embeddedTab }: PoliciesProps = {}) {
     return (
       <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
         <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}><CircularLoader /></Box>}>
-          <LazyPolicyGraphView onBack={() => navigate(embedded ? '/policies' : '/policies', { replace: true })} />
+          <LazyPolicyGraphView onBack={() => navigate(-1)} />
         </Suspense>
       </Box>
     );
@@ -111,7 +112,7 @@ export function Policies({ embedded, embeddedTab }: PoliciesProps = {}) {
         <DrilldownHeader
           label="Simulate"
           embedded={embedded}
-          onBack={() => navigate('/policies', { replace: true })}
+          onBack={() => navigate(-1)}
         />
         <SimulatePanel />
       </Box>
@@ -125,7 +126,7 @@ export function Policies({ embedded, embeddedTab }: PoliciesProps = {}) {
     return (
       <Box sx={embedded ? {} : { maxWidth: tokens.page.maxWidth, mx: 'auto' }}>
         <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}><CircularLoader /></Box>}>
-          <LazyPolicyOverview embedded={embedded} />
+          <LazyPolicyOverview embedded={embedded} onNavigate={onPoliciesNavigate} />
         </Suspense>
       </Box>
     );
@@ -413,7 +414,7 @@ function PolicyDrilldown({ tab, target, embedded }: PolicyDrilldownProps) {
       <DrilldownHeader
         label={meta?.label ?? tab}
         embedded={embedded}
-        onBack={() => navigate('/policies', { replace: true })}
+        onBack={() => navigate(-1)}
       />
 
       {/* Collapsible editor for Commands + Network tabs */}

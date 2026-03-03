@@ -761,18 +761,35 @@ function detectSEAArch(): string {
 }
 
 /**
+ * Check whether a path is owned by root (uid 0).
+ * Returns true only if the path exists AND is root-owned.
+ */
+function isRootOwned(p: string): boolean {
+  try {
+    return fs.statSync(p).uid === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Sign a binary with hardened runtime on macOS.
  * Equivalent to `sign_binary_hardened()` in install.sh.
  */
-async function signBinaryHardened(binaryPath: string): Promise<void> {
+async function signBinaryHardened(
+  binaryPath: string,
+  options?: { sudo?: boolean },
+): Promise<void> {
   if (process.platform !== 'darwin') return;
+
+  const prefix = options?.sudo ? 'sudo ' : '';
 
   // Remove quarantine attribute
   try {
-    execSync(`xattr -d com.apple.quarantine "${binaryPath}" 2>/dev/null`, { stdio: 'pipe' });
+    execSync(`${prefix}xattr -d com.apple.quarantine "${binaryPath}" 2>/dev/null`, { stdio: 'pipe' });
   } catch { /* may not have the attribute */ }
 
-  // Re-sign with hardened runtime
+  // Re-sign with hardened runtime (fallback chain matching install.sh)
   const entitlements = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -786,10 +803,19 @@ async function signBinaryHardened(binaryPath: string): Promise<void> {
   const tmpPlist = path.join(os.tmpdir(), `agenshield-entitlements-${Date.now()}.plist`);
   fs.writeFileSync(tmpPlist, entitlements);
   try {
+    // Try 1: codesign with entitlements + hardened runtime
     execSync(
-      `codesign --force --sign - --options runtime --entitlements "${tmpPlist}" "${binaryPath}"`,
+      `${prefix}codesign --force --sign - --options runtime --entitlements "${tmpPlist}" "${binaryPath}"`,
       { stdio: 'pipe' },
     );
+  } catch {
+    // Try 2: plain ad-hoc signing without entitlements
+    try {
+      execSync(
+        `${prefix}codesign --force --sign - "${binaryPath}"`,
+        { stdio: 'pipe' },
+      );
+    } catch { /* codesign is best-effort — continue silently */ }
   } finally {
     try { fs.unlinkSync(tmpPlist); } catch { /* ignore */ }
   }
@@ -872,8 +898,14 @@ export async function downloadAndInstallSEARemote(
     const binDir = getBinDir();
     const libexecDir = path.join(AGENSHIELD_HOME, 'libexec');
     const libDir = path.join(AGENSHIELD_HOME, 'lib', `v${version}`);
+    // Only use sudo when libexec already exists as root-owned (upgrade path)
+    const needsSudo = isRootOwned(libexecDir);
     fs.mkdirSync(binDir, { recursive: true });
-    fs.mkdirSync(libexecDir, { recursive: true });
+    if (needsSudo) {
+      execSync(`sudo mkdir -p "${libexecDir}"`, { stdio: 'pipe' });
+    } else {
+      fs.mkdirSync(libexecDir, { recursive: true });
+    }
     fs.mkdirSync(libDir, { recursive: true });
 
     // CLI binary → bin/
@@ -890,14 +922,20 @@ export async function downloadAndInstallSEARemote(
       const src = path.join(extractDir, name);
       if (fs.existsSync(src)) {
         const dest = path.join(libexecDir, name);
-        fs.copyFileSync(src, dest);
-        fs.chmodSync(dest, 0o755);
-        await signBinaryHardened(dest);
+        if (needsSudo) {
+          execSync(`sudo cp "${src}" "${dest}"`, { stdio: 'pipe' });
+          execSync(`sudo chmod 755 "${dest}"`, { stdio: 'pipe' });
+          await signBinaryHardened(dest, { sudo: true });
+        } else {
+          fs.copyFileSync(src, dest);
+          fs.chmodSync(dest, 0o755);
+          await signBinaryHardened(dest);
+        }
       }
     }
 
-    // On macOS, libexec should be owned by root:wheel for privilege separation
-    if (process.platform === 'darwin') {
+    // On upgrade with root-owned libexec, preserve root:wheel ownership
+    if (needsSudo && process.platform === 'darwin') {
       try {
         execSync(`sudo chown -R root:wheel "${libexecDir}"`, { stdio: 'pipe' });
       } catch { /* best-effort */ }
@@ -991,16 +1029,36 @@ export async function buildAndInstallSEAFromLocal(
     // Step 1: Copy binaries — CLI to bin/, daemon+broker to libexec/
     const binDir = getBinDir();
     const libexecDir = path.join(AGENSHIELD_HOME, 'libexec');
+    // Only use sudo when libexec already exists as root-owned (upgrade path)
+    const needsSudo = isRootOwned(libexecDir);
     fs.mkdirSync(binDir, { recursive: true });
-    fs.mkdirSync(libexecDir, { recursive: true });
+    if (needsSudo) {
+      execSync(`sudo mkdir -p "${libexecDir}"`, { stdio: 'pipe' });
+    } else {
+      fs.mkdirSync(libexecDir, { recursive: true });
+    }
 
     onProgress?.('Installing binaries...');
     for (const bin of binaries) {
       const srcBinary = path.join(distSea, 'apps', bin.app, bin.name);
       const destDir = bin.name === 'agenshield' ? binDir : libexecDir;
       const destBinary = path.join(destDir, bin.name);
-      fs.copyFileSync(srcBinary, destBinary);
-      fs.chmodSync(destBinary, 0o755);
+      if (destDir === libexecDir && needsSudo) {
+        execSync(`sudo cp "${srcBinary}" "${destBinary}"`, { stdio: 'pipe' });
+        execSync(`sudo chmod 755 "${destBinary}"`, { stdio: 'pipe' });
+        await signBinaryHardened(destBinary, { sudo: true });
+      } else {
+        fs.copyFileSync(srcBinary, destBinary);
+        fs.chmodSync(destBinary, 0o755);
+        await signBinaryHardened(destBinary);
+      }
+    }
+
+    // On upgrade with root-owned libexec, preserve root:wheel ownership
+    if (needsSudo && process.platform === 'darwin') {
+      try {
+        execSync(`sudo chown -R root:wheel "${libexecDir}"`, { stdio: 'pipe' });
+      } catch { /* best-effort */ }
     }
 
     // Step 2: Copy native modules

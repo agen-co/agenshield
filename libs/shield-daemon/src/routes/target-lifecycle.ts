@@ -10,11 +10,11 @@ import type { ApiResponse, DetectedTarget, TargetType } from '@agenshield/ipc';
 import { migrationStatePath, MIGRATION_STATE_PATH } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
 import { emitEvent } from '../events/emitter';
-import { triggerTargetCheck, checkProcessesRunning, checkOpenClawRunning, listClaudeProcesses, listOpenClawProcesses, resolveAgentUid } from '../watchers/targets';
+import { triggerTargetCheck, checkProcessesRunning, checkOpenClawRunning, listClaudeProcesses, listOpenClawProcesses, resolveAgentUid, clearUidCaches, getProcessSnapshot } from '../watchers/targets';
 import { ShieldLogger } from '../services/shield-logger';
 import { ShieldStepTracker } from '../services/shield-step-tracker';
 import { ManifestBuilder } from '../services/manifest-builder';
-import { OPENCLAW_SHIELD_STEPS, isSEA, getSEAVersion } from '@agenshield/ipc';
+import { OPENCLAW_SHIELD_STEPS, getShieldStepsForPreset, isSEA, getSEAVersion } from '@agenshield/ipc';
 import { registerShieldOperation, unregisterShieldOperation, getActiveShieldOperations } from '../services/shield-registry';
 import { signBrokerToken } from '@agenshield/auth';
 import { writeTokenFile, invalidateTokenCache } from '../services/profile-token';
@@ -61,9 +61,23 @@ function allocateNextUidGid(): { baseUid: number; baseGid: number } {
   }
 }
 
+// ── Detection cache (10s TTL) ────────────────────────────────────
+
+let detectionCache: { data: DetectedTarget[]; expiresAt: number } | null = null;
+const DETECTION_CACHE_TTL = 10_000;
+
+/** Invalidate the detection result cache. Call on mutations (shield/unshield). */
+export function invalidateDetectionCache(): void {
+  detectionCache = null;
+}
+
 // ── Detection helpers (extracted from setup/routes) ──────────────
 
 export async function detectTargets(): Promise<DetectedTarget[]> {
+  // Return cached results if still fresh
+  if (detectionCache && Date.now() < detectionCache.expiresAt) {
+    return detectionCache.data;
+  }
   const targets: DetectedTarget[] = [];
 
   // Phase 1: Detect installed presets and cross-reference with profiles.
@@ -147,6 +161,9 @@ export async function detectTargets(): Promise<DetectedTarget[]> {
   } catch {
     // Sandbox package not available — return empty
   }
+
+  // Cache the detection result
+  detectionCache = { data: targets, expiresAt: Date.now() + DETECTION_CACHE_TTL };
 
   return targets;
 }
@@ -263,19 +280,20 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
       });
 
       // Check running status using type-specific detection helpers.
-      // All system commands are offloaded to the worker thread (async).
+      // Capture a single process snapshot and run all checks in parallel.
       try {
         const { getSystemExecutor } = await import('../workers/system-command.js');
-        for (const target of results) {
-          if (!target.shielded) continue;
+        const snapshot = await getProcessSnapshot();
+        const shieldedTargets = results.filter(t => t.shielded);
 
+        await Promise.allSettled(shieldedTargets.map(async (target) => {
           try {
             const matchedProfile = profiles.find((p: { id: string }) => p.id === target.id);
             const agentUsername = matchedProfile?.agentUsername;
-            if (!agentUsername) continue;
+            if (!agentUsername) return;
 
             const agentUid = await resolveAgentUid(agentUsername, (matchedProfile as { agentUid?: number }).agentUid);
-            if (agentUid == null) continue;
+            if (agentUid == null) return;
 
             const runBaseName = agentUsername.replace(/^ash_/, '').replace(/_agent$/, '');
 
@@ -285,10 +303,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
                 runBaseName,
                 app.processManager ?? null,
                 target.id,
+                snapshot,
               );
-              target.processes = await listOpenClawProcesses(agentUid);
+              target.processes = await listOpenClawProcesses(agentUid, snapshot);
             } else if (target.type === 'claude-code') {
-              const procs = await listClaudeProcesses(agentUid);
+              const procs = await listClaudeProcesses(agentUid, snapshot);
               target.running = procs.length > 0;
               target.processes = procs;
             } else {
@@ -308,7 +327,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           } catch {
             // Can't check — leave as false
           }
-        }
+        }));
       } catch {
         // worker not available
       }
@@ -327,6 +346,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
    */
   app.post('/targets/lifecycle/detect', async (): Promise<ApiResponse<DetectedTarget[]>> => {
     try {
+      invalidateDetectionCache();
       const targets = await detectTargets();
       return { success: true, data: targets };
     } catch (err) {
@@ -395,7 +415,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
 
       let currentStep = 'initializing';
       const shieldLog = new ShieldLogger(targetId);
-      const tracker = new ShieldStepTracker(targetId, OPENCLAW_SHIELD_STEPS);
+      let tracker = new ShieldStepTracker(targetId, OPENCLAW_SHIELD_STEPS);
 
       const log = (message: string, stepId?: string) => {
         const now = Date.now();
@@ -510,8 +530,17 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         const userConfig = createUserConfig({ baseName: resolvedBaseName, baseUid, baseGid });
         const pathsConfig = createPathsConfig(userConfig);
 
+        // Re-initialize tracker with correct step definitions for this preset
+        if (basePresetId !== 'openclaw') {
+          tracker = new ShieldStepTracker(targetId, getShieldStepsForPreset(basePresetId));
+          registerShieldOperation(targetId, targetId, tracker);
+          tracker.completeStep('cleanup_stale_check');
+          tracker.completeStep('resolve_preset');
+        } else {
+          tracker.completeStep('resolve_preset');
+        }
+
         // 2. Create sandbox users/groups
-        tracker.completeStep('resolve_preset');
 
         // 1b. Stop host processes (before creating sandbox users)
         tracker.startStep('stop_host');
@@ -789,11 +818,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
               request.log.warn({ targetId }, `Interceptor deploy partial: ${intResult.message}`);
             }
             tracker.completeStep('deploy_interceptor');
-            manifestBuilder.recordInfra('deploy_interceptor', 4, {});
+            manifestBuilder.recordInfra('deploy_interceptor', 4, { agentHome });
           } catch (err) {
             request.log.warn({ targetId, err }, `Interceptor deploy failed: ${(err as Error).message}`);
             tracker.completeStep('deploy_interceptor');
-            manifestBuilder.recordInfra('deploy_interceptor', 4, {});
+            manifestBuilder.recordInfra('deploy_interceptor', 4, { agentHome });
           }
         } else {
           tracker.skipStep('deploy_interceptor');
@@ -820,11 +849,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             }
           }
           tracker.completeStep('deploy_broker_binary');
-          manifestBuilder.recordInfra('deploy_broker_binary', 4, {});
+          manifestBuilder.recordInfra('deploy_broker_binary', 4, { hostHome, agentHome });
         } catch (err) {
           request.log.warn({ targetId, err }, `Broker binary deploy failed: ${(err as Error).message}`);
           tracker.completeStep('deploy_broker_binary');
-          manifestBuilder.recordInfra('deploy_broker_binary', 4, {});
+          manifestBuilder.recordInfra('deploy_broker_binary', 4, { hostHome, agentHome });
         }
 
         // 4a2. Deploy shield-client (used by curl/git wrappers to route through broker)
@@ -849,11 +878,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             shieldLog.info(`Bootstrap node-bin copied from ${process.execPath} to ${bootstrapNodeDest}`);
           }
           tracker.completeStep('deploy_shield_client');
-          manifestBuilder.recordInfra('deploy_shield_client', 4, {});
+          manifestBuilder.recordInfra('deploy_shield_client', 4, { agentHome, binDir });
         } catch (err) {
           request.log.warn({ targetId, err }, `Shield-client deploy failed: ${(err as Error).message}`);
           tracker.completeStep('deploy_shield_client');
-          manifestBuilder.recordInfra('deploy_shield_client', 4, {});
+          manifestBuilder.recordInfra('deploy_shield_client', 4, { agentHome, binDir });
         }
 
         // 4b. Install wrapper scripts
@@ -865,11 +894,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           const validNames = preset.requiredBins.filter((name: string) => wrapperDefs[name]);
           await installSpecificWrappersFn(validNames, binDir, wrapperConfig);
           tracker.completeStep('install_wrapper_scripts');
-          manifestBuilder.recordInfra('install_wrapper_scripts', 4, {});
+          manifestBuilder.recordInfra('install_wrapper_scripts', 4, { agentHome, binDir });
         } catch (err) {
           request.log.warn({ targetId, err }, `Wrapper scripts partial: ${(err as Error).message}`);
           tracker.completeStep('install_wrapper_scripts');
-          manifestBuilder.recordInfra('install_wrapper_scripts', 4, {});
+          manifestBuilder.recordInfra('install_wrapper_scripts', 4, { agentHome, binDir });
         }
 
         // 4c. Install seatbelt profiles (conditional — skip if no wrapper uses it)
@@ -893,11 +922,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             });
             await installSeatbeltProfiles(userConfig, { agentProfile });
             tracker.completeStep('install_seatbelt');
-            manifestBuilder.recordInfra('install_seatbelt', 4, {});
+            manifestBuilder.recordInfra('install_seatbelt', 4, { agentHome });
           } catch (err) {
             request.log.warn({ targetId, err }, `Seatbelt install partial: ${(err as Error).message}`);
             tracker.completeStep('install_seatbelt');
-            manifestBuilder.recordInfra('install_seatbelt', 4, {});
+            manifestBuilder.recordInfra('install_seatbelt', 4, { agentHome });
           }
         } else {
           tracker.skipStep('install_seatbelt');
@@ -910,11 +939,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         try {
           await installBasicCommandsFn(binDir);
           tracker.completeStep('install_basic_commands');
-          manifestBuilder.recordInfra('install_basic_commands', 4, {});
+          manifestBuilder.recordInfra('install_basic_commands', 4, { agentHome, binDir });
         } catch (err) {
           request.log.warn({ targetId, err }, `Basic commands partial: ${(err as Error).message}`);
           tracker.completeStep('install_basic_commands');
-          manifestBuilder.recordInfra('install_basic_commands', 4, {});
+          manifestBuilder.recordInfra('install_basic_commands', 4, { agentHome, binDir });
         }
 
         // 4e. Lock down permissions (root-owned 755, then restore bin dir to broker 2775)
@@ -1802,6 +1831,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         tracker.completeStep('finalize');
         request.log.info({ targetId, logPath: shieldLog.logPath }, 'Shield log saved');
 
+        invalidateDetectionCache();
         triggerTargetCheck();
         unregisterShieldOperation(targetId);
         return {
@@ -1868,6 +1898,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             shieldLog.error(`Rollback failed: ${(rollbackErr as Error).message}`);
           }
         }
+
+        // Invalidate caches and trigger a fresh target check so the UI
+        // reflects post-failure state immediately.
+        invalidateDetectionCache();
+        triggerTargetCheck();
 
         return reply.code(500).send({
           success: false,
@@ -2164,6 +2199,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         emitEvent('setup:shield_complete', { targetId, profileId: profile.id }, profile.id);
         log('Unshielding complete.', 'complete');
 
+        invalidateDetectionCache();
         triggerTargetCheck();
         return { success: true, data: { targetId, unshielded: true } };
       } catch (err) {

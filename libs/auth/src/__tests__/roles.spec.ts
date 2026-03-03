@@ -40,6 +40,18 @@ describe('Roles', () => {
       expect(isPublicRoute('/api/auth/sudo-login')).toBe(true);
     });
 
+    it('should recognize workspace-paths/check as public', () => {
+      expect(isPublicRoute('/api/workspace-paths/check')).toBe(true);
+    });
+
+    it('should recognize workspace-paths/grant as public', () => {
+      expect(isPublicRoute('/api/workspace-paths/grant')).toBe(true);
+    });
+
+    it('should recognize workspace-paths/fix-permissions as public', () => {
+      expect(isPublicRoute('/api/workspace-paths/fix-permissions')).toBe(true);
+    });
+
     it('should NOT consider config route as public', () => {
       expect(isPublicRoute('/api/config')).toBe(false);
     });

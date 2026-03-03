@@ -27,6 +27,7 @@ export class ShieldStepTracker {
         name: def.name,
         description: def.description,
         status: 'pending' as ShieldStepStatus,
+        phase: def.phase,
       };
     });
 
@@ -43,6 +44,7 @@ export class ShieldStepTracker {
       name: definition.name,
       description: definition.description,
       status: 'pending' as ShieldStepStatus,
+      phase: definition.phase,
     };
 
     if (afterId) {

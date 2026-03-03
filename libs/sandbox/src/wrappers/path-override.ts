@@ -269,6 +269,160 @@ _agenshield_exec_host() {
   exec "$BIN" "$@"
 }
 
+# ── Interactive arrow-key selector ──────────────────────────────
+# Usage: _agenshield_select "Title" "Option 1" "Option 2" ... [--cancel]
+# Sets _AGENSHIELD_SELECTION to 1-based index (0 if cancelled).
+_agenshield_select() {
+  local TITLE="$1"; shift
+
+  # Collect options and check for --cancel flag
+  local -a OPTS=()
+  local ALLOW_CANCEL=0
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--cancel" ]]; then
+      ALLOW_CANCEL=1
+    else
+      OPTS+=("$1")
+    fi
+    shift
+  done
+
+  local COUNT=\${#OPTS[@]}
+  if [[ $COUNT -eq 0 ]]; then
+    _AGENSHIELD_SELECTION=0
+    return
+  fi
+
+  # Non-TTY fallback: numbered prompt
+  if ! [ -t 0 ] || ! [ -t 2 ]; then
+    echo "" >&2
+    echo "  $TITLE" >&2
+    echo "" >&2
+    local i
+    for i in \$(seq 1 \$COUNT); do
+      echo "  \$i) \${OPTS[\$((i-1))]}" >&2
+    done
+    printf "Select [1-\$COUNT]: " >&2
+    read -r _AGENSHIELD_SELECTION
+    if ! [[ "\$_AGENSHIELD_SELECTION" =~ ^[0-9]+$ ]] || \
+       [[ \$_AGENSHIELD_SELECTION -lt 1 ]] || \
+       [[ \$_AGENSHIELD_SELECTION -gt \$COUNT ]]; then
+      _AGENSHIELD_SELECTION=0
+    fi
+    return
+  fi
+
+  # ── Interactive mode (TTY) ──────────────────────────────────
+  local ESC=$'\\x1b'
+  local CUR=0  # 0-indexed current selection
+  local SAVED_STTY
+  SAVED_STTY=\$(stty -g 2>/dev/null)
+
+  # Cleanup: restore terminal on RETURN or Ctrl-C
+  _agenshield_select_cleanup() {
+    printf "\${ESC}[?25h" >&2  # show cursor
+    stty "\$SAVED_STTY" 2>/dev/null
+  }
+  trap '_agenshield_select_cleanup' RETURN
+  trap '_agenshield_select_cleanup; exit 130' INT
+
+  # Hide cursor
+  printf "\${ESC}[?25h" >&2
+  printf "\${ESC}[?25l" >&2
+
+  # Total lines we render (title + blank + options + blank + hint)
+  local TOTAL_LINES=\$((COUNT + 4))
+
+  _agenshield_select_render() {
+    local idx
+    # Title: cyan bold
+    printf "\${ESC}[1;36m  %s\${ESC}[0m\\n" "\$TITLE" >&2
+    echo "" >&2
+    for idx in \$(seq 0 \$((COUNT - 1))); do
+      if [[ \$idx -eq \$CUR ]]; then
+        # Active: green arrow + bold text
+        printf "\${ESC}[32m  > \${ESC}[1m%s\${ESC}[0m\\n" "\${OPTS[\$idx]}" >&2
+      else
+        printf "    \${ESC}[2m%s\${ESC}[0m\\n" "\${OPTS[\$idx]}" >&2
+      fi
+    done
+    echo "" >&2
+    # Hint line
+    local HINT="  ↑/↓ Navigate  Enter Confirm"
+    if [[ \$ALLOW_CANCEL -eq 1 ]]; then
+      HINT="\$HINT  Esc Cancel"
+    fi
+    printf "\${ESC}[2m%s\${ESC}[0m" "\$HINT" >&2
+  }
+
+  # Initial render
+  _agenshield_select_render
+
+  # Input loop
+  while true; do
+    stty raw -echo 2>/dev/null
+    local KEY
+    IFS= read -r -s -n 1 KEY 2>/dev/null
+    stty "\$SAVED_STTY" 2>/dev/null
+
+    if [[ "\$KEY" == \$'\x1b' ]]; then
+      # Read rest of escape sequence
+      local SEQ
+      stty raw -echo 2>/dev/null
+      IFS= read -r -s -n 2 -t 0.1 SEQ 2>/dev/null
+      stty "\$SAVED_STTY" 2>/dev/null
+      case "\$SEQ" in
+        '[A') # Up arrow
+          [[ \$CUR -gt 0 ]] && CUR=\$((CUR - 1))
+          ;;
+        '[B') # Down arrow
+          [[ \$CUR -lt \$((COUNT - 1)) ]] && CUR=\$((CUR + 1))
+          ;;
+        *)
+          # Bare Esc (no sequence) — cancel if allowed
+          if [[ -z "\$SEQ" ]] && [[ \$ALLOW_CANCEL -eq 1 ]]; then
+            # Clear rendered lines
+            local cl
+            for cl in \$(seq 1 \$TOTAL_LINES); do
+              printf "\${ESC}[A\${ESC}[2K" >&2
+            done
+            printf "\\r" >&2
+            _AGENSHIELD_SELECTION=0
+            return
+          fi
+          ;;
+      esac
+    elif [[ "\$KEY" == "" ]]; then
+      # Enter key
+      # Clear rendered lines
+      local cl
+      for cl in \$(seq 1 \$TOTAL_LINES); do
+        printf "\${ESC}[A\${ESC}[2K" >&2
+      done
+      printf "\\r" >&2
+      _AGENSHIELD_SELECTION=\$((CUR + 1))
+      return
+    elif [[ "\$KEY" =~ ^[1-9]$ ]] && [[ "\$KEY" -le \$COUNT ]]; then
+      # Number shortcut
+      local cl
+      for cl in \$(seq 1 \$TOTAL_LINES); do
+        printf "\${ESC}[A\${ESC}[2K" >&2
+      done
+      printf "\\r" >&2
+      _AGENSHIELD_SELECTION="\$KEY"
+      return
+    fi
+
+    # Re-render: move cursor up and redraw
+    local cl
+    for cl in \$(seq 1 \$TOTAL_LINES); do
+      printf "\${ESC}[A\${ESC}[2K" >&2
+    done
+    printf "\\r" >&2
+    _agenshield_select_render
+  done
+}
+
 # Daemon connection (used by _check_cwd_access and _check_cwd_perms)
 DAEMON_HOST="\${AGENSHIELD_HOST:-127.0.0.1}"
 DAEMON_PORT="\${AGENSHIELD_PORT:-5200}"
@@ -292,19 +446,15 @@ _check_cwd_access() {
   echo "$RESP" | grep -q '"allowed":true' && return 0
 
   # Prompt user
-  echo "" >&2
-  echo "AgenShield: Current directory is not in the allowed workspace paths:" >&2
-  echo "  $CWD" >&2
-  echo "" >&2
-  echo "  1) Grant access to this folder" >&2
-  echo "  2) Start in agent home ($AGENT_HOME) instead" >&2
-  echo "  3) Cancel" >&2
-  printf "Select [1/2/3]: " >&2
-  read -r CHOICE
+  _agenshield_select \\
+    "AgenShield: Current directory is not in the allowed workspace paths:  $CWD" \\
+    "Grant access to this folder" \\
+    "Start in agent home ($AGENT_HOME) instead" \\
+    "Cancel" --cancel
 
-  case "$CHOICE" in
-    1) curl -sf -X POST "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/grant" \
-         -H "Content-Type: application/json" \
+  case "\$_AGENSHIELD_SELECTION" in
+    1) curl -sf -X POST "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/grant" \\
+         -H "Content-Type: application/json" \\
          -d "{\\"path\\":\\"$CWD\\"}" > /dev/null 2>&1
        echo "Access granted." >&2 ;;
     2) export AGENSHIELD_HOST_CWD="$AGENT_HOME"
@@ -327,17 +477,13 @@ _check_cwd_perms() {
   fi
 
   # Prompt user
-  echo "" >&2
-  echo "AgenShield: The agent user ($AGENT_USER) cannot access:" >&2
-  echo "  $CWD" >&2
-  echo "" >&2
-  echo "  1) Fix permissions (grant read access)" >&2
-  echo "  2) Start in agent home ($AGENT_HOME) instead" >&2
-  echo "  3) Cancel" >&2
-  printf "Select [1/2/3]: " >&2
-  read -r CHOICE
+  _agenshield_select \\
+    "AgenShield: The agent user ($AGENT_USER) cannot access:  $CWD" \\
+    "Fix permissions (grant read access)" \\
+    "Start in agent home ($AGENT_HOME) instead" \\
+    "Cancel" --cancel
 
-  case "$CHOICE" in
+  case "\$_AGENSHIELD_SELECTION" in
     1) # Call daemon to apply ACLs
        local RESP
        RESP=$(curl -sf -X POST "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/fix-permissions" \\
@@ -428,26 +574,25 @@ elif [[ $TOTAL_OPTIONS -eq 1 ]]; then
     _agenshield_exec_host "$ORIG_BIN" "$@"
   fi
 else
-  # Multiple options — prompt user to select
-  echo "AgenShield: Multiple instances available:" >&2
-  for i in $(seq 1 $INST_COUNT); do
-    echo "  $i) \${INST_NAMES[$i]} [\${INST_BASES[$i]}] (shielded)" >&2
+  # Multiple options — build options and prompt with interactive selector
+  local -a SELECT_OPTS=()
+  for i in \$(seq 1 \$INST_COUNT); do
+    SELECT_OPTS+=("\${INST_NAMES[\$i]} [\${INST_BASES[\$i]}] (shielded)")
   done
-  if [[ $HOST_AVAILABLE -eq 1 ]]; then
-    HOST_NUM=$((INST_COUNT + 1))
-    echo "  $HOST_NUM) Host User (unshielded)" >&2
+  if [[ \$HOST_AVAILABLE -eq 1 ]]; then
+    SELECT_OPTS+=("Host User (unshielded)")
   fi
-  printf "Select instance (number): " >&2
-  read -r CHOICE
 
-  if [[ "$CHOICE" =~ ^[0-9]+$ ]] && [[ $CHOICE -ge 1 ]] && [[ $CHOICE -le $TOTAL_OPTIONS ]]; then
-    if [[ $CHOICE -le $INST_COUNT ]]; then
+  _agenshield_select "Select an instance" "\${SELECT_OPTS[@]}"
+
+  if [[ \$_AGENSHIELD_SELECTION -ge 1 ]] && [[ \$_AGENSHIELD_SELECTION -le \$TOTAL_OPTIONS ]]; then
+    if [[ \$_AGENSHIELD_SELECTION -le \$INST_COUNT ]]; then
       # Validate CWD is in allowed workspace paths before launching
-      if [[ -n "\${INST_HOMES[$CHOICE]}" ]]; then
-        _check_cwd_access "\${INST_HOMES[$CHOICE]}"
-        _check_cwd_perms "\${INST_USERS[$CHOICE]}" "\${INST_HOMES[$CHOICE]}"
+      if [[ -n "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}" ]]; then
+        _check_cwd_access "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}"
+        _check_cwd_perms "\${INST_USERS[\$_AGENSHIELD_SELECTION]}" "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}"
       fi
-      _agenshield_exec "\${INST_USERS[$CHOICE]}" "\${INST_BINS[$CHOICE]}" "\${INST_HOMES[$CHOICE]}" "$@"
+      _agenshield_exec "\${INST_USERS[\$_AGENSHIELD_SELECTION]}" "\${INST_BINS[\$_AGENSHIELD_SELECTION]}" "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}" "$@"
     else
       _agenshield_exec_host "$ORIG_BIN" "$@"
     fi

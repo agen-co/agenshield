@@ -19,6 +19,10 @@ import { checkClaudeBinaryIntegrity, remediateClaudeBinaryDrift } from './binary
 /** Cache resolved UIDs to avoid repeated `id -u` lookups. */
 const uidCache = new Map<string, number>();
 
+/** Negative UID cache — avoid re-running 3s-timeout command for non-existent users. */
+const negativeUidCache = new Map<string, number>(); // username → expiry timestamp
+const NEGATIVE_CACHE_TTL = 30_000;
+
 /**
  * Resolve the numeric UID for an agent username.
  * Uses `profile.agentUid` when available, otherwise falls back to `id -u`.
@@ -27,18 +31,33 @@ export async function resolveAgentUid(agentUsername: string, profileUid?: number
   if (profileUid != null) return profileUid;
   const cached = uidCache.get(agentUsername);
   if (cached != null) return cached;
+
+  // Check negative cache — avoid re-running 3s-timeout command
+  const negExpiry = negativeUidCache.get(agentUsername);
+  if (negExpiry != null && Date.now() < negExpiry) return null;
+
   try {
     const executor = getSystemExecutor();
     const raw = await executor.exec(`id -u ${agentUsername}`, { timeout: 3_000 });
     const uid = parseInt(raw.trim(), 10);
     if (!isNaN(uid)) {
       uidCache.set(agentUsername, uid);
+      negativeUidCache.delete(agentUsername);
       return uid;
     }
   } catch {
-    // user doesn't exist or lookup failed
+    negativeUidCache.set(agentUsername, Date.now() + NEGATIVE_CACHE_TTL);
   }
   return null;
+}
+
+/**
+ * Clear both positive and negative UID caches.
+ * Called on mutations (shield/unshield) so fresh lookups run.
+ */
+export function clearUidCaches(): void {
+  uidCache.clear();
+  negativeUidCache.clear();
 }
 
 let watcherInterval: NodeJS.Timeout | null = null;
@@ -58,6 +77,32 @@ export function setProcessManager(pm: ProcessManager): void {
 
 // macOS system daemons that always exist for every user — never treat as target processes.
 const SYSTEM_PROCESS_RE = /\b(cfprefsd|lsd|trustd|diskarbitrationd|secinitd|tccd|nsurlsessiond|mdworker|distnoted|smd|pboard)\b/i;
+
+/**
+ * A snapshot of running processes from `ps -A`.
+ * Captured once per status-check cycle and passed to all check functions
+ * to avoid redundant `ps -A` calls (each ~100-500ms via worker).
+ */
+export interface ProcessSnapshot {
+  /** Raw output of `ps -A -o uid=,pid=,etime=,command=` */
+  raw: string;
+}
+
+/**
+ * Capture a single `ps -A` snapshot for reuse across check functions.
+ */
+export async function getProcessSnapshot(): Promise<ProcessSnapshot | null> {
+  try {
+    const executor = getSystemExecutor();
+    const raw = await executor.exec(
+      `ps -A -o uid=,pid=,etime=,command= 2>/dev/null`,
+      { timeout: 5_000 },
+    );
+    return { raw };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Parse ps `etime` format into milliseconds.
@@ -125,6 +170,7 @@ export async function checkOpenClawRunning(
   runBaseName: string,
   processManager?: ProcessManager | null,
   targetId?: string,
+  snapshot?: ProcessSnapshot | null,
 ): Promise<boolean> {
   // Priority 1: ProcessManager
   if (processManager && targetId) {
@@ -148,18 +194,19 @@ export async function checkOpenClawRunning(
     // launchctl check failed
   }
 
-  // Priority 3: Generic process list — filter by UID in-process
+  // Priority 3: Generic process list — filter by UID in-process (reuse snapshot if available)
   try {
-    const output = await executor.exec(
-      `ps -A -o uid=,pid=,comm= 2>/dev/null`,
+    const output = snapshot?.raw ?? await executor.exec(
+      `ps -A -o uid=,pid=,etime=,command= 2>/dev/null`,
       { timeout: 5_000 },
     );
     const uidStr = String(agentUid);
     for (const line of output.trim().split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      // Parse: UID PID COMM
-      const match = trimmed.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+      // Parse: UID PID ETIME COMMAND (or UID PID COMM when no snapshot)
+      const match = trimmedLine.match(/^\s*(\d+)\s+(\d+)\s+\S+\s+(.+)$/) ??
+                    trimmedLine.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
       if (!match || match[1] !== uidStr) continue;
       const comm = match[3];
       if (SYSTEM_PROCESS_RE.test(comm)) continue;
@@ -179,14 +226,16 @@ export async function checkOpenClawRunning(
  * Uses generic `ps -A` with in-process UID filtering to avoid exposing
  * agent usernames in the process table.
  */
-export async function listClaudeProcesses(agentUid: number): Promise<AgentProcessInfo[]> {
+export async function listClaudeProcesses(agentUid: number, snapshot?: ProcessSnapshot | null): Promise<AgentProcessInfo[]> {
   const results: AgentProcessInfo[] = [];
   try {
-    const executor = getSystemExecutor();
-    const output = await executor.exec(
-      `ps -A -o uid=,pid=,etime=,command= 2>/dev/null`,
-      { timeout: 5_000 },
-    );
+    const output = snapshot?.raw ?? await (async () => {
+      const executor = getSystemExecutor();
+      return executor.exec(
+        `ps -A -o uid=,pid=,etime=,command= 2>/dev/null`,
+        { timeout: 5_000 },
+      );
+    })();
     const uidStr = String(agentUid);
     for (const line of output.trim().split('\n')) {
       const trimmed = line.trim();
@@ -218,14 +267,16 @@ export async function listClaudeProcesses(agentUid: number): Promise<AgentProces
  * Uses generic `ps -A` with in-process UID filtering to avoid exposing
  * agent usernames in the process table.
  */
-export async function listOpenClawProcesses(agentUid: number): Promise<AgentProcessInfo[]> {
+export async function listOpenClawProcesses(agentUid: number, snapshot?: ProcessSnapshot | null): Promise<AgentProcessInfo[]> {
   const results: AgentProcessInfo[] = [];
   try {
-    const executor = getSystemExecutor();
-    const output = await executor.exec(
-      `ps -A -o uid=,pid=,etime=,command= 2>/dev/null`,
-      { timeout: 5_000 },
-    );
+    const output = snapshot?.raw ?? await (async () => {
+      const executor = getSystemExecutor();
+      return executor.exec(
+        `ps -A -o uid=,pid=,etime=,command= 2>/dev/null`,
+        { timeout: 5_000 },
+      );
+    })();
     const uidStr = String(agentUid);
     for (const line of output.trim().split('\n')) {
       const trimmed = line.trim();
@@ -298,16 +349,18 @@ async function getTargetStatuses(): Promise<TargetStatusInfo[]> {
     });
 
     // Check running status using type-specific detection.
-    for (const target of results) {
-      if (!target.shielded) continue;
+    // Capture a single process snapshot and run all checks in parallel.
+    const snapshot = await getProcessSnapshot();
+    const shieldedTargets = results.filter(t => t.shielded);
 
+    await Promise.allSettled(shieldedTargets.map(async (target) => {
       try {
         const matchedProfile = profiles.find((p: { id: string }) => p.id === target.id);
         const agentUsername = matchedProfile?.agentUsername;
-        if (!agentUsername) continue;
+        if (!agentUsername) return;
 
         const agentUid = await resolveAgentUid(agentUsername, (matchedProfile as { agentUid?: number }).agentUid);
-        if (agentUid == null) continue;
+        if (agentUid == null) return;
 
         const runBaseName = agentUsername.replace(/^ash_/, '').replace(/_agent$/, '');
 
@@ -317,10 +370,11 @@ async function getTargetStatuses(): Promise<TargetStatusInfo[]> {
             runBaseName,
             _processManager,
             target.id,
+            snapshot,
           );
-          target.processes = await listOpenClawProcesses(agentUid);
+          target.processes = await listOpenClawProcesses(agentUid, snapshot);
         } else if (target.type === 'claude-code') {
-          const procs = await listClaudeProcesses(agentUid);
+          const procs = await listClaudeProcesses(agentUid, snapshot);
           target.running = procs.length > 0;
           target.processes = procs;
 
@@ -356,7 +410,7 @@ async function getTargetStatuses(): Promise<TargetStatusInfo[]> {
       } catch {
         // Can't check — leave as false
       }
-    }
+    }));
 
     return results;
   } catch (err) {
@@ -432,6 +486,8 @@ export function triggerTargetCheck(): void {
   // Debounce rapid fire (e.g. shield + start in quick succession)
   if (pendingImmediate) return;
   pendingImmediate = true;
+  // Clear UID caches so mutations get fresh lookups
+  clearUidCaches();
   // Reset hash so next check always emits
   lastTargetsHash = null;
   setTimeout(() => {
