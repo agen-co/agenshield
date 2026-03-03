@@ -19,9 +19,17 @@ export interface SkillInjectionResult {
 }
 
 /**
- * Get the OpenClaw skills directory for a user
+ * Get the skills directory for a user, optionally preset-aware.
+ *
+ * - Claude Code targets use `~/.claude/skills`
+ * - OpenClaw / default targets use `~/.openclaw/workspace/skills`
+ *   (falls back to `~/.config/openclaw/skills` if that parent exists)
  */
-export function getSkillsDir(homeDir: string): string {
+export function getSkillsDir(homeDir: string, presetId?: string): string {
+  if (presetId === 'claude-code') {
+    return path.join(homeDir, '.claude', 'skills');
+  }
+
   // OpenClaw stores skills in ~/.openclaw/workspace/skills/ or ~/.config/openclaw/skills/
   const possiblePaths = [
     path.join(homeDir, '.openclaw', 'workspace', 'skills'),
@@ -45,9 +53,13 @@ export function getSkillsDir(homeDir: string): string {
 export function getAgenCoSkillPath(): string {
   const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
   const possiblePaths: string[] = [
-    // Daemon-deployed location (primary) — only if env var is set
+    // Daemon-deployed locations (primary) — only if env var is set
     ...(agentHome
-      ? [path.join(agentHome, '.openclaw', 'skills', 'agenco')]
+      ? [
+          path.join(agentHome, '.claude', 'skills', 'agenco'),
+          path.join(agentHome, '.openclaw', 'workspace', 'skills', 'agenco'),
+          path.join(agentHome, '.openclaw', 'skills', 'agenco'),
+        ]
       : []),
     // Global install fallback
     '/opt/agenshield/skills/agenco',

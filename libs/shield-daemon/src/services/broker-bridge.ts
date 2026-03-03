@@ -94,6 +94,7 @@ export async function installSkillViaBroker(
   options: {
     createWrapper?: boolean;
     agentHome?: string;
+    skillsDir?: string;
     socketGroup?: string;
     socketPath?: string;
   } = {}
@@ -113,6 +114,7 @@ export async function installSkillViaBroker(
     files: brokerFiles,
     createWrapper: options.createWrapper ?? true,
     agentHome: options.agentHome,
+    skillsDir: options.skillsDir,
     socketGroup: options.socketGroup,
   });
 
@@ -131,6 +133,7 @@ export async function uninstallSkillViaBroker(
   options: {
     removeWrapper?: boolean;
     agentHome?: string;
+    skillsDir?: string;
     socketPath?: string;
   } = {}
 ): Promise<SkillUninstallResult> {
@@ -140,6 +143,7 @@ export async function uninstallSkillViaBroker(
     slug,
     removeWrapper: options.removeWrapper ?? true,
     agentHome: options.agentHome,
+    skillsDir: options.skillsDir,
   });
 
   return result;

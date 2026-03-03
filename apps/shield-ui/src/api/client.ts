@@ -27,7 +27,25 @@ import type {
   LogBundle,
 } from '@agenshield/ipc';
 
+import type { WorkspaceSkillStatus } from '@agenshield/ipc';
 import { scopeStore } from '../state/scope';
+
+export interface WorkspaceSkillSummary {
+  id: string;
+  profileId: string;
+  workspacePath: string;
+  skillName: string;
+  status: WorkspaceSkillStatus;
+  contentHash?: string;
+  backupHash?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  cloudSkillId?: string;
+  removedAt?: string;
+  aclApplied: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 const BASE_URL = '/api';
 
@@ -373,7 +391,7 @@ export const api = {
 
   // Profile management
   getProfiles: () =>
-    request<{ data: Array<{ id: string; name: string; type: string; targetName?: string; presetId?: string; description?: string; agentUsername?: string; agentUid?: number; agentHomeDir?: string; brokerUsername?: string; brokerUid?: number; brokerHomeDir?: string; policiesCount?: number; secretsCount?: number; createdAt: string; updatedAt: string }> }>('/profiles'),
+    request<{ data: Array<{ id: string; name: string; type: string; targetName?: string; presetId?: string; description?: string; agentUsername?: string; agentUid?: number; agentHomeDir?: string; brokerUsername?: string; brokerUid?: number; brokerHomeDir?: string; policiesCount?: number; secretsCount?: number; workspacePaths?: string[]; createdAt: string; updatedAt: string }> }>('/profiles'),
 
   createProfile: (body: { id: string; name: string; type?: string; targetName?: string; presetId?: string; description?: string }) =>
     request<{ data: { id: string; name: string; type: string; createdAt: string; updatedAt: string } }>('/profiles', {
@@ -437,5 +455,47 @@ export const api = {
     if (params?.maxFiles) qs.set('maxFiles', String(params.maxFiles));
     const query = qs.toString();
     return request<{ success: boolean; data: LogBundle }>(`/logs/download${query ? `?${query}` : ''}`);
+  },
+
+  // Workspace skills
+  workspaceSkills: {
+    getAll: (workspace?: string, status?: string) => {
+      const params = new URLSearchParams();
+      if (workspace) params.set('workspace', workspace);
+      if (status) params.set('status', status);
+      const qs = params.toString();
+      return request<{ data: WorkspaceSkillSummary[] }>(`/workspace-skills${qs ? `?${qs}` : ''}`);
+    },
+    getById: (id: string) =>
+      request<{ data: WorkspaceSkillSummary }>(`/workspace-skills/${id}`),
+    getPendingCount: () =>
+      request<{ data: { count: number } }>('/workspace-skills/pending-count'),
+    approve: (id: string) =>
+      request<{ data: WorkspaceSkillSummary }>(`/workspace-skills/${id}/approve`, {
+        method: 'POST',
+      }),
+    deny: (id: string) =>
+      request<{ data: WorkspaceSkillSummary }>(`/workspace-skills/${id}/deny`, {
+        method: 'POST',
+      }),
+    scan: (workspacePath?: string) =>
+      request<{ data: WorkspaceSkillSummary[] }>('/workspace-skills/scan', {
+        method: 'POST',
+        body: JSON.stringify(workspacePath ? { workspacePath } : {}),
+      }),
+  },
+
+  // Workspace paths
+  workspacePaths: {
+    grant: (path: string, profileId?: string) =>
+      request<{ success: boolean; workspacePaths: string[] }>('/workspace-paths/grant', {
+        method: 'POST',
+        body: JSON.stringify({ path, profileId }),
+      }),
+    revoke: (path: string, profileId?: string) =>
+      request<{ success: boolean; workspacePaths: string[] }>('/workspace-paths/revoke', {
+        method: 'POST',
+        body: JSON.stringify({ path, profileId }),
+      }),
   },
 };

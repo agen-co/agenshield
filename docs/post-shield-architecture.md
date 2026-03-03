@@ -164,7 +164,7 @@ flowchart LR
     root --> nvm[".nvm/<br/>agent:grp 755<br/>NVM + Node.js"]
     root --> homebrew["homebrew/<br/>agent:grp<br/>Cellar"]
     root --> preset[".openclaw/ or .claude/<br/>broker:grp 2775"]
-    root --> token[".agenshield-token<br/>broker:grp 640"]
+    root --> token[".agenshield-token<br/>broker:grp 600"]
 
     classDef rootOwned fill:#fff3e0,stroke:#e65100
     classDef brokerOwned fill:#e3f2fd,stroke:#1565c0
@@ -456,7 +456,7 @@ User creation via `dscl`:
 | `.nvm/` | `ash_openclaw_agent` | `ash_openclaw` | `755` | NVM + Node.js |
 | `homebrew/` | `ash_openclaw_agent` | `ash_openclaw` | — | Homebrew Cellar |
 | `.openclaw/` | `ash_openclaw_broker` | `ash_openclaw` | `2775` | Preset config |
-| `.agenshield-token` | `ash_openclaw_broker` | `ash_openclaw` | `640` | Broker JWT |
+| `.agenshield-token` | `ash_openclaw_broker` | `ash_openclaw` | `600` | Broker JWT |
 
 > **openclaw_2** and **claude_code** follow the same structure. claude_code uses `.claude/` instead of `.openclaw/` and has no gateway logs.
 

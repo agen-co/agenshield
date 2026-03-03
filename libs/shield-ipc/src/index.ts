@@ -136,6 +136,9 @@ export * from './commands/index';
 export * from './storage/index';
 export * from './policy-graph/index';
 
+// Workspace skills governance
+export * from './workspace-skills/index';
+
 // Request context (multi-tenancy)
 export * from './context/index';
 

@@ -171,6 +171,9 @@ export async function buildSandboxConfig(
   sandbox.deniedPaths.push(openclawDir);
   sandbox.allowedReadPaths.push(`${openclawDir}/workspace`);
 
+  // Deny access to broker token file (defense-in-depth)
+  sandbox.deniedPaths.push(`${agentHome}/.agenshield-token`);
+
   // Merge graph-granted filesystem paths
   if (effects) {
     if (effects.grantedFsPaths.read.length > 0) {

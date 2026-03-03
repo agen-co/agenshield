@@ -90,6 +90,20 @@ export function getSkillBackupDir(): string {
 }
 
 /**
+ * Get the workspace skill backup directory path (under CONFIG_DIR).
+ */
+export function getWorkspaceSkillBackupDir(): string {
+  return path.join(getConfigDir(), 'workspace-skill-backups');
+}
+
+/**
+ * Get the cloud-forced skills directory path (under CONFIG_DIR).
+ */
+export function getCloudSkillsDir(): string {
+  return path.join(getConfigDir(), 'skills');
+}
+
+/**
  * Get the agent's skills directory path.
  * Returns empty string if AGENSHIELD_AGENT_HOME is not set.
  */

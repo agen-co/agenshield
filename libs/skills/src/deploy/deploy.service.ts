@@ -29,6 +29,11 @@ export class DeployService {
     this.emitter.emit('skill-event', event);
   }
 
+  /** Register a deploy adapter after construction (e.g. when a target becomes available). */
+  addAdapter(adapter: DeployAdapter): void {
+    this.adapters.push(adapter);
+  }
+
   /** Find an adapter that can handle the given profile ID */
   findAdapter(profileId: string | undefined): DeployAdapter | null {
     return this.adapters.find((a) => a.canDeploy(profileId)) ?? null;
@@ -157,6 +162,30 @@ export class DeployService {
     }
 
     return results;
+  }
+
+  /** Deploy all active installations that have no files on disk yet. */
+  async deployPending(): Promise<number> {
+    const installations = this.skills.getInstallations();
+    const active = installations.filter((i) => i.status === 'active');
+    let deployed = 0;
+    for (const inst of active) {
+      const adapter = this.findAdapter(inst.profileId);
+      if (!adapter) continue;
+      const version = this.skills.getVersionById(inst.skillVersionId);
+      if (!version) continue;
+      const skill = this.skills.getById(version.skillId);
+      if (!skill) continue;
+      // Skip if already deployed with intact files
+      const files = this.skills.getFiles(version.id);
+      const integrity = await adapter.checkIntegrity(inst, version, files, skill);
+      if (integrity.intact) continue;
+      try {
+        await this.deploy(inst, version, skill);
+        deployed++;
+      } catch { /* best-effort — log but don't throw */ }
+    }
+    return deployed;
   }
 
   /**

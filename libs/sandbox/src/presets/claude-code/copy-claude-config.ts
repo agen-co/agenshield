@@ -98,12 +98,15 @@ export const copyClaudeConfigStep: InstallStep = {
     const script = [
       `if [ -d "${hostConfigDir}" ]; then`,
       `  mkdir -p "${agentConfigDir}"`,
+      `  mkdir -p "${agentConfigDir}/skills"`,
       '',
       ...snippets.map(s => s.split('\n').map(line => `  ${line}`).join('\n')),
       '',
       `  chown -R ${ctx.agentUsername}:${ctx.socketGroupName} "${agentConfigDir}"`,
       '  echo "CONFIG_COPIED"',
       'else',
+      `  mkdir -p "${agentConfigDir}/skills"`,
+      `  chown -R ${ctx.agentUsername}:${ctx.socketGroupName} "${agentConfigDir}"`,
       '  echo "NO_HOST_CONFIG"',
       'fi',
     ].join('\n');

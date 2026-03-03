@@ -47,6 +47,8 @@ export { MetricsRepository } from './repositories/metrics';
 export type { MetricsSnapshot, MetricsSnapshotInput } from './repositories/metrics';
 export { BinarySignatureRepository } from './repositories/binary-signature';
 export type { CreateSignatureInput, UpsertBatchInput } from './repositories/binary-signature';
+export { WorkspaceSkillsRepository } from './repositories/workspace-skills';
+export type { CreateWorkspaceSkillInput, UpdateWorkspaceSkillInput } from './repositories/workspace-skills';
 
 // Migrations
 export { runMigrations, runActivityMigrations, getCurrentVersion, getDbVersion, validateDbIntegrity } from './migrations/index';

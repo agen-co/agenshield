@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Box, Skeleton, Typography } from '@mui/material';
+import { Box, Skeleton, Typography, Tabs, Tab, Badge } from '@mui/material';
 import Grid from '@mui/material/Grid2';
 import { useSnapshot } from 'valtio';
 import { tokens } from '../styles/tokens';
@@ -39,6 +39,9 @@ import {
 import { ConfirmDialog } from '../components/shared/ConfirmDialog';
 import { UntrustedSkillsSection } from '../components/skills/UntrustedSkillsSection';
 import { useGuardedAction } from '../hooks/useGuardedAction';
+import { WorkspaceSkillsPanel } from '../components/workspace-skills/WorkspaceSkillsPanel';
+import { useWorkspaceSkillsPendingCount } from '../api/hooks';
+import { useAuth } from '../context/AuthContext';
 
 interface SkillsProps {
   embedded?: boolean;
@@ -53,6 +56,11 @@ export function Skills({ embedded, targetId, onSkillClick }: SkillsProps = {}) {
   const guard = useGuardedAction();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const auth = useAuth();
+
+  const [activeTab, setActiveTab] = useState(0);
+  const { data: pendingCountData } = useWorkspaceSkillsPendingCount();
+  const pendingCount = pendingCountData?.data?.count ?? 0;
 
   const [confirmUninstall, setConfirmUninstall] = useState<{ name: string } | null>(null);
   const [installDialog, setInstallDialog] = useState<{ name: string; slug: string; installations?: UnifiedSkill['installations'] } | null>(null);
@@ -388,6 +396,25 @@ export function Skills({ embedded, targetId, onSkillClick }: SkillsProps = {}) {
         />
       )}
 
+      <Tabs
+        value={activeTab}
+        onChange={(_, v) => setActiveTab(v)}
+        sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Tab label="Installed Skills" />
+        <Tab
+          label={
+            <Badge badgeContent={pendingCount} color="warning" max={99}>
+              <Box sx={{ pr: pendingCount > 0 ? 1.5 : 0 }}>Workspace Skills</Box>
+            </Badge>
+          }
+        />
+      </Tabs>
+
+      {activeTab === 1 ? (
+        <WorkspaceSkillsPanel isReadOnly={!auth.authenticated} />
+      ) : (
+      <>
       <Box sx={{ mb: 3 }}>
         <SearchInput
           value={search}
@@ -490,6 +517,8 @@ export function Skills({ embedded, targetId, onSkillClick }: SkillsProps = {}) {
         onUninstallFromTarget={handleUninstallFromTarget}
         onClose={() => setInstallDialog(null)}
       />
+      </>
+      )}
     </Box>
   );
 }

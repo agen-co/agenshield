@@ -9,7 +9,7 @@ import { execSync } from 'node:child_process';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { PolicyConfig } from '@agenshield/ipc';
+import type { PolicyConfig, WorkspaceSkill } from '@agenshield/ipc';
 import { isDevMode } from './config/paths';
 
 interface Logger {
@@ -83,8 +83,7 @@ export function addUserAcl(
   action: 'allow' | 'deny' = 'allow',
 ): void {
   if (isDevMode()) {
-    log.warn(`[acl] skipping ACL add in dev mode: ${targetPath}`);
-    return;
+    log.warn(`[acl] dev mode — attempting ACL add (may fail): ${targetPath}`);
   }
   try {
     if (!fs.existsSync(targetPath)) {
@@ -112,8 +111,7 @@ export function addUserAcl(
  */
 export function removeUserAcl(targetPath: string, userName: string, log: Logger = noop): void {
   if (isDevMode()) {
-    log.warn(`[acl] skipping ACL remove in dev mode: ${targetPath}`);
-    return;
+    log.warn(`[acl] dev mode — attempting ACL remove (may fail): ${targetPath}`);
   }
   try {
     if (!fs.existsSync(targetPath)) {
@@ -294,6 +292,56 @@ export function syncFilesystemPolicyAcls(
     const allowPerms = newMaps.allow.get(targetPath);
     if (allowPerms) {
       addUserAcl(targetPath, userName, allowPerms, log, 'allow');
+    }
+  }
+}
+
+// ── Workspace skill ACL helpers ──────────────────────────────────
+
+const SKILL_DENY_PERMS = 'read,readattr,readextattr,list,search,execute';
+
+/**
+ * Deny agent user from reading a workspace skill directory.
+ * macOS deny ACL entries are evaluated before allow entries,
+ * so the workspace-level allow is overridden by this deny.
+ */
+export function denyWorkspaceSkill(
+  skillPath: string,
+  userName: string,
+  log: Logger = noop,
+): void {
+  addUserAcl(skillPath, userName, SKILL_DENY_PERMS, log, 'deny');
+}
+
+/**
+ * Remove deny ACL when a workspace skill is approved.
+ */
+export function allowWorkspaceSkill(
+  skillPath: string,
+  userName: string,
+  log: Logger = noop,
+): void {
+  removeUserAcl(skillPath, userName, log);
+}
+
+/**
+ * Sync all workspace skill ACLs for a workspace.
+ * For each skill: apply deny if pending/denied, remove deny if approved/cloud_forced.
+ */
+export function syncWorkspaceSkillAcls(
+  workspacePath: string,
+  skills: WorkspaceSkill[],
+  userName: string,
+  log: Logger = noop,
+): void {
+  for (const skill of skills) {
+    const skillPath = path.join(workspacePath, '.claude', 'skills', skill.skillName);
+    if (!fs.existsSync(skillPath)) continue;
+
+    if (skill.status === 'pending' || skill.status === 'denied') {
+      denyWorkspaceSkill(skillPath, userName, log);
+    } else if (skill.status === 'approved' || skill.status === 'cloud_forced') {
+      allowWorkspaceSkill(skillPath, userName, log);
     }
   }
 }

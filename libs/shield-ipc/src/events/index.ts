@@ -136,3 +136,13 @@ export {
   type EnrollmentFailedPayload,
   ENROLLMENT_EVENT_TYPES,
 } from './enrollment.events';
+
+export {
+  type WorkspaceSkillDetectedPayload,
+  type WorkspaceSkillApprovedPayload,
+  type WorkspaceSkillDeniedPayload,
+  type WorkspaceSkillRemovedPayload,
+  type WorkspaceSkillTamperedPayload,
+  type WorkspaceSkillCloudForcedPayload,
+  WORKSPACE_SKILL_EVENT_TYPES,
+} from './workspace-skill.events';

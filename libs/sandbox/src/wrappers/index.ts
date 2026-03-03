@@ -56,3 +56,5 @@ export {
   type PathRegistryEntry,
   type PathRegistryInstance,
 } from './path-override.js';
+
+export { generatePromptHelper } from './prompt-helper.js';

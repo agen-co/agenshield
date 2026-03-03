@@ -100,17 +100,20 @@ describe('generateRouterWrapper', () => {
     expect(content).toContain('_AGENSHIELD_SELECTION');
   });
 
-  it('includes ANSI escape codes for interactive rendering', () => {
+  it('tries Node.js prompt helper before numbered fallback', () => {
     const content = generateRouterWrapper('openclaw');
 
-    expect(content).toContain('\\x1b');
+    expect(content).toContain('agenshield-prompt');
+    expect(content).toContain('PROMPT_HELPER');
   });
 
-  it('includes non-TTY fallback path', () => {
+  it('includes numbered prompt fallback (no ANSI escape codes)', () => {
     const content = generateRouterWrapper('openclaw');
 
-    expect(content).toContain('! [ -t 0 ]');
-    expect(content).toContain('! [ -t 2 ]');
+    // Numbered fallback exists
+    expect(content).toContain('Select [1-');
+    // No inline ANSI escape rendering (handled by prompt helper instead)
+    expect(content).not.toContain('\\x1b');
   });
 
   it('includes allowHostPassthrough in awk parser', () => {
@@ -143,35 +146,90 @@ describe('generateRouterWrapper', () => {
     expect(content).toContain('sudo -H -u');
   });
 
+  it('uses env -i for clean environment isolation', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    expect(content).toContain('env -i');
+    expect(content).toContain('ENV_ARGS=(env -i)');
+  });
+
   it('passes HOME explicitly via env for guarded shell invocation', () => {
     const content = generateRouterWrapper('openclaw');
 
-    expect(content).toContain('env "HOME=$AGENT_HOME"');
+    expect(content).toContain('HOME=$AGENT_HOME');
   });
 
-  it('passes AGENSHIELD_HOST_CWD via env and delegates cd to guarded shell zshrc', () => {
+  it('execs $BIN directly and sets SHELL=$GUARDED_SHELL for subprocess enforcement', () => {
     const content = generateRouterWrapper('openclaw');
 
-    // The router passes AGENSHIELD_HOST_CWD as an env var to the guarded shell
+    // The router passes AGENSHIELD_HOST_CWD as an env var (app wrapper handles cd)
     expect(content).toContain('AGENSHIELD_HOST_CWD=$PWD');
-    // The inline -c command just execs the binary — cd is handled by .zshrc
-    expect(content).toContain("'exec");
+    // $BIN is exec'd directly — NOT through guarded shell -c
+    expect(content).not.toContain('GUARDED_SHELL" -c');
+    expect(content).not.toContain('CMD_NAME="$(basename "$BIN")"');
+    // SHELL=$GUARDED_SHELL set via ENV_ARGS so subshells are still guarded
+    expect(content).toContain('SHELL=$GUARDED_SHELL');
+    // Exec's the binary directly
+    expect(content).toContain('"$BIN" "$@"');
   });
 
-  it('passes HOME via env in fallback path (no guarded shell)', () => {
+  it('does not leak SUDO_* variables in generated script', () => {
     const content = generateRouterWrapper('openclaw');
 
-    // The fallback exec also passes HOME
-    const lines = content.split('\n');
-    const fallbackLine = lines.find(
-      (l) => l.includes('# Fallback if guarded shell not installed'),
-    );
-    expect(fallbackLine).toBeDefined();
+    // env -i ensures clean env — script should not reference SUDO_ vars
+    expect(content).not.toContain('SUDO_USER');
+    expect(content).not.toContain('SUDO_UID');
+    expect(content).not.toContain('SUDO_GID');
+  });
 
-    // Find the exec after the fallback comment
-    const fallbackIdx = lines.indexOf(fallbackLine!);
-    const fallbackExec = lines.slice(fallbackIdx + 1, fallbackIdx + 4).join('\n');
-    expect(fallbackExec).toContain('env "HOME=$AGENT_HOME"');
+  it('builds safe PATH without host HOME references', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    // PATH is built from known safe locations
+    expect(content).toContain('SAFE_PATH=');
+    expect(content).toContain('/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin');
+    expect(content).toContain('$AGENT_HOME/bin');
+    // No $HOME in PATH (uses $AGENT_HOME explicitly)
+    expect(content).not.toContain('PATH="$HOME');
+  });
+
+  it('forwards proxy vars when set', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    expect(content).toContain('HTTP_PROXY=$HTTP_PROXY');
+    expect(content).toContain('HTTPS_PROXY=$HTTPS_PROXY');
+    expect(content).toContain('NO_PROXY=$NO_PROXY');
+  });
+
+  it('does not use local keyword outside of function definitions', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    // Split into function bodies and main body
+    // The _agenshield_exec, _agenshield_exec_host, _agenshield_select,
+    // _check_cwd_access, and _check_cwd_perms functions use local legitimately.
+    // The main body (after all function defs) should NOT use local.
+    const mainBodyStart = content.lastIndexOf('PARSED=$(awk');
+    const mainBody = content.slice(mainBodyStart);
+    expect(mainBody).not.toMatch(/\blocal\b/);
+  });
+
+  it('uses daemon endpoint for permission verification instead of sudo test', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    // Should call daemon verify-permissions endpoint
+    expect(content).toContain('workspace-paths/verify-permissions');
+    // Should NOT use sudo -n test for permission checking
+    expect(content).not.toContain('sudo -n -u "$AGENT_USER" test');
+  });
+
+  it('skips perm check when _check_cwd_access just granted access (return 2)', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    // _check_cwd_access returns 2 when it just granted
+    expect(content).toContain('return 2');
+    // Call sites capture return code and skip perm check when rc=2
+    expect(content).toContain('_CWD_RC=$?');
+    expect(content).toContain('_CWD_RC -eq 0');
   });
 });
 

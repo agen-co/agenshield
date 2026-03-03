@@ -237,29 +237,54 @@ if [ ! -f "$REGISTRY" ]; then
   exit 1
 fi
 
-# Helper: exec as agent user via guarded shell (enforces PATH/env restrictions)
+# Helper: exec as agent user, launching the app wrapper directly.
+# SHELL=$GUARDED_SHELL ensures subshells spawned by the app go through
+# TRAPDEBUG enforcement. The app wrapper handles cd to AGENSHIELD_HOST_CWD.
 _agenshield_exec() {
   local AGENT_USER="$1" BIN="$2" AGENT_HOME="$3"
   shift 3
   if [ -z "$AGENT_USER" ]; then
     exec "$BIN" "$@"
   fi
+
+  # Build safe PATH: agent bins + system paths only
+  local SAFE_PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  [ -d "/opt/homebrew/bin" ] && SAFE_PATH="$SAFE_PATH:/opt/homebrew/bin:/opt/homebrew/sbin"
+  if [ -n "$AGENT_HOME" ]; then
+    SAFE_PATH="$AGENT_HOME/bin:$AGENT_HOME/.local/bin:$AGENT_HOME/.agenshield/bin:$SAFE_PATH"
+  fi
+
+  # Start with empty env — no SUDO_*, no SSH_AUTH_SOCK, no host PATH
+  local -a ENV_ARGS=(env -i)
+  [ -n "$AGENT_HOME" ] && ENV_ARGS+=("HOME=$AGENT_HOME")
+  ENV_ARGS+=("USER=$AGENT_USER")
+  ENV_ARGS+=("LOGNAME=$AGENT_USER")
+  ENV_ARGS+=("PATH=$SAFE_PATH")
+  ENV_ARGS+=("TMPDIR=\${TMPDIR:-/tmp}")
+  [ -n "\${TERM:-}" ] && ENV_ARGS+=("TERM=$TERM")
+  [ -n "\${LANG:-}" ] && ENV_ARGS+=("LANG=$LANG")
+  [ -n "\${LC_ALL:-}" ] && ENV_ARGS+=("LC_ALL=$LC_ALL")
+  # AgenShield context (consumed by app wrapper, then unset)
+  ENV_ARGS+=("AGENSHIELD_HOST_HOME=$HOME")
+  ENV_ARGS+=("AGENSHIELD_HOST_CWD=$PWD")
+  # Forward proxy vars if already set (e.g., from guarded shell)
+  [ -n "\${HTTP_PROXY:-}" ] && ENV_ARGS+=("HTTP_PROXY=$HTTP_PROXY")
+  [ -n "\${HTTPS_PROXY:-}" ] && ENV_ARGS+=("HTTPS_PROXY=$HTTPS_PROXY")
+  [ -n "\${NO_PROXY:-}" ] && ENV_ARGS+=("NO_PROXY=$NO_PROXY")
+  # Guarded shell
   if [ -n "$AGENT_HOME" ]; then
     local GUARDED_SHELL="$AGENT_HOME/.agenshield/bin/guarded-shell"
-    if [ -x "$GUARDED_SHELL" ]; then
-      exec sudo -H -u "$AGENT_USER" \
-        env "HOME=$AGENT_HOME" "AGENSHIELD_HOST_HOME=$HOME" "AGENSHIELD_HOST_CWD=$PWD" \
-        "$GUARDED_SHELL" -c \
-        'exec "'"$BIN"'" "$@"' -- "$@"
-    else
-      # Fallback if guarded shell not installed
-      exec sudo -H -u "$AGENT_USER" \
-        env "HOME=$AGENT_HOME" "AGENSHIELD_HOST_HOME=$HOME" "AGENSHIELD_HOST_CWD=$PWD" \
-        "$BIN" "$@"
-    fi
-  else
-    exec sudo -H -u "$AGENT_USER" env "AGENSHIELD_HOST_HOME=$HOME" "AGENSHIELD_HOST_CWD=$PWD" "$BIN" "$@"
+    [ -x "$GUARDED_SHELL" ] && ENV_ARGS+=("SHELL=$GUARDED_SHELL")
   fi
+
+  # Change to agent home before sudo to avoid getcwd errors when
+  # the host user's CWD is inaccessible to the agent user.
+  # The app wrapper handles cd to AGENSHIELD_HOST_CWD after startup.
+  if [ -n "$AGENT_HOME" ] && [ -d "$AGENT_HOME" ]; then
+    cd "$AGENT_HOME" 2>/dev/null || cd / 2>/dev/null || true
+  fi
+
+  exec sudo -H -u "$AGENT_USER" "\${ENV_ARGS[@]}" "$BIN" "$@"
 }
 
 # Helper: exec the host user's original (unshielded) binary directly
@@ -269,9 +294,11 @@ _agenshield_exec_host() {
   exec "$BIN" "$@"
 }
 
-# ── Interactive arrow-key selector ──────────────────────────────
+# ── Interactive selector ─────────────────────────────────────────
 # Usage: _agenshield_select "Title" "Option 1" "Option 2" ... [--cancel]
 # Sets _AGENSHIELD_SELECTION to 1-based index (0 if cancelled).
+# Tries the Node.js prompt helper first (better rendering), falls back
+# to a simple numbered prompt (no ANSI escape codes needed).
 _agenshield_select() {
   local TITLE="$1"; shift
 
@@ -293,134 +320,39 @@ _agenshield_select() {
     return
   fi
 
-  # Non-TTY fallback: numbered prompt
-  if ! [ -t 0 ] || ! [ -t 2 ]; then
-    echo "" >&2
-    echo "  $TITLE" >&2
-    echo "" >&2
+  # Try Node.js prompt helper (installed at ~/.agenshield/bin/agenshield-prompt)
+  local PROMPT_HELPER="$HOME/.agenshield/bin/agenshield-prompt"
+  if [ -x "$PROMPT_HELPER" ] && [ -t 0 ] && [ -t 2 ]; then
+    local HELPER_ARGS=("--title" "\$TITLE")
     local i
-    for i in \$(seq 1 \$COUNT); do
-      echo "  \$i) \${OPTS[\$((i-1))]}" >&2
+    for i in \$(seq 0 \$((COUNT - 1))); do
+      HELPER_ARGS+=("--option" "\${OPTS[\$i]}")
     done
-    printf "Select [1-\$COUNT]: " >&2
-    read -r _AGENSHIELD_SELECTION
-    if ! [[ "\$_AGENSHIELD_SELECTION" =~ ^[0-9]+$ ]] || \
-       [[ \$_AGENSHIELD_SELECTION -lt 1 ]] || \
-       [[ \$_AGENSHIELD_SELECTION -gt \$COUNT ]]; then
-      _AGENSHIELD_SELECTION=0
+    [[ \$ALLOW_CANCEL -eq 1 ]] && HELPER_ARGS+=("--cancel")
+
+    local RESULT
+    RESULT=\$("$PROMPT_HELPER" "\${HELPER_ARGS[@]}" 2>&2)
+    if [[ $? -eq 0 ]] && [[ -n "\$RESULT" ]]; then
+      _AGENSHIELD_SELECTION="\$RESULT"
+      return
     fi
-    return
   fi
 
-  # ── Interactive mode (TTY) ──────────────────────────────────
-  local ESC=$'\\x1b'
-  local CUR=0  # 0-indexed current selection
-  local SAVED_STTY
-  SAVED_STTY=\$(stty -g 2>/dev/null)
-
-  # Cleanup: restore terminal on RETURN or Ctrl-C
-  _agenshield_select_cleanup() {
-    printf "\${ESC}[?25h" >&2  # show cursor
-    stty "\$SAVED_STTY" 2>/dev/null
-  }
-  trap '_agenshield_select_cleanup' RETURN
-  trap '_agenshield_select_cleanup; exit 130' INT
-
-  # Hide cursor
-  printf "\${ESC}[?25h" >&2
-  printf "\${ESC}[?25l" >&2
-
-  # Total lines we render (title + blank + options + blank + hint)
-  local TOTAL_LINES=\$((COUNT + 4))
-
-  _agenshield_select_render() {
-    local idx
-    # Title: cyan bold
-    printf "\${ESC}[1;36m  %s\${ESC}[0m\\n" "\$TITLE" >&2
-    echo "" >&2
-    for idx in \$(seq 0 \$((COUNT - 1))); do
-      if [[ \$idx -eq \$CUR ]]; then
-        # Active: green arrow + bold text
-        printf "\${ESC}[32m  > \${ESC}[1m%s\${ESC}[0m\\n" "\${OPTS[\$idx]}" >&2
-      else
-        printf "    \${ESC}[2m%s\${ESC}[0m\\n" "\${OPTS[\$idx]}" >&2
-      fi
-    done
-    echo "" >&2
-    # Hint line
-    local HINT="  ↑/↓ Navigate  Enter Confirm"
-    if [[ \$ALLOW_CANCEL -eq 1 ]]; then
-      HINT="\$HINT  Esc Cancel"
-    fi
-    printf "\${ESC}[2m%s\${ESC}[0m" "\$HINT" >&2
-  }
-
-  # Initial render
-  _agenshield_select_render
-
-  # Input loop
-  while true; do
-    stty raw -echo 2>/dev/null
-    local KEY
-    IFS= read -r -s -n 1 KEY 2>/dev/null
-    stty "\$SAVED_STTY" 2>/dev/null
-
-    if [[ "\$KEY" == \$'\x1b' ]]; then
-      # Read rest of escape sequence
-      local SEQ
-      stty raw -echo 2>/dev/null
-      IFS= read -r -s -n 2 -t 0.1 SEQ 2>/dev/null
-      stty "\$SAVED_STTY" 2>/dev/null
-      case "\$SEQ" in
-        '[A') # Up arrow
-          [[ \$CUR -gt 0 ]] && CUR=\$((CUR - 1))
-          ;;
-        '[B') # Down arrow
-          [[ \$CUR -lt \$((COUNT - 1)) ]] && CUR=\$((CUR + 1))
-          ;;
-        *)
-          # Bare Esc (no sequence) — cancel if allowed
-          if [[ -z "\$SEQ" ]] && [[ \$ALLOW_CANCEL -eq 1 ]]; then
-            # Clear rendered lines
-            local cl
-            for cl in \$(seq 1 \$TOTAL_LINES); do
-              printf "\${ESC}[A\${ESC}[2K" >&2
-            done
-            printf "\\r" >&2
-            _AGENSHIELD_SELECTION=0
-            return
-          fi
-          ;;
-      esac
-    elif [[ "\$KEY" == "" ]]; then
-      # Enter key
-      # Clear rendered lines
-      local cl
-      for cl in \$(seq 1 \$TOTAL_LINES); do
-        printf "\${ESC}[A\${ESC}[2K" >&2
-      done
-      printf "\\r" >&2
-      _AGENSHIELD_SELECTION=\$((CUR + 1))
-      return
-    elif [[ "\$KEY" =~ ^[1-9]$ ]] && [[ "\$KEY" -le \$COUNT ]]; then
-      # Number shortcut
-      local cl
-      for cl in \$(seq 1 \$TOTAL_LINES); do
-        printf "\${ESC}[A\${ESC}[2K" >&2
-      done
-      printf "\\r" >&2
-      _AGENSHIELD_SELECTION="\$KEY"
-      return
-    fi
-
-    # Re-render: move cursor up and redraw
-    local cl
-    for cl in \$(seq 1 \$TOTAL_LINES); do
-      printf "\${ESC}[A\${ESC}[2K" >&2
-    done
-    printf "\\r" >&2
-    _agenshield_select_render
+  # Fallback: simple numbered prompt (works in any terminal)
+  echo "" >&2
+  echo "  \$TITLE" >&2
+  echo "" >&2
+  local i
+  for i in \$(seq 1 \$COUNT); do
+    echo "  \$i) \${OPTS[\$((i-1))]}" >&2
   done
+  printf "Select [1-\$COUNT]: " >&2
+  read -r _AGENSHIELD_SELECTION
+  if ! [[ "\$_AGENSHIELD_SELECTION" =~ ^[0-9]+$ ]] || \
+     [[ \$_AGENSHIELD_SELECTION -lt 1 ]] || \
+     [[ \$_AGENSHIELD_SELECTION -gt \$COUNT ]]; then
+    _AGENSHIELD_SELECTION=0
+  fi
 }
 
 # Daemon connection (used by _check_cwd_access and _check_cwd_perms)
@@ -428,6 +360,7 @@ DAEMON_HOST="\${AGENSHIELD_HOST:-127.0.0.1}"
 DAEMON_PORT="\${AGENSHIELD_PORT:-5200}"
 
 # Helper: check if CWD is in the allowed workspace paths
+# Returns: 0 = already allowed, 2 = just granted (ACLs applied, skip perm check)
 _check_cwd_access() {
   local AGENT_HOME="$1"
   local CWD="$PWD"
@@ -453,10 +386,17 @@ _check_cwd_access() {
     "Cancel" --cancel
 
   case "\$_AGENSHIELD_SELECTION" in
-    1) curl -sf -X POST "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/grant" \\
+    1) local GRANT_RESP
+       GRANT_RESP=\$(curl -sf -X POST "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/grant" \\
          -H "Content-Type: application/json" \\
-         -d "{\\"path\\":\\"$CWD\\"}" > /dev/null 2>&1
-       echo "Access granted." >&2 ;;
+         -d "{\\"path\\":\\"$CWD\\"}" 2>/dev/null)
+       if echo "\$GRANT_RESP" | grep -q '"warning"'; then
+         echo "Access registered but permissions could not be verified. Starting in agent home." >&2
+         export AGENSHIELD_HOST_CWD="$AGENT_HOME"
+         return 0
+       fi
+       echo "Access granted." >&2
+       return 2 ;;
     2) export AGENSHIELD_HOST_CWD="$AGENT_HOME"
        echo "Using agent home." >&2 ;;
     *) echo "Cancelled." >&2; exit 0 ;;
@@ -464,6 +404,7 @@ _check_cwd_access() {
 }
 
 # Helper: check if agent user has OS-level read+execute on CWD
+# Uses daemon endpoint instead of sudo -n test (which requires NOPASSWD sudo).
 _check_cwd_perms() {
   local AGENT_USER="$1" AGENT_HOME="$2"
   local CWD="$PWD"
@@ -471,10 +412,18 @@ _check_cwd_perms() {
   # Skip if CWD is under agent home (always accessible)
   [[ "$CWD" == "$AGENT_HOME"* ]] && return 0
 
-  # Test if agent user can read+execute the directory
-  if sudo -n -u "$AGENT_USER" test -r "$CWD" -a -x "$CWD" 2>/dev/null; then
-    return 0
-  fi
+  # Ask daemon to verify ACL-granted access
+  local ENCODED_PATH
+  ENCODED_PATH=$(printf '%s' "$CWD" | jq -sRr @uri 2>/dev/null || echo "$CWD")
+  local ENCODED_USER
+  ENCODED_USER=$(printf '%s' "$AGENT_USER" | jq -sRr @uri 2>/dev/null || echo "$AGENT_USER")
+  local VERIFY_RESP
+  VERIFY_RESP=$(curl -sf "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/verify-permissions?path=$ENCODED_PATH&agentUser=$ENCODED_USER" 2>/dev/null)
+
+  # Fail-open if daemon unreachable (broker still enforces at runtime)
+  [ -z "$VERIFY_RESP" ] && return 0
+
+  echo "$VERIFY_RESP" | grep -q '"accessible":true' && return 0
 
   # Prompt user
   _agenshield_select \\
@@ -567,7 +516,11 @@ elif [[ $TOTAL_OPTIONS -eq 1 ]]; then
     # Validate CWD is in allowed workspace paths before launching
     if [[ -n "\${INST_HOMES[1]}" ]]; then
       _check_cwd_access "\${INST_HOMES[1]}"
-      _check_cwd_perms "\${INST_USERS[1]}" "\${INST_HOMES[1]}"
+      _CWD_RC=$?
+      # Skip perm check if access was just granted (return 2 = ACLs applied)
+      if [[ \$_CWD_RC -eq 0 ]]; then
+        _check_cwd_perms "\${INST_USERS[1]}" "\${INST_HOMES[1]}"
+      fi
     fi
     _agenshield_exec "\${INST_USERS[1]}" "\${INST_BINS[1]}" "\${INST_HOMES[1]}" "$@"
   else
@@ -575,7 +528,7 @@ elif [[ $TOTAL_OPTIONS -eq 1 ]]; then
   fi
 else
   # Multiple options — build options and prompt with interactive selector
-  local -a SELECT_OPTS=()
+  SELECT_OPTS=()
   for i in \$(seq 1 \$INST_COUNT); do
     SELECT_OPTS+=("\${INST_NAMES[\$i]} [\${INST_BASES[\$i]}] (shielded)")
   done
@@ -590,7 +543,11 @@ else
       # Validate CWD is in allowed workspace paths before launching
       if [[ -n "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}" ]]; then
         _check_cwd_access "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}"
-        _check_cwd_perms "\${INST_USERS[\$_AGENSHIELD_SELECTION]}" "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}"
+        _CWD_RC=$?
+        # Skip perm check if access was just granted (return 2 = ACLs applied)
+        if [[ \$_CWD_RC -eq 0 ]]; then
+          _check_cwd_perms "\${INST_USERS[\$_AGENSHIELD_SELECTION]}" "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}"
+        fi
       fi
       _agenshield_exec "\${INST_USERS[\$_AGENSHIELD_SELECTION]}" "\${INST_BINS[\$_AGENSHIELD_SELECTION]}" "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}" "$@"
     else

@@ -618,10 +618,9 @@ export function triggerSkillsScan(): void {
  */
 export function getSkillsDir(): string {
   if (skillsDir) return skillsDir;
-  const agentHome = process.env['AGENSHIELD_AGENT_HOME'];
-  if (agentHome) {
-    return path.join(agentHome, '.openclaw', 'skills');
-  }
+  // Fallback: resolve from target context (preset-aware)
+  const ctx = resolveTargetContext();
+  if (ctx) return ctx.skillsDir;
   return '';
 }
 

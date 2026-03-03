@@ -847,6 +847,18 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
               shieldLog.error(`SEA broker binary not found at ${brokerSEAPath} — run install.sh to deploy`);
               request.log.error({ targetId }, `SEA broker binary missing at ${brokerSEAPath}`);
             }
+            // Copy broker binary to agent home for direct access (avoids ACL traversal issues
+            // when the broker user can't traverse the admin's home directory)
+            const agentLibexec = `${agentHome}/.agenshield/libexec`;
+            try {
+              await executor.execAsRoot(
+                `mkdir -p "${agentLibexec}" && cp "${brokerSEAPath}" "${agentLibexec}/agenshield-broker" && chown ${brokerUser}:${groupName} "${agentLibexec}/agenshield-broker" && chmod 755 "${agentLibexec}/agenshield-broker"`,
+                { timeout: 10_000 },
+              );
+              shieldLog.info(`Broker binary copied to agent libexec: ${agentLibexec}/agenshield-broker`);
+            } catch (cpErr) {
+              shieldLog.warn(`Failed to copy broker binary to agent libexec: ${(cpErr as Error).message}`);
+            }
           }
           tracker.completeStep('deploy_broker_binary');
           manifestBuilder.recordInfra('deploy_broker_binary', 4, { hostHome, agentHome });
@@ -977,6 +989,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             generateRouterWrapper,
             buildInstallRouterCommands,
             buildInstallUserLocalRouterCommands,
+            generatePromptHelper,
           } = await import('@agenshield/sandbox');
 
           // Determine the binary name from base preset ID (e.g. 'claude-code' → 'claude')
@@ -1023,6 +1036,19 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             `chown -R ${hostUsername}:staff "${hostHome}/.agenshield/bin"`,
             { timeout: 10_000 },
           );
+
+          // Install Node.js prompt helper for interactive selection
+          try {
+            const promptHelperPath = `${hostHome}/.agenshield/bin/agenshield-prompt`;
+            const promptHelperContent = generatePromptHelper();
+            await executor.execAsRoot([
+              `cat > "${promptHelperPath}" << 'PROMPT_HELPER_EOF'\n${promptHelperContent}\nPROMPT_HELPER_EOF`,
+              `chmod 755 "${promptHelperPath}"`,
+              `chown ${hostUsername}:staff "${promptHelperPath}"`,
+            ].join('\n'), { timeout: 15_000 });
+          } catch {
+            // Best-effort — router wrapper falls back to numbered prompt
+          }
 
           tracker.completeStep('install_path_router');
           manifestBuilder.recordInfra('install_path_router', 5, { binName, hostHome });
@@ -1351,8 +1377,9 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         }
 
         // Verify broker binary exists and is executable by broker user before bootstrap (SEA mode)
+        // Uses agent-home copy to avoid ACL traversal issues with the admin's home directory.
         if (isSEA()) {
-          const brokerBinaryPath = `${hostHome}/.agenshield/libexec/agenshield-broker`;
+          const brokerBinaryPath = `${agentHome}/.agenshield/libexec/agenshield-broker`;
           const verifyResult = await executor.execAsRoot(
             [
               `test -f "${brokerBinaryPath}" && echo "EXISTS" || echo "MISSING"`,
@@ -1374,7 +1401,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         // failures on macOS Sequoia. The launcher wraps the SEA binary so launchctl
         // bootstraps /bin/bash (Apple-signed) and `exec` preserves PID tracking.
         if (isSEA() && brokerLauncherPath) {
-          const brokerBinaryPath = `${hostHome}/.agenshield/libexec/agenshield-broker`;
+          const brokerBinaryPath = `${agentHome}/.agenshield/libexec/agenshield-broker`;
           const configFilePath = `${agentHome}/.agenshield/config/shield.json`;
           const logDirPath = `${agentHome}/.agenshield/logs`;
           const launcherContent = generateBrokerLauncherScript({
@@ -1404,6 +1431,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         // defense-in-depth for other validation points.
         try {
           const brokerBin = `${hostHome}/.agenshield/libexec/agenshield-broker`;
+          const agentBrokerBin = `${agentHome}/.agenshield/libexec/agenshield-broker`;
           const tmpEnt = `/tmp/agenshield-ent-${Date.now()}.plist`;
           const entXml = '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/><key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>';
           await executor.execAsRoot(
@@ -1413,17 +1441,19 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
               `xattr -d com.apple.quarantine "${brokerBin}" 2>/dev/null; true`,
               `printf '%s' '${entXml}' > "${tmpEnt}"`,
               `codesign --force --sign - --options runtime --entitlements "${tmpEnt}" "${brokerBin}"`,
+              // Also sign the agent-home copy (used by the launcher to avoid ACL issues)
+              `if [ -f "${agentBrokerBin}" ]; then xattr -d com.apple.quarantine "${agentBrokerBin}" 2>/dev/null; true && codesign --force --sign - --options runtime --entitlements "${tmpEnt}" "${agentBrokerBin}"; fi`,
               `rm -f "${tmpEnt}"`,
             ].join(' && '),
             { timeout: 15_000 },
           );
           try {
             const signInfo = await executor.execAsRoot(
-              `codesign -dvv "${brokerBin}" 2>&1 | head -5`,
+              `codesign -dvv "${agentBrokerBin}" 2>&1 | head -5`,
               { timeout: 5_000 },
             );
             if (signInfo.output) {
-              shieldLog.info(`Broker binary signing: ${signInfo.output.trim()}`);
+              shieldLog.info(`Broker binary signing (agent copy): ${signInfo.output.trim()}`);
             }
           } catch { /* diagnostic logging is best-effort */ }
         } catch {
@@ -1530,7 +1560,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         try {
           const tokenFilePath = `${agentHome}/.agenshield-token`;
           await executor.execAsRoot(
-            `printf '%s\\n' '${brokerJwt}' > "${tokenFilePath}" && chmod 640 "${tokenFilePath}" && chown ${brokerUser}:${groupName} "${tokenFilePath}"`,
+            `printf '%s\\n' '${brokerJwt}' > "${tokenFilePath}" && chmod 600 "${tokenFilePath}" && chown ${brokerUser}:${groupName} "${tokenFilePath}"`,
             { timeout: 10_000 },
           );
           shieldLog.info(`Broker token file written to ${tokenFilePath}`);
@@ -2525,6 +2555,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         generateRouterWrapper,
         buildInstallRouterCommands,
         buildInstallUserLocalRouterCommands,
+        generatePromptHelper,
       } = await import('@agenshield/sandbox');
 
       // Resolve host username (daemon may run as root / LaunchDaemon)
@@ -2607,6 +2638,21 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         }
       } catch {
         // scanForRouterWrappers failed — skip router regeneration
+      }
+
+      // 3. Regenerate prompt helper
+      if (hostHome && hostUsername) {
+        try {
+          const promptHelperPath = `${hostHome}/.agenshield/bin/agenshield-prompt`;
+          const promptHelperContent = generatePromptHelper();
+          await executor.execAsRoot([
+            `cat > "${promptHelperPath}" << 'PROMPT_HELPER_EOF'\n${promptHelperContent}\nPROMPT_HELPER_EOF`,
+            `chmod 755 "${promptHelperPath}"`,
+            `chown ${hostUsername}:staff "${promptHelperPath}"`,
+          ].join('\n'), { timeout: 15_000 });
+        } catch {
+          // Best-effort — router wrapper falls back to numbered prompt
+        }
       }
 
       return {

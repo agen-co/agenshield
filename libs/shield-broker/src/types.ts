@@ -333,6 +333,8 @@ export interface SkillInstallParams {
   agentHome?: string;
   /** Socket group name (defaults to env AGENSHIELD_SOCKET_GROUP) */
   socketGroup?: string;
+  /** Override skills directory (preset-aware, e.g. .claude/skills for Claude Code) */
+  skillsDir?: string;
 }
 
 export interface SkillInstallResult {
@@ -355,6 +357,8 @@ export interface SkillUninstallParams {
   agentHome?: string;
   /** Whether to remove wrapper script */
   removeWrapper?: boolean;
+  /** Override skills directory (preset-aware, e.g. .claude/skills for Claude Code) */
+  skillsDir?: string;
 }
 
 export interface SkillUninstallResult {

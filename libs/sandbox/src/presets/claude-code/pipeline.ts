@@ -42,6 +42,28 @@ export function getClaudeCodePipeline(): InstallStep[] {
       return (await checkedExecAsUserDirect(ctx,
         `export PATH="${searchPath}:$PATH" && command -v claude`,
         'resolve_claude', 10_000)).trim();
+    }, {
+      envSetup: (ctx) => {
+        const hostHome = ctx.hostHome || process.env['HOME'] || '';
+        const interceptorPath = `${hostHome}/.agenshield/lib/interceptor/register.cjs`;
+        const socketPath = `${ctx.agentHome}/.agenshield/run/agenshield.sock`;
+        return [
+          '# AgenShield interceptor + proxy environment',
+          `if [ -f "${interceptorPath}" ]; then`,
+          `  export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"`,
+          'fi',
+          `export AGENSHIELD_NODE_BIN="${ctx.agentHome}/bin/node-bin"`,
+          `export AGENSHIELD_SOCKET="${socketPath}"`,
+          `export AGENSHIELD_HTTP_PORT="5201"`,
+          'export AGENSHIELD_INTERCEPT_EXEC=true',
+          'export AGENSHIELD_INTERCEPT_HTTP=true',
+          'export AGENSHIELD_INTERCEPT_FETCH=true',
+          'export AGENSHIELD_INTERCEPT_WS=true',
+          'export HTTP_PROXY="http://127.0.0.1:5201"',
+          'export HTTPS_PROXY="http://127.0.0.1:5201"',
+          'export NO_PROXY="localhost,127.0.0.1"',
+        ].join('\n');
+      },
     }),
     createStopHostProcessesStep('claude', '[c]laude'),          // weight 3
     detectHostClaudeStep,                                       // weight 2, resolve -> copy + rewrite

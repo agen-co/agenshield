@@ -1,0 +1,1 @@
+export { WorkspacePathsList } from './WorkspacePathsList';

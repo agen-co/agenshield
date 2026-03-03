@@ -201,6 +201,12 @@ export function useSSE(enabled = true, token?: string | null) {
           }
         }
 
+        // Invalidate workspace skills queries on workspace_skills events
+        if (type.startsWith('workspace_skills:')) {
+          queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkills });
+          queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkillsPendingCount });
+        }
+
         // Extract source and profileId tags from the daemon event wrapper
         const source = rawData && typeof rawData === 'object' && 'source' in rawData
           ? (rawData.source as string)

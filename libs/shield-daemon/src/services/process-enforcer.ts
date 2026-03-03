@@ -239,10 +239,17 @@ async function runEnforcementScan(): Promise<void> {
     // Process denied — remember and enforce
     knownPids.set(proc.pid, 'denied');
 
+    const MAX_COMMAND_LEN = 200;
+    const fullCommand = proc.command;
     const payload = {
       pid: proc.pid,
       user: proc.user,
-      command: proc.command,
+      command: fullCommand.length > MAX_COMMAND_LEN
+        ? fullCommand.slice(0, MAX_COMMAND_LEN)
+        : fullCommand,
+      commandPreview: fullCommand.length > 80
+        ? fullCommand.slice(0, 77) + '...'
+        : fullCommand,
       policyId: result.policyId ?? 'unknown',
       policyName: result.policyName,
       enforcement: result.enforcement,

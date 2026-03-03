@@ -6,6 +6,7 @@
 import './context/request-context';
 
 import * as fs from 'node:fs';
+import * as net from 'node:net';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -56,6 +57,7 @@ import { startEventLoopMonitor, stopEventLoopMonitor } from './services/event-lo
 import { initSystemExecutor, shutdownSystemExecutor } from './workers/system-command';
 import { startFallbackNotifications, stopFallbackNotifications } from './services/notifications';
 import { startAutoUpdateWatcher, stopAutoUpdateWatcher } from './watchers/auto-update';
+import { WorkspaceSkillScanner } from './services/workspace-skill-scanner';
 
 /**
  * Create and configure the Fastify server
@@ -131,18 +133,53 @@ export async function createServer(config: DaemonConfig): Promise<FastifyInstanc
 }
 
 /**
+ * Check whether a port is currently in use.
+ */
+function isPortInUse(port: number, host: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester = net.createServer();
+    tester.once('error', (err: NodeJS.ErrnoException) => {
+      resolve(err.code === 'EADDRINUSE');
+    });
+    tester.once('listening', () => {
+      tester.close(() => resolve(false));
+    });
+    tester.listen(port, host);
+  });
+}
+
+/**
+ * Wait for a port to become available, polling with a fixed interval.
+ * Used during upgrades when the previous daemon may still be releasing the port.
+ * Does not throw — lets the actual app.listen() handle a final EADDRINUSE.
+ */
+async function waitForPortAvailable(port: number, host: string, timeoutMs = 10_000): Promise<void> {
+  const start = Date.now();
+  const interval = 500;
+
+  while (Date.now() - start < timeoutMs) {
+    if (!(await isPortInUse(port, host))) return;
+    await new Promise((r) => setTimeout(r, interval));
+  }
+}
+
+/**
  * Start the server
  * @param config Daemon configuration
  * @returns The running Fastify instance
  */
 export async function startServer(config: DaemonConfig): Promise<FastifyInstance> {
-  const app = await createServer(config);
-
-  await startDaemonServices(app, config);
-
   // Normalize localhost to 127.0.0.1 to avoid IPv6 binding issues on macOS
   // (localhost resolves to ::1 on macOS, but clients often connect via 127.0.0.1)
   const listenHost = config.host === 'localhost' ? '127.0.0.1' : config.host;
+
+  // Wait for the port to be released (e.g. after an upgrade kills the old daemon).
+  // This runs BEFORE heavy initialization so we don't waste work on a doomed start.
+  await waitForPortAvailable(config.port, listenHost);
+
+  const app = await createServer(config);
+
+  await startDaemonServices(app, config);
 
   await app.listen({
     port: config.port,
@@ -208,7 +245,7 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   const targetCtx = resolveTargetContext();
   const hasTargetCtx = targetCtx !== null;
   const agentHome = targetCtx?.agentHome ?? '';
-  const skillsDir = hasTargetCtx ? path.resolve(`${agentHome}/.openclaw/skills`) : '';
+  const skillsDir = targetCtx?.skillsDir ?? '';
   const socketGroup = targetCtx?.socketGroup ?? '';
 
   const devMode = isDevMode();
@@ -472,6 +509,34 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   // Decorate app so routes can access the manager
   app.decorate('skillManager', skillManager);
 
+  // ─── Register deploy adapter when a target is shielded ────────
+  // At daemon startup, resolveTargetContext() may return null (no profile yet).
+  // When shielding completes, register a DaemonDeployAdapter and deploy any
+  // skills that were installed before the adapter existed.
+  eventBus.on('setup:shield_complete', (payload) => {
+    const ctx = resolveTargetContext(payload.profileId);
+    if (!ctx) return;
+    if (skillManager.deployer.findAdapter(payload.profileId)) return; // already registered
+
+    const adapter = new DaemonDeployAdapter({
+      skillsDir: ctx.skillsDir,
+      agentHome: ctx.agentHome,
+      socketGroup: ctx.socketGroup,
+      binDir: path.join(ctx.agentHome, 'bin'),
+      devMode,
+      profiles: storage.profiles,
+    });
+    skillManager.deployer.addAdapter(adapter);
+    app.log.info(`[skills] Deploy adapter registered for profile ${payload.profileId}`);
+
+    // Retroactively deploy skills installed before the adapter existed
+    skillManager.deployer.deployPending().then((count) => {
+      if (count > 0) app.log.info(`[skills] Retroactively deployed ${count} pending installation(s)`);
+    }).catch((err) => {
+      app.log.warn({ err }, '[skills] Failed to deploy pending installations');
+    });
+  });
+
   // ─── Register sync sources with SkillManager ─────────────────
   try {
     const mcpSource = new MCPSkillSource();
@@ -582,11 +647,22 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   // Start auto-update watcher (checks GitHub Releases every 6 hours, notifies via SSE)
   startAutoUpdateWatcher();
 
+  // Start workspace skill scanner
+  const workspaceSkillScanner = new WorkspaceSkillScanner({
+    storage,
+    logger: app.log,
+    agentUsername: targetCtx?.agentUsername ?? '',
+    configDir: getConfigDir(),
+  });
+  workspaceSkillScanner.start(30_000);
+  app.decorate('workspaceSkillScanner', workspaceSkillScanner);
+
   // Stop watchers, proxy pool, and MCP on server close
   app.addHook('onClose', async () => {
     emitProcessStopped('daemon', { pid: process.pid });
     stopFallbackNotifications();
     stopAutoUpdateWatcher();
+    workspaceSkillScanner.stop();
     stopProcessEnforcer();
     stopEventLoopMonitor();
     stopSecurityWatcher();

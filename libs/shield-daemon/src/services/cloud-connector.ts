@@ -229,6 +229,11 @@ export class CloudConnector {
         await this.handleKillProcess(command.params);
         break;
 
+      case 'push_forced_skills':
+        log.info(`[cloud] Received forced skills push: ${JSON.stringify(command.params).slice(0, 200)}`);
+        await this.handlePushForcedSkills(command.params);
+        break;
+
       case 'ping':
         // Respond to server ping
         if (this.ws?.readyState === 1) { // WebSocket.OPEN
@@ -540,6 +545,85 @@ export class CloudConnector {
       }
     } catch (err) {
       log.debug({ err }, '[cloud] Failed to pull policies');
+    }
+  }
+
+  /**
+   * Verify workspace skills against the cloud.
+   * Sends skill hashes for approval check; returns per-skill approval status.
+   */
+  async verifyWorkspaceSkills(
+    skills: Array<{ skillName: string; contentHash: string; fileList: string[] }>,
+  ): Promise<Array<{ skillName: string; approved: boolean; cloudSkillId?: string }>> {
+    const log = getLogger();
+    if (!this.credentials) return [];
+
+    try {
+      const agentId = this.credentials.agentId;
+      const authHeader = this.makeAuthHeader();
+      const url = `${this.credentials.cloudUrl}/api/agents/${agentId}/workspace-skills/verify`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ skills }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        log.warn(`[cloud] Failed to verify workspace skills: ${res.status}`);
+        return [];
+      }
+
+      const body = await res.json() as { results?: Array<{ skillName: string; approved: boolean; cloudSkillId?: string }> };
+      return body.results ?? [];
+    } catch (err) {
+      log.debug({ err }, '[cloud] Failed to verify workspace skills');
+      return [];
+    }
+  }
+
+  /**
+   * Handle cloud-pushed forced skills.
+   * Stores skill files locally and pushes them to all active workspaces.
+   */
+  private async handlePushForcedSkills(params: Record<string, unknown>): Promise<void> {
+    const log = getLogger();
+    const skills = params.skills as Array<{ name: string; files: Array<{ name: string; content: string }>; cloudSkillId?: string }> | undefined;
+
+    if (!Array.isArray(skills)) {
+      log.warn('[cloud] push_forced_skills: missing or invalid skills array');
+      return;
+    }
+
+    // Lazily import scanner to avoid circular dependency
+    const { WorkspaceSkillScanner } = await import('./workspace-skill-scanner');
+
+    const storage = getStorage();
+    const profiles = storage.profiles.getByType('target');
+    const agentUsername = profiles[0]?.agentUsername ?? '';
+
+    const scanner = new WorkspaceSkillScanner({
+      storage,
+      logger: log,
+      agentUsername,
+      configDir: '',
+    });
+
+    for (const skill of skills) {
+      try {
+        scanner.pushCloudForcedSkill(skill.name, skill.files, skill.cloudSkillId);
+        log.info(`[cloud] Pushed forced skill: ${skill.name}`);
+      } catch (err) {
+        log.warn(`[cloud] Failed to push forced skill ${skill.name}: ${(err as Error).message}`);
+      }
     }
   }
 }

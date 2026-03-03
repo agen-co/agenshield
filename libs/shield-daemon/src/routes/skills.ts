@@ -222,7 +222,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
     if (!targetCtx) {
       return reply.send({ data: [] });
     }
-    const skillsDir = `${targetCtx.agentHome}/.openclaw/skills`;
+    const skillsDir = targetCtx.skillsDir;
 
     // Get all skills from DB
     const allSkills = repo.getAll();
@@ -354,7 +354,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       if (!targetCtx) {
         return reply.code(503).send({ error: 'No target context configured — skill features unavailable' });
       }
-      const skillsDir = `${targetCtx.agentHome}/.openclaw/skills`;
+      const skillsDir = targetCtx.skillsDir;
 
       let summary: SkillSummary;
 
@@ -524,7 +524,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
       if (!targetCtx) {
         return reply.code(503).send({ error: 'No target context configured — skill features unavailable' });
       }
-      const skillsDir = `${targetCtx.agentHome}/.openclaw/skills`;
+      const skillsDir = targetCtx.skillsDir;
 
       // Resolve content for analysis (disk → download cache → marketplace)
       if (!content) {
@@ -801,7 +801,7 @@ export async function skillsRoutes(app: FastifyInstance): Promise<void> {
 
         // Write files to workspace/skills/{slug}/ so deploy adapter can read them
         const installCtx = requireTargetContext(request.shieldContext.profileId ?? undefined);
-        const skillsDir = `${installCtx.agentHome}/.openclaw/skills`;
+        const skillsDir = installCtx.skillsDir;
         const destDir = path.join(skillsDir, slug);
         fs.mkdirSync(destDir, { recursive: true });
         for (const f of files) {

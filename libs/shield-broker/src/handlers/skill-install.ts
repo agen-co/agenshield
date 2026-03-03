@@ -63,6 +63,7 @@ export async function handleSkillInstall(
       createWrapper = false,
       agentHome = process.env['AGENSHIELD_AGENT_HOME'] ?? '',
       socketGroup = process.env['AGENSHIELD_SOCKET_GROUP'] || 'ash_default',
+      skillsDir: skillsDirOverride,
     } = params as unknown as SkillInstallParams;
 
     if (!agentHome) {
@@ -105,7 +106,7 @@ export async function handleSkillInstall(
       }
     }
 
-    const skillsDir = path.join(agentHome, '.openclaw', 'workspace', 'skills');
+    const skillsDir = skillsDirOverride ?? path.join(agentHome, '.openclaw', 'workspace', 'skills');
     const skillDir = path.join(skillsDir, slug);
     const binDir = path.join(agentHome, 'bin');
 
@@ -198,6 +199,7 @@ export async function handleSkillUninstall(
       slug,
       agentHome = process.env['AGENSHIELD_AGENT_HOME'] ?? '',
       removeWrapper = true,
+      skillsDir: skillsDirOverride,
     } = params as unknown as SkillUninstallParams;
 
     if (!agentHome) {
@@ -215,7 +217,7 @@ export async function handleSkillUninstall(
       };
     }
 
-    const skillsDir = path.join(agentHome, '.openclaw', 'workspace', 'skills');
+    const skillsDir = skillsDirOverride ?? path.join(agentHome, '.openclaw', 'workspace', 'skills');
     const skillDir = path.join(skillsDir, slug);
     const binDir = path.join(agentHome, 'bin');
     const wrapperPath = path.join(binDir, slug);

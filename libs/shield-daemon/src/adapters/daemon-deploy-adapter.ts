@@ -38,6 +38,7 @@ import { injectInstallationTag } from '../services/skill-tag-injector';
 import { loadConfig, updateConfig } from '../config';
 import { syncCommandPolicies } from '../command-sync';
 import { getPolicyManager, hasPolicyManager } from '../services/policy-manager';
+import { resolveSkillsDir } from '../services/target-context';
 
 /** Minimal profile lookup interface (avoids importing the full repository class) */
 export interface ProfileLookup {
@@ -112,7 +113,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
           const brokerResult = await installSkillViaBroker(
             skill.slug,
             processedFiles.map((f) => ({ name: f.relativePath, content: f.content })),
-            { createWrapper: true, agentHome: resolvedPaths.agentHome, socketGroup: resolvedPaths.socketGroup, socketPath: targetSocket },
+            { createWrapper: true, agentHome: resolvedPaths.agentHome, skillsDir: resolvedPaths.skillsDir, socketGroup: resolvedPaths.socketGroup, socketPath: targetSocket },
           );
           if (!brokerResult.installed) {
             throw new Error('Broker failed to install skill files');
@@ -210,6 +211,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
           await uninstallSkillViaBroker(skill.slug, {
             removeWrapper: true,
             agentHome: resolvedPaths.agentHome,
+            skillsDir: resolvedPaths.skillsDir,
             socketPath: targetSocket,
           });
         } catch {
@@ -315,7 +317,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
           .replace(/_agent$/, '');
         return {
           agentHome,
-          skillsDir: path.join(agentHome, '.openclaw', 'skills'),
+          skillsDir: resolveSkillsDir(agentHome, profile.presetId),
           binDir: path.join(agentHome, 'bin'),
           socketGroup: `ash_${baseName}`,
         };

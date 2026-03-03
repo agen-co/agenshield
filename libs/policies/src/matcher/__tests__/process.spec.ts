@@ -49,6 +49,26 @@ describe('matchProcessPattern', () => {
     it('node* matches commands starting with node', () => {
       expect(matchProcessPattern('node*', 'node-gyp build')).toBe(true);
     });
+
+    it('*openclaw* should NOT match rg searching in openclaw directory', () => {
+      expect(matchProcessPattern('*openclaw*', 'rg --files /path/to/openclaw/dir')).toBe(false);
+    });
+
+    it('*openclaw* should NOT match grep searching in openclaw path', () => {
+      expect(matchProcessPattern('*openclaw*', 'grep -r something /presets/openclaw/file.ts')).toBe(false);
+    });
+
+    it('*openclaw* SHOULD match openclaw binary with full path', () => {
+      expect(matchProcessPattern('*openclaw*', '/usr/bin/openclaw --flag')).toBe(true);
+    });
+
+    it('*openclaw* SHOULD match bare openclaw command', () => {
+      expect(matchProcessPattern('*openclaw*', 'openclaw')).toBe(true);
+    });
+
+    it('*openclaw* matches via interpreter script candidate', () => {
+      expect(matchProcessPattern('*openclaw*', 'node /path/to/node_modules/openclaw/bin/cli.js')).toBe(true);
+    });
   });
 
   describe('exact basename match', () => {
@@ -189,8 +209,8 @@ describe('matchProcessPattern', () => {
       expect(matchProcessPattern('openclaw:*', '/opt/openclaw/bin/openclaw serve --port 8080')).toBe(true);
     });
 
-    it('matches node openclaw script', () => {
-      expect(matchProcessPattern('*openclaw*', 'node /opt/openclaw/dist/index.js')).toBe(true);
+    it('does not match node script in openclaw directory (glob matches binary, not args)', () => {
+      expect(matchProcessPattern('*openclaw*', 'node /opt/openclaw/dist/index.js')).toBe(false);
     });
   });
 });

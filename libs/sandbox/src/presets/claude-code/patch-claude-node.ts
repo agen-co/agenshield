@@ -65,6 +65,8 @@ export const patchClaudeNodeStep: InstallStep = {
 
       const backupPath = `${nodePath}.real`;
 
+      const socketPath = `${ctx.agentHome}/.agenshield/run/agenshield.sock`;
+
       const script = `
 set -e
 
@@ -83,6 +85,13 @@ NODE_REAL="$SCRIPT_DIR/$(basename "$0").real"
 if [ -f "${interceptorPath}" ]; then
   export NODE_OPTIONS="\${NODE_OPTIONS:+\$NODE_OPTIONS }--require ${interceptorPath}"
 fi
+export AGENSHIELD_NODE_BIN="${ctx.agentHome}/bin/node-bin"
+export AGENSHIELD_SOCKET="${socketPath}"
+export AGENSHIELD_HTTP_PORT="5201"
+export AGENSHIELD_INTERCEPT_EXEC=true
+export AGENSHIELD_INTERCEPT_HTTP=true
+export AGENSHIELD_INTERCEPT_FETCH=true
+export AGENSHIELD_INTERCEPT_WS=true
 exec "$NODE_REAL" "$@"
 PATCH_EOF
 

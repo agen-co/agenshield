@@ -40,9 +40,6 @@ export const BASE_ENV_ALLOWLIST: readonly string[] = [
   'HOMEBREW_CELLAR',
   'HOMEBREW_REPOSITORY',
 
-  // SSH (auth socket only — NOT SSH_ASKPASS)
-  'SSH_AUTH_SOCK',
-
   // AgenShield variables
   'AGENSHIELD_*',
 

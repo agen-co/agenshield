@@ -15,10 +15,15 @@ import { checkedExecAsRoot } from './install-helpers.js';
  *
  * @param appName      - Binary name (e.g., 'openclaw', 'claude')
  * @param resolvePath  - Async function that resolves the real binary path
+ * @param options      - Optional config: envSetup returns bash lines for env vars
  */
 export function createAppWrapperStep(
   appName: string,
   resolvePath: (ctx: InstallContext) => Promise<string>,
+  options?: {
+    /** Return bash lines to inject env vars before exec. Receives install context. */
+    envSetup?: (ctx: InstallContext) => string;
+  },
 ): InstallStep {
   return {
     id: `create_${appName}_wrapper`,
@@ -33,12 +38,21 @@ export function createAppWrapperStep(
     async run(ctx) {
       const resolvedPath = await resolvePath(ctx);
       const wrapperPath = `${ctx.agentHome}/bin/${appName}`;
-      // The guarded shell's .zshrc already handles cd to AGENSHIELD_HOST_CWD
-      // and unsets the variable. This wrapper runs AFTER .zshrc, so the cwd
-      // is already correct. No additional cd needed.
+      const envSetupLines = options?.envSetup?.(ctx) ?? '';
+      // The app wrapper launches directly (not through guarded shell), so it
+      // must handle cd to AGENSHIELD_HOST_CWD itself before exec'ing the binary.
       const wrapper = `#!/bin/bash
 # AgenShield ${appName} wrapper
 set -euo pipefail
+if [ -n "\${AGENSHIELD_HOST_CWD:-}" ] && [ -d "$AGENSHIELD_HOST_CWD" ]; then
+  if ! cd "$AGENSHIELD_HOST_CWD" 2>/dev/null; then
+    echo "AgenShield: Cannot access $AGENSHIELD_HOST_CWD — using home directory" >&2
+    cd "$HOME" 2>/dev/null || cd /
+  fi
+else
+  cd "$HOME" 2>/dev/null || cd /
+fi
+${envSetupLines ? envSetupLines + '\n' : ''}unset AGENSHIELD_HOST_CWD
 exec "${resolvedPath}" "$@"
 `;
       await checkedExecAsRoot(ctx, [

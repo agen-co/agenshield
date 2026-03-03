@@ -28,3 +28,26 @@ export class TargetContextNotFoundError extends DaemonError {
     this.name = 'TargetContextNotFoundError';
   }
 }
+
+/**
+ * Base error for workspace skill operations.
+ */
+export class WorkspaceSkillError extends DaemonError {
+  constructor(message: string, code: string) {
+    super(message, code);
+    this.name = 'WorkspaceSkillError';
+  }
+}
+
+/**
+ * Thrown when a workspace skill record is not found by ID.
+ */
+export class WorkspaceSkillNotFoundError extends WorkspaceSkillError {
+  readonly skillId: string;
+
+  constructor(skillId: string) {
+    super(`Workspace skill not found: ${skillId}`, 'WORKSPACE_SKILL_NOT_FOUND');
+    this.name = 'WorkspaceSkillNotFoundError';
+    this.skillId = skillId;
+  }
+}

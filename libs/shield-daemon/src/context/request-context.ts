@@ -11,6 +11,7 @@ import type { SkillManager } from '@agentshield/skills';
 import type { ProfileSocketManager } from '../services/profile-sockets';
 import type { PrivilegeExecutor } from '../services/privilege-executor';
 import type { ProcessManager } from '../services/process-manager';
+import type { WorkspaceSkillScanner } from '../services/workspace-skill-scanner';
 import {
   type ShieldContext,
   type ShieldRequestSource,
@@ -28,6 +29,7 @@ declare module 'fastify' {
     profileSocketManager?: ProfileSocketManager;
     privilegeExecutor?: PrivilegeExecutor;
     processManager?: ProcessManager;
+    workspaceSkillScanner?: WorkspaceSkillScanner;
   }
 }
 

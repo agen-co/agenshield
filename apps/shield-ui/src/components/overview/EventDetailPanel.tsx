@@ -5,7 +5,7 @@
  */
 
 import { memo, useState } from 'react';
-import { Box, Typography, Chip, IconButton, Drawer, useMediaQuery, useTheme, Collapse } from '@mui/material';
+import { Box, Typography, Chip, IconButton, Drawer, useMediaQuery, useTheme, Collapse, Link } from '@mui/material';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { X } from 'lucide-react';
 import { format } from 'date-fns';
@@ -186,6 +186,8 @@ function PanelBody({ event, onClose }: { event: SSEEvent; onClose: () => void })
         {/* Structured payload for known event types, raw JSON fallback */}
         {event.type === 'skills:integrity_violation' ? (
           <IntegrityViolationDetail data={event.data as Record<string, unknown>} />
+        ) : event.type.startsWith('enforcement:process_') ? (
+          <EnforcementProcessDetail data={event.data as Record<string, unknown>} />
         ) : (
           <>
             <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ display: 'block', mb: 1 }}>
@@ -223,7 +225,6 @@ const monoSx = { fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.72rem', 
 
 function IntegrityViolationDetail({ data }: { data: Record<string, unknown> }) {
   const theme = useTheme();
-  const [showRaw, setShowRaw] = useState(false);
 
   const checkedPath = String(data.checkedPath ?? '');
   const action = String(data.action ?? '');
@@ -289,35 +290,117 @@ function IntegrityViolationDetail({ data }: { data: Record<string, unknown> }) {
       )}
 
       {/* Collapsible raw JSON */}
+      <RawPayloadToggle data={data} />
+    </Box>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Structured detail for enforcement:process_* events                  */
+/* ------------------------------------------------------------------ */
+
+function EnforcementProcessDetail({ data }: { data: Record<string, unknown> }) {
+  const [showFullCommand, setShowFullCommand] = useState(false);
+
+  const command = String(data.command ?? '');
+  const commandPreview = data.commandPreview ? String(data.commandPreview) : undefined;
+  const displayCommand = showFullCommand ? command : (commandPreview ?? command);
+  const isLong = command.length > 80;
+
+  const fields: Array<{ label: string; value: string }> = [
+    { label: 'PID', value: String(data.pid ?? '') },
+    { label: 'User', value: String(data.user ?? '') },
+    { label: 'Policy', value: data.policyName ? String(data.policyName) : String(data.policyId ?? '') },
+    { label: 'Enforcement', value: String(data.enforcement ?? '') },
+    { label: 'Reason', value: String(data.reason ?? '') },
+  ];
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {/* Command with expandable "see more" */}
       <Box>
+        <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ display: 'block', mb: 0.5 }}>
+          Command
+        </Typography>
         <Box
-          onClick={() => setShowRaw(!showRaw)}
-          sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', userSelect: 'none' }}
+          sx={{
+            p: 1,
+            bgcolor: 'action.hover',
+            borderRadius: 1,
+            ...monoSx,
+            wordBreak: 'break-all',
+          }}
         >
-          {showRaw ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <Typography variant="caption" color="text.secondary" fontWeight={600}>
-            Raw Payload
-          </Typography>
+          {displayCommand}
+          {isLong && (
+            <Link
+              component="button"
+              variant="caption"
+              onClick={() => setShowFullCommand(!showFullCommand)}
+              sx={{ ml: 0.5, ...monoSx, verticalAlign: 'baseline' }}
+            >
+              {showFullCommand ? 'show less' : 'see more'}
+            </Link>
+          )}
         </Box>
-        <Collapse in={showRaw}>
-          <Box
-            sx={{
-              mt: 1,
-              p: 1.5,
-              bgcolor: 'action.hover',
-              borderRadius: 1,
-              overflow: 'auto',
-              maxHeight: 300,
-              ...monoSx,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-all',
-            }}
-            component="pre"
-          >
-            {JSON.stringify(data, null, 2)}
-          </Box>
-        </Collapse>
       </Box>
+
+      {/* Structured fields */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: 1 }}>
+        {fields.map(({ label, value }) => value && (
+          <Box key={label} sx={{ display: 'contents' }}>
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              {label}
+            </Typography>
+            <Typography variant="caption" sx={{ ...monoSx, wordBreak: 'break-all' }}>
+              {value}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
+
+      {/* Collapsible raw JSON */}
+      <RawPayloadToggle data={data} />
+    </Box>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Reusable raw payload collapsible section                            */
+/* ------------------------------------------------------------------ */
+
+function RawPayloadToggle({ data }: { data: Record<string, unknown> }) {
+  const [showRaw, setShowRaw] = useState(false);
+
+  return (
+    <Box>
+      <Box
+        onClick={() => setShowRaw(!showRaw)}
+        sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', userSelect: 'none' }}
+      >
+        {showRaw ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <Typography variant="caption" color="text.secondary" fontWeight={600}>
+          Raw Payload
+        </Typography>
+      </Box>
+      <Collapse in={showRaw}>
+        <Box
+          sx={{
+            mt: 1,
+            p: 1.5,
+            bgcolor: 'action.hover',
+            borderRadius: 1,
+            overflow: 'auto',
+            maxHeight: 300,
+            ...monoSx,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+          }}
+          component="pre"
+        >
+          {JSON.stringify(data, null, 2)}
+        </Box>
+      </Collapse>
     </Box>
   );
 }

@@ -38,6 +38,7 @@ import { FilesystemPolicyTable } from '../components/policies/FilesystemPolicyTa
 import { ProcessPolicyList } from '../components/policies/ProcessPolicyList';
 import { SimulatePanel } from '../components/policies/SimulatePanel';
 import { PolicyTierSection } from '../components/policies/PolicyTierSection';
+import { WorkspacePathsList } from '../components/policies/WorkspacePathsList';
 import { CircularLoader } from '../elements';
 import { useSnapshot } from 'valtio';
 import { scopeStore } from '../state/scope';
@@ -659,6 +660,21 @@ function PolicyDrilldown({ tab, target, embedded }: PolicyDrilldownProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* Workspace paths section — filesystem drill-down only */}
+      {target === 'filesystem' && (
+        <Card sx={{ mt: 3, p: 0 }}>
+          <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              Workspace Paths
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Directories the agent is allowed to access outside its home folder.
+            </Typography>
+          </Box>
+          <WorkspacePathsList />
+        </Card>
+      )}
 
       <ConfirmDialog
         open={guardOpen}

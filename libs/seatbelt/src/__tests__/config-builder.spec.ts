@@ -382,6 +382,11 @@ describe('buildSandboxConfig', () => {
       const result = await buildSandboxConfig(createDeps(), {});
       expect(result.allowedReadPaths).toContain('/Users/test_agent/.openclaw/workspace');
     });
+
+    it('agentHome/.agenshield-token in deniedPaths', async () => {
+      const result = await buildSandboxConfig(createDeps(), {});
+      expect(result.deniedPaths).toContain('/Users/test_agent/.agenshield-token');
+    });
   });
 
   describe('trace injection edge cases', () => {

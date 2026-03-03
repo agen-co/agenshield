@@ -283,6 +283,8 @@ export {
   type PathRegistryInstance,
 } from './wrappers/path-override.js';
 
+export { generatePromptHelper } from './wrappers/prompt-helper.js';
+
 // Legacy (single-file removal target)
 export {
   GUARDED_SHELL_PATH, ZDOT_DIR, ZDOT_ZSHENV_CONTENT,

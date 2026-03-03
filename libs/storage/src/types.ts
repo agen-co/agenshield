@@ -256,6 +256,23 @@ export interface DbMetaRow {
   value: string;
 }
 
+export interface DbWorkspaceSkillRow {
+  id: string;
+  profile_id: string;
+  workspace_path: string;
+  skill_name: string;
+  status: string;
+  content_hash: string | null;
+  backup_hash: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  cloud_skill_id: string | null;
+  removed_at: string | null;
+  acl_applied: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DbBinarySignatureRow {
   id: string;
   sha256: string;

@@ -11,6 +11,7 @@ export interface EnforcementProcessPayload {
   pid: number;
   user: string;
   command: string;
+  commandPreview?: string;
   policyId: string;
   policyName?: string;
   enforcement: 'alert' | 'kill';

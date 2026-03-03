@@ -32,6 +32,8 @@ export const queryKeys = {
   agencoSkillStatus: ['agenco', 'skill-status'] as const,
   profiles: ['profiles'] as const,
   fsBrowse: (dirPath: string) => ['fs', 'browse', dirPath] as const,
+  workspaceSkills: ['workspace-skills'] as const,
+  workspaceSkillsPendingCount: ['workspace-skills', 'pending-count'] as const,
 };
 
 /**
@@ -640,6 +642,40 @@ export function useAcknowledgeAllAlerts() {
   });
 }
 
+// --- Workspace paths hooks ---
+
+/** Derive workspace paths from profiles data */
+export function useWorkspacePaths() {
+  const { data, isLoading } = useProfiles();
+  const profiles = data?.data ?? [];
+  const paths = profiles.flatMap((p) =>
+    (p.workspacePaths ?? []).map((ws) => ({ path: ws, profileId: p.id, profileName: p.name })),
+  );
+  return { data: paths, isLoading };
+}
+
+export function useGrantWorkspacePath() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { path: string; profileId?: string }) =>
+      api.workspacePaths.grant(data.path, data.profileId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
+    },
+  });
+}
+
+export function useRevokeWorkspacePath() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { path: string; profileId?: string }) =>
+      api.workspacePaths.revoke(data.path, data.profileId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
+    },
+  });
+}
+
 // --- Playground hooks ---
 
 export function useSimulate() {
@@ -656,5 +692,59 @@ export function useProfiles() {
     queryKey: queryKeys.profiles,
     queryFn: api.getProfiles,
     enabled: healthy,
+  });
+}
+
+// --- Workspace skills hooks ---
+
+export function useWorkspaceSkills(workspace?: string, status?: string) {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: [...queryKeys.workspaceSkills, { workspace, status }] as const,
+    queryFn: () => api.workspaceSkills.getAll(workspace, status),
+    enabled: healthy,
+  });
+}
+
+export function useWorkspaceSkillsPendingCount() {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.workspaceSkillsPendingCount,
+    queryFn: api.workspaceSkills.getPendingCount,
+    enabled: healthy,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useApproveWorkspaceSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.workspaceSkills.approve(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkills });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkillsPendingCount });
+    },
+  });
+}
+
+export function useDenyWorkspaceSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.workspaceSkills.deny(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkills });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkillsPendingCount });
+    },
+  });
+}
+
+export function useScanWorkspaceSkills() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (workspacePath?: string) => api.workspaceSkills.scan(workspacePath),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkills });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkillsPendingCount });
+    },
   });
 }
