@@ -8,7 +8,11 @@
 import type { InstallStep } from '../types.js';
 import {
   saveHostShellConfigStep,
+  installHomebrewStep,
+  createInstallNvmStep,
+  createInstallNodeStep,
   createRestoreShellConfigStep,
+  copyNodeBinaryStep,
   createStopHostProcessesStep,
   createAppWrapperStep,
 } from '../shared/index.js';
@@ -23,8 +27,15 @@ import { buildClaudeSearchPath } from './claude-paths.js';
 
 export function getClaudeCodePipeline(): InstallStep[] {
   return [
-    // Phase 6: Shell config protection
+    // Phase 6: Shell config + Homebrew
     saveHostShellConfigStep,                                    // weight 1
+    installHomebrewStep,                                        // weight 15
+
+    // Phase 7: NVM & Node.js
+    createInstallNvmStep(),                                     // weight 8
+    createInstallNodeStep('24'),                                // weight 12
+    createRestoreShellConfigStep('nvm'),                        // weight 1
+    copyNodeBinaryStep,                                         // weight 3, copy nvm node to bin/node-bin
 
     // Phase 8: Target App
     installClaudeCodeStep,                                      // weight 30, check: version match?

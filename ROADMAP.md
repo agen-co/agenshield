@@ -56,3 +56,57 @@
 * [ ] `SUDO_MODE` does **not** grant real sudo access
 * [ ] `SUDO_MODE` applies a temporary wildcard policy only
 * [ ] `SUDO_MODE` is usable for trusted operations (e.g., OpenClaw installation)
+
+
+
+
+
+
+
+
+Cleanup
+Detection
+Users & Groups
+Directories & Shell
+Command Wrappers
+PATH Router
+Target App
+Save host shell config
+20ms
+Install Claude Code
+Check shell config after install
+Verify Claude Code
+Copy Node.js binary
+Configuration
+Create claude wrapper
+Detect host Claude Code
+Copy Claude credentials
+Patch embedded Node.js
+Installing Homebrew in agent environment...
+22.2s
+Checking for existing Homebrew installation...
+Installing Homebrew to agent home...
+Homebrew installed successfully.
+Installing Node Version Manager...
+1.3s
+Installing Node.js v24 via NVM...
+10.8s
+Checking host shell config after nvm...
+32ms
+Copying Node.js binary for interceptor...
+714ms
+Security Profile
+Validate guarded shell
+Generate seatbelt
+Broker Daemon
+Install sudoers
+Install broker daemon
+Wait for broker
+Gateway
+Gateway pre-flight
+Write gateway plist
+Start gateway
+Profile & Policies
+Save profile
+Seed policies
+Finalize

@@ -1,5 +1,23 @@
-import { stripGlobToBasePath, operationsToAclPerms, computeAclMap, isFilesystemRelevant } from '../acl';
+import { stripGlobToBasePath, operationsToAclPerms, computeAclMap, isFilesystemRelevant, addUserAcl, removeUserAcl, removeAllUserAcls } from '../acl';
 import type { PolicyConfig } from '@agenshield/ipc';
+import { execSync } from 'node:child_process';
+import * as fs from 'node:fs';
+
+jest.mock('node:child_process', () => ({
+  execSync: jest.fn(),
+}));
+
+jest.mock('node:fs', () => ({
+  ...jest.requireActual('node:fs'),
+  existsSync: jest.fn(),
+}));
+
+jest.mock('../config/paths', () => ({
+  isDevMode: () => false,
+}));
+
+const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
+const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
 
 const makePolicy = (overrides: Partial<PolicyConfig>): PolicyConfig => ({
   id: 'test',
@@ -245,5 +263,172 @@ describe('computeAclMap', () => {
     const { deny } = computeAclMap(policies);
     expect(deny.has('/root')).toBe(true);
     expect(deny.has('/etc/ssh')).toBe(true);
+  });
+});
+
+describe('addUserAcl (idempotency)', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+    mockExistsSync.mockReturnValue(true);
+  });
+
+  it('skips chmod when ACL entry already exists with matching permissions', () => {
+    // ls -le returns an existing entry that covers the requested permissions
+    mockExecSync.mockReturnValueOnce(
+      'total 0\n 0: user:ash_agent allow read,readattr,readextattr,list,search,execute\n' as never,
+    );
+
+    addUserAcl('/Users/me/docs', 'ash_agent', 'search', undefined, 'allow');
+
+    // Should only have called ls -le (for hasUserAcl check), no chmod
+    expect(mockExecSync).toHaveBeenCalledTimes(1);
+    expect(mockExecSync).toHaveBeenCalledWith(
+      expect.stringContaining('ls -le'),
+      expect.any(Object),
+    );
+  });
+
+  it('proceeds with chmod when no matching ACL entry exists', () => {
+    // ls -le returns empty (no ACLs)
+    mockExecSync.mockReturnValueOnce('total 0\n' as never);
+    // chmod succeeds
+    mockExecSync.mockReturnValueOnce('' as never);
+
+    addUserAcl('/Users/me/docs', 'ash_agent', 'search', undefined, 'allow');
+
+    expect(mockExecSync).toHaveBeenCalledTimes(2);
+    expect(mockExecSync).toHaveBeenCalledWith(
+      expect.stringContaining('chmod +a'),
+      expect.any(Object),
+    );
+  });
+
+  it('proceeds when existing entry has insufficient permissions', () => {
+    // Existing entry only has 'search', but we request 'read,search'
+    mockExecSync.mockReturnValueOnce(
+      'total 0\n 0: user:ash_agent allow search\n' as never,
+    );
+    mockExecSync.mockReturnValueOnce('' as never);
+
+    addUserAcl('/Users/me/docs', 'ash_agent', 'read,search', undefined, 'allow');
+
+    expect(mockExecSync).toHaveBeenCalledTimes(2);
+    expect(mockExecSync).toHaveBeenCalledWith(
+      expect.stringContaining('chmod +a'),
+      expect.any(Object),
+    );
+  });
+
+  it('does not match different action type (allow vs deny)', () => {
+    mockExecSync.mockReturnValueOnce(
+      'total 0\n 0: user:ash_agent allow search\n' as never,
+    );
+    mockExecSync.mockReturnValueOnce('' as never);
+
+    addUserAcl('/Users/me/docs', 'ash_agent', 'search', undefined, 'deny');
+
+    // Should proceed because existing is allow, not deny
+    expect(mockExecSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not match different user', () => {
+    mockExecSync.mockReturnValueOnce(
+      'total 0\n 0: user:other_user allow search\n' as never,
+    );
+    mockExecSync.mockReturnValueOnce('' as never);
+
+    addUserAcl('/Users/me/docs', 'ash_agent', 'search', undefined, 'allow');
+
+    expect(mockExecSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails open when ls -le throws', () => {
+    mockExecSync.mockImplementationOnce(() => { throw new Error('ls failed'); });
+    mockExecSync.mockReturnValueOnce('' as never);
+
+    addUserAcl('/Users/me/docs', 'ash_agent', 'search');
+
+    // Should proceed with chmod after hasUserAcl fails open
+    expect(mockExecSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips non-existent paths', () => {
+    mockExistsSync.mockReturnValue(false);
+
+    const log = { warn: jest.fn() };
+    addUserAcl('/nonexistent', 'ash_agent', 'search', log);
+
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('skipping non-existent'));
+    expect(mockExecSync).not.toHaveBeenCalled();
+  });
+});
+
+describe('removeAllUserAcls', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+    mockExistsSync.mockReturnValue(true);
+    // Default: ls -le returns a matching ACL entry, chmod succeeds
+    mockExecSync.mockReturnValue(
+      'total 0\n 0: user:ash_agent allow read,search\n' as never,
+    );
+  });
+
+  it('removes ACLs from workspace paths', () => {
+    removeAllUserAcls('ash_agent', ['/Users/me/project'], []);
+
+    // Should have called ls -le for the path + ancestors (/Users/me is non-world-traversable)
+    const lsCalls = mockExecSync.mock.calls.filter(([cmd]) =>
+      typeof cmd === 'string' && cmd.includes('ls -le'),
+    );
+    expect(lsCalls.length).toBeGreaterThanOrEqual(1);
+    // Should include the workspace path itself
+    expect(lsCalls.some(([cmd]) => (cmd as string).includes('/Users/me/project'))).toBe(true);
+  });
+
+  it('removes ACLs from traversal ancestors', () => {
+    removeAllUserAcls('ash_agent', ['/Users/me/deep/path'], []);
+
+    const lsCalls = mockExecSync.mock.calls.filter(([cmd]) =>
+      typeof cmd === 'string' && cmd.includes('ls -le'),
+    );
+    // Should include ancestors: /Users/me/deep, /Users/me
+    const paths = lsCalls.map(([cmd]) => (cmd as string));
+    expect(paths.some(cmd => cmd.includes('/Users/me/deep'))).toBe(true);
+    expect(paths.some(cmd => cmd.includes('/Users/me"'))).toBe(true);
+  });
+
+  it('removes ACLs from filesystem policy paths', () => {
+    const policies = [
+      makePolicy({
+        action: 'allow',
+        operations: ['file_read'],
+        patterns: ['/data/shared'],
+      }),
+    ];
+
+    removeAllUserAcls('ash_agent', [], policies);
+
+    const lsCalls = mockExecSync.mock.calls.filter(([cmd]) =>
+      typeof cmd === 'string' && cmd.includes('ls -le'),
+    );
+    expect(lsCalls.some(([cmd]) => (cmd as string).includes('/data/shared'))).toBe(true);
+  });
+
+  it('deduplicates paths across workspace and policy', () => {
+    const policies = [
+      makePolicy({
+        action: 'allow',
+        operations: ['file_read'],
+        patterns: ['/Users/me/project/**'],
+      }),
+    ];
+
+    removeAllUserAcls('ash_agent', ['/Users/me/project'], policies);
+
+    // /Users/me/project should appear in ls -le calls only once
+    const lsCalls = mockExecSync.mock.calls.filter(([cmd]) =>
+      typeof cmd === 'string' && cmd.includes('ls -le') && (cmd as string).includes('/Users/me/project"'),
+    );
+    expect(lsCalls).toHaveLength(1);
   });
 });

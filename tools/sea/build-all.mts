@@ -125,6 +125,20 @@ async function step2_buildUI(): Promise<void> {
   run('npx nx build shield-ui', 'Build UI dashboard', { timeout: 300_000 });
 }
 
+async function step2b_buildMacApp(): Promise<void> {
+  if (flags.platform !== 'darwin') {
+    console.log('[SKIP] macOS app build (not on darwin)');
+    return;
+  }
+  try {
+    run('npx nx build shield-macos', 'Build macOS menu bar app (Xcode)', { timeout: 600_000 });
+  } catch (err) {
+    // Non-fatal: Xcode build may fail if cert is not available or not on macOS
+    console.log(`[WARN] macOS app build failed (non-fatal): ${(err as Error).message}`);
+    console.log('[WARN] The SEA archive will not include AgenShield.app');
+  }
+}
+
 async function step3_esbuildBundles(): Promise<void> {
   for (const app of APPS) {
     run(app.bundleCmd, `Bundle ${app.name}`);
@@ -194,6 +208,7 @@ async function main(): Promise<void> {
 
   await step1_buildLibs();
   await step2_buildUI();
+  await step2b_buildMacApp();
   await step3_esbuildBundles();
   await step4_writeVersionAndCompressUI();
   await step5_generateBlobsAndInject();

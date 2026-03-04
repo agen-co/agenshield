@@ -18,6 +18,7 @@ export * from './catalog';
 export * from './marketplace';
 export * from './migration';
 export * from './setup';
+export * from './setup-flow';
 export * from './playground';
 export * from './privilege-executor';
 export * from './binary-signature';

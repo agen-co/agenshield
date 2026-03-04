@@ -18,6 +18,7 @@ import { OPENCLAW_SHIELD_STEPS, getShieldStepsForPreset, isSEA, getSEAVersion } 
 import { registerShieldOperation, unregisterShieldOperation, getActiveShieldOperations } from '../services/shield-registry';
 import { signBrokerToken } from '@agenshield/auth';
 import { writeTokenFile, invalidateTokenCache } from '../services/profile-token';
+import { removeAllUserAcls } from '../acl';
 
 // ── Gateway port allocation helper ────────────────────────────────
 
@@ -2044,6 +2045,19 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             }
           }
 
+          // Clean up filesystem ACLs before deleting policies/users
+          if (agentUsername) {
+            emitEvent('setup:shield_progress', { targetId, step: 'removing_acls', progress: 86, message: 'Removing filesystem ACLs...' }, profile.id);
+            log('Removing filesystem ACLs...', 'removing_acls');
+            try {
+              const scopedStorage = storage.for({ profileId: profile.id });
+              const policies = scopedStorage.policies.getAll();
+              removeAllUserAcls(agentUsername, profile.workspacePaths ?? [], policies, request.log);
+            } catch {
+              // Best-effort — profile may have no policies
+            }
+          }
+
           // Always delete policies + profile regardless of manifest
           emitEvent('setup:shield_progress', { targetId, step: 'removing_policies', progress: 88, message: 'Removing policies...' }, profile.id);
           log('Removing seeded policies...', 'removing_policies');
@@ -2184,6 +2198,19 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
               `rm -rf "${agentHomeDir}"`,
               { timeout: 60_000 },
             ).catch(() => {});
+          }
+
+          // 6b. Clean up filesystem ACLs (must happen while user still exists)
+          if (agentUsername) {
+            emitEvent('setup:shield_progress', { targetId, step: 'removing_acls', progress: 60, message: 'Removing filesystem ACLs...' }, profile.id);
+            log('Removing filesystem ACLs...', 'removing_acls');
+            try {
+              const scopedStorage = storage.for({ profileId: profile.id });
+              const policies = scopedStorage.policies.getAll();
+              removeAllUserAcls(agentUsername, profile.workspacePaths ?? [], policies, request.log);
+            } catch {
+              // Best-effort
+            }
           }
 
           // 7. Delete sandbox users (agent + broker)

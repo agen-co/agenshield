@@ -34,3 +34,16 @@ Existing patterns:
 - `libs/storage/src/errors.ts` — `StorageLockedError`, `ValidationError`, `PasscodeError`
 - `libs/shield-interceptor/src/errors.ts` — `AgenShieldError` (base with `.code`), `PolicyDeniedError`, `TimeoutError`
 - `libs/skills/src/errors.ts` — `SkillsError` (base with `.code`), `SkillNotFoundError`, `RemoteApiError`, `AnalysisError`
+
+## macOS Native App (`apps/shield-macos`)
+
+**Build command**: `yarn build:native` (runs `xcodebuild` via Nx)
+
+When adding new Swift files to the Xcode project, you must manually update `apps/shield-macos/AgenShield.xcodeproj/project.pbxproj` in 4 places:
+
+1. **PBXBuildFile section** — Add a build file entry with ID prefix `A1` (e.g., `A100002C`)
+2. **PBXFileReference section** — Add a file reference with ID prefix `A2` (e.g., `A200002C`)
+3. **PBXGroup children** — Add the file reference ID to the appropriate group (e.g., `A9000002` for the AgenShield group)
+4. **PBXSourcesBuildPhase files** — Add the build file ID to the `AA000001` Sources build phase
+
+ID convention: Build file IDs use `A1XXXXXX`, file reference IDs use `A2XXXXXX`. Increment from the last used ID in each section.

@@ -98,7 +98,20 @@ export class EnrollmentService {
     this.currentState = state;
   }
 
-  private async runEnrollment(cloudUrl: string, orgClientId: string): Promise<void> {
+  /**
+   * Start cloud enrollment from an HTTP request (setup API).
+   * Unlike checkAndEnroll(), this does not require MDM config — it takes cloudUrl directly.
+   */
+  async startCloudEnrollment(cloudUrl: string): Promise<void> {
+    if (this.currentState.state !== 'idle' && this.currentState.state !== 'failed') {
+      throw new Error(`Enrollment already in progress (state: ${this.currentState.state})`);
+    }
+    this.stopped = false;
+    this.retryCount = 0;
+    await this.runEnrollment(cloudUrl);
+  }
+
+  private async runEnrollment(cloudUrl: string, orgClientId?: string): Promise<void> {
     if (this.stopped) return;
 
     const log = getLogger();
@@ -175,6 +188,12 @@ export class EnrollmentService {
       });
 
       log.info(`[enrollment] Device registered (ID: ${registration.agentId}, company: ${companyName})`);
+
+      // 6b. Finalize setup state (best effort)
+      try {
+        const { getSetupService } = await import('./setup');
+        getSetupService().finalizeCloudSetup(cloudUrl);
+      } catch { /* best effort */ }
 
       // 7. Connect to cloud
       this.retryCount = 0;

@@ -371,7 +371,7 @@ _check_cwd_access() {
   local ENCODED_PATH
   ENCODED_PATH=$(printf '%s' "$CWD" | jq -sRr @uri 2>/dev/null || echo "$CWD")
   local RESP
-  RESP=$(curl -sf "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/check?path=$ENCODED_PATH" 2>/dev/null)
+  RESP=$(curl -sf -H "x-shield-source: cli" "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/check?path=$ENCODED_PATH" 2>/dev/null)
 
   # Fail-open if daemon unreachable (broker still enforces at runtime)
   [ -z "$RESP" ] && return 0
@@ -418,7 +418,7 @@ _check_cwd_perms() {
   local ENCODED_USER
   ENCODED_USER=$(printf '%s' "$AGENT_USER" | jq -sRr @uri 2>/dev/null || echo "$AGENT_USER")
   local VERIFY_RESP
-  VERIFY_RESP=$(curl -sf "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/verify-permissions?path=$ENCODED_PATH&agentUser=$ENCODED_USER" 2>/dev/null)
+  VERIFY_RESP=$(curl -sf -H "x-shield-source: cli" "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/verify-permissions?path=$ENCODED_PATH&agentUser=$ENCODED_USER" 2>/dev/null)
 
   # Fail-open if daemon unreachable (broker still enforces at runtime)
   [ -z "$VERIFY_RESP" ] && return 0

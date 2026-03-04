@@ -419,6 +419,8 @@ function cleanup(): RestoreProgress {
     ...(home ? [
       `${home}/.agenshield/bin`,
       `${home}/.agenshield/lib`,
+      `${home}/.agenshield/logs`,
+      `${home}/.agenshield/apps`,
       `${home}/.agenshield/path-registry.json`,
       `${home}/.agenshield/backup.json`,
       `${home}/.agenshield/migrations.json`,

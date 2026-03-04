@@ -73,7 +73,49 @@ export function operationsToAclPerms(operations: string[]): string {
 }
 
 /**
+ * Check whether an ACL entry already exists for a user+action on a path
+ * whose permissions are a superset of the requested permissions.
+ *
+ * Fails open (returns `false`) on any error so that `addUserAcl` proceeds.
+ */
+function hasUserAcl(
+  targetPath: string,
+  userName: string,
+  permissions: string,
+  action: 'allow' | 'deny',
+): boolean {
+  try {
+    const output = execSync(`ls -le "${targetPath}" 2>/dev/null || true`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const requestedPerms = new Set(permissions.split(',').filter(Boolean));
+
+    for (const line of output.split('\n')) {
+      const match = line.match(/^\s*\d+:\s+user:(\S+)\s+(allow|deny)\s+(.+)$/);
+      if (match && match[1] === userName && match[2] === action) {
+        const existingPerms = new Set(match[3].split(',').map(s => s.trim()).filter(Boolean));
+        // Superset check: every requested perm already exists
+        let covered = true;
+        for (const p of requestedPerms) {
+          if (!existingPerms.has(p)) {
+            covered = false;
+            break;
+          }
+        }
+        if (covered) return true;
+      }
+    }
+  } catch {
+    // Fail open — let addUserAcl proceed
+  }
+  return false;
+}
+
+/**
  * Add a user ACL entry to a path.
+ * Idempotent: skips if a matching entry with sufficient permissions already exists.
  */
 export function addUserAcl(
   targetPath: string,
@@ -90,6 +132,7 @@ export function addUserAcl(
       log.warn(`[acl] skipping non-existent path: ${targetPath}`);
       return;
     }
+    if (hasUserAcl(targetPath, userName, permissions, action)) return;
     const cmd = `chmod +a "user:${userName} ${action} ${permissions}" "${targetPath}"`;
     try {
       execSync(cmd, { stdio: 'pipe' });
@@ -150,6 +193,46 @@ export function removeUserAcl(targetPath: string, userName: string, log: Logger 
     }
   } catch (err) {
     log.warn(`[acl] failed to read ACLs on ${targetPath}: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * Remove ALL ACL entries for a user across workspace paths, their traversal
+ * ancestors, and filesystem policy paths.
+ *
+ * Must be called **before** deleting the macOS user so that `removeUserAcl`
+ * can match by username rather than leaving orphaned UUID entries.
+ */
+export function removeAllUserAcls(
+  userName: string,
+  workspacePaths: string[],
+  policies: PolicyConfig[],
+  log: Logger = noop,
+): void {
+  const cleaned = new Set<string>();
+
+  // 1. Workspace paths and their traversal ancestors
+  for (const ws of workspacePaths) {
+    if (!cleaned.has(ws)) {
+      removeUserAcl(ws, userName, log);
+      cleaned.add(ws);
+    }
+    for (const ancestor of getAncestorsNeedingTraversal(ws)) {
+      if (!cleaned.has(ancestor)) {
+        removeUserAcl(ancestor, userName, log);
+        cleaned.add(ancestor);
+      }
+    }
+  }
+
+  // 2. Filesystem policy paths (both allow and deny maps)
+  const fsPolicies = policies.filter(p => p.enabled !== false && isFilesystemRelevant(p));
+  const { allow, deny } = computeAclMap(fsPolicies);
+  for (const targetPath of [...allow.keys(), ...deny.keys()]) {
+    if (!cleaned.has(targetPath)) {
+      removeUserAcl(targetPath, userName, log);
+      cleaned.add(targetPath);
+    }
   }
 }
 

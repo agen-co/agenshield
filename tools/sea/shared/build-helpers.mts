@@ -43,6 +43,31 @@ export function getVersion(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Code signing identity resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the codesign identity to use for signing macOS binaries.
+ *
+ * Resolution priority:
+ * 1. Explicit parameter (from --codesign-identity flag)
+ * 2. AGENSHIELD_CODESIGN_IDENTITY env var
+ * 3. APPLE_TEAM_ID env var → constructs "Developer ID Application: Frontegg ($APPLE_TEAM_ID)"
+ * 4. null → ad-hoc signing
+ */
+export function resolveCodesignIdentity(explicit?: string): string | null {
+  if (explicit) return explicit;
+
+  const envIdentity = process.env['AGENSHIELD_CODESIGN_IDENTITY'];
+  if (envIdentity) return envIdentity;
+
+  const teamId = process.env['APPLE_TEAM_ID'];
+  if (teamId) return `Developer ID Application: Frontegg (${teamId})`;
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // SEA blob generation
 // ---------------------------------------------------------------------------
 
@@ -275,6 +300,28 @@ export function createArchive(opts: PackageOptions): string {
     fs.mkdirSync(destUiDir, { recursive: true });
     execSync(`cp -R "${uiAssetsDir}/." "${destUiDir}/"`, { stdio: 'pipe' });
     console.log('[STAGE] ui-assets/');
+  }
+
+  // Copy macOS menu bar app if it exists (darwin only)
+  if (platform === 'darwin') {
+    const macAppDir = path.join(ROOT, 'dist', 'apps', 'shield-macos', 'Release', 'AgenShield.app');
+    if (fs.existsSync(macAppDir)) {
+      const destAppDir = path.join(stagingDir, 'AgenShield.app');
+      execSync(`cp -R "${macAppDir}" "${destAppDir}"`, { stdio: 'pipe' });
+      console.log('[STAGE] AgenShield.app');
+
+      // Sign the app binary if signing identity is available
+      if (opts.codesignIdentity) {
+        const appBinary = path.join(destAppDir, 'Contents', 'MacOS', 'AgenShield');
+        if (fs.existsSync(appBinary)) {
+          codesignBinary(appBinary, opts.codesignIdentity, opts.entitlementsPath);
+        }
+        // Also sign the whole .app bundle
+        codesignBinary(destAppDir, opts.codesignIdentity, opts.entitlementsPath);
+      }
+    } else {
+      console.log('[INFO] AgenShield.app not found — skipping menu bar app staging');
+    }
   }
 
   // Create archive

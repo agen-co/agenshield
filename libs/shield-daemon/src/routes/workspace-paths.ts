@@ -9,7 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { getStorage } from '@agenshield/storage';
-import { addUserAcl, getAncestorsNeedingTraversal } from '../acl';
+import { addUserAcl, getAncestorsNeedingTraversal, removeUserAcl } from '../acl';
 
 export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -157,6 +157,15 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
         success: false,
         error: { message: `Profile ${profileId} not found`, statusCode: 404 },
       });
+    }
+
+    // Remove filesystem ACLs on the revoked path and its traversal ancestors
+    const agentUsername = updated.agentUsername;
+    if (agentUsername) {
+      removeUserAcl(resolved, agentUsername, app.log);
+      for (const ancestor of getAncestorsNeedingTraversal(resolved)) {
+        removeUserAcl(ancestor, agentUsername, app.log);
+      }
     }
 
     // Cleanup workspace skill records on revoke

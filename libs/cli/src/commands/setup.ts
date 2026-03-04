@@ -36,9 +36,59 @@ import {
   isCloudEnrolled,
   CLOUD_CONFIG,
 } from '../utils/cloud.js';
+import type {
+  SetupStatusResponse,
+  SetupCloudResponse,
+  SetupLocalResponse,
+  ApiResponse,
+} from '@agenshield/ipc';
 import { saveMdmConfig } from '@agenshield/auth';
 import { installDaemonService, installPrivilegeHelperService } from '@agenshield/integrations';
 import { inkSelect, inkInput, inkBrowserLink } from '../prompts/index.js';
+
+// ---------------------------------------------------------------------------
+// Daemon helpers
+// ---------------------------------------------------------------------------
+
+const DAEMON_API_BASE = `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}`;
+
+/**
+ * Ensure the daemon is running, starting it with sudo if needed.
+ */
+async function ensureDaemonRunning(): Promise<void> {
+  const status = await getDaemonStatus();
+  if (status.running) return;
+
+  ensureSudoAccess();
+
+  const spinner = await createSpinner('Starting daemon...');
+  const result = await startDaemon({ sudo: true });
+
+  if (!result.success) {
+    spinner.fail('Failed to start daemon');
+    throw new DaemonStartError(result.message);
+  }
+  spinner.succeed(`Daemon started${result.pid ? ` (PID: ${result.pid})` : ''}`);
+}
+
+/**
+ * Call a daemon API endpoint and parse the JSON response.
+ */
+async function daemonFetch<T>(path: string, opts?: RequestInit): Promise<ApiResponse<T>> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(`${DAEMON_API_BASE}${path}`, {
+      ...opts,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    return (await res.json()) as ApiResponse<T>;
+  } catch (err) {
+    clearTimeout(timeout);
+    throw new ConnectionError(`Failed to reach daemon: ${(err as Error).message}`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Shield ASCII logo
@@ -74,49 +124,28 @@ async function runLocalSetup(): Promise<void> {
   output.info(`  ${output.bold('Local Setup')}`);
   output.info('');
 
-  // 1. Ensure sudo access
-  ensureSudoAccess();
+  // 1. Ensure daemon is running
+  await ensureDaemonRunning();
 
-  // 2. Check if daemon is already running
-  const status = await getDaemonStatus();
+  // 2. Call daemon setup endpoint
+  const spinner = await createSpinner('Configuring local mode...');
+  const res = await daemonFetch<SetupLocalResponse>('/api/setup/local', { method: 'POST' });
 
-  if (status.running) {
-    const token = readAdminToken() ?? await fetchAdminToken();
-    const url = buildBrowserUrl(token);
-
-    output.success(`Daemon is already running (PID: ${status.pid ?? 'unknown'})`);
-    output.info('');
-
-    // Persist setup state
-    writeSetupState({ mode: 'local', completedAt: new Date().toISOString() });
-
-    await inkBrowserLink({ url, label: 'Dashboard', token: token ?? undefined });
-    output.info('');
-    output.success('Setup complete!');
-    return;
+  if (!res.success || !res.data) {
+    spinner.fail('Local setup failed');
+    throw new ConnectionError((res as { error?: { message?: string } }).error?.message ?? 'Unknown error');
   }
 
-  // 3. Start daemon
-  const spinner = await createSpinner('Starting daemon...');
-  const result = await startDaemon({ sudo: true });
-
-  if (!result.success) {
-    spinner.fail('Failed to start daemon');
-    throw new DaemonStartError(result.message);
-  }
-
-  // 4. Wait for admin token
-  spinner.update('Waiting for authorization...');
-  const token = await waitForAdminToken();
+  const token = res.data.adminToken;
   const url = buildBrowserUrl(token);
 
-  spinner.succeed(`Daemon started${result.pid ? ` (PID: ${result.pid})` : ''}`);
+  spinner.succeed('Local mode configured');
   output.info('');
 
-  // 5. Persist setup state
+  // 3. Also persist setup state on CLI side (for setup-guard)
   writeSetupState({ mode: 'local', completedAt: new Date().toISOString() });
 
-  await inkBrowserLink({ url, label: 'Dashboard', token: token ?? undefined });
+  await inkBrowserLink({ url, label: 'Dashboard', token });
   output.info('');
   output.success('Setup complete!');
 }
@@ -140,98 +169,80 @@ async function runCloudSetup(options: { cloudUrl: string }): Promise<void> {
 
   const cloudUrl = options.cloudUrl;
 
-  // 1. Ensure sudo access (needed to start daemon later)
-  ensureSudoAccess();
+  // 1. Ensure daemon is running
+  await ensureDaemonRunning();
   const sudoKeepalive = startSudoKeepalive();
 
   try {
-    // 2. Initiate device code flow
+    // 2. Kick off cloud enrollment via daemon
     output.info('  Contacting AgenShield Cloud...');
-    let deviceCode: Awaited<ReturnType<typeof initiateDeviceCode>>;
-    try {
-      deviceCode = await initiateDeviceCode(cloudUrl);
-    } catch (err) {
-      throw new ConnectionError(`Failed to contact cloud: ${(err as Error).message}`);
+    const cloudRes = await daemonFetch<SetupCloudResponse>('/api/setup/cloud', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cloudUrl }),
+    });
+
+    if (!cloudRes.success || !cloudRes.data) {
+      throw new ConnectionError((cloudRes as { error?: { message?: string } }).error?.message ?? 'Failed to start cloud enrollment');
     }
 
-    // 3. Display verification instructions and offer to open browser
-    output.info('');
-    await inkBrowserLink({ url: deviceCode.verificationUri, label: 'Authorize this device' });
-    output.info(`  ${output.dim(`Code: ${deviceCode.userCode}`)}`);
-    output.info('');
+    const enrollment = cloudRes.data.enrollment;
 
-    // 4. Poll for authorization
+    if (enrollment.state === 'failed') {
+      throw new AuthError(enrollment.error ?? 'Enrollment failed');
+    }
+
+    // 3. Display verification URL + code
+    if (enrollment.verificationUri) {
+      output.info('');
+      await inkBrowserLink({ url: enrollment.verificationUri, label: 'Authorize this device' });
+      if (enrollment.userCode) {
+        output.info(`  ${output.dim(`Code: ${enrollment.userCode}`)}`);
+      }
+      output.info('');
+    }
+
+    // 4. Poll setup/status until enrollment completes or fails
     const spinner = await createSpinner('Waiting for authorization...');
-    const pollResult = await pollDeviceCode(
-      cloudUrl,
-      deviceCode.deviceCode,
-      deviceCode.interval,
-    );
+    const pollDeadline = Date.now() + 15 * 60 * 1000; // 15 min max
 
-    if (pollResult.status !== 'approved') {
-      spinner.fail('Authorization failed');
-      throw new AuthError(`Authorization ${pollResult.status}: ${pollResult.error || 'Device code was not approved'}`);
+    let companyName = 'Unknown';
+    while (Date.now() < pollDeadline) {
+      await new Promise((r) => setTimeout(r, 3_000));
+
+      const statusRes = await daemonFetch<SetupStatusResponse>('/api/setup/status');
+      if (!statusRes.success || !statusRes.data) continue;
+
+      const es = statusRes.data.enrollment;
+
+      if (es.state === 'complete') {
+        companyName = es.companyName ?? 'Unknown';
+        spinner.succeed(`Authorized by ${companyName}`);
+        break;
+      }
+
+      if (es.state === 'failed') {
+        spinner.fail('Authorization failed');
+        throw new AuthError(es.error ?? 'Enrollment failed');
+      }
+
+      // Still pending — keep polling
     }
 
-    spinner.succeed(`Authorized by ${pollResult.companyName || 'your organization'}`);
-    output.info('');
-
-    // 5. Generate Ed25519 keypair
-    output.info('  Generating device keypair...');
-    const keypair = generateEd25519Keypair();
-
-    // 6. Register device with cloud
-    output.info('  Registering device...');
-    const registration = await registerDevice(
-      cloudUrl,
-      pollResult.enrollmentToken!,
-      keypair.publicKey,
-      os.hostname(),
-    );
-
-    // 7. Save credentials locally
-    saveCloudCredentials(
-      registration.agentId,
-      keypair.privateKey,
-      cloudUrl,
-      pollResult.companyName || 'Unknown',
-    );
-
-    output.success(`Device registered (ID: ${registration.agentId})`);
-    output.info('');
-
-    // Persist setup state immediately — enrollment is the critical part.
-    // Daemon start is best-effort from here.
+    // 5. Persist setup state on CLI side
     writeSetupState({
       mode: 'cloud',
       cloudUrl,
       completedAt: new Date().toISOString(),
     });
 
-    // 8. Start daemon (best-effort — don't throw on failure)
-    const daemonStatus = await getDaemonStatus();
-    if (!daemonStatus.running) {
-      const daemonSpinner = await createSpinner('Starting daemon...');
-      const daemonResult = await startDaemon({ sudo: true });
-      if (!daemonResult.success) {
-        daemonSpinner.fail(daemonResult.message);
-        output.warn('Cloud enrollment succeeded, but the daemon failed to start.');
-        output.info('  Run `agenshield start` to start it manually.');
-        output.info('');
-        output.success('Cloud setup complete!');
-        output.info(`  Company: ${pollResult.companyName || 'Unknown'}`);
-        return;
-      }
-      daemonSpinner.succeed('Daemon started');
-    }
-
-    // 9. Open dashboard (only if daemon started)
+    // 6. Get admin token and show dashboard link
     const adminToken = await waitForAdminToken();
     const url = buildBrowserUrl(adminToken);
 
     output.info('');
     output.success('Cloud setup complete!');
-    output.info(`  Company: ${pollResult.companyName || 'Unknown'}`);
+    output.info(`  Company: ${companyName}`);
     await inkBrowserLink({ url, label: 'Dashboard' });
     output.info('');
   } finally {

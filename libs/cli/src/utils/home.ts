@@ -764,7 +764,7 @@ function detectSEAArch(): string {
  * Check whether a path is owned by root (uid 0).
  * Returns true only if the path exists AND is root-owned.
  */
-function isRootOwned(p: string): boolean {
+export function isRootOwned(p: string): boolean {
   try {
     return fs.statSync(p).uid === 0;
   } catch {
@@ -774,22 +774,32 @@ function isRootOwned(p: string): boolean {
 
 /**
  * Sign a binary with hardened runtime on macOS.
- * Equivalent to `sign_binary_hardened()` in install.sh.
+ *
+ * Signing modes:
+ * - identity provided → `codesign --sign "$identity" --timestamp --options runtime --entitlements`
+ * - no identity (ad-hoc) → `codesign --sign - --options runtime --entitlements`
+ *
+ * Identity resolution: explicit parameter → AGENSHIELD_CODESIGN_IDENTITY env → ad-hoc.
  */
 async function signBinaryHardened(
   binaryPath: string,
-  options?: { sudo?: boolean },
+  options?: { sudo?: boolean; identity?: string },
 ): Promise<void> {
   if (process.platform !== 'darwin') return;
 
   const prefix = options?.sudo ? 'sudo ' : '';
+
+  // Resolve signing identity: explicit param → env var → ad-hoc (null)
+  const identity = options?.identity
+    ?? process.env['AGENSHIELD_CODESIGN_IDENTITY']
+    ?? null;
 
   // Remove quarantine attribute
   try {
     execSync(`${prefix}xattr -d com.apple.quarantine "${binaryPath}" 2>/dev/null`, { stdio: 'pipe' });
   } catch { /* may not have the attribute */ }
 
-  // Re-sign with hardened runtime (fallback chain matching install.sh)
+  // Write entitlements plist (includes network entitlements for daemon)
   const entitlements = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -797,19 +807,29 @@ async function signBinaryHardened(
   <key>com.apple.security.cs.allow-jit</key><true/>
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
   <key>com.apple.security.cs.disable-library-validation</key><true/>
+  <key>com.apple.security.network.client</key><true/>
+  <key>com.apple.security.network.server</key><true/>
 </dict>
 </plist>`;
 
   const tmpPlist = path.join(os.tmpdir(), `agenshield-entitlements-${Date.now()}.plist`);
   fs.writeFileSync(tmpPlist, entitlements);
   try {
-    // Try 1: codesign with entitlements + hardened runtime
-    execSync(
-      `${prefix}codesign --force --sign - --options runtime --entitlements "${tmpPlist}" "${binaryPath}"`,
-      { stdio: 'pipe' },
-    );
+    if (identity) {
+      // Developer ID signing with timestamp + hardened runtime
+      execSync(
+        `${prefix}codesign --force --sign "${identity}" --timestamp --options runtime --entitlements "${tmpPlist}" "${binaryPath}"`,
+        { stdio: 'pipe' },
+      );
+    } else {
+      // Try 1: ad-hoc codesign with entitlements + hardened runtime
+      execSync(
+        `${prefix}codesign --force --sign - --options runtime --entitlements "${tmpPlist}" "${binaryPath}"`,
+        { stdio: 'pipe' },
+      );
+    }
   } catch {
-    // Try 2: plain ad-hoc signing without entitlements
+    // Fallback: plain ad-hoc signing without entitlements
     try {
       execSync(
         `${prefix}codesign --force --sign - "${binaryPath}"`,
@@ -953,6 +973,20 @@ export async function downloadAndInstallSEARemote(
       }
     }
 
+    // Step 5b: Extract macOS menu bar app (if present in archive)
+    const macAppSrc = path.join(extractDir, 'AgenShield.app');
+    if (fs.existsSync(macAppSrc)) {
+      const appsDir = path.join(AGENSHIELD_HOME, 'apps');
+      fs.mkdirSync(appsDir, { recursive: true });
+      const destApp = path.join(appsDir, 'AgenShield.app');
+      // Remove old app bundle if present
+      if (fs.existsSync(destApp)) {
+        fs.rmSync(destApp, { recursive: true, force: true });
+      }
+      execSync(`cp -R "${macAppSrc}" "${destApp}"`, { stdio: 'pipe' });
+      onProgress?.('Installed AgenShield.app');
+    }
+
     // Step 6: Write extraction stamp
     fs.writeFileSync(path.join(libDir, '.extracted'), `${version}:wius`);
 
@@ -970,6 +1004,43 @@ export async function downloadAndInstallSEARemote(
       fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch { /* ignore */ }
   }
+}
+
+// ---------------------------------------------------------------------------
+// npm → ~/.agenshield/apps extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the AgenShield.app from the sandbox npm package into
+ * `~/.agenshield/apps/AgenShield.app`.
+ *
+ * This bridges the gap between the npm-pack install path (where the .app
+ * lives inside `node_modules/@agenshield/sandbox/es-extension/`) and the
+ * menu bar installer which expects it at `~/.agenshield/apps/`.
+ *
+ * @param distDir - The installation dist directory (e.g. `~/.agenshield/dist/`)
+ * @returns `true` if the app was extracted, `false` if not found or not macOS.
+ */
+export function extractMacAppFromSandbox(distDir: string): boolean {
+  if (process.platform !== 'darwin') return false;
+
+  const sandboxAppPath = path.join(
+    distDir, 'node_modules', '@agenshield', 'sandbox', 'es-extension', 'AgenShield.app',
+  );
+
+  if (!fs.existsSync(sandboxAppPath)) return false;
+
+  const appsDir = path.join(AGENSHIELD_HOME, 'apps');
+  fs.mkdirSync(appsDir, { recursive: true });
+
+  const destApp = path.join(appsDir, 'AgenShield.app');
+  // Remove old app bundle if present
+  if (fs.existsSync(destApp)) {
+    fs.rmSync(destApp, { recursive: true, force: true });
+  }
+
+  execSync(`cp -R "${sandboxAppPath}" "${destApp}"`, { stdio: 'pipe' });
+  return true;
 }
 
 /** Path to the SEA binary in ~/.agenshield/bin/ */
@@ -1115,6 +1186,27 @@ export async function buildAndInstallSEAFromLocal(
     } else if (fs.existsSync(uiDistDir)) {
       fs.mkdirSync(destUiDir, { recursive: true });
       execSync(`cp -R "${uiDistDir}/." "${destUiDir}/"`, { stdio: 'pipe' });
+    }
+
+    // Step 5b: Copy macOS menu bar app (if present in build output or archive)
+    if (process.platform === 'darwin') {
+      const macAppPaths = [
+        path.join(repoRoot, 'dist', 'apps', 'shield-macos', 'Release', 'AgenShield.app'),
+        path.join(distSea, 'staging', 'AgenShield.app'),
+      ];
+      for (const macAppSrc of macAppPaths) {
+        if (fs.existsSync(macAppSrc)) {
+          const appsDir = path.join(AGENSHIELD_HOME, 'apps');
+          fs.mkdirSync(appsDir, { recursive: true });
+          const destApp = path.join(appsDir, 'AgenShield.app');
+          if (fs.existsSync(destApp)) {
+            fs.rmSync(destApp, { recursive: true, force: true });
+          }
+          execSync(`cp -R "${macAppSrc}" "${destApp}"`, { stdio: 'pipe' });
+          onProgress?.('Installed AgenShield.app');
+          break;
+        }
+      }
     }
 
     // Step 6: Write extraction stamp

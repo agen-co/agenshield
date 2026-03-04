@@ -17,7 +17,7 @@ import {
   Circle,
   MinusCircle,
 } from 'lucide-react';
-import { SHIELD_PHASE_LABELS, OPENCLAW_SHIELD_STEPS } from '@agenshield/ipc';
+import { SHIELD_PHASE_LABELS, OPENCLAW_SHIELD_STEPS, CLAUDE_CODE_SHIELD_STEPS } from '@agenshield/ipc';
 import type { ShieldingStepProps } from '../SetupPanel.types';
 import type { ShieldStepEntry } from '../../../../../state/setup-panel';
 import {
@@ -71,7 +71,7 @@ const STEP_LABELS: Record<string, string> = {
 function groupByPhase(steps: ShieldStepEntry[]): Map<number, ShieldStepEntry[]> {
   // Fallback lookup for older daemons that don't send phase in SSE data
   const fallbackMap = new Map<string, number>();
-  for (const def of OPENCLAW_SHIELD_STEPS) {
+  for (const def of [...OPENCLAW_SHIELD_STEPS, ...CLAUDE_CODE_SHIELD_STEPS]) {
     fallbackMap.set(def.id, def.phase);
   }
   const groups = new Map<number, ShieldStepEntry[]>();

@@ -19,7 +19,7 @@ import type {
   InstallContext,
   InstallResult,
 } from '../types.js';
-import { buildClaudeSearchPath } from './claude-paths.js';
+import { buildClaudeSearchPath, CLAUDE_BIN_CANDIDATE_DIRS } from './claude-paths.js';
 
 /**
  * Claude Code preset implementation
@@ -46,14 +46,30 @@ export const claudeCodePreset: TargetPreset = {
       const { stdout: whichOut } = await execAsync('which claude', { encoding: 'utf-8', timeout: 5_000 });
       binaryPath = whichOut.trim();
     } catch {
-      // Not found in PATH
+      // Not found in PATH — try known candidate directories
+    }
+
+    if (!binaryPath) {
+      const homeDir = process.env['HOME'] || '';
+      if (homeDir) {
+        for (const dir of CLAUDE_BIN_CANDIDATE_DIRS) {
+          const candidatePath = path.join(homeDir, dir, 'claude');
+          try {
+            fs.accessSync(candidatePath, fs.constants.X_OK);
+            binaryPath = candidatePath;
+            break;
+          } catch {
+            // Not found or not executable
+          }
+        }
+      }
     }
 
     if (!binaryPath) return null;
 
     // 2. Get version
     try {
-      const { stdout: versionOut } = await execAsync('claude --version 2>/dev/null', {
+      const { stdout: versionOut } = await execAsync(`"${binaryPath}" --version 2>/dev/null`, {
         encoding: 'utf-8',
         timeout: 3_000,
       });

@@ -920,7 +920,6 @@ export async function fetchAdminToken(): Promise<string | null> {
       `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}/api/auth/admin-token`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
       },
     );

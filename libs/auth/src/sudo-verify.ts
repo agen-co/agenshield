@@ -5,7 +5,7 @@
  * Rate-limited to prevent brute-force attacks.
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, execSync } from 'node:child_process';
 import { RateLimitError } from './errors';
 import type { SudoVerifyResult } from './types';
 
@@ -76,10 +76,19 @@ export async function verifySudoPassword(
 }
 
 /**
- * Get the current macOS username
+ * Get the current macOS username.
+ * When running as root (e.g. via LaunchDaemon), detects the console user
+ * so that sudo-login verifies against the correct account.
  */
 export function getCurrentUsername(): string {
-  return process.env.SUDO_USER || process.env.USER || 'unknown';
+  if (process.env.SUDO_USER) return process.env.SUDO_USER;
+  if (process.platform === 'darwin') {
+    try {
+      const consoleUser = execSync('stat -f "%Su" /dev/console', { encoding: 'utf-8', timeout: 3_000 }).trim();
+      if (consoleUser && consoleUser !== 'root') return consoleUser;
+    } catch { /* fall through */ }
+  }
+  return process.env.USER || 'unknown';
 }
 
 /**

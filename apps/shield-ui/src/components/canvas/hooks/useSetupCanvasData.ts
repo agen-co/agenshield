@@ -92,9 +92,9 @@ export function useSetupCanvasData(): SetupCanvasData {
     const targets = panelState.detectedTargets as DetectedTarget[];
     const progress = panelState.shieldProgress;
 
-    // Only include targets that are actually present on the system (detected) or shielded.
-    // Targets with method === 'manual' that aren't shielded are not installed — skip them.
-    const visibleTargets = targets.filter((t) => t.shielded || t.method !== 'manual');
+    // Show all targets: detected, shielded, and manually-added.
+    // Manual targets appear as unshielded (red) cards until the user shields them.
+    const visibleTargets = targets;
 
     // Count instances per type
     const typeCounts: Record<string, number> = {};

@@ -313,14 +313,23 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
     // Primary: user-accessible config dir (~/.agenshield/.admin-token)
     const configTokenPath = path.join(getConfigDir(), '.admin-token');
     fs.writeFileSync(configTokenPath, adminToken, { mode: 0o600 });
-    // Chown to calling user if running under sudo
-    const sudoUser = process.env['SUDO_USER'];
-    if (process.getuid?.() === 0 && sudoUser) {
-      try {
-        const uid = parseInt(execSync(`id -u ${sudoUser}`, { encoding: 'utf-8' }).trim(), 10);
-        const gid = parseInt(execSync(`id -g ${sudoUser}`, { encoding: 'utf-8' }).trim(), 10);
-        fs.chownSync(configTokenPath, uid, gid);
-      } catch { /* best effort */ }
+    // Chown to calling user if running as root (via sudo or LaunchDaemon)
+    if (process.getuid?.() === 0) {
+      let targetUser = process.env['SUDO_USER'];
+      // When SUDO_USER is unset (LaunchDaemon), detect the console user
+      if (!targetUser && process.platform === 'darwin') {
+        try {
+          const consoleUser = execSync('stat -f "%Su" /dev/console', { encoding: 'utf-8', timeout: 3_000 }).trim();
+          if (consoleUser && consoleUser !== 'root') targetUser = consoleUser;
+        } catch { /* best effort */ }
+      }
+      if (targetUser) {
+        try {
+          const uid = parseInt(execSync(`id -u ${targetUser}`, { encoding: 'utf-8' }).trim(), 10);
+          const gid = parseInt(execSync(`id -g ${targetUser}`, { encoding: 'utf-8' }).trim(), 10);
+          fs.chownSync(configTokenPath, uid, gid);
+        } catch { /* best effort */ }
+      }
     }
     app.log.info(`Admin token written to ${configTokenPath}`);
   } catch (err) {

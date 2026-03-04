@@ -51,11 +51,34 @@ export interface MenuBarAgentStatus {
 
 // ─── Plist Generation ────────────────────────────────────────────────────────
 
+export interface MenuBarAgentOptions {
+  policyUrl?: string;
+  orgName?: string;
+}
+
 /**
  * Generate the LaunchAgent plist for the menu bar app.
  */
-function generateMenuBarPlist(): string {
+function generateMenuBarPlist(options?: MenuBarAgentOptions): string {
   const appBinary = path.join(getAppPath(), 'Contents', 'MacOS', 'AgenShield');
+
+  // Build EnvironmentVariables section if any options provided
+  let envSection = '';
+  const envEntries: string[] = [];
+  if (options?.policyUrl) {
+    envEntries.push(`        <key>AGENSHIELD_POLICY_URL</key>\n        <string>${options.policyUrl}</string>`);
+  }
+  if (options?.orgName) {
+    envEntries.push(`        <key>AGENSHIELD_ORG_NAME</key>\n        <string>${options.orgName}</string>`);
+  }
+  if (envEntries.length > 0) {
+    envSection = `
+    <key>EnvironmentVariables</key>
+    <dict>
+${envEntries.join('\n')}
+    </dict>
+`;
+  }
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -80,7 +103,7 @@ function generateMenuBarPlist(): string {
 
     <key>LimitLoadToSessionType</key>
     <string>Aqua</string>
-</dict>
+${envSection}</dict>
 </plist>
 `;
 }
@@ -95,8 +118,9 @@ function generateMenuBarPlist(): string {
  * 3. Loads and starts the agent
  *
  * @param sourceAppPath - Path to the AgenShield.app bundle to install
+ * @param options - Optional policy URL and org name to inject as environment variables
  */
-export function installMenuBarAgent(sourceAppPath: string): MenuBarAgentResult {
+export function installMenuBarAgent(sourceAppPath: string, options?: MenuBarAgentOptions): MenuBarAgentResult {
   try {
     const appsDir = getAppsDir();
     const destAppPath = getAppPath();
@@ -104,11 +128,15 @@ export function installMenuBarAgent(sourceAppPath: string): MenuBarAgentResult {
     // 1. Create apps directory
     fs.mkdirSync(appsDir, { recursive: true });
 
-    // 2. Copy app bundle (remove old one first if exists)
-    if (fs.existsSync(destAppPath)) {
-      fs.rmSync(destAppPath, { recursive: true, force: true });
+    // 2. Copy app bundle (skip if source is already at the destination)
+    const resolvedSource = fs.realpathSync(sourceAppPath);
+    const resolvedDest = fs.existsSync(destAppPath) ? fs.realpathSync(destAppPath) : null;
+    if (resolvedSource !== resolvedDest) {
+      if (resolvedDest) {
+        fs.rmSync(destAppPath, { recursive: true, force: true });
+      }
+      execSync(`cp -R "${sourceAppPath}" "${destAppPath}"`, { stdio: 'pipe' });
     }
-    execSync(`cp -R "${sourceAppPath}" "${destAppPath}"`, { stdio: 'pipe' });
 
     // 3. Ensure LaunchAgents directory exists
     const launchAgentsDir = path.dirname(getPlistPath());
@@ -120,7 +148,7 @@ export function installMenuBarAgent(sourceAppPath: string): MenuBarAgentResult {
     } catch { /* not loaded */ }
 
     // 5. Write plist
-    fs.writeFileSync(getPlistPath(), generateMenuBarPlist());
+    fs.writeFileSync(getPlistPath(), generateMenuBarPlist(options));
 
     // 6. Load the agent
     execSync(`launchctl bootstrap gui/$(id -u) "${getPlistPath()}"`, { stdio: 'pipe' });
@@ -154,6 +182,11 @@ export function uninstallMenuBarAgent(): MenuBarAgentResult {
     // Also try to quit via AppleScript (graceful quit for running app)
     try {
       execSync(`osascript -e 'quit app "AgenShield"' 2>/dev/null`, { stdio: 'pipe' });
+    } catch { /* not running */ }
+
+    // Force-kill if still alive (osascript quit is unreliable)
+    try {
+      execSync('sleep 1 && killall AgenShield 2>/dev/null', { stdio: 'pipe' });
     } catch { /* not running */ }
 
     // 2. Remove plist

@@ -19,6 +19,8 @@
 #   AGENSHIELD_TOKEN      - Enrollment token for automatic cloud setup (MDM)
 #   AGENSHIELD_CLOUD_URL  - Cloud API URL for automatic setup (requires AGENSHIELD_TOKEN or AGENSHIELD_ORG)
 #   AGENSHIELD_ORG        - Org client ID for MDM enrollment (device code flow on daemon start)
+#   AGENSHIELD_CODESIGN_IDENTITY - Apple Developer ID signing identity (default: ad-hoc)
+#   AGENSHIELD_SKIP_SERVICES - Set to "1" to skip macOS LaunchDaemon/LaunchAgent install
 #
 set -e
 
@@ -55,9 +57,11 @@ warn()  { printf "${YELLOW}warn${RESET}  %s\n" "$1"; }
 error() { printf "${RED}error${RESET} %s\n" "$1" >&2; }
 die()   { error "$1"; exit 1; }
 
-# Sign a binary with ad-hoc identity + hardened runtime (macOS Sequoia requirement)
+# Sign a binary with hardened runtime (macOS Sequoia requirement)
+# Uses AGENSHIELD_CODESIGN_IDENTITY for Developer ID signing if set, otherwise ad-hoc.
 sign_binary_hardened() {
   _BINARY="$1"
+  _IDENTITY="${AGENSHIELD_CODESIGN_IDENTITY:-}"
   _ENT_FILE=$(mktemp /tmp/agenshield-ent.XXXXXX.plist)
   cat > "$_ENT_FILE" << 'ENTEOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -66,10 +70,18 @@ sign_binary_hardened() {
 <key>com.apple.security.cs.allow-jit</key><true/>
 <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
 <key>com.apple.security.cs.disable-library-validation</key><true/>
+<key>com.apple.security.network.client</key><true/>
+<key>com.apple.security.network.server</key><true/>
 </dict></plist>
 ENTEOF
-  codesign --force --sign - --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
-    codesign --force --sign - "$_BINARY" 2>/dev/null || true
+  if [ -n "$_IDENTITY" ]; then
+    codesign --force --sign "$_IDENTITY" --timestamp --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
+      codesign --force --sign - --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
+      codesign --force --sign - "$_BINARY" 2>/dev/null || true
+  else
+    codesign --force --sign - --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
+      codesign --force --sign - "$_BINARY" 2>/dev/null || true
+  fi
   rm -f "$_ENT_FILE"
 }
 
@@ -263,7 +275,11 @@ main() {
     if [ "$PLATFORM" = "darwin" ]; then
       xattr -d com.apple.quarantine "$BIN_DIR/$CLI_BINARY" 2>/dev/null || true
       sign_binary_hardened "$BIN_DIR/$CLI_BINARY"
-      info "Re-signed $CLI_BINARY (ad-hoc, hardened runtime)"
+      if [ -n "${AGENSHIELD_CODESIGN_IDENTITY:-}" ]; then
+        info "Re-signed $CLI_BINARY (Developer ID, hardened runtime)"
+      else
+        info "Re-signed $CLI_BINARY (ad-hoc, hardened runtime)"
+      fi
     fi
     ok "Installed $CLI_BINARY → $BIN_DIR/"
   fi
@@ -283,7 +299,11 @@ main() {
       if [ -f "$INSTALL_DIR/libexec/$BINARY" ]; then
         xattr -d com.apple.quarantine "$INSTALL_DIR/libexec/$BINARY" 2>/dev/null || true
         sign_binary_hardened "$INSTALL_DIR/libexec/$BINARY"
-        info "Re-signed $BINARY (ad-hoc, hardened runtime)"
+        if [ -n "${AGENSHIELD_CODESIGN_IDENTITY:-}" ]; then
+          info "Re-signed $BINARY (Developer ID, hardened runtime)"
+        else
+          info "Re-signed $BINARY (ad-hoc, hardened runtime)"
+        fi
       fi
     done
     # If running with sudo/root, set proper ownership for system LaunchDaemons
@@ -328,6 +348,18 @@ main() {
     ok "Installed UI assets"
   fi
 
+  # Install macOS menu bar app (if present in archive)
+  if [ -d "$EXTRACT_DIR/AgenShield.app" ]; then
+    APPS_DIR="$INSTALL_DIR/apps"
+    mkdir -p "$APPS_DIR"
+    rm -rf "$APPS_DIR/AgenShield.app" 2>/dev/null || true
+    cp -R "$EXTRACT_DIR/AgenShield.app" "$APPS_DIR/AgenShield.app"
+    if [ "$PLATFORM" = "darwin" ]; then
+      xattr -d com.apple.quarantine "$APPS_DIR/AgenShield.app" 2>/dev/null || true
+    fi
+    ok "Installed AgenShield.app → apps/"
+  fi
+
   # Write version stamp for SEA extraction check
   echo "${VERSION}:wius" > "$LIB_DIR/.extracted"
 
@@ -359,6 +391,30 @@ EOF
 
   # Add to PATH
   ensure_path
+
+  # ── Best-effort macOS service installation ──────────────────────────────
+  if [ "$PLATFORM" = "darwin" ] && [ "${AGENSHIELD_SKIP_SERVICES:-}" != "1" ]; then
+    info "Installing macOS services..."
+
+    # LaunchDaemon (requires sudo)
+    if [ -f "$INSTALL_DIR/libexec/agenshield-daemon" ]; then
+      if "$BIN_DIR/$CLI_BINARY" service install 2>/dev/null; then
+        ok "Installed LaunchDaemon service"
+      else
+        warn "Could not install LaunchDaemon (sudo may be required)."
+        warn "Run later: sudo agenshield service install"
+      fi
+    fi
+
+    # Menu bar LaunchAgent (no sudo)
+    if [ -d "$INSTALL_DIR/apps/AgenShield.app" ]; then
+      if "$BIN_DIR/$CLI_BINARY" service menubar install 2>/dev/null; then
+        ok "Installed menu bar agent"
+      else
+        warn "Could not install menu bar agent."
+      fi
+    fi
+  fi
 
   # ── Automatic cloud setup via token (MDM) ──────────────────────────────
   SETUP_DONE=false

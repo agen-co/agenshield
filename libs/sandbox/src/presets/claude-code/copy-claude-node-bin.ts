@@ -95,10 +95,17 @@ export const copyClaudeNodeBinStep: InstallStep = {
       );
       ctx.onLog?.('Falling back to host system Node.js...');
 
-      const nodeResult = await ctx.execAsRoot(
+      // Try agent user first (has nvm in PATH), then root as last resort
+      let nodeResult = await ctx.execAsUserDirect(
         `which node 2>/dev/null || command -v node 2>/dev/null`,
         { timeout: 10_000 },
       );
+      if (!nodeResult.success || !(nodeResult.output ?? '').trim()) {
+        nodeResult = await ctx.execAsRoot(
+          `which node 2>/dev/null || command -v node 2>/dev/null`,
+          { timeout: 10_000 },
+        );
+      }
       const systemNode = (nodeResult.output ?? '').trim().split('\n')[0];
 
       if (!systemNode || !nodeResult.success) {
@@ -109,7 +116,8 @@ export const copyClaudeNodeBinStep: InstallStep = {
       }
 
       // Verify it's a real binary, not a wrapper/shim (e.g. NVM)
-      const fileCheck = await ctx.execAsRoot(
+      // Use execAsUserDirect since the path may be under the agent user's home (nvm)
+      const fileCheck = await ctx.execAsUserDirect(
         `file "${systemNode}" 2>/dev/null`,
         { timeout: 5_000 },
       );
@@ -118,7 +126,7 @@ export const copyClaudeNodeBinStep: InstallStep = {
       // If it's a wrapper (e.g. NVM shim), resolve the real binary
       let resolvedNode = systemNode;
       if (isWrapper) {
-        const resolveResult = await ctx.execAsRoot(
+        const resolveResult = await ctx.execAsUserDirect(
           `readlink -f "${systemNode}" 2>/dev/null || echo "${systemNode}"`,
           { timeout: 5_000 },
         );

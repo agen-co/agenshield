@@ -30,6 +30,9 @@ export const PUBLIC_ROUTES = [
   '/api/auth/sudo-login',
   '/api/auth/admin-token',
   '/api/workspace-paths',
+  '/api/setup/status',
+  '/api/setup/cloud',
+  '/api/setup/local',
 ] as const;
 
 /**

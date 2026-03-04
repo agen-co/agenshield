@@ -33,6 +33,7 @@ import { icloudRoutes } from './icloud';
 import { enrollmentRoutes } from './enrollment';
 import { workspacePathsRoutes } from './workspace-paths';
 import { workspaceSkillsRoutes } from './workspace-skills';
+import { setupRoutes } from './setup';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 import { registerShieldContext } from '../context';
@@ -65,7 +66,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // Skip SSE, RPC, static file requests, and noisy health polls
     if (!request.url.startsWith('/sse') && !request.url.startsWith('/rpc') && !request.url.includes('.') && !request.url.endsWith('/health')) {
       // Skip successful status polls — too noisy
-      if (request.method === 'GET' && (request.url.startsWith('/api/status') || request.url.startsWith('/api/activity') || request.url.startsWith('/api/alerts')) && reply.statusCode === 200) {
+      if (request.method === 'GET' && (request.url.startsWith('/api/status') || request.url.startsWith('/api/activity') || request.url.startsWith('/api/alerts') || request.url.startsWith('/api/workspace-paths/check')) && reply.statusCode === 200) {
         done();
         return;
       }
@@ -81,6 +82,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       // Include request/response bodies for non-GET, non-auth routes
       const isAuthRoute = request.url.includes('/auth/');
       const includeBody = request.method !== 'GET' && !isAuthRoute;
+      const profileId = request.shieldContext?.profileId ?? undefined;
 
       if (includeBody) {
         const requestBody = request.body as unknown;
@@ -93,9 +95,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             responseBody = undefined;
           }
         }
-        emitApiRequest(request.method, safeUrl, status, ms, requestBody, responseBody);
+        emitApiRequest(request.method, safeUrl, status, ms, requestBody, responseBody, profileId);
       } else {
-        emitApiRequest(request.method, safeUrl, status, ms);
+        emitApiRequest(request.method, safeUrl, status, ms, undefined, undefined, profileId);
       }
     }
     done();
@@ -143,6 +145,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(enrollmentRoutes);
       await api.register(workspacePathsRoutes);
       await api.register(workspaceSkillsRoutes);
+      await api.register(setupRoutes);
     },
     { prefix: API_PREFIX }
   );

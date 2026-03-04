@@ -246,7 +246,7 @@ export function getEventSeverity(event: SSEEvent): EventSeverity {
 const NOISE_COMMANDS = ['arp ', 'networksetup ', 'ifconfig ', 'scutil '];
 
 /** API polling paths that are just the UI refreshing data */
-const NOISE_API_PATHS = ['/api/metrics', '/api/security', '/api/health', '/api/status', '/api/alerts', '/api/targets'];
+const NOISE_API_PATHS = ['/api/metrics', '/api/security', '/api/health', '/api/status', '/api/alerts', '/api/targets', '/api/workspace-paths'];
 
 /** Returns true for low-value system probe events (allowed exec of arp, networksetup, etc.) */
 export function isNoiseEvent(event: SSEEvent): boolean {

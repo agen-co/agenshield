@@ -159,6 +159,73 @@ async function killAllProfileProcesses(
 }
 
 /**
+ * Remove all ACL entries for a user from a single path.
+ * Best-effort: failures are logged but never thrown.
+ */
+function removeUserAclFromPath(targetPath: string, userName: string): void {
+  try {
+    if (!fs.existsSync(targetPath)) return;
+
+    const lsOutput = execSync(`ls -le "${targetPath}" 2>/dev/null || true`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const indices: number[] = [];
+    for (const line of lsOutput.split('\n')) {
+      const match = line.match(/^\s*(\d+):\s+user:(\S+)\s+/);
+      if (match && match[2] === userName) {
+        indices.push(Number(match[1]));
+      }
+    }
+
+    // Remove highest index first so lower indices stay valid
+    indices.sort((a, b) => b - a);
+    for (const idx of indices) {
+      try {
+        execSync(`chmod -a# ${idx} "${targetPath}"`, { stdio: 'pipe' });
+      } catch {
+        try { execSync(`sudo chmod -a# ${idx} "${targetPath}"`, { stdio: 'pipe' }); } catch { /* best-effort */ }
+      }
+    }
+  } catch {
+    // Best-effort
+  }
+}
+
+const WORLD_TRAVERSABLE_PATHS = new Set([
+  '/', '/Users', '/tmp', '/private', '/private/tmp', '/private/var',
+  '/var', '/opt', '/usr', '/usr/local', '/Applications', '/Library',
+  '/System', '/Volumes',
+]);
+
+/**
+ * Remove ACLs for a user from workspace paths and their traversal ancestors.
+ * Must be called before deleting the macOS user.
+ */
+function cleanupProfileAcls(userName: string, workspacePaths: string[]): void {
+  const cleaned = new Set<string>();
+
+  for (const ws of workspacePaths) {
+    if (!cleaned.has(ws)) {
+      removeUserAclFromPath(ws, userName);
+      cleaned.add(ws);
+    }
+    // Walk up ancestors that need traversal ACLs
+    let dir = path.dirname(ws);
+    let prev = ws;
+    while (dir !== prev && dir !== '/') {
+      if (!WORLD_TRAVERSABLE_PATHS.has(dir) && !cleaned.has(dir)) {
+        removeUserAclFromPath(dir, userName);
+        cleaned.add(dir);
+      }
+      prev = dir;
+      dir = path.dirname(dir);
+    }
+  }
+}
+
+/**
  * Unshield a single profile using manifest-driven rollback.
  */
 async function unshieldProfile(
@@ -168,9 +235,10 @@ async function unshieldProfile(
     brokerUsername?: string;
     agentHomeDir?: string;
     presetId?: string;
+    workspacePaths?: string[];
     installManifest?: { entries: Array<{ stepId: string; status: string; changed: boolean; outputs: Record<string, string> }> };
   },
-  storage: { for(scope: { profileId: string }): { policies: { deleteAll(): void } }; profiles: { delete(id: string): void } },
+  storage: { for(scope: { profileId: string }): { policies: { deleteAll(): void; getAll(): Array<{ enabled?: boolean; target: string; action: string; operations?: string[]; patterns: string[] }> } }; profiles: { delete(id: string): void } },
 ): Promise<void> {
   const agentUsername = profile.agentUsername;
   const agentHomeDir = profile.agentHomeDir;
@@ -221,6 +289,13 @@ async function unshieldProfile(
       } else {
         output.info(`  ${output.dim('-')} rollback: ${entry.stepId} (no handler)`);
       }
+    }
+
+    // Clean up filesystem ACLs before user deletion
+    if (agentUsername) {
+      output.info('  Cleaning up filesystem ACLs...');
+      cleanupProfileAcls(agentUsername, profile.workspacePaths ?? []);
+      output.success('Cleaned up filesystem ACLs');
     }
 
     // Post-rollback verification
@@ -306,6 +381,12 @@ async function unshieldProfile(
     if (agentHomeDir) {
       await execAsRoot(`rm -rf "${agentHomeDir}"`, { timeout: 60_000 });
       output.success(`Deleted ${agentHomeDir}`);
+    }
+
+    // Clean up filesystem ACLs before user deletion
+    if (agentUsername) {
+      cleanupProfileAcls(agentUsername, profile.workspacePaths ?? []);
+      output.success('Cleaned up filesystem ACLs');
     }
 
     if (agentUsername) {
@@ -427,16 +508,10 @@ async function systemCleanup(dataDir: string): Promise<void> {
   }
 
   // Remove menu bar LaunchAgent and app (user-level, no sudo needed)
-  const menubarPlist = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.agenshield.menubar.plist');
-  const menubarAppsDir = path.join(os.homedir(), '.agenshield', 'apps');
   try {
-    execSync(`launchctl bootout gui/$(id -u) "${menubarPlist}" 2>/dev/null`, { stdio: 'pipe' });
-  } catch { /* not loaded */ }
-  for (const mp of [menubarPlist, menubarAppsDir]) {
-    if (fs.existsSync(mp)) {
-      fs.rmSync(mp, { recursive: true, force: true });
-    }
-  }
+    const { uninstallMenuBarAgent } = await import('@agenshield/integrations');
+    uninstallMenuBarAgent();
+  } catch { /* best effort */ }
 
   const cleanupPaths = [
     '/etc/agenshield',
@@ -466,9 +541,20 @@ async function systemCleanup(dataDir: string): Promise<void> {
   if (fs.existsSync(dataDir)) {
     try {
       execSync(`sudo rm -rf "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-      output.success(`Deleted ${dataDir}`);
-    } catch {
-      output.warn(`Could not fully remove ${dataDir}`);
+    } catch { /* handled below */ }
+
+    // Verify removal — if directory persists, try chown + rm as current user
+    if (fs.existsSync(dataDir)) {
+      try {
+        execSync(`sudo chown -R $(whoami) "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        fs.rmSync(dataDir, { recursive: true, force: true });
+      } catch { /* handled below */ }
+    }
+
+    if (fs.existsSync(dataDir)) {
+      output.warn(`Could not fully remove ${dataDir} — remove manually with: sudo rm -rf "${dataDir}"`);
+    } else {
+      output.success(`Deleted ${dataDir} (databases, vault, logs)`);
     }
   }
 }
@@ -670,13 +756,30 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
     }
   });
 
+  // Remove menu bar LaunchAgent and app (user-level, no sudo needed)
+  try {
+    const { uninstallMenuBarAgent } = await import('@agenshield/integrations');
+    uninstallMenuBarAgent();
+  } catch { /* best effort */ }
+
   const dataDir = resolveDataDir();
   if (fs.existsSync(dataDir)) {
     try {
       execSync(`sudo rm -rf "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch { /* handled below */ }
+
+    // Verify removal — if directory persists, try chown + rm as current user
+    if (fs.existsSync(dataDir)) {
+      try {
+        execSync(`sudo chown -R $(whoami) "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        fs.rmSync(dataDir, { recursive: true, force: true });
+      } catch { /* handled below */ }
+    }
+
+    if (fs.existsSync(dataDir)) {
+      output.warn(`cleanup: Could not fully remove ${dataDir} — remove manually with: sudo rm -rf "${dataDir}"`);
+    } else {
       output.success(`cleanup: Deleted ${dataDir} (databases, vault, logs)`);
-    } catch {
-      output.warn(`cleanup: Could not fully remove ${dataDir} (may contain root-owned files)`);
     }
   }
 

@@ -14,8 +14,10 @@
 
 import type { Command } from 'commander';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { withGlobals } from './base.js';
+import { execSync } from 'node:child_process';
 import {
   AGENSHIELD_HOME,
   getBinDir,
@@ -31,12 +33,15 @@ import {
   readVersionInfo,
   ensurePathInShellRc,
   buildAndInstallSEAFromLocal,
+  extractMacAppFromSandbox,
+  isRootOwned,
 } from '../utils/home.js';
-import { stopDaemon, startDaemon, getDaemonStatus, DAEMON_CONFIG } from '../utils/daemon.js';
+import { stopDaemon, startDaemon, getDaemonStatus, DAEMON_CONFIG, findDaemonExecutable } from '../utils/daemon.js';
 import { inkSelect } from '../prompts/index.js';
 import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
+import { ensureSudoAccess } from '../utils/privileges.js';
 
 /**
  * Read the version from the CLI's own package.json (fallback for --version).
@@ -56,6 +61,59 @@ function getOwnVersion(): string {
   return 'latest';
 }
 
+/**
+ * Best-effort macOS service installation (LaunchDaemon + menu bar agent).
+ * Failures are warnings, not hard errors.
+ */
+async function installMacOSServices(menuBarOptions?: { policyUrl?: string; orgName?: string }): Promise<void> {
+  if (os.platform() !== 'darwin') return;
+
+  // Step A: LaunchDaemon + privilege helper (requires sudo)
+  const daemonPath = findDaemonExecutable();
+  if (daemonPath) {
+    try {
+      const { installDaemonService, installPrivilegeHelperService } = await import('@agenshield/integrations');
+
+      const daemonResult = installDaemonService({ daemonPath });
+      if (daemonResult.success) {
+        output.success('Installed LaunchDaemon service');
+      } else {
+        output.warn(`LaunchDaemon install: ${daemonResult.message}`);
+      }
+
+      const helperResult = installPrivilegeHelperService({ daemonPath });
+      if (helperResult.success) {
+        output.success('Installed privilege helper service');
+      } else {
+        output.warn(`Privilege helper install: ${helperResult.message}`);
+      }
+    } catch {
+      output.warn('Could not install LaunchDaemon services (sudo may be required).');
+      output.info('    Run later: sudo agenshield service install');
+    }
+  } else {
+    output.warn('Daemon executable not found — skipping LaunchDaemon installation.');
+  }
+
+  // Step B: Menu bar app LaunchAgent (no sudo needed)
+  const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
+  if (fs.existsSync(menuBarAppPath)) {
+    try {
+      const { installMenuBarAgent } = await import('@agenshield/integrations');
+      const agentResult = installMenuBarAgent(menuBarAppPath, menuBarOptions);
+      if (agentResult.success) {
+        output.success('Installed menu bar agent');
+      } else {
+        output.warn(`Menu bar agent: ${agentResult.message}`);
+      }
+    } catch {
+      output.warn('Could not install menu bar agent.');
+    }
+  } else {
+    output.info('  AgenShield.app not found — skipping menu bar installation.');
+  }
+}
+
 export function registerInstallCommand(program: Command): void {
   program
     .command('install')
@@ -65,13 +123,25 @@ export function registerInstallCommand(program: Command): void {
     .option('--force', 'Overwrite existing installation', false)
     .option('--local', 'Install from local monorepo build output instead of npm', false)
     .option('--sea', 'Build and install as a Single Executable Application binary', false)
+    .option('--policy-url <url>', 'Policy server URL for cloud login', 'http://localhost:9090')
+    .option('--org <name>', 'Organization name displayed in menu bar login')
+    .option('--skip-services', 'Skip automatic macOS LaunchDaemon and menu bar agent installation', false)
     .action(withGlobals(async (opts) => {
       const useSEA = opts['sea'] as boolean;
+      const menuBarOptions = {
+        policyUrl: opts['policyUrl'] as string | undefined,
+        orgName: opts['org'] as string | undefined,
+      };
 
       output.info('');
       output.info(`  AgenShield ${useSEA ? 'SEA Binary' : 'Local'} Install`);
       output.info('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
       output.info('');
+
+      // Pre-flight: acquire sudo early so the password prompt isn't mid-install
+      if (!opts['skipServices'] && os.platform() === 'darwin') {
+        ensureSudoAccess();
+      }
 
       // 1. Check Node.js version
       const nodeError = checkNodeVersion(22);
@@ -154,6 +224,22 @@ export function registerInstallCommand(program: Command): void {
         }
       }
 
+      // 2b. Fix ownership if ~/.agenshield was left behind as root-owned
+      if (fs.existsSync(AGENSHIELD_HOME) && isRootOwned(AGENSHIELD_HOME)) {
+        try {
+          execSync(`sudo chown -R $(whoami) "${AGENSHIELD_HOME}"`, {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+          });
+          output.success(`Reclaimed ownership of ${AGENSHIELD_HOME}`);
+        } catch {
+          throw new CliError(
+            `${AGENSHIELD_HOME} is owned by root and could not be reclaimed. Run: sudo chown -R $(whoami) "${AGENSHIELD_HOME}"`,
+            'PERMISSION_ERROR',
+          );
+        }
+      }
+
       // 3. Create directories
       const dirs = [
         getBinDir(),
@@ -233,6 +319,13 @@ export function registerInstallCommand(program: Command): void {
           output.info(`    Run: source ${rcFile}`);
         } else {
           output.success(`PATH already configured in ${rcFile}`);
+        }
+
+        // Auto-install macOS services (LaunchDaemon + menu bar agent)
+        if (!opts['skipServices'] && os.platform() === 'darwin') {
+          output.info('');
+          output.info('  Installing macOS services...');
+          await installMacOSServices(menuBarOptions);
         }
 
         // Restart daemon if it was running before install
@@ -343,12 +436,27 @@ export function registerInstallCommand(program: Command): void {
       output.success('Verified CLI entry point');
 
       // 9. Auto-add PATH to shell rc
-      const { added, rcFile } = ensurePathInShellRc();
-      if (added) {
-        output.success(`Added PATH to ${rcFile}`);
-        output.info(`    Run: source ${rcFile}`);
+      const { added: npmAdded, rcFile: npmRcFile } = ensurePathInShellRc();
+      if (npmAdded) {
+        output.success(`Added PATH to ${npmRcFile}`);
+        output.info(`    Run: source ${npmRcFile}`);
       } else {
-        output.success(`PATH already configured in ${rcFile}`);
+        output.success(`PATH already configured in ${npmRcFile}`);
+      }
+
+      // 9b. Extract AgenShield.app from sandbox package to ~/.agenshield/apps/
+      if (os.platform() === 'darwin') {
+        const extracted = extractMacAppFromSandbox(distDir);
+        if (extracted) {
+          output.success('Extracted AgenShield.app to ~/.agenshield/apps/');
+        }
+      }
+
+      // 9c. Auto-install macOS services (LaunchDaemon + menu bar agent)
+      if (!opts['skipServices'] && os.platform() === 'darwin') {
+        output.info('');
+        output.info('  Installing macOS services...');
+        await installMacOSServices(menuBarOptions);
       }
 
       // 10. Restart daemon if it was running before install

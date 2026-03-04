@@ -220,8 +220,9 @@ export const OPENCLAW_SHIELD_STEPS: ShieldStepDefinition[] = [
 
 /**
  * Granular step definitions for the Claude Code shield process.
- * Shares infra phases 0-5 and 10-14 with OpenClaw, but replaces
- * phases 6-9 with Claude-specific steps (no Homebrew/NVM/Node phases).
+ * Shares infra phases 0-5 and 10-14 with OpenClaw.
+ * Phases 6-7 install Homebrew/NVM/Node (same as OpenClaw).
+ * Phases 8-9 are Claude-specific (install, verify, configure).
  */
 export const CLAUDE_CODE_SHIELD_STEPS: ShieldStepDefinition[] = [
   // Phase 0: Cleanup
@@ -251,8 +252,15 @@ export const CLAUDE_CODE_SHIELD_STEPS: ShieldStepDefinition[] = [
   { id: 'install_path_registry', phase: 5, name: 'Install PATH registry', description: 'Register instance in ~/.agenshield/path-registry.json' },
   { id: 'install_path_router', phase: 5, name: 'Install PATH router', description: 'Write router wrapper to /usr/local/bin' },
   { id: 'install_path_shell_override', phase: 5, name: 'Install PATH shell override', description: 'Append PATH override to host shell rc (after NVM)' },
+  // Phase 6: Shell config + Homebrew
+  { id: 'save_host_shell_config', phase: 6, name: 'Save host shell config', description: 'Snapshot .zshrc/.bashrc before external installers run' },
+  { id: 'install_homebrew', phase: 6, name: 'Install Homebrew', description: 'Download and install Homebrew in agent home' },
+  // Phase 7: NVM & Node.js
+  { id: 'install_nvm', phase: 7, name: 'Install NVM', description: 'Install Node Version Manager in agent home' },
+  { id: 'install_node', phase: 7, name: 'Install Node.js', description: 'Install Node.js v24 via NVM' },
+  { id: 'restore_shell_config_nvm', phase: 7, name: 'Check shell config after NVM', description: 'Check and restore host shell configs if modified by NVM installer' },
+  { id: 'copy_node_binary', phase: 7, name: 'Copy node binary', description: 'Copy node binary for interceptor and broker use' },
   // Phase 8: Target App (Claude Code)
-  { id: 'save_host_shell_config', phase: 8, name: 'Save host shell config', description: 'Snapshot .zshrc/.bashrc before external installers run' },
   { id: 'install_claude', phase: 8, name: 'Install Claude Code', description: 'Install Claude Code via official installer' },
   { id: 'restore_shell_config_claude', phase: 8, name: 'Check shell config after install', description: 'Check and restore host shell configs if modified by Claude installer' },
   { id: 'verify_claude', phase: 8, name: 'Verify Claude Code', description: 'Run claude --version to verify installation' },

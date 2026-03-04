@@ -16,12 +16,6 @@
     "format:check": "prettier --check .",
     "docs": "mint dev --port 4301",
     "cli": "node libs/cli/dist/src/cli.js",
-    "cli:setup": "node libs/cli/dist/src/cli.js setup",
-    "cli:daemon:start": "node libs/cli/dist/src/cli.js daemon start",
-    "cli:daemon:stop": "node libs/cli/dist/src/cli.js daemon stop",
-    "cli:daemon:status": "node libs/cli/dist/src/cli.js daemon status",
-    "cli:uninstall": "sudo node libs/cli/dist/src/cli.js uninstall",
-    "cli:help": "node libs/cli/dist/src/cli.js help",
     "daemon:start": "node libs/shield-daemon/dist/src/main.js",
     "daemon:dev": "AGENSHIELD_CONFIG_DIR=./tmp/dev-config AGENSHIELD_AGENT_HOME=./tmp/dev-agent npx tsx watch libs/shield-daemon/src/main.ts",
     "test-harness:install": "cd tools/test-harness && npm link",
@@ -32,7 +26,8 @@
     "registry:start": "node scripts/registry/start.mjs",
     "registry:publish": "node scripts/registry/publish.mjs",
     "registry:stop": "node scripts/registry/stop.mjs",
-    "test:seatbelt": "npx nx build shield-daemon && npx tsx tools/test-seatbelt.ts"
+    "test:seatbelt": "npx nx build shield-daemon && npx tsx tools/test-seatbelt.ts",
+    "generate:macos-icons": "node --experimental-strip-types tools/generate-macos-icons.mts"
   },
   "private": true,
   "devDependencies": {
@@ -60,6 +55,7 @@
     "nx": "22.4.4",
     "pino-pretty": "^13.1.3",
     "prettier": "^3.7.4",
+    "sharp": "^0.34.5",
     "ts-jest": "^29.4.6",
     "ts-node": "10.9.2",
     "tslib": "^2.8.1",

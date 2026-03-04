@@ -109,9 +109,9 @@ export function mergeDetectedTargets(incoming: DetectedTarget[]): void {
     }
   }
 
-  // Remove targets no longer detected
+  // Remove targets no longer detected (but keep manually-added targets)
   for (let i = existing.length - 1; i >= 0; i--) {
-    if (!incomingMap.has(existing[i].id)) {
+    if (!incomingMap.has(existing[i].id) && existing[i].method !== 'manual') {
       existing.splice(i, 1);
     }
   }
