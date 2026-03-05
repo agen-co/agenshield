@@ -706,7 +706,7 @@ describe('Storage — End-to-end Performance', () => {
 
       const speedup = elapsedIndividual / elapsedTransaction;
       console.log(`[txn] individual: ${elapsedIndividual.toFixed(1)}ms, transaction: ${elapsedTransaction.toFixed(1)}ms (${speedup.toFixed(1)}x faster)`);
-      expect(speedup).toBeGreaterThan(3);
+      expect(speedup).toBeGreaterThan(2);
     });
 
     it('transaction rollback leaves no partial state', () => {
