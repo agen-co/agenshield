@@ -563,7 +563,6 @@ export async function startEssentialServices(app: FastifyInstance, config: Daemo
   const workspaceSkillScanner = new WorkspaceSkillScanner({
     storage,
     logger: app.log,
-    agentUsername: targetCtx?.agentUsername ?? '',
     configDir: getConfigDir(),
   });
   app.decorate('workspaceSkillScanner', workspaceSkillScanner);

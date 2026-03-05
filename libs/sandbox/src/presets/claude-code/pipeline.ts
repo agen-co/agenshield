@@ -59,6 +59,9 @@ export function getClaudeCodePipeline(): InstallStep[] {
         const interceptorPath = `${hostHome}/.agenshield/lib/interceptor/register.cjs`;
         const socketPath = `${ctx.agentHome}/.agenshield/run/agenshield.sock`;
         return [
+          '# Guarded shell for subprocess enforcement',
+          `_GS="${ctx.agentHome}/.agenshield/bin/guarded-shell"`,
+          '[ -x "$_GS" ] && export SHELL="$_GS"',
           '# AgenShield interceptor + proxy environment',
           `if [ -f "${interceptorPath}" ]; then`,
           `  export NODE_OPTIONS="--require ${interceptorPath} \${NODE_OPTIONS:-}"`,

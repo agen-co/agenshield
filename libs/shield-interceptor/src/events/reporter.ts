@@ -21,6 +21,22 @@ export interface InterceptorEvent {
   error?: string;
 }
 
+const MAX_TARGET_LENGTH = 500;
+
+/**
+ * Sanitize a target string to prevent large content (e.g. heredocs) from
+ * cluttering activity logs. Truncates to MAX_TARGET_LENGTH.
+ */
+function sanitizeTarget(target: string): string {
+  if (target.length <= MAX_TARGET_LENGTH) return target;
+  const heredocMatch = target.match(/<<['"]?(\w+)['"]?/);
+  if (heredocMatch) {
+    const idx = target.indexOf(heredocMatch[0]);
+    return target.slice(0, idx + heredocMatch[0].length) + ' [content omitted]';
+  }
+  return target.slice(0, MAX_TARGET_LENGTH) + '... [truncated]';
+}
+
 export class EventReporter {
   private client: AsyncClient;
   private logLevel: EventReporterOptions['logLevel'];
@@ -51,6 +67,7 @@ export class EventReporter {
    * Report an event
    */
   report(event: InterceptorEvent): void {
+    event.target = sanitizeTarget(event.target);
     this.queue.push(event);
 
     // Drop oldest events if queue exceeds max size

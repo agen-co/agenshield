@@ -535,6 +535,8 @@ export function denyWorkspaceSkill(
 ): boolean {
   const applied = addUserAcl(skillPath, userName, SKILL_DENY_PERMS, log, 'deny');
   if (!applied) return false;
+  // Hide from directory listings (ls won't show hidden files by default)
+  try { execSync(`chflags hidden "${skillPath}"`, { stdio: 'pipe' }); } catch { /* best effort */ }
   return verifyUserAcl(skillPath, userName, SKILL_DENY_PERMS, 'deny');
 }
 
@@ -547,6 +549,8 @@ export function allowWorkspaceSkill(
   log: Logger = noop,
 ): void {
   removeUserAcl(skillPath, userName, log);
+  // Unhide from directory listings
+  try { execSync(`chflags nohidden "${skillPath}"`, { stdio: 'pipe' }); } catch { /* best effort */ }
 }
 
 /**

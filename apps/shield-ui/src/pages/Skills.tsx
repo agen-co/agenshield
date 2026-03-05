@@ -285,6 +285,25 @@ export function Skills({ embedded, targetId, onSkillClick }: SkillsProps = {}) {
 
     return (
       <Box>
+        <Tabs
+          value={activeTab}
+          onChange={(_, v) => setActiveTab(v)}
+          sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}
+        >
+          <Tab label="Installed Skills" />
+          <Tab
+            label={
+              <Badge badgeContent={pendingCount} color="warning" max={99}>
+                <Box sx={{ pr: pendingCount > 0 ? 1.5 : 0 }}>Workspace Skills</Box>
+              </Badge>
+            }
+          />
+        </Tabs>
+
+        {activeTab === 1 ? (
+          <WorkspaceSkillsPanel isReadOnly={!auth.authenticated} profileId={targetId} />
+        ) : (
+        <>
         <Box sx={{ mb: 3 }}>
           <SearchInput
             value={search}
@@ -378,6 +397,8 @@ export function Skills({ embedded, targetId, onSkillClick }: SkillsProps = {}) {
           }}
           onCancel={() => setConfirmUninstall(null)}
         />
+        </>
+        )}
       </Box>
     );
   }

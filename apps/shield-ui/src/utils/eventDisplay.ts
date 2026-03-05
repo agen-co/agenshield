@@ -36,6 +36,9 @@ export const EVENT_DISPLAY: Record<string, EventDisplayMeta> = {
   // API
   'api:request': { icon: Globe, label: 'API Request', color: 'primary' },
   'api:outbound': { icon: ArrowUpRight, label: 'Outbound Request', color: 'info' },
+  'api:open_url_request': { icon: Globe, label: 'URL Open Request', color: 'info' },
+  'api:open_url_approved': { icon: Globe, label: 'URL Opened', color: 'success' },
+  'api:open_url_denied': { icon: ShieldBan, label: 'URL Denied', color: 'error' },
 
   // Security
   'security:status': { icon: ShieldAlert, label: 'Security Status', color: 'warning' },
@@ -147,6 +150,7 @@ export const BLOCKED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'security:critical',
   'security:alert',
   'enforcement:process_killed',
+  'api:open_url_denied',
 ]);
 
 /** Resolve a semantic color key (e.g. 'error', 'info') to a palette color value */
@@ -220,6 +224,8 @@ export function getEventSeverity(event: SSEEvent): EventSeverity {
   if (t === 'skills:installed' || t === 'skills:uninstalled') return 'info';
   if (t === 'skills:analyzed' || t === 'skills:integrity_restored') return 'info';
   if (t === 'config:changed' || t === 'config:policies_updated') return 'info';
+  if (t === 'api:open_url_request') return 'info';
+  if (t === 'api:open_url_approved') return 'info';
   if (t.startsWith('setup:')) return 'info';
   if (t.endsWith('_started') || t.endsWith('_stopped') || t === 'process:started' || t === 'process:stopped') return 'info';
   if (t === 'agenco:connected' || t === 'agenco:disconnected' || t === 'agenco:auth_completed') return 'info';
@@ -243,7 +249,12 @@ export function getEventSeverity(event: SSEEvent): EventSeverity {
 /* ------------------------------------------------------------------ */
 
 /** Noisy allowed exec commands to always filter in the overview feed (matched by prefix) */
-const NOISE_COMMANDS = ['arp ', 'networksetup ', 'ifconfig ', 'scutil '];
+const NOISE_COMMANDS = [
+  'arp ', 'networksetup ', 'ifconfig ', 'scutil ',
+  'sysctl ', 'sw_vers', 'system_profiler ',
+  'which ', 'type ', 'command -v ', 'uname ',
+  'id ', 'whoami', 'printenv',
+];
 
 /** API polling paths that are just the UI refreshing data */
 const NOISE_API_PATHS = ['/api/metrics', '/api/security', '/api/health', '/api/status', '/api/alerts', '/api/targets', '/api/workspace-paths'];
@@ -271,8 +282,17 @@ export function isNoiseEvent(event: SSEEvent): boolean {
 
   if (event.type !== 'interceptor:event') return false;
   const d = event.data as Record<string, unknown>;
-  if (d.operation !== 'exec') return false;
-  if (d.type !== 'allowed' && d.type !== 'allow' && d.type !== 'intercept') return false;
+  const dtype = String(d.type ?? '');
+  const operation = String(d.operation ?? '');
+
+  // Pure intercept events with no policy result are noise
+  if (dtype === 'intercept') return true;
+
+  // File operations are noise in the overview feed
+  if (operation === 'file_read' || operation === 'file_write' || operation === 'file_list') return true;
+
+  if (operation !== 'exec') return false;
+  if (dtype !== 'allowed' && dtype !== 'allow') return false;
   const target = String(d.target ?? '');
   return NOISE_COMMANDS.some((prefix) => target.startsWith(prefix));
 }
@@ -296,6 +316,19 @@ export function getEventSummary(event: SSEEvent): string {
       return `${method} ${url}`;
     }
   }
+  if (event.type === 'api:open_url_request') {
+    const url = String(d.url ?? '');
+    return `Open URL: ${url}`;
+  }
+  if (event.type === 'api:open_url_approved') {
+    const url = String(d.url ?? '');
+    return `Opened: ${url}`;
+  }
+  if (event.type === 'api:open_url_denied') {
+    const url = String(d.url ?? '');
+    const reason = String(d.reason ?? '');
+    return reason ? `Denied: ${url} — ${reason}` : `Denied: ${url}`;
+  }
   if (event.type === 'exec:denied') {
     const command = d.command ?? d.target ?? '';
     const reason = d.reason ?? d.error ?? '';
@@ -309,12 +342,12 @@ export function getEventSummary(event: SSEEvent): string {
 
     if (dtype === 'denied' || dtype === 'deny') {
       const hasTarget = (dtype === 'denied' || dtype === 'deny') &&
-        (operation === 'http_request' || operation === 'exec') && target;
+        (operation === 'http_request' || operation === 'exec' || operation === 'open_url') && target;
       const base = hasTarget ? `BLOCKED ${operation}: ${target}` : `BLOCKED ${operation}`;
       return error ? `${base} — ${error}` : base;
     }
-    // allow + http_request/exec → show target
-    if ((operation === 'http_request' || operation === 'exec') && target) {
+    // allow + http_request/exec/open_url → show target
+    if ((operation === 'http_request' || operation === 'exec' || operation === 'open_url') && target) {
       return `${operation}: ${target}`;
     }
     return operation;

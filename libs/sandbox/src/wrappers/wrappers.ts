@@ -14,6 +14,7 @@ import { createRequire } from 'node:module';
 import { isSEA, getSEALibDir } from '@agenshield/ipc';
 import type { UserConfig } from '@agenshield/ipc';
 import { NVM_VERSION } from '../presets/shared/versions.js';
+import { installGenericWrapper, syncGenericWrappers } from './generic-wrapper.js';
 
 // Create a require function for ESM compatibility (needed for require.resolve)
 const require = createRequire(import.meta.url);
@@ -133,6 +134,14 @@ exec ${config.shieldClientPath} "$@"
 # HTTPS: CONNECT tunnel (policy enforced at broker). HTTP: HTTP proxy handler.
 # All curl features (headers, auth, multipart, etc.) work natively.
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
+# Policy check (fail-closed: any non-zero exit blocks)
+"${config.shieldClientPath}" check-exec "curl" 2>/dev/null
+if [ $? -ne 0 ]; then
+  echo "AgenShield: execution of 'curl' denied by policy" >&2
+  exit 126
+fi
+
 export HTTPS_PROXY="http://127.0.0.1:${config.httpPort}"
 export HTTP_PROXY="http://127.0.0.1:${config.httpPort}"
 export NO_PROXY="localhost,127.0.0.1"
@@ -146,6 +155,14 @@ exec /usr/bin/curl "$@"
 # wget wrapper — routes through AgenShield broker proxy.
 # HTTPS: CONNECT tunnel (policy enforced at broker). HTTP: HTTP proxy handler.
 if ! /bin/pwd > /dev/null 2>&1; then cd ~ 2>/dev/null || cd /; fi
+
+# Policy check (fail-closed: any non-zero exit blocks)
+"${config.shieldClientPath}" check-exec "wget" 2>/dev/null
+if [ $? -ne 0 ]; then
+  echo "AgenShield: execution of 'wget' denied by policy" >&2
+  exit 126
+fi
+
 export HTTPS_PROXY="http://127.0.0.1:${config.httpPort}"
 export HTTP_PROXY="http://127.0.0.1:${config.httpPort}"
 export NO_PROXY="localhost,127.0.0.1"
@@ -2040,7 +2057,19 @@ export async function installPresetBinaries(options: {
   }
   installedWrappers.push(...basicResult.installed);
 
-  // 6. Lock down wrapper files: root-owned, mode 755 (agent can't modify)
+  // 6. Install generic wrapper and create symlinks for remaining system binaries
+  const hostHome = process.env['HOME'] || '/root';
+  try {
+    log('Installing generic wrapper script');
+    const genericWrapperPath = await installGenericWrapper(hostHome, { useSudo: true });
+    log('Syncing generic wrapper symlinks for system binaries');
+    const syncResult = await syncGenericWrappers(binDir, genericWrapperPath, { useSudo: true });
+    log(`Generic wrappers: ${syncResult.created.length} created, ${syncResult.skipped.length} skipped`);
+  } catch (err) {
+    errors.push(`Generic wrappers: ${(err as Error).message}`);
+  }
+
+  // 7. Lock down wrapper files: root-owned, mode 755 (agent can't modify)
   //    But keep bin dir broker-owned with 2775 so skills can be installed later
   try {
     log(`Locking down bin directory: root:${socketGroupName} file ownership`);

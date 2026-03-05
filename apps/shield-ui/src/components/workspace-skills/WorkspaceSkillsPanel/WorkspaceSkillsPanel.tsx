@@ -13,7 +13,7 @@ import { WorkspaceSkillApprovalDialog } from '../WorkspaceSkillApprovalDialog';
 import { Root, WorkspaceGroup, SkillsList } from './WorkspaceSkillsPanel.styles';
 import type { WorkspaceSkillsPanelProps } from './WorkspaceSkillsPanel.types';
 
-export function WorkspaceSkillsPanel({ isReadOnly }: WorkspaceSkillsPanelProps) {
+export function WorkspaceSkillsPanel({ isReadOnly, profileId }: WorkspaceSkillsPanelProps) {
   const { data, isLoading } = useWorkspaceSkills();
   const approveMutation = useApproveWorkspaceSkill();
   const denyMutation = useDenyWorkspaceSkill();
@@ -91,10 +91,14 @@ export function WorkspaceSkillsPanel({ isReadOnly }: WorkspaceSkillsPanelProps) 
         >
           <FolderOpen size={40} strokeWidth={1.5} color="var(--mui-palette-text-secondary)" />
           <Typography variant="body2" color="text.secondary">
-            No workspace skills detected.
+            {profileId
+              ? 'No workspace skills detected for this target.'
+              : 'No workspace skills detected.'}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Skills in <code>.claude/skills/</code> within active workspaces will appear here.
+            {profileId
+              ? 'Skills in `.claude/skills/` within workspaces assigned to this target will appear here.'
+              : <>Skills in <code>.claude/skills/</code> within active workspaces will appear here.</>}
           </Typography>
         </Box>
       </Root>

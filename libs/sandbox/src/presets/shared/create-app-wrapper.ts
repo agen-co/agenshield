@@ -52,6 +52,9 @@ if [ -n "\${AGENSHIELD_HOST_CWD:-}" ] && [ -d "$AGENSHIELD_HOST_CWD" ]; then
 else
   cd "$HOME" 2>/dev/null || cd /
 fi
+# Ensure SHELL points to guarded shell for subprocess enforcement
+_GS="$HOME/.agenshield/bin/guarded-shell"
+[ -x "$_GS" ] && export SHELL="$_GS"
 ${envSetupLines ? envSetupLines + '\n' : ''}unset AGENSHIELD_HOST_CWD
 exec "${resolvedPath}" "$@"
 `;

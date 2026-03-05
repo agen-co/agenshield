@@ -39,11 +39,23 @@ export async function workspaceSkillsRoutes(app: FastifyInstance): Promise<void>
    * Supports ?workspace= and ?status= query filters.
    */
   app.get('/workspace-skills', async (request) => {
-    const query = request.query as { workspace?: string; status?: string };
+    const query = request.query as { workspace?: string; status?: string; profileId?: string };
     const storage = getStorage();
 
+    const profileId = query.profileId
+      || (request.headers['x-shield-profile-id'] as string | undefined)
+      || undefined;
+
     let skills;
-    if (query.workspace) {
+    if (profileId) {
+      skills = storage.workspaceSkills.getByProfile(profileId);
+      if (query.workspace) {
+        skills = skills.filter((s) => s.workspacePath === query.workspace);
+      }
+      if (query.status) {
+        skills = skills.filter((s) => s.status === query.status);
+      }
+    } else if (query.workspace) {
       skills = storage.workspaceSkills.getByWorkspace(query.workspace);
       if (query.status) {
         skills = skills.filter((s) => s.status === query.status);
@@ -60,9 +72,15 @@ export async function workspaceSkillsRoutes(app: FastifyInstance): Promise<void>
   /**
    * GET /workspace-skills/pending-count — Count of pending skills (for UI badge).
    */
-  app.get('/workspace-skills/pending-count', async () => {
+  app.get('/workspace-skills/pending-count', async (request) => {
     const storage = getStorage();
-    const count = storage.workspaceSkills.countByStatus('pending');
+    const profileId = (request.query as { profileId?: string }).profileId
+      || (request.headers['x-shield-profile-id'] as string | undefined)
+      || undefined;
+
+    const count = profileId
+      ? storage.workspaceSkills.countByStatusForProfile('pending', profileId)
+      : storage.workspaceSkills.countByStatus('pending');
     return { success: true, data: { count } };
   });
 

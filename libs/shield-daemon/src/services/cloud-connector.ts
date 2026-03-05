@@ -531,7 +531,6 @@ export class CloudConnector {
 
       if (action === 'kill') {
         log.warn(`[cloud] Killing process PID ${proc.pid}: ${proc.command.slice(0, 120)}`);
-        emitProcessViolation(payload);
         await killProcessTree(proc.pid);
         emitProcessKilled(payload);
       } else {
@@ -664,13 +663,10 @@ export class CloudConnector {
     const { WorkspaceSkillScanner } = await import('./workspace-skill-scanner');
 
     const storage = getStorage();
-    const profiles = storage.profiles.getByType('target');
-    const agentUsername = profiles[0]?.agentUsername ?? '';
 
     const scanner = new WorkspaceSkillScanner({
       storage,
       logger: log,
-      agentUsername,
       configDir: '',
     });
 

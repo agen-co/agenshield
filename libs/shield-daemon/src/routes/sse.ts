@@ -31,7 +31,7 @@ function formatStrippedSSE(event: DaemonEvent): string {
  * sensitive request/response bodies). All security, policy, and operational events
  * are always visible so the Activity Feed is useful without authentication.
  */
-const ALWAYS_FULL_PREFIXES = ['skills:', 'exec:', 'interceptor:', 'security:', 'wrappers:', 'process:', 'config:', 'setup:', 'enrollment:'];
+const ALWAYS_FULL_PREFIXES = ['skills:', 'exec:', 'interceptor:', 'security:', 'wrappers:', 'process:', 'config:', 'setup:', 'enrollment:', 'enforcement:', 'workspace:', 'targets:'];
 
 /**
  * Determine whether to send full event data.
@@ -44,6 +44,8 @@ function shouldSendFull(event: DaemonEvent, authenticated: boolean): boolean {
   if (event.type === 'heartbeat' || event.type === 'daemon:status') return true;
   // Lock event is always sent in full so UI can react
   if (event.type === 'security:locked') return true;
+  // URL approval events must include full data for macOS app to show notification
+  if (event.type.startsWith('api:open_url_')) return true;
 
   if (authenticated) return true;
 

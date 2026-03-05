@@ -42,6 +42,9 @@ export {
   type ApiOutboundPayload,
   type BrokerRequestPayload,
   type BrokerResponsePayload,
+  type OpenUrlRequestPayload,
+  type OpenUrlApprovedPayload,
+  type OpenUrlDeniedPayload,
   API_EVENT_TYPES,
 } from './api.events';
 

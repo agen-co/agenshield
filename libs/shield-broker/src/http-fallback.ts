@@ -8,6 +8,8 @@
 import * as http from 'node:http';
 import * as https from 'node:https';
 import * as net from 'node:net';
+import * as dns from 'node:dns';
+import { Resolver } from 'node:dns/promises';
 import { randomUUID } from 'node:crypto';
 import type {
   BrokerConfig,
@@ -20,7 +22,7 @@ import type { AuditLogger } from './audit/logger.js';
 import type { CommandAllowlist } from './policies/command-allowlist.js';
 import type { BrokerAuth } from './handlers/types.js';
 import * as handlers from './handlers/index.js';
-import { forwardPolicyToDaemon } from './daemon-forward.js';
+import { forwardPolicyToDaemon, forwardEventsToDaemon } from './daemon-forward.js';
 import { classifyNetworkError } from '@agenshield/proxy';
 
 /** Operations allowed over HTTP fallback */
@@ -40,6 +42,46 @@ const HTTP_DENIED_OPERATIONS = new Set([
   'file_write',
   'secret_inject',
 ]);
+
+/**
+ * Resolve hostname with fallback to explicit DNS servers.
+ * System getaddrinfo may fail for launchd service users that don't have
+ * proper macOS DNS configuration (no login session, no mDNSResponder access).
+ */
+async function resolveHostname(hostname: string): Promise<string> {
+  // Skip resolution for IP addresses
+  if (net.isIP(hostname)) return hostname;
+
+  // 1. Try system resolver (getaddrinfo)
+  try {
+    const { address } = await dns.promises.lookup(hostname);
+    return address;
+  } catch {
+    // System resolver failed — fall back to explicit DNS
+  }
+
+  // 2. Try explicit DNS resolver with well-known public servers
+  const resolver = new Resolver();
+  resolver.setServers(['8.8.8.8', '1.1.1.1']);
+  try {
+    const addresses = await resolver.resolve4(hostname);
+    if (addresses.length > 0) return addresses[0];
+  } catch {
+    // Also failed
+  }
+
+  // 3. Last resort: try IPv6
+  try {
+    const resolver6 = new Resolver();
+    resolver6.setServers(['2001:4860:4860::8888', '2606:4700:4700::1111']);
+    const addresses = await resolver6.resolve6(hostname);
+    if (addresses.length > 0) return addresses[0];
+  } catch {
+    // All failed
+  }
+
+  throw new Error(`DNS resolution failed for ${hostname}`);
+}
 
 export interface HttpFallbackServerOptions {
   config: BrokerConfig;
@@ -64,6 +106,26 @@ export class HttpFallbackServer {
     this.auditLogger = options.auditLogger;
     this.commandAllowlist = options.commandAllowlist;
     this.brokerAuth = options.brokerAuth;
+  }
+
+  /**
+   * Forward a proxy event to the daemon for the activity feed (fire-and-forget).
+   */
+  private forwardProxyEvent(params: {
+    type: 'allowed' | 'denied';
+    target: string;
+    policyId?: string;
+    error?: string;
+  }): void {
+    const daemonUrl = this.config.daemonUrl || 'http://127.0.0.1:5200';
+    forwardEventsToDaemon([{
+      type: params.type,
+      operation: 'http_request',
+      target: params.target,
+      timestamp: new Date().toISOString(),
+      policyId: params.policyId,
+      error: params.error,
+    }], daemonUrl, this.brokerAuth);
   }
 
   /**
@@ -261,6 +323,13 @@ export class HttpFallbackServer {
         metadata: { protocol: 'https', method: 'CONNECT' },
       });
 
+      this.forwardProxyEvent({
+        type: 'denied',
+        target: `${hostname}:${port}`,
+        policyId: policyResult.policyId,
+        error: policyResult.reason,
+      });
+
       clientSocket.write(
         'HTTP/1.1 403 Forbidden\r\n' +
         'Content-Type: text/plain\r\n' +
@@ -272,8 +341,40 @@ export class HttpFallbackServer {
       return;
     }
 
+    // Resolve hostname before connecting (system DNS may fail for launchd service users)
+    let resolvedIp: string;
+    try {
+      resolvedIp = await resolveHostname(hostname);
+    } catch {
+      await this.auditLogger.log({
+        id: requestId,
+        timestamp: new Date(),
+        operation: 'http_request' as any,
+        channel: 'http',
+        allowed: true,
+        target: `${hostname}:${port}`,
+        result: 'error',
+        errorMessage: `DNS resolution failed for ${hostname}`,
+        durationMs: Date.now() - startTime,
+        metadata: { protocol: 'https', method: 'CONNECT', errorType: 'dns-resolution-failed' },
+      });
+      this.forwardProxyEvent({
+        type: 'allowed',
+        target: `${hostname}:${port}`,
+        error: `DNS resolution failed for ${hostname}`,
+      });
+      clientSocket.write(
+        'HTTP/1.1 403 Forbidden\r\n' +
+        'X-Proxy-Error: dns-resolution-failed\r\n' +
+        'Content-Type: text/plain\r\n\r\n' +
+        `DNS resolution failed: ${hostname}`,
+      );
+      clientSocket.destroy();
+      return;
+    }
+
     // Establish tunnel
-    const serverSocket = net.connect(port, hostname, () => {
+    const serverSocket = net.connect(port, resolvedIp, () => {
       clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       serverSocket.write(head);
       serverSocket.pipe(clientSocket);
@@ -290,6 +391,12 @@ export class HttpFallbackServer {
         result: 'success',
         durationMs: Date.now() - startTime,
         metadata: { protocol: 'https', method: 'CONNECT' },
+      });
+
+      this.forwardProxyEvent({
+        type: 'allowed',
+        target: `${hostname}:${port}`,
+        policyId: policyResult.policyId,
       });
     });
 
@@ -319,8 +426,15 @@ export class HttpFallbackServer {
         durationMs: Date.now() - startTime,
         metadata: { protocol: 'https', method: 'CONNECT', errorType: errorType.type },
       });
+      this.forwardProxyEvent({
+        type: 'allowed',
+        target: `${hostname}:${port}`,
+        error: `TUNNEL ${errorType.type}: ${err.message}`,
+      });
+      // Use 403 for DNS failures (sandbox policy blocks resolution) vs 502 for real network errors
+      const isDnsFailure = errorType.type === 'dns-resolution-failed';
       clientSocket.write(
-        'HTTP/1.1 502 Bad Gateway\r\n' +
+        `HTTP/1.1 ${isDnsFailure ? '403 Forbidden' : '502 Bad Gateway'}\r\n` +
         `X-Proxy-Error: ${errorType.type}\r\n` +
         'Content-Type: text/plain\r\n\r\n' +
         errorType.userMessage,
@@ -398,6 +512,13 @@ export class HttpFallbackServer {
         metadata: { protocol: url.startsWith('https://') ? 'https' : 'http', method: req.method },
       });
 
+      this.forwardProxyEvent({
+        type: 'denied',
+        target: url,
+        policyId: policyResult.policyId,
+        error: policyResult.reason,
+      });
+
       res.writeHead(403, { 'Content-Type': 'text/plain' });
       res.end('Blocked by AgenShield URL policy');
       return;
@@ -418,18 +539,44 @@ export class HttpFallbackServer {
     delete headers['proxy-connection'];
     delete headers['proxy-authorization'];
 
+    // Resolve hostname (system DNS may fail for launchd service users)
+    let resolvedHost: string;
+    try {
+      resolvedHost = await resolveHostname(parsedUrl.hostname);
+    } catch {
+      this.forwardProxyEvent({
+        type: 'allowed',
+        target: url,
+        error: `DNS resolution failed for ${parsedUrl.hostname}`,
+      });
+      if (!res.headersSent) {
+        res.writeHead(403, {
+          'Content-Type': 'text/plain',
+          'X-Proxy-Error': 'dns-resolution-failed',
+        });
+        res.end(`DNS resolution failed: ${parsedUrl.hostname}`);
+      }
+      return;
+    }
+
     // Protocol-aware forwarding: use https.request for https:// URLs
     const isHttps = parsedUrl.protocol === 'https:';
     const requestFn = isHttps ? https.request : http.request;
     const defaultPort = isHttps ? 443 : 80;
 
+    // Preserve original Host header for virtual hosting / TLS SNI
+    if (!headers['host']) {
+      headers['host'] = parsedUrl.host;
+    }
+
     const proxyReq = requestFn(
       {
-        hostname: parsedUrl.hostname,
+        hostname: resolvedHost,
         port: parsedUrl.port || defaultPort,
         path: parsedUrl.pathname + parsedUrl.search,
         method: req.method,
         headers,
+        ...(isHttps ? { servername: parsedUrl.hostname } : {}),
       },
       (proxyRes) => {
         res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
@@ -449,6 +596,11 @@ export class HttpFallbackServer {
         errorMessage: `HTTP proxy error: ${err.message}`,
         durationMs: Date.now() - startTime,
         metadata: { protocol: isHttps ? 'https' : 'http', method: req.method },
+      });
+      this.forwardProxyEvent({
+        type: 'allowed',
+        target: url,
+        error: `HTTP proxy error: ${err.message}`,
       });
 
       if (!res.headersSent) {
@@ -470,6 +622,12 @@ export class HttpFallbackServer {
       result: 'success',
       durationMs: Date.now() - startTime,
       metadata: { protocol: isHttps ? 'https' : 'http', method: req.method },
+    });
+
+    this.forwardProxyEvent({
+      type: 'allowed',
+      target: url,
+      policyId: policyResult.policyId,
     });
   }
 

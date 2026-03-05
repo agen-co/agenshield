@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import type { WorkspaceSkill, WorkspaceSkillStatus } from '@agenshield/ipc';
 import type { Storage } from '@agenshield/storage';
-import { denyWorkspaceSkill, allowWorkspaceSkill, syncWorkspaceSkillAcls } from '../acl';
+import { denyWorkspaceSkill, allowWorkspaceSkill } from '../acl';
 import { getWorkspaceSkillBackupDir, getCloudSkillsDir } from '../config/paths';
 import { eventBus } from '../events/emitter';
 
@@ -25,7 +25,6 @@ interface Logger {
 interface ScannerDeps {
   storage: Storage;
   logger: Logger;
-  agentUsername: string;
   configDir: string;
 }
 
@@ -103,15 +102,27 @@ function getSkillBackupPath(workspacePath: string, skillName: string): string {
 export class WorkspaceSkillScanner {
   private storage: Storage;
   private logger: Logger;
-  private agentUsername: string;
   private pollTimer: NodeJS.Timeout | null = null;
   private watchers: Map<string, fs.FSWatcher> = new Map();
+  private scanDebounceTimers = new Map<string, NodeJS.Timeout>();
   private stopped = false;
 
   constructor(deps: ScannerDeps) {
     this.storage = deps.storage;
     this.logger = deps.logger;
-    this.agentUsername = deps.agentUsername;
+  }
+
+  /**
+   * Resolve the agent username for a profile.
+   * Returns empty string if the profile doesn't exist or has no agent user.
+   */
+  private resolveAgentUsername(profileId: string): string {
+    const profile = this.storage.profiles.getById(profileId);
+    const username = (profile as { agentUsername?: string } | null)?.agentUsername ?? '';
+    if (!username) {
+      this.logger.warn(`[workspace-skills] no agentUsername for profile ${profileId}, cannot apply ACL`);
+    }
+    return username;
   }
 
   /**
@@ -133,6 +144,7 @@ export class WorkspaceSkillScanner {
       return results;
     }
 
+    const agentUsername = this.resolveAgentUsername(profileId);
     const foundNames = new Set<string>();
 
     for (const entry of entries) {
@@ -147,18 +159,18 @@ export class WorkspaceSkillScanner {
       if (!existing) {
         // New skill — create as pending + apply deny ACL
         const contentHash = computeSkillHash(skillPath);
+        const aclApplied = agentUsername
+          ? denyWorkspaceSkill(skillPath, agentUsername, this.logger)
+          : false;
+
         const created = this.storage.workspaceSkills.create({
           profileId,
           workspacePath,
           skillName,
           status: 'pending',
           contentHash: contentHash ?? undefined,
-          aclApplied: true,
+          aclApplied,
         });
-
-        if (this.agentUsername) {
-          denyWorkspaceSkill(skillPath, this.agentUsername, this.logger);
-        }
 
         eventBus.emit('workspace_skills:detected', {
           workspacePath,
@@ -167,7 +179,7 @@ export class WorkspaceSkillScanner {
         });
 
         results.push(created);
-        this.logger.info(`[workspace-skills] detected new skill: ${skillName} in ${workspacePath}`);
+        this.logger.info(`[workspace-skills] detected new skill: ${skillName} in ${workspacePath} (acl=${aclApplied})`);
       } else if (existing.status === 'removed') {
         // Previously removed — don't re-add
         results.push(existing);
@@ -176,15 +188,15 @@ export class WorkspaceSkillScanner {
         const currentHash = computeSkillHash(skillPath);
         if (currentHash && existing.contentHash && currentHash !== existing.contentHash) {
           // Tampered — revert to pending
+          const aclApplied = agentUsername
+            ? denyWorkspaceSkill(skillPath, agentUsername, this.logger)
+            : false;
+
           this.storage.workspaceSkills.update(existing.id, {
             status: 'pending',
             contentHash: currentHash,
-            aclApplied: true,
+            aclApplied,
           });
-
-          if (this.agentUsername) {
-            denyWorkspaceSkill(skillPath, this.agentUsername, this.logger);
-          }
 
           eventBus.emit('workspace_skills:tampered', {
             workspacePath,
@@ -209,8 +221,8 @@ export class WorkspaceSkillScanner {
         results.push(existing);
       } else {
         // pending or denied — ensure deny ACL is applied
-        if (!existing.aclApplied && this.agentUsername) {
-          denyWorkspaceSkill(skillPath, this.agentUsername, this.logger);
+        if (!existing.aclApplied && agentUsername) {
+          denyWorkspaceSkill(skillPath, agentUsername, this.logger);
           this.storage.workspaceSkills.update(existing.id, { aclApplied: true });
         }
         results.push(existing);
@@ -260,7 +272,7 @@ export class WorkspaceSkillScanner {
   }
 
   /**
-   * Start periodic scanning.
+   * Start periodic scanning and set up fs.watch for real-time detection.
    */
   start(pollIntervalMs = 30_000): void {
     this.stopped = false;
@@ -272,7 +284,10 @@ export class WorkspaceSkillScanner {
       this.logger.error(`[workspace-skills] initial scan failed: ${(err as Error).message}`);
     }
 
-    // Periodic poll
+    // Set up fs.watch on each workspace's .claude/skills/ directory
+    this.setupWatchers();
+
+    // Periodic poll (fallback for missed fs.watch events)
     this.pollTimer = setInterval(() => {
       if (this.stopped) return;
       try {
@@ -282,7 +297,7 @@ export class WorkspaceSkillScanner {
       }
     }, pollIntervalMs);
 
-    this.logger.info(`[workspace-skills] scanner started (poll every ${pollIntervalMs}ms)`);
+    this.logger.info(`[workspace-skills] scanner started (poll every ${pollIntervalMs}ms, fs.watch active)`);
   }
 
   /**
@@ -298,6 +313,10 @@ export class WorkspaceSkillScanner {
       watcher.close();
     }
     this.watchers.clear();
+    for (const timer of this.scanDebounceTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.scanDebounceTimers.clear();
     this.logger.info('[workspace-skills] scanner stopped');
   }
 
@@ -307,6 +326,7 @@ export class WorkspaceSkillScanner {
    */
   onWorkspaceGranted(profileId: string, workspacePath: string): void {
     this.scanWorkspace(profileId, workspacePath);
+    this.watchWorkspaceSkillsDir(profileId, workspacePath);
   }
 
   /**
@@ -317,12 +337,13 @@ export class WorkspaceSkillScanner {
     const skills = this.storage.workspaceSkills.getByWorkspace(workspacePath);
     for (const skill of skills) {
       if (skill.status !== 'removed') {
+        const agentUsername = this.resolveAgentUsername(skill.profileId);
         this.storage.workspaceSkills.markRemoved(skill.id);
 
         // Remove deny ACL
-        if (this.agentUsername) {
+        if (agentUsername) {
           const skillPath = path.join(workspacePath, '.claude', 'skills', skill.skillName);
-          allowWorkspaceSkill(skillPath, this.agentUsername, this.logger);
+          allowWorkspaceSkill(skillPath, agentUsername, this.logger);
         }
       }
     }
@@ -336,6 +357,7 @@ export class WorkspaceSkillScanner {
     const skill = this.storage.workspaceSkills.getById(skillId);
     if (!skill) return null;
 
+    const agentUsername = this.resolveAgentUsername(skill.profileId);
     const skillPath = path.join(skill.workspacePath, '.claude', 'skills', skill.skillName);
     const contentHash = computeSkillHash(skillPath);
 
@@ -354,8 +376,8 @@ export class WorkspaceSkillScanner {
     });
 
     // Remove deny ACL
-    if (this.agentUsername) {
-      allowWorkspaceSkill(skillPath, this.agentUsername, this.logger);
+    if (agentUsername) {
+      allowWorkspaceSkill(skillPath, agentUsername, this.logger);
     }
 
     eventBus.emit('workspace_skills:approved', {
@@ -375,23 +397,24 @@ export class WorkspaceSkillScanner {
     const skill = this.storage.workspaceSkills.getById(skillId);
     if (!skill) return null;
 
+    const agentUsername = this.resolveAgentUsername(skill.profileId);
     const skillPath = path.join(skill.workspacePath, '.claude', 'skills', skill.skillName);
+
+    const aclApplied = agentUsername
+      ? denyWorkspaceSkill(skillPath, agentUsername, this.logger)
+      : false;
 
     const updated = this.storage.workspaceSkills.update(skillId, {
       status: 'denied' as WorkspaceSkillStatus,
-      aclApplied: true,
+      aclApplied,
     });
-
-    if (this.agentUsername) {
-      denyWorkspaceSkill(skillPath, this.agentUsername, this.logger);
-    }
 
     eventBus.emit('workspace_skills:denied', {
       workspacePath: skill.workspacePath,
       skillName: skill.skillName,
     });
 
-    this.logger.info(`[workspace-skills] denied: ${skill.skillName}`);
+    this.logger.info(`[workspace-skills] denied: ${skill.skillName} (acl=${aclApplied})`);
     return updated;
   }
 
@@ -418,6 +441,7 @@ export class WorkspaceSkillScanner {
     const targetWorkspaces: string[] = [];
 
     for (const profile of profiles) {
+      const agentUsername = (profile as { agentUsername?: string }).agentUsername ?? '';
       const workspacePaths = (profile as { workspacePaths?: string[] }).workspacePaths ?? [];
       for (const ws of workspacePaths) {
         if (!fs.existsSync(ws)) continue;
@@ -456,8 +480,8 @@ export class WorkspaceSkillScanner {
         }
 
         // Remove any deny ACL
-        if (this.agentUsername) {
-          allowWorkspaceSkill(wsSkillDir, this.agentUsername, this.logger);
+        if (agentUsername) {
+          allowWorkspaceSkill(wsSkillDir, agentUsername, this.logger);
         }
 
         targetWorkspaces.push(ws);
@@ -471,6 +495,59 @@ export class WorkspaceSkillScanner {
     );
 
     return targetWorkspaces;
+  }
+
+  /**
+   * Set up fs.watch on all workspace .claude/skills/ directories.
+   */
+  private setupWatchers(): void {
+    for (const [, watcher] of this.watchers) watcher.close();
+    this.watchers.clear();
+
+    const profiles = this.storage.profiles.getAll();
+    for (const profile of profiles) {
+      const workspacePaths = (profile as { workspacePaths?: string[] }).workspacePaths ?? [];
+      for (const ws of workspacePaths) {
+        this.watchWorkspaceSkillsDir(profile.id, ws);
+      }
+    }
+  }
+
+  /**
+   * Watch a single workspace's .claude/skills/ directory for changes.
+   */
+  private watchWorkspaceSkillsDir(profileId: string, workspacePath: string): void {
+    const skillsDir = path.join(workspacePath, '.claude', 'skills');
+    if (!fs.existsSync(skillsDir) || this.watchers.has(skillsDir)) return;
+
+    try {
+      const watcher = fs.watch(skillsDir, { persistent: false }, () => {
+        if (this.stopped) return;
+        this.debounceScan(profileId, workspacePath);
+      });
+      this.watchers.set(skillsDir, watcher);
+      this.logger.debug(`[workspace-skills] watching ${skillsDir}`);
+    } catch {
+      // fs.watch may fail on some filesystems — polling fallback handles it
+    }
+  }
+
+  /**
+   * Debounced scan triggered by fs.watch events.
+   */
+  private debounceScan(profileId: string, workspacePath: string): void {
+    const key = `${profileId}:${workspacePath}`;
+    const existing = this.scanDebounceTimers.get(key);
+    if (existing) clearTimeout(existing);
+
+    this.scanDebounceTimers.set(key, setTimeout(() => {
+      this.scanDebounceTimers.delete(key);
+      try {
+        this.scanWorkspace(profileId, workspacePath);
+      } catch (err) {
+        this.logger.error(`[workspace-skills] watch-triggered scan failed: ${(err as Error).message}`);
+      }
+    }, 500));
   }
 
   /**

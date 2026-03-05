@@ -25,5 +25,9 @@ export const Q = {
 
   countByStatus: `SELECT COUNT(*) as count FROM ${TABLE} WHERE status = ?`,
 
+  selectByProfile: `SELECT * FROM ${TABLE} WHERE profile_id = ? AND status != 'removed' ORDER BY workspace_path, skill_name`,
+
+  countByStatusAndProfile: `SELECT COUNT(*) as count FROM ${TABLE} WHERE status = @status AND profile_id = @profileId`,
+
   deleteById: `DELETE FROM ${TABLE} WHERE id = ?`,
 } as const;

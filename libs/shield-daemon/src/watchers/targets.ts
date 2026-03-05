@@ -15,6 +15,7 @@ import { getLogger } from '../logger';
 import type { ProcessManager } from '../services/process-manager';
 import { getSystemExecutor } from '../workers/system-command';
 import { checkClaudeBinaryIntegrity, remediateClaudeBinaryDrift } from './binary-integrity';
+import { refreshTrustedHashes, invalidateVerifiedBinaryCache } from '../services/process-enforcer';
 
 /** Cache resolved UIDs to avoid repeated `id -u` lookups. */
 const uidCache = new Map<string, number>();
@@ -385,7 +386,12 @@ async function getTargetStatuses(): Promise<TargetStatusInfo[]> {
               if (integrity?.drifted) {
                 target.binaryDrifted = true;
                 // Fire-and-forget: remediation runs asynchronously
-                remediateClaudeBinaryDrift(matchedProfile as Profile, integrity).catch((err) => {
+                remediateClaudeBinaryDrift(matchedProfile as Profile, integrity).then((success) => {
+                  if (success) {
+                    refreshTrustedHashes();
+                    invalidateVerifiedBinaryCache();
+                  }
+                }).catch((err) => {
                   getLogger().debug({ err, targetId: target.id }, 'Binary drift remediation failed');
                 });
               }

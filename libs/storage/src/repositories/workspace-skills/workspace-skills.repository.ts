@@ -116,10 +116,26 @@ export class WorkspaceSkillsRepository extends BaseRepository {
   }
 
   /**
+   * Get all active (non-removed) workspace skills for a specific profile.
+   */
+  getByProfile(profileId: string): WorkspaceSkill[] {
+    const rows = this.db.prepare(Q.selectByProfile).all(profileId) as DbWorkspaceSkillRow[];
+    return rows.map(mapWorkspaceSkill);
+  }
+
+  /**
    * Count skills by status.
    */
   countByStatus(status: string): number {
     const row = this.db.prepare(Q.countByStatus).get(status) as { count: number };
+    return row.count;
+  }
+
+  /**
+   * Count skills by status for a specific profile.
+   */
+  countByStatusForProfile(status: string, profileId: string): number {
+    const row = this.db.prepare(Q.countByStatusAndProfile).get({ status, profileId }) as { count: number };
     return row.count;
   }
 

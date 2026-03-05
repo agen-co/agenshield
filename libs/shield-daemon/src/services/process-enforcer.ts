@@ -15,7 +15,9 @@
  * - Cached daemon descendants: pgrep result cached with 10s TTL
  */
 
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import { getLogger } from '../logger';
 import { getPolicyManager } from './policy-manager';
 import { emitProcessViolation, emitProcessKilled } from '../events/emitter';
@@ -23,14 +25,32 @@ import { getSystemExecutor } from '../workers/system-command';
 import { getActiveShieldOperations } from './shield-registry';
 import { getStorage } from '@agenshield/storage';
 import { isShieldedProcess } from '@agenshield/policies';
-import { fingerprintProcess } from './process-fingerprint';
+import { fingerprintProcess, computeFileHash } from './process-fingerprint';
 import type { ProcessFingerprint } from './process-fingerprint';
 
 // macOS system daemons — never enforce against these
 const SYSTEM_PROCESS_RE = /\b(cfprefsd|lsd|trustd|diskarbitrationd|secinitd|tccd|nsurlsessiond|mdworker|distnoted|smd|pboard|launchd|kernel_task|WindowServer|loginwindow)\b/i;
 
-/** AgenShield infrastructure binaries — never enforce against these */
+/** AgenShield infrastructure binaries in libexec — always exempt */
 const AGENSHIELD_INFRA_RE = /[/\\]\.agenshield[/\\]libexec[/\\]/;
+
+/** Broader match for any .agenshield/ path — requires hash verification */
+const AGENSHIELD_PATH_RE = /[/\\]\.agenshield[/\\]/;
+
+/**
+ * Check whether a process command is running from a known agent user's home directory.
+ * Catches child processes of shielded executions that run under root but originate
+ * from the agent's home (e.g., /Users/ash_claude_agent/.local/bin/claude).
+ */
+function isAgentHomeProcess(command: string, agentUsernames: Set<string>): boolean {
+  const trimmed = command.trim();
+  for (const username of agentUsernames) {
+    if (trimmed.startsWith(`/Users/${username}/`) || trimmed.startsWith(`/home/${username}/`)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 const GRACE_PERIOD_MS = 5_000;
 
@@ -58,6 +78,97 @@ let cachedDaemonDescendants: Set<number> = new Set();
 let cachedDaemonDescendantsAt = 0;
 const DAEMON_DESCENDANTS_TTL_MS = 10_000;
 
+/** Trusted SHA256 hashes from profile install manifests */
+let trustedManifestHashes = new Set<string>();
+
+/** Cache: binaryPath → { mtimeMs, trusted } to avoid re-hashing every scan */
+const verifiedBinaryCache = new Map<string, { mtimeMs: number; trusted: boolean }>();
+
+// ─── Trusted hash verification ──────────────────────────────
+
+/**
+ * Refresh trusted binary hashes from profile install manifests.
+ * Called on startup and when profiles/manifests change.
+ */
+export function refreshTrustedHashes(): void {
+  const newHashes = new Set<string>();
+  const log = getLogger();
+
+  try {
+    const profiles = getStorage().profiles.getAll();
+    for (const p of profiles) {
+      const manifest = p.installManifest;
+      if (!manifest) continue;
+      for (const entry of manifest.entries) {
+        if (entry.status !== 'completed') continue;
+        for (const [key, value] of Object.entries(entry.outputs)) {
+          if (key.endsWith('Hash') && typeof value === 'string' && /^[0-9a-f]{64}$/i.test(value)) {
+            newHashes.add(value.toLowerCase());
+          }
+        }
+      }
+    }
+  } catch { /* storage not ready */ }
+
+  trustedManifestHashes = newHashes;
+  if (newHashes.size > 0) {
+    log.debug(`[enforcer] Loaded ${newHashes.size} trusted binary hash(es) from install manifests`);
+  }
+}
+
+/**
+ * Invalidate the verified binary cache (e.g. after binary-integrity remediation).
+ */
+export function invalidateVerifiedBinaryCache(): void {
+  verifiedBinaryCache.clear();
+}
+
+/**
+ * Check whether a process command running from .agenshield/ is a verified
+ * trusted binary by comparing its SHA256 against install manifest hashes.
+ * Results are cached by (binaryPath, mtime) to avoid re-hashing each scan.
+ */
+function isVerifiedAgenshieldBinary(command: string): boolean {
+  const log = getLogger();
+
+  // Extract the binary path (first whitespace-delimited token)
+  const trimmed = command.trim();
+  const firstToken = trimmed.split(/\s+/)[0];
+  if (!firstToken) return false;
+
+  // Resolve absolute path
+  const binPath = path.isAbsolute(firstToken) ? firstToken : null;
+  if (!binPath) return false;
+
+  // Check mtime cache to avoid re-hashing on every scan
+  try {
+    const stat = fs.statSync(binPath);
+    const cached = verifiedBinaryCache.get(binPath);
+    if (cached && cached.mtimeMs === stat.mtimeMs) {
+      return cached.trusted;
+    }
+
+    const hash = computeFileHash(binPath);
+    if (!hash) {
+      verifiedBinaryCache.set(binPath, { mtimeMs: stat.mtimeMs, trusted: false });
+      return false;
+    }
+
+    const trusted = trustedManifestHashes.has(hash.toLowerCase());
+    verifiedBinaryCache.set(binPath, { mtimeMs: stat.mtimeMs, trusted });
+
+    if (trusted) {
+      log.debug(`[enforcer] Verified .agenshield binary: ${binPath}`);
+    } else {
+      log.warn(`[enforcer] Unverified binary in .agenshield: ${binPath} (hash: ${hash.slice(0, 16)}...)`);
+    }
+
+    return trusted;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Public API ─────────────────────────────────────────────
 
 export interface ProcessEnforcerOptions {
@@ -72,6 +183,9 @@ export function startProcessEnforcer(options?: ProcessEnforcerOptions): void {
   currentIntervalMs = intervalMs;
   const log = getLogger();
   log.info(`[enforcer] Starting process enforcer (interval: ${intervalMs}ms)`);
+
+  // Load trusted binary hashes from install manifests
+  refreshTrustedHashes();
 
   // Immediate scan
   runEnforcementScan().catch(() => { /* logged internally */ });
@@ -108,6 +222,7 @@ export function stopProcessEnforcer(): void {
   cachedDaemonDescendants = new Set();
   cachedDaemonDescendantsAt = 0;
   currentIntervalMs = 0;
+  verifiedBinaryCache.clear();
 }
 
 /**
@@ -278,7 +393,6 @@ async function runEnforcementScan(): Promise<void> {
       log.warn(
         `[enforcer] Killing denied process PID ${proc.pid}: ${proc.command.slice(0, 120)} (policy: ${result.policyId})`,
       );
-      emitProcessViolation(payload, matchedProfileId);
       recentlyKilledPids.add(proc.pid);
       killProcessTree(proc.pid);
       emitProcessKilled(payload, matchedProfileId);
@@ -326,7 +440,7 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
 
   const executor = getSystemExecutor();
   const raw = await executor.exec(
-    `ps -U ${currentUser} -ax -o pid=,command= 2>/dev/null`,
+    `ps -U ${currentUser} -ax -o user=,pid=,command= 2>/dev/null`,
     { timeout: 10_000 },
   );
 
@@ -344,12 +458,13 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
   for (const line of raw.trim().split('\n')) {
     if (!line.trim()) continue;
 
-    // Parse: leading whitespace, PID, then command
-    const match = line.match(/^\s*(\d+)\s+(.+)$/);
+    // Parse: leading whitespace, user, PID, then command
+    const match = line.match(/^\s*(\S+)\s+(\d+)\s+(.+)$/);
     if (!match) continue;
 
-    const pid = parseInt(match[1], 10);
-    const command = match[2].trim();
+    const processUser = match[1].trim();
+    const pid = parseInt(match[2], 10);
+    const command = match[3].trim();
 
     // Self-protection: skip daemon's own PID and parent
     if (pid === daemonPid || pid === parentPid) continue;
@@ -363,8 +478,18 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
     // Skip sudo delegations to known AgenShield agent users
     if (agentUsernames.size > 0 && isShieldedProcess(command, agentUsernames)) continue;
 
-    // Skip AgenShield infrastructure binaries (broker, etc.)
+    // Skip processes owned by known agent usernames (child processes of shielded execs)
+    if (agentUsernames.has(processUser)) continue;
+
+    // Skip processes running from agent home directories
+    // (e.g., /Users/ash_claude_agent/.local/bin/claude running as root)
+    if (agentUsernames.size > 0 && isAgentHomeProcess(command, agentUsernames)) continue;
+
+    // Skip AgenShield infrastructure binaries in libexec (daemon, broker)
     if (AGENSHIELD_INFRA_RE.test(command)) continue;
+
+    // Skip verified .agenshield/ binaries (hash-checked against install manifests)
+    if (AGENSHIELD_PATH_RE.test(command) && isVerifiedAgenshieldBinary(command)) continue;
 
     processes.push({ pid, user: currentUser, command });
   }

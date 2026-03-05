@@ -119,6 +119,8 @@ ${options?.launcherScriptPath
         <string>${config.agentUser.home}</string>
         <key>HOME</key>
         <string>${config.agentUser.home}</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>NODE_ENV</key>
         <string>production</string>${options?.nativeModulePath ? `
         <key>BETTER_SQLITE3_BINDING</key>

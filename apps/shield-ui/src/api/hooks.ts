@@ -699,8 +699,9 @@ export function useProfiles() {
 
 export function useWorkspaceSkills(workspace?: string, status?: string) {
   const healthy = useHealthGate();
+  const { profileId } = useScopeKey();
   return useQuery({
-    queryKey: [...queryKeys.workspaceSkills, { workspace, status }] as const,
+    queryKey: [...queryKeys.workspaceSkills, { workspace, status, profileId }] as const,
     queryFn: () => api.workspaceSkills.getAll(workspace, status),
     enabled: healthy,
   });
@@ -708,8 +709,9 @@ export function useWorkspaceSkills(workspace?: string, status?: string) {
 
 export function useWorkspaceSkillsPendingCount() {
   const healthy = useHealthGate();
+  const { profileId } = useScopeKey();
   return useQuery({
-    queryKey: queryKeys.workspaceSkillsPendingCount,
+    queryKey: [...queryKeys.workspaceSkillsPendingCount, { profileId }] as const,
     queryFn: api.workspaceSkills.getPendingCount,
     enabled: healthy,
     refetchInterval: 30_000,

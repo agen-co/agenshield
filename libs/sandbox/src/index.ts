@@ -159,6 +159,13 @@ export {
   type WrapperConfig,
 } from './wrappers/wrappers.js';
 
+// Generic Wrapper (policy-enforced symlinks for all system binaries)
+export {
+  generateGenericWrapper,
+  installGenericWrapper,
+  syncGenericWrappers,
+} from './wrappers/generic-wrapper.js';
+
 // Seatbelt profiles (enforcement)
 export {
   generateAgentProfile,

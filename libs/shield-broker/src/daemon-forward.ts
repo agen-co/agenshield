@@ -163,6 +163,80 @@ export async function forwardPolicyToDaemon(
 }
 
 /**
+ * Forward an open_url request to the daemon.
+ *
+ * The daemon runs as the host user and can launch browsers via `open`.
+ * It also evaluates user-defined policies and emits events for shield-ui.
+ *
+ * @returns `{ opened, reason }` or null if daemon is unreachable.
+ */
+export async function forwardOpenUrlToDaemon(
+  url: string,
+  browser: string | undefined,
+  daemonUrl: string,
+  brokerAuth?: BrokerAuth,
+): Promise<{ opened: boolean; reason?: string } | null> {
+  const params: Record<string, unknown> = { url, browser };
+  if (brokerAuth?.profileId) params.__profileId = brokerAuth.profileId;
+  if (brokerAuth?.token) params.__brokerToken = brokerAuth.token;
+
+  try {
+    // 1. Try per-profile daemon socket
+    if (brokerAuth?.daemonSocketPath) {
+      const socketResult = await trySocketForward(
+        brokerAuth.daemonSocketPath,
+        'open_url',
+        params,
+      );
+      if (socketResult !== null) {
+        const res = socketResult as Record<string, unknown>;
+        return { opened: !!res.opened, reason: res.reason as string | undefined };
+      }
+    }
+
+    // 2. HTTP fallback
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DAEMON_RPC_TIMEOUT);
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (brokerAuth?.token) headers['x-shield-broker-token'] = brokerAuth.token;
+    if (brokerAuth?.profileId) headers['x-shield-profile-id'] = brokerAuth.profileId;
+
+    const response = await fetch(`${daemonUrl}/rpc`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: `broker-open-${Date.now()}`,
+        method: 'open_url',
+        params,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) return null;
+
+    const json = (await response.json()) as {
+      result?: Record<string, unknown>;
+      error?: { message?: string };
+    };
+
+    if (json.error || !json.result) {
+      return { opened: false, reason: json.error?.message };
+    }
+
+    return {
+      opened: !!json.result.opened,
+      reason: json.result.reason as string | undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Forward an events batch to the daemon (fire-and-forget).
  */
 export function forwardEventsToDaemon(

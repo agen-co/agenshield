@@ -17,7 +17,7 @@ import { getStorage } from '@agenshield/storage';
 import { buildSandboxConfig } from '@agenshield/seatbelt';
 import type { SharedCapabilities } from '@agenshield/seatbelt';
 import { loadConfig } from '../config/index';
-import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning, emitEvent, emitResourceWarning, emitResourceLimitEnforced } from '../events/emitter';
+import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning, emitEvent, emitResourceWarning, emitResourceLimitEnforced, daemonEvents } from '../events/emitter';
 import { resolveProfileByToken } from '../services/profile-token';
 import { resolveTargetContext } from '../services/target-context';
 import { getPolicyManager } from '../services/policy-manager';
@@ -349,6 +349,9 @@ export async function evaluatePolicyCheck(
 /**
  * Handle events_batch: broadcast each interceptor event via SSE
  */
+/** Maximum target length accepted by the daemon (defense in depth) */
+const MAX_EVENT_TARGET_LENGTH = 1000;
+
 function handleEventsBatch(params: Record<string, unknown>, profileId?: string): { received: number } {
   const events = params['events'] as Array<Record<string, unknown>> | undefined;
   if (!Array.isArray(events)) {
@@ -356,6 +359,12 @@ function handleEventsBatch(params: Record<string, unknown>, profileId?: string):
   }
 
   for (const event of events) {
+    // Truncate target to prevent oversized payloads in SSE
+    const rawTarget = String(event['target'] ?? '');
+    if (rawTarget.length > MAX_EVENT_TARGET_LENGTH) {
+      event['target'] = rawTarget.slice(0, MAX_EVENT_TARGET_LENGTH) + '... [truncated]';
+    }
+
     const operation = String(event['operation'] ?? '');
     const errorStr = typeof event['error'] === 'string' ? event['error'] : undefined;
 
@@ -502,10 +511,127 @@ async function handlePolicyCheck(params: Record<string, unknown>, profileId?: st
   return result;
 }
 
+// ─── open_url notification-based approval ────────────────────────────────────
+
+/** Pending URL open requests awaiting user approval via macOS app notification */
+export const pendingUrlRequests = new Map<string, {
+  url: string;
+  browser?: string;
+  resolve: (approved: boolean) => void;
+  timer: NodeJS.Timeout;
+}>();
+
+const URL_APPROVAL_TIMEOUT_MS = 60_000;
+
+async function openUrlInBrowser(url: string, browser?: string): Promise<void> {
+  const { exec } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execAsync = promisify(exec);
+  const command = browser
+    ? `open -a "${browser}" "${url}"`
+    : `open "${url}"`;
+  await execAsync(command, { timeout: 10_000 });
+}
+
+/**
+ * Handle open_url: evaluate policy, then either request user approval via
+ * macOS app notification (if connected) or open directly (fallback).
+ */
+async function handleOpenUrl(
+  params: Record<string, unknown>,
+  profileId?: string,
+): Promise<Record<string, unknown>> {
+  const url = params.url as string | undefined;
+  const browser = params.browser as string | undefined;
+
+  if (!url) {
+    return { opened: false, reason: 'URL is required' };
+  }
+
+  // Validate URL
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { opened: false, reason: 'Only http/https URLs are allowed' };
+    }
+  } catch {
+    return { opened: false, reason: 'Invalid URL' };
+  }
+
+  // When profileId is present, the request was forwarded by a broker that already
+  // checked policy (builtin-allow-ai-apis etc.). Skip re-evaluation — the daemon
+  // has no builtin URL policies and would default-deny.
+  if (!profileId) {
+    const result = await evaluatePolicyCheck('open_url', url, undefined, undefined);
+    if (!result.allowed) {
+      emitInterceptorEvent({
+        type: 'denied',
+        operation: 'open_url',
+        target: url,
+        timestamp: new Date().toISOString(),
+        policyId: result.policyId,
+        error: result.reason || 'Denied by policy',
+      }, undefined);
+      return { opened: false, reason: result.reason || 'Denied by policy' };
+    }
+  }
+
+  // Emit allowed event for activity feed
+  emitInterceptorEvent({
+    type: 'allowed',
+    operation: 'open_url',
+    target: url,
+    timestamp: new Date().toISOString(),
+  }, profileId);
+
+  // If macOS app is connected, request user approval via notification
+  if (daemonEvents.sseClientCount > 0) {
+    const requestId = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + URL_APPROVAL_TIMEOUT_MS).toISOString();
+
+    // Create promise that resolves when user responds or times out
+    const approvalPromise = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        pendingUrlRequests.delete(requestId);
+        resolve(false);
+      }, URL_APPROVAL_TIMEOUT_MS);
+      pendingUrlRequests.set(requestId, { url, browser, resolve, timer });
+    });
+
+    // Emit SSE event for macOS app BEFORE awaiting
+    emitEvent('api:open_url_request', { requestId, url, browser, profileId, expiresAt }, profileId);
+
+    const approved = await approvalPromise;
+
+    if (!approved) {
+      emitEvent('api:open_url_denied', { requestId, url, reason: 'Timed out or denied by user' }, profileId);
+      return { opened: false, reason: 'URL open request was denied or timed out' };
+    }
+
+    try {
+      await openUrlInBrowser(url, browser);
+      emitEvent('api:open_url_approved', { requestId, url }, profileId);
+      return { opened: true };
+    } catch (error) {
+      return { opened: false, reason: `Failed to open URL: ${(error as Error).message}` };
+    }
+  }
+
+  // Fallback: no macOS app connected, open directly
+  try {
+    await openUrlInBrowser(url, browser);
+    emitEvent('api:open_url_approved', { requestId: crypto.randomUUID(), url }, profileId);
+    return { opened: true };
+  } catch (error) {
+    return { opened: false, reason: `Failed to open URL: ${(error as Error).message}` };
+  }
+}
+
 export const rpcHandlers: Record<string, RpcHandler> = {
   policy_check: (params, profileId) => handlePolicyCheck(params, profileId),
   events_batch: (params, profileId) => handleEventsBatch(params, profileId),
   http_request: (params, profileId) => handleHttpRequest(params, profileId),
+  open_url: (params, profileId) => handleOpenUrl(params, profileId),
   ping: () => ({ status: 'ok' }),
 };
 

@@ -191,12 +191,9 @@ export class ProfileManager {
         for (const port of sandbox.allowedPorts) {
           lines.push(`(allow network-outbound (remote tcp "*:${port}"))`);
         }
-        // DNS resolution — skip if localhost-only (proxy handles DNS externally)
-        const isLocalhostOnly = sandbox.allowedHosts.length > 0 &&
-          sandbox.allowedHosts.every(h => h === 'localhost' || h === '127.0.0.1' || h === '::1');
-        if (!isLocalhostOnly) {
-          lines.push('(allow network-outbound (remote udp "*:53") (remote tcp "*:53"))');
-        }
+        // Always allow DNS — even in proxy mode (localhost-only), clients need
+        // getaddrinfo for HTTP proxy requests and pre-CONNECT hostname resolution.
+        lines.push('(allow network-outbound (remote udp "*:53") (remote tcp "*:53"))');
       } else {
         // Full network access
         lines.push('(allow network*)');
