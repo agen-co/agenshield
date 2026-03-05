@@ -102,7 +102,7 @@ jobs:
           MAC_APP="dist/apps/shield-macos/Release/AgenShield.app"
           if [ -d "$MAC_APP" ] && [ -n "$APPLE_TEAM_ID" ]; then
             codesign --force --deep --sign "Developer ID Application: Frontegg ($APPLE_TEAM_ID)" \
-              --timestamp --options runtime "$MAC_APP"
+              --identifier com.frontegg.AgenShield --timestamp --options runtime "$MAC_APP"
             echo "Signed $MAC_APP"
           fi
 

@@ -90,6 +90,11 @@ export function createDirectoryStructure(config?: UserConfig): DirectoryStructur
         owner: agentUsername,
         group: socketGroupName,
       },
+      [`${agentHome}/tmp`]: {
+        mode: 0o755,
+        owner: agentUsername,
+        group: socketGroupName,
+      },
       [`${agentHome}/.nvm`]: {
         mode: 0o755,
         owner: agentUsername,

@@ -25,5 +25,9 @@ export function mapConfig(row: DbConfigRow): ConfigData {
     soulJson: row.soul_json,
     brokerJson: row.broker_json,
     enforcerIntervalMs: row.enforcer_interval_ms,
+    proxyTlsRejectUnauthorized:
+      row.proxy_tls_reject_unauthorized != null
+        ? row.proxy_tls_reject_unauthorized === 1
+        : null,
   };
 }

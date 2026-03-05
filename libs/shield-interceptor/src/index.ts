@@ -29,5 +29,8 @@ export { EventReporter } from './events/reporter.js';
 // Resource monitoring
 export { ResourceMonitor } from './resource/index.js';
 
+// Proxy environment
+export { getProxyConfig, shouldBypassProxy, type ProxyConfig } from './proxy-env.js';
+
 // Error types
 export { AgenShieldError, PolicyDeniedError, ResourceLimitExceededError } from './errors.js';

@@ -33,6 +33,7 @@ export {
   type MessagePayload,
   type ConfigTamperedPayload,
   type SecurityLockedPayload,
+  type AclFailurePayload,
   SECURITY_EVENT_TYPES,
 } from './security.events';
 
@@ -146,3 +147,10 @@ export {
   type WorkspaceSkillCloudForcedPayload,
   WORKSPACE_SKILL_EVENT_TYPES,
 } from './workspace-skill.events';
+
+export {
+  type WorkspacePathGrantedPayload,
+  type WorkspacePathRevokedPayload,
+  type WorkspaceSensitiveFilesProtectedPayload,
+  WORKSPACE_EVENT_TYPES,
+} from './workspace.events';

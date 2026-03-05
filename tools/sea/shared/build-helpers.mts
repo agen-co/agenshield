@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
-import { ROOT, DIST_SEA } from './constants.mts';
+import { ROOT, DIST_SEA, resolveCodesignId } from './constants.mts';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,16 +146,23 @@ export function injectBlob(opts: InjectOptions): void {
 /**
  * Sign a binary with the given identity, or ad-hoc if none provided.
  * Both modes use hardened runtime + entitlements (required for macOS Sequoia).
+ *
+ * @param identifier — Explicit bundle identifier for --identifier flag.
+ *   When omitted, auto-resolved from the binary filename via resolveCodesignId().
  */
 export function codesignBinary(
   binaryPath: string,
   identity?: string,
   entitlementsPath?: string,
+  identifier?: string,
 ): void {
+  const resolvedId = identifier ?? resolveCodesignId(binaryPath);
+  const idFlag = resolvedId ? ` --identifier "${resolvedId}"` : '';
+
   if (identity) {
     const entitlementFlag = entitlementsPath ? ` --entitlements "${entitlementsPath}"` : '';
     run(
-      `codesign --force --sign "${identity}" --timestamp --options runtime${entitlementFlag} "${binaryPath}"`,
+      `codesign --force --sign "${identity}"${idFlag} --timestamp --options runtime${entitlementFlag} "${binaryPath}"`,
       `Code signing with identity: ${identity.slice(0, 40)}...`,
     );
   } else {
@@ -163,13 +170,13 @@ export function codesignBinary(
     const resolvedEntitlements = entitlementsPath ?? defaultEntitlements;
     if (fs.existsSync(resolvedEntitlements)) {
       run(
-        `codesign --force --sign - --options runtime --entitlements "${resolvedEntitlements}" "${binaryPath}"`,
+        `codesign --force --sign -${idFlag} --options runtime --entitlements "${resolvedEntitlements}" "${binaryPath}"`,
         'Ad-hoc code signing with hardened runtime (macOS)',
       );
     } else {
       console.log('[WARN] Entitlements plist not found — falling back to plain ad-hoc signing');
       run(
-        `codesign --force --sign - "${binaryPath}"`,
+        `codesign --force --sign -${idFlag} "${binaryPath}"`,
         'Ad-hoc code signing (macOS)',
       );
     }

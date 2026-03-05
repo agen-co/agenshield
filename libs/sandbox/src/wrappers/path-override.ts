@@ -260,7 +260,13 @@ _agenshield_exec() {
   ENV_ARGS+=("USER=$AGENT_USER")
   ENV_ARGS+=("LOGNAME=$AGENT_USER")
   ENV_ARGS+=("PATH=$SAFE_PATH")
-  ENV_ARGS+=("TMPDIR=\${TMPDIR:-/tmp}")
+  # Set agent-private TMPDIR (avoids host user's /var/folders permission issues)
+  if [ -n "$AGENT_HOME" ]; then
+    sudo -H -u "$AGENT_USER" mkdir -p "$AGENT_HOME/tmp" 2>/dev/null || true
+    ENV_ARGS+=("TMPDIR=$AGENT_HOME/tmp")
+  else
+    ENV_ARGS+=("TMPDIR=/tmp")
+  fi
   [ -n "\${TERM:-}" ] && ENV_ARGS+=("TERM=$TERM")
   [ -n "\${LANG:-}" ] && ENV_ARGS+=("LANG=$LANG")
   [ -n "\${LC_ALL:-}" ] && ENV_ARGS+=("LC_ALL=$LC_ALL")

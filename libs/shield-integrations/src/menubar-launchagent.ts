@@ -59,8 +59,14 @@ export interface MenuBarAgentOptions {
 /**
  * Generate the LaunchAgent plist for the menu bar app.
  */
+function getEffectiveAppPath(): string {
+  const applicationsApp = '/Applications/AgenShield.app';
+  if (fs.existsSync(applicationsApp)) return applicationsApp;
+  return getAppPath();
+}
+
 function generateMenuBarPlist(options?: MenuBarAgentOptions): string {
-  const appBinary = path.join(getAppPath(), 'Contents', 'MacOS', 'AgenShield');
+  const appBinary = path.join(getEffectiveAppPath(), 'Contents', 'MacOS', 'AgenShield');
 
   // Build EnvironmentVariables section if any options provided
   let envSection = '';

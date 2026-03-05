@@ -14,7 +14,7 @@ import { triggerTargetCheck, checkProcessesRunning, checkOpenClawRunning, listCl
 import { ShieldLogger } from '../services/shield-logger';
 import { ShieldStepTracker } from '../services/shield-step-tracker';
 import { ManifestBuilder } from '../services/manifest-builder';
-import { OPENCLAW_SHIELD_STEPS, getShieldStepsForPreset, isSEA, getSEAVersion } from '@agenshield/ipc';
+import { OPENCLAW_SHIELD_STEPS, getShieldStepsForPreset, isSEA, getSEAVersion, BROKER_CODESIGN_ID } from '@agenshield/ipc';
 import { registerShieldOperation, unregisterShieldOperation, getActiveShieldOperations } from '../services/shield-registry';
 import { signBrokerToken } from '@agenshield/auth';
 import { writeTokenFile, invalidateTokenCache } from '../services/profile-token';
@@ -703,6 +703,60 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
 
         tracker.completeStep('create_marker');
 
+        // 3b2. Create default macOS Keychain for the agent user
+        tracker.startStep('create_agent_keychain');
+        log('Creating agent keychain...', 'creating_keychain');
+        shieldLog.step('create_agent_keychain', 'Creating default macOS Keychain for agent user...');
+        try {
+          const keychainDir = `${agentHome}/Library/Keychains`;
+          const keychainPath = `${keychainDir}/login.keychain-db`;
+
+          await executor.execAsRoot([
+            `mkdir -p "${keychainDir}"`,
+            `chown ${agentUser}:${groupName} "${agentHome}/Library" "${keychainDir}"`,
+            `chmod 700 "${keychainDir}"`,
+          ].join(' && '), { timeout: 15_000 });
+
+          // Check if keychain already exists (idempotency)
+          const keychainCheck = await executor.execAsRoot(
+            `test -f "${keychainPath}" && echo "EXISTS" || echo "MISSING"`,
+            { timeout: 5_000 },
+          );
+
+          if (keychainCheck.output?.includes('MISSING')) {
+            await executor.execAsRoot(
+              `security create-keychain -p "" "${keychainPath}"`,
+              { timeout: 15_000 },
+            );
+            await executor.execAsRoot(
+              `sudo -u "${agentUser}" security default-keychain -s "${keychainPath}"`,
+              { timeout: 10_000 },
+            );
+            await executor.execAsRoot(
+              `security unlock-keychain -p "" "${keychainPath}"`,
+              { timeout: 10_000 },
+            );
+            // Disable auto-lock (no -t = no timeout)
+            await executor.execAsRoot(
+              `security set-keychain-settings "${keychainPath}"`,
+              { timeout: 10_000 },
+            );
+            await executor.execAsRoot(
+              `chown ${agentUser}:${groupName} "${keychainPath}"`,
+              { timeout: 5_000 },
+            );
+            shieldLog.info(`Created keychain at ${keychainPath}`);
+          } else {
+            shieldLog.info(`Keychain already exists at ${keychainPath}`);
+          }
+        } catch (err) {
+          // Best-effort: keychain creation failure should not block the pipeline.
+          // Claude Code will fall back to browser-based OAuth re-auth.
+          shieldLog.warn(`Keychain creation failed: ${(err as Error).message}`);
+        }
+        tracker.completeStep('create_agent_keychain');
+        manifestBuilder.recordInfra('create_agent_keychain', 3, { agentUsername: agentUser });
+
         // 3c. Install guarded shell (required for `sudo su <agent>` to work)
         tracker.startStep('install_guarded_shell');
         currentStep = 'installing_guarded_shell';
@@ -1332,14 +1386,14 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
                   shieldLog.warn(`Failed to install AgenShield.app: ${cpResult.error ?? cpResult.output}`);
                 }
               } else {
-                shieldLog.info('Host app not bundled — omitting AssociatedBundleIdentifiers');
+                shieldLog.info('Host app not bundled — Login Items entry may show raw binary path');
               }
             } catch {
-              shieldLog.info('Host app not found — omitting AssociatedBundleIdentifiers');
+              shieldLog.info('Host app not found — Login Items entry may show raw binary path');
             }
           }
         } catch {
-          shieldLog.info('Could not check host app — omitting AssociatedBundleIdentifiers');
+          shieldLog.info('Could not check host app — Login Items entry may show raw binary path');
         }
 
         // In SEA mode, use a launcher shell script so ProgramArguments references /bin/bash
@@ -1356,7 +1410,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           isSEABinary: isSEA(),
           daemonUrl,
           nativeModulePath,
-          includeAssociatedBundle: hostAppInstalled,
           launcherScriptPath: brokerLauncherPath,
         });
         const brokerLabel = `com.agenshield.broker.${baseName}`;
@@ -1441,9 +1494,9 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
               `chown root:wheel "${brokerBin}"`,
               `xattr -d com.apple.quarantine "${brokerBin}" 2>/dev/null; true`,
               `printf '%s' '${entXml}' > "${tmpEnt}"`,
-              `codesign --force --sign - --options runtime --entitlements "${tmpEnt}" "${brokerBin}"`,
+              `codesign --force --sign - --identifier ${BROKER_CODESIGN_ID} --options runtime --entitlements "${tmpEnt}" "${brokerBin}"`,
               // Also sign the agent-home copy (used by the launcher to avoid ACL issues)
-              `if [ -f "${agentBrokerBin}" ]; then xattr -d com.apple.quarantine "${agentBrokerBin}" 2>/dev/null; true && codesign --force --sign - --options runtime --entitlements "${tmpEnt}" "${agentBrokerBin}"; fi`,
+              `if [ -f "${agentBrokerBin}" ]; then xattr -d com.apple.quarantine "${agentBrokerBin}" 2>/dev/null; true && codesign --force --sign - --identifier ${BROKER_CODESIGN_ID} --options runtime --entitlements "${tmpEnt}" "${agentBrokerBin}"; fi`,
               `rm -f "${tmpEnt}"`,
             ].join(' && '),
             { timeout: 15_000 },
@@ -1860,6 +1913,8 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         flushLog();
         shieldLog.finish(!brokerFailed, brokerFailed ? 'Broker socket not ready' : undefined);
         tracker.completeStep('finalize');
+        // Mark any remaining pending steps as skipped so progress reaches 100%
+        tracker.finalize();
         request.log.info({ targetId, logPath: shieldLog.logPath }, 'Shield log saved');
 
         invalidateDetectionCache();
@@ -1929,6 +1984,9 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             shieldLog.error(`Rollback failed: ${(rollbackErr as Error).message}`);
           }
         }
+
+        // Mark remaining pending steps as skipped so progress display is accurate
+        tracker.finalize();
 
         // Invalidate caches and trigger a fresh target check so the UI
         // reflects post-failure state immediately.
@@ -2187,6 +2245,15 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             await executor.execAsRoot(
               `sed -i '' '\\|${agentHomeDir}/.agenshield/bin/guarded-shell|d' /etc/shells 2>/dev/null; true`,
               { timeout: 5_000 },
+            ).catch(() => {});
+          }
+
+          // 5b. Delete agent keychain (deregister from macOS security subsystem)
+          if (agentHomeDir) {
+            const keychainPath = `${agentHomeDir}/Library/Keychains/login.keychain-db`;
+            await executor.execAsRoot(
+              `security delete-keychain "${keychainPath}" 2>/dev/null; true`,
+              { timeout: 10_000 },
             ).catch(() => {});
           }
 

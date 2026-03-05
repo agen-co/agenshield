@@ -98,7 +98,7 @@ export async function workspaceSkillsRoutes(app: FastifyInstance): Promise<void>
     if (!scanner) {
       return reply.status(503).send({
         success: false,
-        error: { message: 'Workspace skill scanner not available', statusCode: 503 },
+        error: { message: 'Workspace skill scanner is initializing. Please wait for daemon setup to complete.', statusCode: 503 },
       });
     }
 
@@ -127,7 +127,7 @@ export async function workspaceSkillsRoutes(app: FastifyInstance): Promise<void>
     if (!scanner) {
       return reply.status(503).send({
         success: false,
-        error: { message: 'Workspace skill scanner not available', statusCode: 503 },
+        error: { message: 'Workspace skill scanner is initializing. Please wait for daemon setup to complete.', statusCode: 503 },
       });
     }
 
@@ -156,7 +156,7 @@ export async function workspaceSkillsRoutes(app: FastifyInstance): Promise<void>
     if (!scanner) {
       return reply.status(503).send({
         success: false,
-        error: { message: 'Workspace skill scanner not available', statusCode: 503 },
+        error: { message: 'Workspace skill scanner is initializing. Please wait for daemon setup to complete.', statusCode: 503 },
       });
     }
 

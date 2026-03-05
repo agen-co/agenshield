@@ -155,7 +155,7 @@ export function matchProcessPattern(pattern: string, target: string): boolean {
     const escaped = trimmed.replace(/[.+^${}()|[\]\\]/g, '\\$&');
     const regexStr = escaped.replace(/\*/g, '.*');
     const regex = new RegExp(`^${regexStr}$`, 'i');
-    if (regex.test(lowerCmd) || regex.test(lowerBasename)) return true;
+    if (regex.test(lowerBasename)) return true;
     return extras.some(c => regex.test(c.toLowerCase()));
   }
 

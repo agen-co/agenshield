@@ -166,7 +166,7 @@ function removeUserAclFromPath(targetPath: string, userName: string): void {
   try {
     if (!fs.existsSync(targetPath)) return;
 
-    const lsOutput = execSync(`ls -le "${targetPath}" 2>/dev/null || true`, {
+    const lsOutput = execSync(`ls -led "${targetPath}" 2>/dev/null || true`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -180,6 +180,41 @@ function removeUserAclFromPath(targetPath: string, userName: string): void {
     }
 
     // Remove highest index first so lower indices stay valid
+    indices.sort((a, b) => b - a);
+    for (const idx of indices) {
+      try {
+        execSync(`chmod -a# ${idx} "${targetPath}"`, { stdio: 'pipe' });
+      } catch {
+        try { execSync(`sudo chmod -a# ${idx} "${targetPath}"`, { stdio: 'pipe' }); } catch { /* best-effort */ }
+      }
+    }
+  } catch {
+    // Best-effort
+  }
+}
+
+/**
+ * Remove orphaned (bare-UUID) ACL entries from a single path.
+ * Best-effort: failures are silently ignored.
+ */
+function removeOrphanedAclsFromPath(targetPath: string): void {
+  try {
+    if (!fs.existsSync(targetPath)) return;
+
+    const lsOutput = execSync(`ls -led "${targetPath}" 2>/dev/null || true`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const UUID_RE = /^\s*(\d+):\s+[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\s+(?:allow|deny)\s+/;
+    const indices: number[] = [];
+    for (const line of lsOutput.split('\n')) {
+      const match = line.match(UUID_RE);
+      if (match) {
+        indices.push(Number(match[1]));
+      }
+    }
+
     indices.sort((a, b) => b - a);
     for (const idx of indices) {
       try {
@@ -208,6 +243,7 @@ function cleanupProfileAcls(userName: string, workspacePaths: string[]): void {
 
   for (const ws of workspacePaths) {
     if (!cleaned.has(ws)) {
+      removeOrphanedAclsFromPath(ws);
       removeUserAclFromPath(ws, userName);
       cleaned.add(ws);
     }
@@ -216,6 +252,7 @@ function cleanupProfileAcls(userName: string, workspacePaths: string[]): void {
     let prev = ws;
     while (dir !== prev && dir !== '/') {
       if (!WORLD_TRAVERSABLE_PATHS.has(dir) && !cleaned.has(dir)) {
+        removeOrphanedAclsFromPath(dir);
         removeUserAclFromPath(dir, userName);
         cleaned.add(dir);
       }

@@ -27,7 +27,8 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@agenshield/integrations": "0.7.3",
-    "@agenshield/ipc": "0.7.3"
+    "@agenshield/ipc": "0.7.3",
+    "@agenshield/proxy": "0.7.3"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

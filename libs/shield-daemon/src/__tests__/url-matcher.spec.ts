@@ -8,7 +8,7 @@ import {
   filterUrlPoliciesForCommand,
   commandScopeMatches,
   extractCommandBasename,
-} from '../policy/url-matcher';
+} from '@agenshield/policies';
 
 // ---------------------------------------------------------------------------
 // Helpers

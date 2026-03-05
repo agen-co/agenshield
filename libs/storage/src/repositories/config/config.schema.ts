@@ -19,5 +19,6 @@ export const UpdateConfigSchema = z.object({
   soulJson: z.string().nullable().optional(),
   brokerJson: z.string().nullable().optional(),
   enforcerIntervalMs: z.number().int().positive().nullable().optional(),
+  proxyTlsRejectUnauthorized: z.boolean().nullable().optional(),
 });
 export type ConfigData = z.input<typeof UpdateConfigSchema>;

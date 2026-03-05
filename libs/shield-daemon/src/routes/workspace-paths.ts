@@ -9,7 +9,9 @@ import type { FastifyInstance } from 'fastify';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { getStorage } from '@agenshield/storage';
-import { addUserAcl, getAncestorsNeedingTraversal, removeUserAcl } from '../acl';
+import { addUserAcl, getAncestorsNeedingTraversal, removeOrphanedAcls, removeUserAcl } from '../acl';
+import { scanForSensitiveFiles } from '../services/sensitive-file-scanner';
+import { emitEvent } from '../events/emitter';
 
 export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -115,6 +117,25 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
       app.workspaceSkillScanner.onWorkspaceGranted(profileId, resolved);
     }
 
+    // Scan for sensitive files and apply deny ACLs
+    if (userName) {
+      const sensitiveFiles = scanForSensitiveFiles(resolved);
+      const SENSITIVE_DENY_PERMS = 'read,readattr,readextattr,list,search,execute';
+      for (const file of sensitiveFiles) {
+        addUserAcl(file.path, userName, SENSITIVE_DENY_PERMS, app.log, 'deny');
+      }
+      if (sensitiveFiles.length > 0) {
+        app.log.info(`[workspace-paths] protected ${sensitiveFiles.length} sensitive file(s) in ${resolved}`);
+        emitEvent('workspace:sensitive_files_protected', {
+          workspacePath: resolved,
+          fileCount: sensitiveFiles.length,
+          files: sensitiveFiles.map(f => f.path),
+        }, profileId);
+      }
+    }
+
+    emitEvent('workspace:path_granted', { profileId, path: resolved, profileName: updated.name }, profileId);
+
     return {
       success: true,
       workspacePaths: updated.workspacePaths ?? [],
@@ -172,6 +193,8 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
     if (app.workspaceSkillScanner) {
       app.workspaceSkillScanner.onWorkspaceRevoked(resolved);
     }
+
+    emitEvent('workspace:path_revoked', { profileId, path: resolved }, profileId);
 
     return {
       success: true,
@@ -284,6 +307,13 @@ function applyWorkspacePathAcls(
   userName: string,
   log: { warn(msg: string, ...args: unknown[]): void },
 ): void {
+  // Clean orphaned UUID-based ACL entries before applying new ones.
+  // Stale entries from deleted agent users can fill the 128-entry macOS ACL limit.
+  for (const ancestor of getAncestorsNeedingTraversal(targetPath)) {
+    removeOrphanedAcls(ancestor, log);
+  }
+  removeOrphanedAcls(targetPath, log);
+
   // Grant search (traversal) on non-world-traversable ancestors
   for (const ancestor of getAncestorsNeedingTraversal(targetPath)) {
     addUserAcl(ancestor, userName, 'search', log);

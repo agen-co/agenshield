@@ -173,6 +173,25 @@ describe('generateRouterWrapper', () => {
     expect(content).toContain('"$BIN" "$@"');
   });
 
+  it('sets TMPDIR to $AGENT_HOME/tmp instead of host TMPDIR', () => {
+    const content = generateRouterWrapper('claude');
+
+    expect(content).toContain('TMPDIR=$AGENT_HOME/tmp');
+    expect(content).not.toContain('TMPDIR=${TMPDIR:-/tmp}');
+  });
+
+  it('creates agent tmp dir via sudo for upgrade safety', () => {
+    const content = generateRouterWrapper('claude');
+
+    expect(content).toContain('sudo -H -u "$AGENT_USER" mkdir -p "$AGENT_HOME/tmp"');
+  });
+
+  it('falls back to /tmp when AGENT_HOME is not set', () => {
+    const content = generateRouterWrapper('claude');
+
+    expect(content).toContain('ENV_ARGS+=("TMPDIR=/tmp")');
+  });
+
   it('does not leak SUDO_* variables in generated script', () => {
     const content = generateRouterWrapper('openclaw');
 

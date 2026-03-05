@@ -70,6 +70,7 @@ export class ActivityRepository extends BaseRepository {
 
     if (opts?.profileId) { conditions.push('profile_id = @profileId'); params.profileId = opts.profileId; }
     if (opts?.type) { conditions.push('type = @type'); params.type = opts.type; }
+    if (opts?.since) { conditions.push('timestamp >= @since'); params.since = opts.since; }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const row = this.db.prepare(buildCount(where)).get(params) as { count: number };

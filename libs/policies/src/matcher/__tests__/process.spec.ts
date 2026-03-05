@@ -213,4 +213,41 @@ describe('matchProcessPattern', () => {
       expect(matchProcessPattern('*openclaw*', 'node /opt/openclaw/dist/index.js')).toBe(false);
     });
   });
+
+  describe('false positive prevention — directory names in binary path', () => {
+    it('*claude* should NOT match agenshield-broker in /Users/claude/ path', () => {
+      expect(matchProcessPattern(
+        '*claude*',
+        '/Users/claude/.agenshield/libexec/agenshield-broker --port 5200',
+      )).toBe(false);
+    });
+
+    it('*claude* should NOT match agenshield-daemon in /Users/claude/ path', () => {
+      expect(matchProcessPattern(
+        '*claude*',
+        '/Users/claude/.agenshield/libexec/agenshield-daemon',
+      )).toBe(false);
+    });
+
+    it('*openclaw* should NOT match unrelated binary in /opt/openclaw/tools/ path', () => {
+      expect(matchProcessPattern(
+        '*openclaw*',
+        '/opt/openclaw/tools/linter --check',
+      )).toBe(false);
+    });
+
+    it('*claude* should still match actual claude binary in /Users/claude/ path', () => {
+      expect(matchProcessPattern(
+        '*claude*',
+        '/Users/claude/.local/bin/claude --serve',
+      )).toBe(true);
+    });
+
+    it('glob pattern only matches basename, not directory components', () => {
+      expect(matchProcessPattern(
+        '*claude*',
+        '/home/user/claude-workspace/bin/some-tool --flag',
+      )).toBe(false);
+    });
+  });
 });

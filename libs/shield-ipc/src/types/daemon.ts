@@ -36,6 +36,14 @@ export interface DaemonStatus {
   cloudConnected?: boolean;
   /** Company name from AgenShield Cloud enrollment */
   cloudCompany?: string;
+  /** Whether monitoring services (watchers, enforcer, etc.) are active */
+  servicesActive?: boolean;
+  /** Aggregate stats for menu bar / status display */
+  stats?: {
+    events: number;
+    policies: number;
+    skills: number;
+  };
   /** Whether enrollment is pending user action */
   enrollmentPending?: boolean;
   /** Current enrollment state details (present during enrollment flow) */

@@ -270,9 +270,15 @@ describe('checkUrlPolicy', () => {
     expect(checkUrlPolicy(policies, 'https://example.com', 'allow')).toBe(false);
   });
 
-  it('blocks plain HTTP by default', () => {
+  it('blocks plain HTTP to non-localhost by default', () => {
     const policies = [makePolicy({ action: 'allow', patterns: ['example.com'] })];
     expect(checkUrlPolicy(policies, 'http://example.com', 'allow')).toBe(false);
+  });
+
+  it('allows plain HTTP to localhost without explicit policy', () => {
+    const policies: ReturnType<typeof makePolicy>[] = [];
+    expect(checkUrlPolicy(policies, 'http://127.0.0.1:3000/api', 'allow')).toBe(true);
+    expect(checkUrlPolicy(policies, 'http://localhost:8080/test', 'allow')).toBe(true);
   });
 
   it('allows plain HTTP with explicit http:// pattern', () => {

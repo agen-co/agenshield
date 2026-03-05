@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { ActivitySchemaMigration } from '../../../migrations/activity/001-activity-schema';
+import { ActivitySourceMigration } from '../../../migrations/activity/003-activity-source';
 import { ActivityRepository } from '../activity.repository';
 
 // ---------------------------------------------------------------------------
@@ -22,6 +23,7 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   new ActivitySchemaMigration().up(db);
+  new ActivitySourceMigration().up(db);
   return {
     db,
     cleanup: () => {

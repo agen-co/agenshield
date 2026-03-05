@@ -14,6 +14,7 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
   moduleNameMapper: {
+    '^@agenshield/proxy$': '<rootDir>/../proxy/src/index.ts',
     '^@agenshield/policies$': '<rootDir>/../policies/src/index.ts',
     '^@agenshield/seatbelt$': '<rootDir>/../seatbelt/src/index.ts',
     '^@agenshield/ipc$': '<rootDir>/../shield-ipc/src/index.ts',

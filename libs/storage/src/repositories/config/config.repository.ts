@@ -73,6 +73,10 @@ export class ConfigRepository extends BaseRepository {
       soulJson: validated.soulJson ?? null,
       brokerJson: validated.brokerJson ?? null,
       enforcerIntervalMs: validated.enforcerIntervalMs ?? null,
+      proxyTlsRejectUnauthorized:
+        validated.proxyTlsRejectUnauthorized != null
+          ? (validated.proxyTlsRejectUnauthorized ? 1 : 0)
+          : null,
       updatedAt: now,
     });
   }

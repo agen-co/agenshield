@@ -26,6 +26,10 @@ import {
 } from '@agenshield/ipc';
 import type { DaemonServiceConfig, DaemonServiceResult, DaemonServiceStatus } from './daemon-launchdaemon';
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const AGENSHIELD_HOST_BUNDLE_ID = 'com.frontegg.AgenShield';
+
 // ─── Plist Generation ────────────────────────────────────────────────────────
 
 /**
@@ -48,6 +52,11 @@ export function generatePrivilegeHelperPlist(config: DaemonServiceConfig): strin
 <dict>
     <key>Label</key>
     <string>${PRIVILEGE_HELPER_LAUNCHD_LABEL}</string>
+
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>${AGENSHIELD_HOST_BUNDLE_ID}</string>
+    </array>
 
     <key>ProgramArguments</key>
     <array>

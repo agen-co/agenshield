@@ -25,6 +25,7 @@ import { ProfileEnforcementModeMigration } from './025-profile-enforcement-mode'
 import { ProfileWorkspacePathsMigration } from './026-profile-workspace-paths';
 import { PolicyMethodsMigration } from './027-policy-methods';
 import { WorkspaceSkillsMigration } from './028-workspace-skills';
+import { ProxyTlsMigration } from './029-proxy-tls';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -52,6 +53,7 @@ export const ALL_MIGRATIONS: Migration[] = [
   new ProfileWorkspacePathsMigration(),
   new PolicyMethodsMigration(),
   new WorkspaceSkillsMigration(),
+  new ProxyTlsMigration(),
 ];
 
 /**

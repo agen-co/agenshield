@@ -1,89 +1,27 @@
 /**
- * ProxyPool — manages per-run proxy instances for seatbelt-wrapped commands.
+ * ProxyPool adapter — wraps @agenshield/proxy's ProxyPool with daemon-specific hooks.
  *
- * Each exec'd command that needs network access gets its own localhost proxy.
- * The proxy enforces URL policies while the seatbelt profile restricts the child
- * to only connect to localhost (preventing direct network bypass).
- *
- * Exported as a singleton so rpc.ts can acquire proxies during policy_check.
+ * Wires pool events to the daemon's event emitter, trace store, and logger.
+ * Preserves the getProxyPool() / shutdownProxyPool() singleton API.
  */
 
-import * as http from 'node:http';
-import type { PolicyConfig } from '@agenshield/ipc';
-import { createPerRunProxy } from './server';
+import { ProxyPool } from '@agenshield/proxy';
+import type { ProxyPoolHooks } from '@agenshield/proxy';
 import { emitInterceptorEvent, emitEvent } from '../events/emitter';
 import { getTraceStore } from '../services/trace-store';
+import { getLogger } from '../logger';
+import { loadConfig } from '../config/loader';
 
-interface ProxyInstance {
-  execId: string;
-  command: string;
-  port: number;
-  server: http.Server;
-  lastActivity: number;
-  idleTimer: NodeJS.Timeout;
-}
+export type { ProxyPoolOptions } from '@agenshield/proxy';
+export { ProxyPool } from '@agenshield/proxy';
 
-export interface ProxyPoolOptions {
-  maxConcurrent?: number;
-  idleTimeoutMs?: number;
-}
-
-export class ProxyPool {
-  private proxies = new Map<string, ProxyInstance>();
-  private maxConcurrent: number;
-  private idleTimeoutMs: number;
-
-  constructor(options: ProxyPoolOptions = {}) {
-    this.maxConcurrent = options.maxConcurrent ?? 50;
-    this.idleTimeoutMs = options.idleTimeoutMs ?? 5 * 60 * 1000;
-  }
-
-  /**
-   * Acquire a per-run proxy for a command execution.
-   * Returns the localhost port the child should use as its proxy.
-   */
-  async acquire(
-    execId: string,
-    command: string,
-    getPolicies: () => PolicyConfig[],
-    getDefaultAction: () => 'allow' | 'deny',
-    callbacks?: {
-      onBlock?: (method: string, target: string, protocol: 'http' | 'https') => void;
-      onAllow?: (method: string, target: string, protocol: 'http' | 'https') => void;
+function createDaemonHooks(tlsRejectUnauthorized?: boolean): ProxyPoolHooks {
+  return {
+    tls: {
+      rejectUnauthorized: tlsRejectUnauthorized ?? true,
     },
-  ): Promise<{ port: number }> {
-    if (this.proxies.size >= this.maxConcurrent) {
-      // Evict the oldest idle proxy
-      let oldest: ProxyInstance | undefined;
-      for (const inst of this.proxies.values()) {
-        if (!oldest || inst.lastActivity < oldest.lastActivity) {
-          oldest = inst;
-        }
-      }
-      if (oldest) {
-        console.log(`[proxy-pool] evicting oldest proxy (exec_id=${oldest.execId}) to make room`);
-        this.release(oldest.execId);
-      }
-    }
 
-    const onActivity = () => {
-      const inst = this.proxies.get(execId);
-      if (inst) {
-        inst.lastActivity = Date.now();
-        // Reset idle timer
-        clearTimeout(inst.idleTimer);
-        inst.idleTimer = setTimeout(() => {
-          console.log(`[proxy-pool] idle timeout, releasing port ${inst.port} (exec_id=${execId})`);
-          this.release(execId);
-        }, this.idleTimeoutMs);
-      }
-    };
-
-    const logger = (msg: string) => {
-      console.log(`[proxy:${execId.slice(0, 8)}] ${msg}`);
-    };
-
-    const defaultOnBlock = (method: string, target: string, protocol: 'http' | 'https') => {
+    onBlock(execId, method, target, protocol) {
       emitInterceptorEvent({
         type: 'denied',
         operation: 'http_request',
@@ -91,70 +29,14 @@ export class ProxyPool {
         timestamp: new Date().toISOString(),
         error: `Blocked by URL policy (${method})`,
       });
-    };
+    },
 
-    const onBlock = callbacks?.onBlock
-      ? (method: string, target: string, protocol: 'http' | 'https') => {
-          defaultOnBlock(method, target, protocol);
-          callbacks.onBlock!(method, target, protocol);
-        }
-      : defaultOnBlock;
-
-    const server = createPerRunProxy(getPolicies, getDefaultAction, onActivity, logger, onBlock, callbacks?.onAllow);
-
-    // Listen on port 0 — OS picks a free port
-    const port = await new Promise<number>((resolve, reject) => {
-      server.listen(0, '127.0.0.1', () => {
-        const addr = server.address();
-        if (addr && typeof addr === 'object') {
-          resolve(addr.port);
-        } else {
-          reject(new Error('Failed to bind proxy server'));
-        }
-      });
-      server.on('error', reject);
-    });
-
-    const idleTimer = setTimeout(() => {
-      console.log(`[proxy-pool] idle timeout, releasing port ${port} (exec_id=${execId})`);
-      this.release(execId);
-    }, this.idleTimeoutMs);
-
-    this.proxies.set(execId, {
-      execId,
-      command,
-      port,
-      server,
-      lastActivity: Date.now(),
-      idleTimer,
-    });
-
-    console.log(`[proxy-pool] acquired port ${port} for exec_id=${execId.slice(0, 8)} command=${command.slice(0, 60)}`);
-
-    return { port };
-  }
-
-  /**
-   * Release a proxy by execution ID.
-   * Also completes the associated trace and fires deferred activations.
-   */
-  release(execId: string): void {
-    const inst = this.proxies.get(execId);
-    if (!inst) return;
-
-    clearTimeout(inst.idleTimer);
-    inst.server.close();
-    this.proxies.delete(execId);
-    console.log(`[proxy-pool] released port ${inst.port} (exec_id=${execId.slice(0, 8)})`);
-
-    // Notify trace store that this execution has completed
-    try {
-      const traceStore = getTraceStore();
-      // Find and complete the trace associated with this execId
-      for (const trace of [traceStore.get(execId)].filter(Boolean)) {
+    onRelease(execId) {
+      try {
+        const traceStore = getTraceStore();
+        const trace = traceStore.get(execId);
         if (trace) {
           traceStore.complete(trace.traceId);
-          // Emit trace completed event
           const children = traceStore.getByParent(trace.traceId);
           emitEvent('trace:completed', {
             traceId: trace.traceId,
@@ -162,30 +44,15 @@ export class ProxyPool {
             childCount: children.length,
           }, trace.profileId);
         }
+      } catch {
+        // Trace store may not be available — ignore
       }
-    } catch {
-      // Trace store may not be available — ignore
-    }
-  }
+    },
 
-  /**
-   * Shut down all active proxies. Called on daemon close.
-   */
-  shutdown(): void {
-    for (const [execId, inst] of this.proxies) {
-      clearTimeout(inst.idleTimer);
-      inst.server.close();
-      console.log(`[proxy-pool] shutdown: closed port ${inst.port} (exec_id=${execId.slice(0, 8)})`);
-    }
-    this.proxies.clear();
-  }
-
-  /**
-   * Number of active proxies.
-   */
-  get size(): number {
-    return this.proxies.size;
-  }
+    logger(msg) {
+      getLogger().info(msg);
+    },
+  };
 }
 
 // Module-level singleton — initialized lazily by getProxyPool()
@@ -193,7 +60,8 @@ let _pool: ProxyPool | undefined;
 
 export function getProxyPool(): ProxyPool {
   if (!_pool) {
-    _pool = new ProxyPool();
+    const config = loadConfig();
+    _pool = new ProxyPool({}, createDaemonHooks(config.daemon.proxyTlsRejectUnauthorized));
   }
   return _pool;
 }

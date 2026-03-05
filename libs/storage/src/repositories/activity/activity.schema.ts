@@ -18,6 +18,7 @@ export interface ActivityGetAllOptions {
 export interface ActivityCountOptions {
   profileId?: string;
   type?: string;
+  since?: string;
 }
 
 // Re-export create schema/input for convenience

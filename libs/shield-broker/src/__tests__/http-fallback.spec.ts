@@ -139,35 +139,40 @@ describe('HttpFallbackServer', () => {
   describe('CONNECT tunnel — allowed', () => {
     it('should return 200 Connection Established when policy allows', async () => {
       ({ server, port, mocks } = await startServer());
+      const { echoServer, echoPort } = await createEchoServer();
 
-      const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
-        const req = http.request({
-          host: '127.0.0.1',
-          port,
-          method: 'CONNECT',
-          path: 'example.com:443',
+      try {
+        const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
+          const req = http.request({
+            host: '127.0.0.1',
+            port,
+            method: 'CONNECT',
+            path: `127.0.0.1:${echoPort}`,
+          });
+          req.on('connect', (_res, _socket, _head) => {
+            _socket.destroy();
+            resolve(_res);
+          });
+          req.on('error', reject);
+          req.end();
         });
-        req.on('connect', (_res, _socket, _head) => {
-          _socket.destroy();
-          resolve(_res);
-        });
-        req.on('error', reject);
-        req.end();
-      });
 
-      expect(response.statusCode).toBe(200);
-      expect(response.statusMessage).toBe('Connection Established');
-      expect(mocks.policyEnforcer.check).toHaveBeenCalledWith(
-        'http_request',
-        { url: 'https://example.com' },
-        expect.objectContaining({ channel: 'http' })
-      );
-      expect(mocks.auditLogger.log).toHaveBeenCalledWith(
-        expect.objectContaining({
-          allowed: true,
-          metadata: expect.objectContaining({ protocol: 'https', method: 'CONNECT' }),
-        })
-      );
+        expect(response.statusCode).toBe(200);
+        expect(response.statusMessage).toBe('Connection Established');
+        expect(mocks.policyEnforcer.check).toHaveBeenCalledWith(
+          'http_request',
+          { url: 'https://127.0.0.1' },
+          expect.objectContaining({ channel: 'http' })
+        );
+        expect(mocks.auditLogger.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            allowed: true,
+            metadata: expect.objectContaining({ protocol: 'https', method: 'CONNECT' }),
+          })
+        );
+      } finally {
+        echoServer.close();
+      }
     });
 
     it('should pipe data bidirectionally through the tunnel', async () => {
@@ -285,6 +290,99 @@ describe('HttpFallbackServer', () => {
         expect.any(String),
         undefined,
         undefined
+      );
+    });
+  });
+
+  // ─── CONNECT tunnel — successful (no error headers) ─────────────────
+
+  describe('CONNECT tunnel — successful (no error on reachable host)', () => {
+    it('should return 200 with no X-Proxy-Error header for reachable host', async () => {
+      ({ server, port, mocks } = await startServer());
+      const { echoServer, echoPort } = await createEchoServer();
+
+      try {
+        const { statusCode, headers } = await new Promise<{
+          statusCode: number;
+          headers: Record<string, string>;
+        }>((resolve, reject) => {
+          const req = http.request({
+            host: '127.0.0.1',
+            port,
+            method: 'CONNECT',
+            path: `127.0.0.1:${echoPort}`,
+          });
+          req.on('connect', (res, socket) => {
+            resolve({
+              statusCode: res.statusCode!,
+              headers: res.headers as Record<string, string>,
+            });
+            socket.destroy();
+          });
+          req.on('error', reject);
+          req.end();
+        });
+
+        expect(statusCode).toBe(200);
+        // No X-Proxy-Error header on success
+        expect(headers['x-proxy-error']).toBeUndefined();
+        expect(mocks.auditLogger.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            allowed: true,
+            result: 'success',
+            metadata: expect.objectContaining({ protocol: 'https', method: 'CONNECT' }),
+          }),
+        );
+        // No error audit entries
+        const errorCalls = mocks.auditLogger.log.mock.calls.filter(
+          ([entry]: [any]) => entry.result === 'error',
+        );
+        expect(errorCalls).toHaveLength(0);
+      } finally {
+        echoServer.close();
+      }
+    });
+  });
+
+  // ─── CONNECT tunnel — upstream error ─────────────────────────────────
+
+  describe('CONNECT tunnel — upstream connection error', () => {
+    it('should return 502 with X-Proxy-Error header when tunnel fails', async () => {
+      ({ server, port, mocks } = await startServer());
+
+      // CONNECT to a host that will fail DNS resolution
+      const { statusCode, headers } = await new Promise<{
+        statusCode: number;
+        headers: Record<string, string>;
+      }>((resolve, reject) => {
+        const req = http.request({
+          host: '127.0.0.1',
+          port,
+          method: 'CONNECT',
+          path: 'nonexistent.test.invalid:443',
+        });
+        req.on('connect', (res, socket) => {
+          resolve({
+            statusCode: res.statusCode!,
+            headers: res.headers as Record<string, string>,
+          });
+          socket.destroy();
+        });
+        req.on('error', reject);
+        req.end();
+      });
+
+      expect(statusCode).toBe(502);
+      expect(headers['x-proxy-error']).toBe('dns-resolution-failed');
+
+      // Verify audit metadata includes errorType
+      // Wait a tick for async audit logging
+      await new Promise((r) => setTimeout(r, 100));
+      expect(mocks.auditLogger.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          result: 'error',
+          metadata: expect.objectContaining({ errorType: 'dns-resolution-failed' }),
+        }),
       );
     });
   });

@@ -27,7 +27,7 @@
         "assets": ["libs/shield-broker/README.md", "LICENSE", "libs/shield-broker/package.json"],
         "esbuildOptions": {
           "outExtension": { ".js": ".js" },
-          "external": ["@agenshield/ipc"]
+          "external": ["@agenshield/ipc", "@agenshield/proxy"]
         }
       }
     },

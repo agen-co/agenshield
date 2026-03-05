@@ -29,6 +29,7 @@ export function getDefaultConfig(): ShieldConfig {
       logLevel: 'info',
       enableHostsEntry: false,
       enforcerIntervalMs: 1000,
+      proxyTlsRejectUnauthorized: true,
     },
     policies: [],
     vault: {

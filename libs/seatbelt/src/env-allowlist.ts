@@ -34,6 +34,9 @@ export const BASE_ENV_ALLOWLIST: readonly string[] = [
   // Shell
   'SHLVL',
 
+  // SSH (auth socket only — NOT SSH_ASKPASS)
+  'SSH_AUTH_SOCK',
+
   // Toolchain
   'NVM_DIR',
   'HOMEBREW_PREFIX',

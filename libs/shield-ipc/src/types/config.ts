@@ -124,6 +124,8 @@ export interface DaemonConfig {
   enableHostsEntry: boolean;
   /** Process enforcer scan interval in ms (default: 1000) */
   enforcerIntervalMs?: number;
+  /** Whether proxy rejects unauthorized TLS certificates (default: true) */
+  proxyTlsRejectUnauthorized?: boolean;
 }
 
 export interface BrokerConfig {

@@ -58,6 +58,7 @@ import { initSystemExecutor, shutdownSystemExecutor } from './workers/system-com
 import { startFallbackNotifications, stopFallbackNotifications } from './services/notifications';
 import { startAutoUpdateWatcher, stopAutoUpdateWatcher } from './watchers/auto-update';
 import { WorkspaceSkillScanner } from './services/workspace-skill-scanner';
+import { getActivationService } from './services/activation';
 
 /**
  * Create and configure the Fastify server
@@ -179,7 +180,23 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
 
   const app = await createServer(config);
 
-  await startDaemonServices(app, config);
+  // Essential services always start (storage, vault, policy manager, etc.)
+  await startEssentialServices(app, config);
+
+  // Check whether setup is complete to decide if monitoring should start now
+  const activation = getActivationService();
+  const { getSetupService } = await import('./services/setup.js');
+  const setupStatus = getSetupService().getStatus();
+  const setupComplete = setupStatus.state === 'complete';
+
+  if (setupComplete) {
+    await startMonitoringServices(app, config);
+    activation.markActive();
+  } else {
+    // Daemon boots in standby — monitoring starts after setup/enrollment completes
+    activation.setActivateCallback(() => startMonitoringServices(app, config));
+    app.log.info('[daemon] Standing by — monitoring services will start after setup completes');
+  }
 
   await app.listen({
     port: config.port,
@@ -228,18 +245,15 @@ function startEnrollmentIfNeeded(app: FastifyInstance): void {
 }
 
 /**
- * Start heavy daemon services (watchers, skill manager, proxy pool, MCP, etc.)
- * Called at boot in daemon mode, or after setup completion.
+ * Start essential services that run regardless of setup state.
+ * These provide core infrastructure: storage, auth, policy engine, skill manager, etc.
  */
-export async function startDaemonServices(app: FastifyInstance, config: DaemonConfig): Promise<void> {
+export async function startEssentialServices(app: FastifyInstance, config: DaemonConfig): Promise<void> {
   // Initialize system command worker thread (before any watchers that need it)
   initSystemExecutor();
 
   // Start event loop monitor (before watchers to capture baseline)
   startEventLoopMonitor();
-
-  // Start security watcher for real-time monitoring
-  startSecurityWatcher(10000); // Check every 10 seconds
 
   // Derive paths from profile storage (falls back to env vars)
   const targetCtx = resolveTargetContext();
@@ -466,9 +480,10 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   const skillManager = new SkillManager(storage, {
     deployers: deployAdapter ? [deployAdapter] : [],
     watcher: skillsDir ? { pollIntervalMs: 30000, skillsDir, quarantineDir } : undefined,
-    autoStartWatcher: !!skillsDir,
+    autoStartWatcher: false, // Watcher starts in monitoring phase
     eventBus,
     backupDir,
+    syncOptions: { logger: app.log },
   });
 
   // Wire watcher scan callbacks to emit daemon events
@@ -519,9 +534,6 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   app.decorate('skillManager', skillManager);
 
   // ─── Register deploy adapter when a target is shielded ────────
-  // At daemon startup, resolveTargetContext() may return null (no profile yet).
-  // When shielding completes, register a DaemonDeployAdapter and deploy any
-  // skills that were installed before the adapter existed.
   eventBus.on('setup:shield_complete', (payload) => {
     const ctx = resolveTargetContext(payload.profileId);
     if (!ctx) return;
@@ -546,80 +558,19 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
     });
   });
 
-  // ─── Register sync sources with SkillManager ─────────────────
-  try {
-    const mcpSource = new MCPSkillSource();
-    const { loadState: loadStateForManager } = await import('./state/index.js');
-    await mcpSource.addConnection(createAgenCoConnection({
-      getConnectedIntegrations: () => loadStateForManager().agenco.connectedIntegrations ?? [],
-    }));
-    await skillManager.sync.registerSource(mcpSource);
-
-    // Register remote source (wraps marketplace.ts)
-    const {
-      searchMarketplace,
-      getMarketplaceSkill,
-      downloadAndExtractZip,
-      listDownloadedSkills,
-    } = await import('./services/marketplace.js');
-    const remoteSource = new RemoteSkillSource({
-      searchMarketplace,
-      getMarketplaceSkill,
-      downloadAndExtractZip,
-      listDownloadedSkills,
-    });
-    await skillManager.sync.registerSource(remoteSource);
-
-    // Sync AgenCo integration skills at boot
-    try {
-      const syncResult = await skillManager.syncSource('mcp', 'openclaw');
-      if (syncResult.installed.length || syncResult.removed.length || syncResult.updated.length) {
-        app.log.info(`[startup] AgenCo skill sync: installed=${syncResult.installed.length}, removed=${syncResult.removed.length}, updated=${syncResult.updated.length}`);
-      }
-    } catch (err) {
-      app.log.warn(`[startup] AgenCo skill sync failed: ${(err as Error).message}`);
-    }
-  } catch (err) {
-    app.log.warn(`[startup] Sync source registration failed: ${(err as Error).message}`);
-  }
+  // Create workspace skill scanner early so routes can use it immediately.
+  // Polling starts later in startMonitoringServices().
+  const workspaceSkillScanner = new WorkspaceSkillScanner({
+    storage,
+    logger: app.log,
+    agentUsername: targetCtx?.agentUsername ?? '',
+    configDir: getConfigDir(),
+  });
+  app.decorate('workspaceSkillScanner', workspaceSkillScanner);
 
   // Start persistent activity writer (SQLite-backed)
   const activityWriter = getActivityWriter();
   activityWriter.start();
-
-  // Self-heal command wrappers at boot
-  try {
-    const { loadConfig: loadDaemonConfig } = await import('./config/loader.js');
-    const { loadState } = await import('./state/index.js');
-    const { syncCommandPoliciesAndWrappers } = await import('./command-sync.js');
-    const cfg = loadDaemonConfig();
-    const st = loadState();
-    syncCommandPoliciesAndWrappers(cfg.policies, st, app.log);
-    app.log.info('[startup] boot-time command-sync completed');
-
-    const { syncSecrets } = await import('./secret-sync.js');
-    await syncSecrets(cfg.policies, app.log);
-    app.log.info('[startup] boot-time secret-sync completed');
-  } catch (err) {
-    app.log.warn(`[startup] boot-time command-sync failed: ${(err as Error).message}`);
-  }
-
-  // Auto-activate MCP if valid tokens exist
-  try {
-    const vault = getVault();
-    const agenco = await vault.get('agenco');
-    if (agenco?.accessToken && agenco.expiresAt > Date.now()) {
-      await activateMCP(config.port);
-    }
-  } catch {
-    // Non-fatal: MCP auto-activation failed, user can connect later
-  }
-
-  // Start process health watcher for broker/gateway lifecycle events
-  await startProcessHealthWatcher(10000);
-
-  // Start target status watcher (10s, emits on change only)
-  startTargetWatcher(10000);
 
   // Initialize privilege executor for root operations.
   // Prefer launchd-managed helper (no password dialog) with osascript fallback for dev mode.
@@ -646,42 +597,28 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
   app.decorate('processManager', processManager);
   setProcessManager(processManager);
 
-  // Start process enforcer (scans running host processes against process-target policies)
-  const daemonConfig = loadConfig();
-  startProcessEnforcer({ intervalMs: daemonConfig.daemon.enforcerIntervalMs ?? 1000 });
-
-  // Start fallback notifications (native macOS alerts when no SSE clients connected)
-  startFallbackNotifications();
-
-  // Start auto-update watcher (checks GitHub Releases every 6 hours, notifies via SSE)
-  startAutoUpdateWatcher();
-
-  // Start workspace skill scanner
-  const workspaceSkillScanner = new WorkspaceSkillScanner({
-    storage,
-    logger: app.log,
-    agentUsername: targetCtx?.agentUsername ?? '',
-    configDir: getConfigDir(),
-  });
-  workspaceSkillScanner.start(30_000);
-  app.decorate('workspaceSkillScanner', workspaceSkillScanner);
-
-  // Stop watchers, proxy pool, and MCP on server close
+  // Stop essential services on server close
   app.addHook('onClose', async () => {
     emitProcessStopped('daemon', { pid: process.pid });
+    // Stop monitoring services (no-op if never started)
     stopFallbackNotifications();
     stopAutoUpdateWatcher();
-    workspaceSkillScanner.stop();
     stopProcessEnforcer();
-    stopEventLoopMonitor();
     stopSecurityWatcher();
-    stopMetricsCollector();
     stopTargetWatcher();
-    skillManager.stopWatcher();
     stopProcessHealthWatcher();
+    if (app.workspaceSkillScanner) {
+      app.workspaceSkillScanner.stop();
+    }
+    // Stop essential services
+    stopEventLoopMonitor();
+    stopMetricsCollector();
+    skillManager.stopWatcher();
     activityWriter.stop();
     shutdownProxyPool();
-    await profileSocketManager.stop();
+    if (app.profileSocketManager) {
+      await (app.profileSocketManager as ProfileSocketManager).stop();
+    }
     await deactivateMCP();
     // Shut down the process manager (stop all managed gateway processes)
     if (app.processManager) {
@@ -709,4 +646,108 @@ export async function startDaemonServices(app: FastifyInstance, config: DaemonCo
       // Non-fatal
     }
   });
+}
+
+/**
+ * Start monitoring services (watchers, enforcers, scanners, sync sources).
+ * Called immediately at boot if setup is complete, or deferred until setup/enrollment finishes.
+ */
+export async function startMonitoringServices(app: FastifyInstance, config: DaemonConfig): Promise<void> {
+  // Start security watcher for real-time monitoring
+  startSecurityWatcher(10000); // Check every 10 seconds
+
+  // Start process health watcher for broker/gateway lifecycle events
+  await startProcessHealthWatcher(10000);
+
+  // Start target status watcher (10s, emits on change only)
+  startTargetWatcher(10000);
+
+  // Start process enforcer (scans running host processes against process-target policies)
+  const daemonConfig = loadConfig();
+  startProcessEnforcer({ intervalMs: daemonConfig.daemon.enforcerIntervalMs ?? 1000 });
+
+  // Start fallback notifications (native macOS alerts when no SSE clients connected)
+  startFallbackNotifications();
+
+  // Start auto-update watcher (checks GitHub Releases every 6 hours, notifies via SSE)
+  startAutoUpdateWatcher();
+
+  // Start SkillManager file watcher (was deferred from essential phase)
+  if (app.skillManager) {
+    app.skillManager.startWatcher();
+  }
+
+  // Register sync sources with SkillManager
+  if (app.skillManager) {
+    try {
+      const mcpSource = new MCPSkillSource();
+      const { loadState: loadStateForManager } = await import('./state/index.js');
+      await mcpSource.addConnection(createAgenCoConnection({
+        getConnectedIntegrations: () => loadStateForManager().agenco.connectedIntegrations ?? [],
+      }));
+      await app.skillManager.sync.registerSource(mcpSource);
+
+      // Register remote source (wraps marketplace.ts)
+      const {
+        searchMarketplace,
+        getMarketplaceSkill,
+        downloadAndExtractZip,
+        listDownloadedSkills,
+      } = await import('./services/marketplace.js');
+      const remoteSource = new RemoteSkillSource({
+        searchMarketplace,
+        getMarketplaceSkill,
+        downloadAndExtractZip,
+        listDownloadedSkills,
+      });
+      await app.skillManager.sync.registerSource(remoteSource);
+
+      // Sync AgenCo integration skills
+      try {
+        const syncResult = await app.skillManager.syncSource('mcp', 'openclaw');
+        if (syncResult.installed.length || syncResult.removed.length || syncResult.updated.length) {
+          app.log.info(`[startup] AgenCo skill sync: installed=${syncResult.installed.length}, removed=${syncResult.removed.length}, updated=${syncResult.updated.length}`);
+        }
+      } catch (err) {
+        app.log.warn(`[startup] AgenCo skill sync failed: ${(err as Error).message}`);
+      }
+    } catch (err) {
+      app.log.warn(`[startup] Sync source registration failed: ${(err as Error).message}`);
+    }
+  }
+
+  // Self-heal command wrappers
+  try {
+    const { loadConfig: loadDaemonConfig } = await import('./config/loader.js');
+    const { loadState } = await import('./state/index.js');
+    const { syncCommandPoliciesAndWrappers } = await import('./command-sync.js');
+    const cfg = loadDaemonConfig();
+    const st = loadState();
+    syncCommandPoliciesAndWrappers(cfg.policies, st, app.log);
+    app.log.info('[startup] boot-time command-sync completed');
+
+    const { syncSecrets } = await import('./secret-sync.js');
+    await syncSecrets(cfg.policies, app.log);
+    app.log.info('[startup] boot-time secret-sync completed');
+  } catch (err) {
+    app.log.warn(`[startup] boot-time command-sync failed: ${(err as Error).message}`);
+  }
+
+  // Auto-activate MCP if valid tokens exist
+  try {
+    const vault = getVault();
+    const agenco = await vault.get('agenco');
+    if (agenco?.accessToken && agenco.expiresAt > Date.now()) {
+      await activateMCP(config.port);
+    }
+  } catch {
+    // Non-fatal: MCP auto-activation failed, user can connect later
+  }
+
+  // Start workspace skill scanner polling (scanner was created in startEssentialServices)
+  if (app.workspaceSkillScanner) {
+    app.workspaceSkillScanner.start(30_000);
+  }
+
+  app.log.info('[daemon] Monitoring services started');
 }

@@ -101,21 +101,35 @@ export function checkUrlPolicy(
 
   const effectiveTarget = normalizeUrlTarget(url);
 
-  // Block plain HTTP by default unless explicitly allowed
+  // Plain HTTP to non-localhost destinations is blocked by default
+  // unless there is an explicit allow policy with an http:// pattern.
+  // Localhost HTTP (127.0.0.1, ::1, localhost) is always evaluated
+  // through the normal policy pipeline — this is needed for local
+  // dev servers, proxied tools, etc.
   if (url.match(/^http:\/\//i)) {
-    let explicitHttpAllow = false;
-    for (const policy of applicable) {
-      if (policy.action !== 'allow') continue;
-      for (const pattern of policy.patterns) {
-        if (!pattern.match(/^http:\/\//i)) continue;
-        if (matchUrlPattern(pattern, effectiveTarget)) {
-          explicitHttpAllow = true;
-          break;
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname;
+      const isLocalhost =
+        host === '127.0.0.1' || host === '::1' || host === 'localhost';
+      if (!isLocalhost) {
+        let explicitHttpAllow = false;
+        for (const policy of applicable) {
+          if (policy.action !== 'allow') continue;
+          for (const pattern of policy.patterns) {
+            if (!pattern.match(/^http:\/\//i)) continue;
+            if (matchUrlPattern(pattern, effectiveTarget)) {
+              explicitHttpAllow = true;
+              break;
+            }
+          }
+          if (explicitHttpAllow) break;
         }
+        if (!explicitHttpAllow) return false;
       }
-      if (explicitHttpAllow) break;
+    } catch {
+      // If the URL can't be parsed, fall through to normal policy check
     }
-    if (!explicitHttpAllow) return false;
   }
 
   for (const policy of applicable) {

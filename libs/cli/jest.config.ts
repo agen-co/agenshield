@@ -1,5 +1,5 @@
-module.exports = {
-  displayName: 'vectoriadb',
+export default {
+  displayName: 'cli',
   preset: '../../jest.preset.js',
   testEnvironment: 'node',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
@@ -15,11 +15,12 @@ module.exports = {
     ],
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
-  coverageDirectory: '../../coverage/libs/vectoriadb',
+  coverageDirectory: '../../coverage/libs/cli',
   coveragePathIgnorePatterns: [
     '/node_modules/',
     '/src/index.ts', // Ignore index.ts (re-exports only, no logic to test)
   ],
   testMatch: ['**/__tests__/**/*.spec.ts'],
   testTimeout: 60000,
+  passWithNoTests: true,
 };

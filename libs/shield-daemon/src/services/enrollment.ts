@@ -195,11 +195,24 @@ export class EnrollmentService {
         getSetupService().finalizeCloudSetup(cloudUrl);
       } catch { /* best effort */ }
 
-      // 7. Connect to cloud
+      // 6c. Activate monitoring services if daemon was in standby
+      try {
+        const { getActivationService } = await import('./activation');
+        await getActivationService().activate();
+      } catch (activationErr) {
+        log.warn({ err: activationErr }, '[enrollment] Failed to activate monitoring services');
+      }
+
+      // 7. Connect to cloud and pull managed policies
       this.retryCount = 0;
-      getCloudConnector().connect().catch((err) => {
-        log.warn({ err }, '[enrollment] Post-enrollment cloud connect failed');
-      });
+      try {
+        await getCloudConnector().connect();
+        // connect() resolves before its internal pullPolicies() completes,
+        // so explicitly pull with retry to handle cloud propagation delays
+        await getCloudConnector().pullPoliciesWithRetry();
+      } catch (err) {
+        log.warn({ err }, '[enrollment] Post-enrollment cloud connect/policy-pull failed');
+      }
 
     } catch (err) {
       if (this.stopped) return;

@@ -57,11 +57,27 @@ warn()  { printf "${YELLOW}warn${RESET}  %s\n" "$1"; }
 error() { printf "${RED}error${RESET} %s\n" "$1" >&2; }
 die()   { error "$1"; exit 1; }
 
+# Resolve the codesign bundle identifier for a binary by its filename.
+resolve_codesign_id() {
+  case "$(basename "$1")" in
+    agenshield)          echo "com.frontegg.agenshield.cli" ;;
+    agenshield-daemon)   echo "com.frontegg.agenshield.daemon" ;;
+    agenshield-broker)   echo "com.frontegg.agenshield.broker" ;;
+    better_sqlite3.node) echo "com.frontegg.agenshield.native.better-sqlite3" ;;
+    *)                   echo "" ;;
+  esac
+}
+
 # Sign a binary with hardened runtime (macOS Sequoia requirement)
 # Uses AGENSHIELD_CODESIGN_IDENTITY for Developer ID signing if set, otherwise ad-hoc.
 sign_binary_hardened() {
   _BINARY="$1"
   _IDENTITY="${AGENSHIELD_CODESIGN_IDENTITY:-}"
+  _IDENTIFIER="$(resolve_codesign_id "$_BINARY")"
+  _ID_FLAG=""
+  if [ -n "$_IDENTIFIER" ]; then
+    _ID_FLAG="--identifier $_IDENTIFIER"
+  fi
   _ENT_FILE=$(mktemp /tmp/agenshield-ent.XXXXXX.plist)
   cat > "$_ENT_FILE" << 'ENTEOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -75,12 +91,12 @@ sign_binary_hardened() {
 </dict></plist>
 ENTEOF
   if [ -n "$_IDENTITY" ]; then
-    codesign --force --sign "$_IDENTITY" --timestamp --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
-      codesign --force --sign - --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
-      codesign --force --sign - "$_BINARY" 2>/dev/null || true
+    codesign --force --sign "$_IDENTITY" $_ID_FLAG --timestamp --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
+      codesign --force --sign - $_ID_FLAG --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
+      codesign --force --sign - $_ID_FLAG "$_BINARY" 2>/dev/null || true
   else
-    codesign --force --sign - --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
-      codesign --force --sign - "$_BINARY" 2>/dev/null || true
+    codesign --force --sign - $_ID_FLAG --options runtime --entitlements "$_ENT_FILE" "$_BINARY" 2>/dev/null || \
+      codesign --force --sign - $_ID_FLAG "$_BINARY" 2>/dev/null || true
   fi
   rm -f "$_ENT_FILE"
 }
@@ -358,6 +374,14 @@ main() {
       xattr -d com.apple.quarantine "$APPS_DIR/AgenShield.app" 2>/dev/null || true
     fi
     ok "Installed AgenShield.app → apps/"
+
+    # Copy to /Applications for notification permissions, Login Items icon, and discoverability
+    if sudo cp -R "$APPS_DIR/AgenShield.app" /Applications/AgenShield.app 2>/dev/null; then
+      sudo chown -R root:wheel /Applications/AgenShield.app 2>/dev/null || true
+      ok "Copied AgenShield.app → /Applications/"
+    else
+      warn "Could not copy AgenShield.app to /Applications/ (sudo may be required)."
+    fi
   fi
 
   # Write version stamp for SEA extraction check

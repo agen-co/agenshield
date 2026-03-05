@@ -25,7 +25,7 @@ export type {
 
 // Service
 export { SyncService } from './sync.service';
-export type { SyncServiceOptions } from './sync.service';
+export type { SyncServiceOptions, SyncLogger } from './sync.service';
 
 // Sources
 export { StaticSkillSource } from './static-source';

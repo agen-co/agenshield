@@ -23,8 +23,13 @@ import type {
 import { resolveSourceOrigin } from '@agenshield/ipc';
 import type { SkillManager } from '../manager';
 
+export interface SyncLogger {
+  warn(msg: string, ...args: unknown[]): void;
+}
+
 export interface SyncServiceOptions {
   onEvent?: (event: SkillsManagerEvent) => void;
+  logger?: SyncLogger;
 }
 
 export class SyncService {
@@ -32,11 +37,13 @@ export class SyncService {
   private readonly manager: SkillManager;
   private readonly skills: SkillsRepository;
   private onEvent?: (event: SkillsManagerEvent) => void;
+  private readonly log: SyncLogger;
 
   constructor(manager: SkillManager, skills: SkillsRepository, options?: SyncServiceOptions) {
     this.manager = manager;
     this.skills = skills;
     this.onEvent = options?.onEvent;
+    this.log = options?.logger ?? console;
   }
 
   // ─── Source Management ──────────────────────────────────────
@@ -80,7 +87,7 @@ export class SyncService {
           return source.getTools(query);
         }
       } catch (err) {
-        console.warn(`[SyncService] getTools failed for source "${source.id}":`, (err as Error).message);
+        this.log.warn(`[SyncService] getTools failed for source "${source.id}": ${(err as Error).message}`);
       }
       return [];
     });
@@ -99,7 +106,7 @@ export class SyncService {
           return source.getSkillsFor(target);
         }
       } catch (err) {
-        console.warn(`[SyncService] getSkillsFor failed for source "${source.id}":`, (err as Error).message);
+        this.log.warn(`[SyncService] getSkillsFor failed for source "${source.id}": ${(err as Error).message}`);
       }
       return [];
     });
@@ -118,7 +125,7 @@ export class SyncService {
           return source.getBins();
         }
       } catch (err) {
-        console.warn(`[SyncService] getBins failed for source "${source.id}":`, (err as Error).message);
+        this.log.warn(`[SyncService] getBins failed for source "${source.id}": ${(err as Error).message}`);
       }
       return [];
     });
@@ -153,7 +160,7 @@ export class SyncService {
           return source.getInstructions();
         }
       } catch (err) {
-        console.warn(`[SyncService] getInstructions failed for source "${source.id}":`, (err as Error).message);
+        this.log.warn(`[SyncService] getInstructions failed for source "${source.id}": ${(err as Error).message}`);
       }
       return [];
     });

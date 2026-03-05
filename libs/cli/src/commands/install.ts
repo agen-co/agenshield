@@ -68,6 +68,25 @@ function getOwnVersion(): string {
 async function installMacOSServices(menuBarOptions?: { policyUrl?: string; orgName?: string }): Promise<void> {
   if (os.platform() !== 'darwin') return;
 
+  // Step 0: Copy AgenShield.app to /Applications/ (before LaunchDaemon install so
+  // generateDaemonPlist() sees it for AssociatedBundleIdentifiers / Login Items icon)
+  const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
+  if (fs.existsSync(menuBarAppPath)) {
+    try {
+      execSync(`sudo cp -R "${menuBarAppPath}" /Applications/AgenShield.app`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      execSync(`sudo chown -R root:wheel /Applications/AgenShield.app`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      output.success('Copied AgenShield.app to /Applications/');
+    } catch {
+      output.warn('Could not copy AgenShield.app to /Applications/ (sudo may be required).');
+    }
+  }
+
   // Step A: LaunchDaemon + privilege helper (requires sudo)
   const daemonPath = findDaemonExecutable();
   if (daemonPath) {
@@ -96,7 +115,6 @@ async function installMacOSServices(menuBarOptions?: { policyUrl?: string; orgNa
   }
 
   // Step B: Menu bar app LaunchAgent (no sudo needed)
-  const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
   if (fs.existsSync(menuBarAppPath)) {
     try {
       const { installMenuBarAgent } = await import('@agenshield/integrations');

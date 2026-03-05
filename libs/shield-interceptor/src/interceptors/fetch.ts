@@ -6,14 +6,33 @@
 
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { debugLog } from '../debug-log.js';
+import { getProxyConfig, shouldBypassProxy, type ProxyConfig } from '../proxy-env.js';
 import type { PolicyExecutionContext } from '@agenshield/ipc';
 
 export class FetchInterceptor extends BaseInterceptor {
   private originalFetch: typeof fetch | null = null;
   private _checking = false;
+  private proxyConfig: ProxyConfig;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private proxyDispatcher: any = null;
 
   constructor(options: BaseInterceptorOptions) {
     super(options);
+    this.proxyConfig = getProxyConfig();
+
+    // Create a ProxyAgent from undici (bundled with Node.js 18+) for proxy routing
+    if (this.proxyConfig.enabled) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const undici = require('undici');
+        if (undici.ProxyAgent) {
+          this.proxyDispatcher = new undici.ProxyAgent(this.proxyConfig.url);
+          debugLog('fetch: ProxyAgent created for proxy routing');
+        }
+      } catch {
+        debugLog('fetch: undici.ProxyAgent not available, proxy routing will fall back to direct');
+      }
+    }
   }
 
   /**
@@ -97,7 +116,23 @@ export class FetchInterceptor extends BaseInterceptor {
       return this.originalFetch(input, init);
     }
 
-    // Check policy with execution context
+    // Proxy routing mode: when HTTP_PROXY/HTTPS_PROXY is set, route through the
+    // proxy using undici's ProxyAgent. The proxy enforces URL policies itself,
+    // so we skip the RPC policy check to avoid redundant round trips.
+    if (this.proxyConfig.enabled && !shouldBypassProxy(url, this.proxyConfig.noProxy)) {
+      debugLog(`fetch PROXY-ROUTE url=${url}`);
+      this.eventReporter.intercept('http_request', url);
+
+      if (this.proxyDispatcher) {
+        return this.originalFetch(input, { ...init, dispatcher: this.proxyDispatcher } as RequestInit);
+      }
+
+      // Fallback: ProxyAgent not available — try direct (will likely fail in sandbox)
+      debugLog('fetch PROXY-ROUTE: no dispatcher available, falling back to direct');
+      return this.originalFetch(input, init);
+    }
+
+    // Direct mode (no proxy): check policy via RPC
     debugLog(`fetch checkPolicy START url=${url}`);
     this._checking = true;
     try {
@@ -117,7 +152,7 @@ export class FetchInterceptor extends BaseInterceptor {
       this._checking = false;
     }
 
-    // Policy allowed — make request directly (no broker proxy)
+    // Policy allowed — make request directly
     return this.originalFetch(input, init);
   }
 

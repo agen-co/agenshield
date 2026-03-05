@@ -173,6 +173,7 @@ export const OPENCLAW_SHIELD_STEPS: ShieldStepDefinition[] = [
   // Phase 3: Directories & Shell
   { id: 'create_directories', phase: 3, name: 'Create directories', description: 'Create agent home, bin, config, socket, and log directories' },
   { id: 'create_marker', phase: 3, name: 'Create .agenshield marker', description: 'Write root-owned meta.json for user identification' },
+  { id: 'create_agent_keychain', phase: 3, name: 'Create agent keychain', description: 'Create default macOS Keychain for the agent user' },
   { id: 'install_guarded_shell', phase: 3, name: 'Install guarded shell', description: 'Write guarded-shell launcher to /usr/local/bin' },
   { id: 'install_zdotdir', phase: 3, name: 'Install ZDOTDIR', description: 'Write .zshenv and .zshrc to agent ZDOTDIR' },
   { id: 'verify_shell', phase: 3, name: 'Verify shell', description: 'Confirm guarded-shell is executable and registered in /etc/shells' },
@@ -237,6 +238,7 @@ export const CLAUDE_CODE_SHIELD_STEPS: ShieldStepDefinition[] = [
   // Phase 3: Directories & Shell
   { id: 'create_directories', phase: 3, name: 'Create directories', description: 'Create agent home, bin, config, socket, and log directories' },
   { id: 'create_marker', phase: 3, name: 'Create .agenshield marker', description: 'Write root-owned meta.json for user identification' },
+  { id: 'create_agent_keychain', phase: 3, name: 'Create agent keychain', description: 'Create default macOS Keychain for the agent user' },
   { id: 'install_guarded_shell', phase: 3, name: 'Install guarded shell', description: 'Write guarded-shell launcher to /usr/local/bin' },
   { id: 'install_zdotdir', phase: 3, name: 'Install ZDOTDIR', description: 'Write .zshenv and .zshrc to agent ZDOTDIR' },
   { id: 'verify_shell', phase: 3, name: 'Verify shell', description: 'Confirm guarded-shell is executable and registered in /etc/shells' },

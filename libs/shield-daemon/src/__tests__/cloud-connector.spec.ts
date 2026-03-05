@@ -53,6 +53,9 @@ jest.mock('@agenshield/storage', () => ({
       deleteManagedBySource: jest.fn(),
       createManaged: jest.fn(),
     },
+    binarySignatures: {
+      lookupBySha256: jest.fn(() => null),
+    },
   })),
 }));
 
@@ -72,13 +75,18 @@ jest.mock('@agenshield/ipc', () => ({
   PolicyConfigSchema: { parse: jest.fn((v: unknown) => v) },
 }));
 
-// Mock policies
-jest.mock('@agenshield/policies', () => ({
-  matchProcessPattern: jest.fn((pattern: string, command: string) => {
-    // Simple glob matching for tests
-    const regex = new RegExp(pattern.replace(/\*/g, '.*'), 'i');
-    return regex.test(command);
-  }),
+// Mock policies — use real matchProcessPattern for accurate matching
+jest.mock('@agenshield/policies', () => {
+  const actual = jest.requireActual('@agenshield/policies');
+  return {
+    matchProcessPattern: actual.matchProcessPattern,
+  };
+});
+
+// Mock process-fingerprint
+const mockFingerprintProcess = jest.fn();
+jest.mock('../services/process-fingerprint', () => ({
+  fingerprintProcess: (...args: unknown[]) => mockFingerprintProcess(...args),
 }));
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -102,6 +110,14 @@ describe('CloudConnector kill_process handler', () => {
     jest.clearAllMocks();
     connector = new CloudConnector();
     mockKillProcessTree.mockResolvedValue(undefined);
+    // Default: fingerprinting finds nothing
+    mockFingerprintProcess.mockReturnValue({
+      candidateNames: [],
+      resolvedPath: null,
+      npmPackageName: null,
+      sha256: null,
+      resolvedVia: null,
+    });
   });
 
   it('kills matching openclaw processes when action is kill', async () => {
@@ -206,5 +222,60 @@ describe('CloudConnector kill_process handler', () => {
     expect(mockEmitProcessViolation).toHaveBeenCalledTimes(1);
     expect(mockKillProcessTree).not.toHaveBeenCalled();
     expect(mockEmitProcessKilled).not.toHaveBeenCalled();
+  });
+
+  it('does NOT kill agenshield-broker even when path contains claude username', async () => {
+    mockScanHostProcesses.mockResolvedValue([
+      { pid: 6001, user: 'claude', command: '/Users/claude/.agenshield/libexec/agenshield-broker --port 5200' },
+      { pid: 6002, user: 'claude', command: '/Users/claude/.local/bin/claude --serve' },
+    ]);
+
+    await sendCommand(connector, 'kill_process', {
+      targetProcess: 'claude-code',
+      action: 'kill',
+    });
+
+    // Should only kill the actual claude binary, not the broker
+    expect(mockKillProcessTree).toHaveBeenCalledTimes(1);
+    expect(mockKillProcessTree).toHaveBeenCalledWith(6002);
+    expect(mockKillProcessTree).not.toHaveBeenCalledWith(6001);
+  });
+
+  it('identifies renamed binary via fingerprinting when name match fails', async () => {
+    mockScanHostProcesses.mockResolvedValue([
+      { pid: 7001, user: 'testuser', command: '/usr/local/bin/my-custom-tool --serve' },
+    ]);
+
+    mockFingerprintProcess.mockReturnValue({
+      candidateNames: ['claude'],
+      resolvedPath: '/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.js',
+      npmPackageName: 'claude',
+      sha256: 'abc123def456',
+      resolvedVia: 'package-json',
+    });
+
+    await sendCommand(connector, 'kill_process', {
+      targetProcess: 'claude-code',
+      action: 'kill',
+    });
+
+    expect(mockFingerprintProcess).toHaveBeenCalled();
+    expect(mockKillProcessTree).toHaveBeenCalledWith(7001);
+  });
+
+  it('does not call fingerprinting when name match already succeeds', async () => {
+    mockScanHostProcesses.mockResolvedValue([
+      { pid: 8001, user: 'testuser', command: '/usr/bin/claude --serve' },
+    ]);
+
+    await sendCommand(connector, 'kill_process', {
+      targetProcess: 'claude-code',
+      action: 'kill',
+    });
+
+    // Name match succeeded — fingerprinting not needed for this process
+    expect(mockKillProcessTree).toHaveBeenCalledWith(8001);
+    // fingerprintProcess is never called since name matched
+    expect(mockFingerprintProcess).not.toHaveBeenCalled();
   });
 });

@@ -21,6 +21,8 @@ import { emitPoliciesUpdated, emitProcessViolation, emitProcessKilled } from '..
 import { getPolicyManager } from './policy-manager';
 import { triggerProcessEnforcement, scanHostProcesses, killProcessTree } from './process-enforcer';
 import { matchProcessPattern } from '@agenshield/policies';
+import { fingerprintProcess } from './process-fingerprint';
+import type { ProcessFingerprint } from './process-fingerprint';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -155,7 +157,10 @@ export class CloudConnector {
         resolve();
 
         // Pull policies after connecting
-        this.pullPolicies().catch(() => { /* best effort */ });
+        this.pullPoliciesWithRetry().catch((err) => {
+          const rlog = getLogger();
+          rlog.warn({ err }, '[cloud] Initial policy pull failed after all retries');
+        });
       });
 
       ws.on('message', (data) => {
@@ -304,7 +309,10 @@ export class CloudConnector {
 
     // Initial poll + pull policies
     this.pollCommands();
-    this.pullPolicies().catch(() => { /* best effort */ });
+    this.pullPoliciesWithRetry().catch((err) => {
+      const rlog = getLogger();
+      rlog.warn({ err }, '[cloud] Initial policy pull failed after all retries (polling)');
+    });
   }
 
   private async pollCommands(): Promise<void> {
@@ -481,9 +489,36 @@ export class CloudConnector {
       return;
     }
 
+    // Fingerprint helpers for signature-based identification
+    const fpCache = new Map<string, ProcessFingerprint>();
+    const hashLookup = (sha256: string): string | null => {
+      try {
+        const sig = getStorage().binarySignatures.lookupBySha256(sha256, process.platform);
+        return sig?.packageName ?? null;
+      } catch { return null; }
+    };
+
     for (const proc of processes) {
-      const matches = patterns.some(pattern => matchProcessPattern(pattern, proc.command));
-      if (!matches) continue;
+      // Layer 1: Name-based pattern matching
+      let matched = patterns.some(pattern => matchProcessPattern(pattern, proc.command));
+
+      // Layer 2: Fingerprint-based identification (catches renamed binaries via SHA256)
+      if (!matched) {
+        const fp = fingerprintProcess(proc.command, { cache: fpCache, hashLookup });
+        if (fp.candidateNames.length > 0) {
+          matched = fp.candidateNames.some(candidate =>
+            patterns.some(pattern => matchProcessPattern(pattern, candidate)),
+          );
+          if (matched) {
+            log.info(
+              `[cloud] kill_process: PID ${proc.pid} identified as "${fp.candidateNames[0]}" ` +
+              `via ${fp.resolvedVia} (command: ${proc.command.slice(0, 80)})`,
+            );
+          }
+        }
+      }
+
+      if (!matched) continue;
 
       const payload = {
         pid: proc.pid,
@@ -531,8 +566,7 @@ export class CloudConnector {
       clearTimeout(timeout);
 
       if (!res.ok) {
-        log.warn(`[cloud] Failed to pull policies: ${res.status}`);
-        return;
+        throw new Error(`HTTP ${res.status} pulling policies`);
       }
 
       const body = await res.json() as { source?: string; policies?: PolicyConfig[] };
@@ -544,8 +578,31 @@ export class CloudConnector {
         log.info(`[cloud] Pulled ${body.policies.length} policies from cloud`);
       }
     } catch (err) {
-      log.debug({ err }, '[cloud] Failed to pull policies');
+      log.warn({ err }, '[cloud] Failed to pull policies');
+      throw err;
     }
+  }
+
+  /**
+   * Pull policies with retry logic for post-enrollment reliability.
+   * Retries with exponential backoff to handle cloud propagation delays.
+   */
+  async pullPoliciesWithRetry(maxRetries = 3): Promise<void> {
+    const log = getLogger();
+    let lastError: Error | undefined;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.pullPolicies();
+        return;
+      } catch (err) {
+        lastError = err as Error;
+        log.warn(`[cloud] Policy pull attempt ${attempt}/${maxRetries} failed: ${lastError.message}`);
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, attempt * 2000));
+        }
+      }
+    }
+    throw lastError ?? new Error('pullPoliciesWithRetry exhausted all retries');
   }
 
   /**

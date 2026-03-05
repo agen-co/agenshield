@@ -3,6 +3,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { SchemaMigration } from '../../../migrations/001-schema';
+import { EnforcerIntervalMigration } from '../../../migrations/024-enforcer-interval';
+import { ProxyTlsMigration } from '../../../migrations/029-proxy-tls';
 import { ConfigRepository } from '../config.repository';
 import type { ConfigData } from '../config.model';
 
@@ -13,6 +15,8 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   new SchemaMigration().up(db);
+  new EnforcerIntervalMigration().up(db);
+  new ProxyTlsMigration().up(db);
   return {
     db,
     cleanup: () => {

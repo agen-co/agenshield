@@ -57,6 +57,25 @@ export interface BuildSandboxInput {
   sharedCapabilities?: SharedCapabilities;
 }
 
+/**
+ * System binaries that MUST be executed through broker wrapper scripts
+ * (in agentHome/bin/) rather than directly. Direct execution bypasses
+ * the broker's policy-checked wrappers.
+ */
+const WRAPPER_REQUIRED_BINARIES = [
+  '/usr/bin/curl',
+  '/usr/bin/wget',
+  '/usr/bin/ssh',
+  '/usr/bin/scp',
+  '/usr/bin/rsync',
+  '/usr/bin/git',
+  '/usr/local/bin/git',
+  '/usr/bin/npm',
+  '/usr/local/bin/npm',
+  '/usr/bin/npx',
+  '/usr/local/bin/npx',
+] as const;
+
 // Known commands that typically need network access
 const NETWORK_COMMANDS = new Set([
   'curl', 'wget', 'git', 'npm', 'npx', 'yarn', 'pnpm',
@@ -142,12 +161,16 @@ export async function buildSandboxConfig(
     if (writePaths.length > 0) sandbox.allowedWritePaths.push(...writePaths);
   }
 
+  // Populate denied binaries — these must go through broker wrappers
+  sandbox.deniedBinaries.push(...WRAPPER_REQUIRED_BINARIES);
+
   // Resolve the command binary and add to allowed binaries
+  // (skip if the binary is in the denied list — it must use broker wrappers)
   if (target) {
     const cleanTarget = target.startsWith('fork:') ? target.slice(5) : target;
     const cmd = cleanTarget.split(' ')[0];
     if (cmd) {
-      if (cmd.startsWith('/')) {
+      if (cmd.startsWith('/') && !sandbox.deniedBinaries.includes(cmd)) {
         sandbox.allowedBinaries.push(cmd);
         try {
           const realCmd = nodefs.realpathSync(cmd);
@@ -252,7 +275,10 @@ export async function buildSandboxConfig(
       http_proxy: `http://127.0.0.1:${port}`,
       https_proxy: `http://127.0.0.1:${port}`,
       all_proxy: `http://127.0.0.1:${port}`,
-      NO_PROXY: '',
+      NO_PROXY: 'localhost,127.0.0.1,::1,*.local,.local',
+      no_proxy: 'localhost,127.0.0.1,::1,*.local,.local',
+      // Ensure Node.js trusts system CA certificates through the proxy tunnel
+      NODE_EXTRA_CA_CERTS: '/etc/ssl/cert.pem',
       AGENSHIELD_EXEC_ID: execId,
     };
   }

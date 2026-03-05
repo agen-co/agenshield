@@ -208,7 +208,7 @@ describe('buildSandboxConfig', () => {
       expect(result.envInjection['http_proxy']).toBe('http://127.0.0.1:12000');
       expect(result.envInjection['https_proxy']).toBe('http://127.0.0.1:12000');
       expect(result.envInjection['all_proxy']).toBe('http://127.0.0.1:12000');
-      expect(result.envInjection['NO_PROXY']).toBe('');
+      expect(result.envInjection['NO_PROXY']).toBe('localhost,127.0.0.1,::1,*.local,.local');
     });
 
     it('sets AGENSHIELD_EXEC_ID in env injection', async () => {
@@ -359,6 +359,45 @@ describe('buildSandboxConfig', () => {
       expect(result.allowedBinaries).toContain('/Users/test_agent/homebrew/');
       expect(result.allowedBinaries).toContain('/Users/test_agent/.nvm/');
       expect(result.allowedBinaries).toContain('/Users/test_agent/bin/');
+    });
+  });
+
+  describe('denied binaries (wrapper-required)', () => {
+    it('deniedBinaries contains wrapper-required system paths', async () => {
+      const result = await buildSandboxConfig(createDeps(), { target: 'echo hi' });
+      expect(result.deniedBinaries).toContain('/usr/bin/curl');
+      expect(result.deniedBinaries).toContain('/usr/bin/wget');
+      expect(result.deniedBinaries).toContain('/usr/bin/ssh');
+      expect(result.deniedBinaries).toContain('/usr/bin/scp');
+      expect(result.deniedBinaries).toContain('/usr/bin/rsync');
+      expect(result.deniedBinaries).toContain('/usr/bin/git');
+      expect(result.deniedBinaries).toContain('/usr/local/bin/git');
+      expect(result.deniedBinaries).toContain('/usr/bin/npm');
+      expect(result.deniedBinaries).toContain('/usr/local/bin/npm');
+      expect(result.deniedBinaries).toContain('/usr/bin/npx');
+      expect(result.deniedBinaries).toContain('/usr/local/bin/npx');
+    });
+
+    it('/usr/bin/curl target is NOT added to allowedBinaries', async () => {
+      const result = await buildSandboxConfig(createDeps(), { target: '/usr/bin/curl https://example.com' });
+      expect(result.allowedBinaries).not.toContain('/usr/bin/curl');
+      expect(result.deniedBinaries).toContain('/usr/bin/curl');
+    });
+
+    it('/usr/bin/git target is NOT added to allowedBinaries', async () => {
+      const result = await buildSandboxConfig(createDeps(), { target: '/usr/bin/git clone repo' });
+      expect(result.allowedBinaries).not.toContain('/usr/bin/git');
+      expect(result.deniedBinaries).toContain('/usr/bin/git');
+    });
+
+    it('non-denied absolute path IS added to allowedBinaries', async () => {
+      const result = await buildSandboxConfig(createDeps(), { target: '/usr/local/bin/myapp arg1' });
+      expect(result.allowedBinaries).toContain('/usr/local/bin/myapp');
+    });
+
+    it('fork:/usr/bin/curl is NOT added to allowedBinaries', async () => {
+      const result = await buildSandboxConfig(createDeps(), { target: 'fork:/usr/bin/curl https://x.com' });
+      expect(result.allowedBinaries).not.toContain('/usr/bin/curl');
     });
   });
 

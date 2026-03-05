@@ -29,6 +29,9 @@ import type { ProcessFingerprint } from './process-fingerprint';
 // macOS system daemons — never enforce against these
 const SYSTEM_PROCESS_RE = /\b(cfprefsd|lsd|trustd|diskarbitrationd|secinitd|tccd|nsurlsessiond|mdworker|distnoted|smd|pboard|launchd|kernel_task|WindowServer|loginwindow)\b/i;
 
+/** AgenShield infrastructure binaries — never enforce against these */
+const AGENSHIELD_INFRA_RE = /[/\\]\.agenshield[/\\]libexec[/\\]/;
+
 const GRACE_PERIOD_MS = 5_000;
 
 export interface HostProcess {
@@ -41,6 +44,8 @@ export interface HostProcess {
 
 let scanTimer: NodeJS.Timeout | null = null;
 let currentIntervalMs = 0;
+let deferredEnforcementTimer: NodeJS.Timeout | null = null;
+const DEFERRED_ENFORCEMENT_DELAY_MS = 5_000;
 /** PIDs recently killed — tracked to avoid re-scanning dead processes */
 const recentlyKilledPids = new Set<number>();
 let recentlyKilledCleanupTimer: NodeJS.Timeout | null = null;
@@ -94,6 +99,10 @@ export function stopProcessEnforcer(): void {
     clearInterval(recentlyKilledCleanupTimer);
     recentlyKilledCleanupTimer = null;
   }
+  if (deferredEnforcementTimer) {
+    clearTimeout(deferredEnforcementTimer);
+    deferredEnforcementTimer = null;
+  }
   recentlyKilledPids.clear();
   knownPids.clear();
   cachedDaemonDescendants = new Set();
@@ -140,6 +149,12 @@ async function runEnforcementScan(): Promise<void> {
   const activeOps = getActiveShieldOperations();
   if (activeOps.length > 0) {
     log.debug(`[enforcer] Skipping scan — ${activeOps.length} shield operation(s) in progress`);
+    if (!deferredEnforcementTimer) {
+      deferredEnforcementTimer = setTimeout(() => {
+        deferredEnforcementTimer = null;
+        runEnforcementScan().catch(() => { /* logged internally */ });
+      }, DEFERRED_ENFORCEMENT_DELAY_MS);
+    }
     return;
   }
 
@@ -347,6 +362,9 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
 
     // Skip sudo delegations to known AgenShield agent users
     if (agentUsernames.size > 0 && isShieldedProcess(command, agentUsernames)) continue;
+
+    // Skip AgenShield infrastructure binaries (broker, etc.)
+    if (AGENSHIELD_INFRA_RE.test(command)) continue;
 
     processes.push({ pid, user: currentUser, command });
   }

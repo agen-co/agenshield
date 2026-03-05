@@ -15,6 +15,8 @@ export default {
   moduleFileExtensions: ['ts', 'js', 'json'],
   moduleNameMapper: {
     '^@agenshield/ipc$': '<rootDir>/../shield-ipc/src/index.ts',
+    '^@agenshield/policies$': '<rootDir>/../policies/src/index.ts',
+    '^@agenshield/proxy$': '<rootDir>/../proxy/src/index.ts',
     '^(.*)\\.js$': '$1',
   },
   testMatch: ['<rootDir>/src/__tests__/**/*.spec.ts'],

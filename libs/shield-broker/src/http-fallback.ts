@@ -6,6 +6,7 @@
  */
 
 import * as http from 'node:http';
+import * as https from 'node:https';
 import * as net from 'node:net';
 import { randomUUID } from 'node:crypto';
 import type {
@@ -20,6 +21,7 @@ import type { CommandAllowlist } from './policies/command-allowlist.js';
 import type { BrokerAuth } from './handlers/types.js';
 import * as handlers from './handlers/index.js';
 import { forwardPolicyToDaemon } from './daemon-forward.js';
+import { classifyNetworkError } from '@agenshield/proxy';
 
 /** Operations allowed over HTTP fallback */
 const HTTP_ALLOWED_OPERATIONS = new Set([
@@ -119,8 +121,8 @@ export class HttpFallbackServer {
     req: http.IncomingMessage,
     res: http.ServerResponse
   ): Promise<void> {
-    // Handle plain HTTP proxy requests (absolute URLs from HTTP_PROXY clients)
-    if (req.url?.startsWith('http://')) {
+    // Handle plain HTTP/HTTPS proxy requests (absolute URLs from HTTP_PROXY/HTTPS_PROXY clients)
+    if (req.url?.startsWith('http://') || req.url?.startsWith('https://')) {
       this.handleHttpProxy(req, res);
       return;
     }
@@ -212,7 +214,9 @@ export class HttpFallbackServer {
       return;
     }
 
-    // Check URL policy (CONNECT is for TLS, so use https://)
+    // CONNECT tunnels are opaque TCP pipes — always use https:// for policy checks.
+    // This avoids falsely triggering "block non-localhost plain HTTP" logic for
+    // non-HTTP protocols (MongoDB, Redis, WebSocket, etc.) on non-443 ports.
     const policyUrl = `https://${hostname}`;
     const context: HandlerContext = {
       requestId,
@@ -257,7 +261,13 @@ export class HttpFallbackServer {
         metadata: { protocol: 'https', method: 'CONNECT' },
       });
 
-      clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      clientSocket.write(
+        'HTTP/1.1 403 Forbidden\r\n' +
+        'Content-Type: text/plain\r\n' +
+        'X-Proxy-Error: blocked-by-policy\r\n' +
+        '\r\n' +
+        `Connection to ${hostname} blocked by URL policy`,
+      );
       clientSocket.destroy();
       return;
     }
@@ -268,6 +278,19 @@ export class HttpFallbackServer {
       serverSocket.write(head);
       serverSocket.pipe(clientSocket);
       clientSocket.pipe(serverSocket);
+
+      this.auditLogger.log({
+        id: requestId,
+        timestamp: new Date(),
+        operation: 'http_request' as any,
+        channel: 'http',
+        allowed: true,
+        policyId: policyResult.policyId,
+        target: `${hostname}:${port}`,
+        result: 'success',
+        durationMs: Date.now() - startTime,
+        metadata: { protocol: 'https', method: 'CONNECT' },
+      });
     });
 
     // Track for graceful shutdown
@@ -283,6 +306,7 @@ export class HttpFallbackServer {
     serverSocket.on('close', cleanup);
 
     serverSocket.on('error', (err) => {
+      const errorType = classifyNetworkError(err as Error & { code?: string });
       this.auditLogger.log({
         id: requestId,
         timestamp: new Date(),
@@ -291,28 +315,21 @@ export class HttpFallbackServer {
         allowed: true,
         target: `${hostname}:${port}`,
         result: 'error',
-        errorMessage: `TUNNEL error: ${err.message}`,
+        errorMessage: `TUNNEL ${errorType.type}: ${err.message}`,
         durationMs: Date.now() - startTime,
-        metadata: { protocol: 'https', method: 'CONNECT' },
+        metadata: { protocol: 'https', method: 'CONNECT', errorType: errorType.type },
       });
+      clientSocket.write(
+        'HTTP/1.1 502 Bad Gateway\r\n' +
+        `X-Proxy-Error: ${errorType.type}\r\n` +
+        'Content-Type: text/plain\r\n\r\n' +
+        errorType.userMessage,
+      );
       clientSocket.destroy();
     });
 
     clientSocket.on('error', () => {
       serverSocket.destroy();
-    });
-
-    await this.auditLogger.log({
-      id: requestId,
-      timestamp: new Date(),
-      operation: 'http_request' as any,
-      channel: 'http',
-      allowed: true,
-      policyId: policyResult.policyId,
-      target: `${hostname}:${port}`,
-      result: 'success',
-      durationMs: Date.now() - startTime,
-      metadata: { protocol: 'https', method: 'CONNECT' },
     });
   }
 
@@ -378,7 +395,7 @@ export class HttpFallbackServer {
         result: 'denied',
         errorMessage: policyResult.reason,
         durationMs: Date.now() - startTime,
-        metadata: { protocol: 'http', method: req.method },
+        metadata: { protocol: url.startsWith('https://') ? 'https' : 'http', method: req.method },
       });
 
       res.writeHead(403, { 'Content-Type': 'text/plain' });
@@ -401,10 +418,15 @@ export class HttpFallbackServer {
     delete headers['proxy-connection'];
     delete headers['proxy-authorization'];
 
-    const proxyReq = http.request(
+    // Protocol-aware forwarding: use https.request for https:// URLs
+    const isHttps = parsedUrl.protocol === 'https:';
+    const requestFn = isHttps ? https.request : http.request;
+    const defaultPort = isHttps ? 443 : 80;
+
+    const proxyReq = requestFn(
       {
         hostname: parsedUrl.hostname,
-        port: parsedUrl.port || 80,
+        port: parsedUrl.port || defaultPort,
         path: parsedUrl.pathname + parsedUrl.search,
         method: req.method,
         headers,
@@ -426,7 +448,7 @@ export class HttpFallbackServer {
         result: 'error',
         errorMessage: `HTTP proxy error: ${err.message}`,
         durationMs: Date.now() - startTime,
-        metadata: { protocol: 'http', method: req.method },
+        metadata: { protocol: isHttps ? 'https' : 'http', method: req.method },
       });
 
       if (!res.headersSent) {
@@ -447,7 +469,7 @@ export class HttpFallbackServer {
       target: url,
       result: 'success',
       durationMs: Date.now() - startTime,
-      metadata: { protocol: 'http', method: req.method },
+      metadata: { protocol: isHttps ? 'https' : 'http', method: req.method },
     });
   }
 

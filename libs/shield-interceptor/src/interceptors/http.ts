@@ -12,6 +12,7 @@ import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { SyncClient } from '../client/sync-client.js';
 import { PolicyDeniedError } from '../errors.js';
 import { debugLog } from '../debug-log.js';
+import { getProxyConfig, shouldBypassProxy, type ProxyConfig } from '../proxy-env.js';
 import type { PolicyExecutionContext } from '@agenshield/ipc';
 import type { PolicyCheckResult } from '../policy/evaluator.js';
 
@@ -23,6 +24,7 @@ const httpsModule = require('node:https') as typeof http;
 
 export class HttpInterceptor extends BaseInterceptor {
   private syncClient: SyncClient;
+  private proxyConfig: ProxyConfig;
   private originalHttpRequest: typeof http.request | null = null;
   private originalHttpGet: typeof http.get | null = null;
   private originalHttpsRequest: typeof http.request | null = null;
@@ -37,6 +39,7 @@ export class HttpInterceptor extends BaseInterceptor {
       httpPort: config?.httpPort || 5201,
       timeout: config?.timeout || 30000,
     });
+    this.proxyConfig = getProxyConfig();
   }
 
   install(): void {
@@ -169,7 +172,35 @@ export class HttpInterceptor extends BaseInterceptor {
 
       self.eventReporter.intercept('http_request', url);
 
-      // Synchronous policy check — blocks before the request fires
+      // Proxy routing mode: when HTTP_PROXY/HTTPS_PROXY is set, route through the
+      // proxy and skip the RPC policy check (the proxy enforces URL policies itself).
+      // We send the full URL as the request path to the proxy's HTTP handler, which
+      // detects the protocol and uses https.request for upstream TLS connections.
+      if (self.proxyConfig.enabled && !shouldBypassProxy(url, self.proxyConfig.noProxy)) {
+        debugLog(`http.request PROXY-ROUTE url=${url}`);
+
+        let parsedHost: string;
+        try {
+          parsedHost = new URL(url).host;
+        } catch {
+          parsedHost = 'unknown';
+        }
+
+        const proxyOptions: http.RequestOptions = {
+          hostname: self.proxyConfig.hostname,
+          port: self.proxyConfig.port,
+          path: url,
+          method: options.method || 'GET',
+          headers: { ...(options.headers || {}), host: parsedHost },
+        };
+
+        // Always use http module to talk to the localhost proxy.
+        // Cast needed: .call() confuses TS overload resolution for http.request.
+        const reqFn = self.originalHttpRequest! as (...args: unknown[]) => http.ClientRequest;
+        return reqFn.call(httpModule, proxyOptions, cb);
+      }
+
+      // Direct mode (no proxy): synchronous policy check via RPC
       try {
         self.syncPolicyCheck(url);
       } catch (error) {

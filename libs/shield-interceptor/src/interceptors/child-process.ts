@@ -287,9 +287,8 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         delete env[key];
       }
     }
-    // // Belt-and-suspenders: NODE_OPTIONS is not in the base allowlist,
-    // // but strip it explicitly in case a policy envAllow re-introduces it.
-    // delete env['NODE_OPTIONS'];
+    // Belt-and-suspenders: strip NODE_OPTIONS to prevent --require code injection
+    delete env['NODE_OPTIONS'];
 
     return {
       command: '/usr/bin/sandbox-exec',
@@ -334,9 +333,8 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         delete env[key];
       }
     }
-    // // Belt-and-suspenders: NODE_OPTIONS is not in the base allowlist,
-    // // but strip it explicitly in case a policy envAllow re-introduces it.
-    // delete env['NODE_OPTIONS'];
+    // Belt-and-suspenders: strip NODE_OPTIONS to prevent --require code injection
+    delete env['NODE_OPTIONS'];
 
     return {
       command: `/usr/bin/sandbox-exec -f ${profilePath} ${command}`,
@@ -691,7 +689,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
             delete env[key];
           }
         }
-        // delete env['NODE_OPTIONS'];
+        delete env['NODE_OPTIONS'];
         options = { ...options, env };
       }
 

@@ -8,6 +8,8 @@ import { VERSION, loadConfig } from '../config/index';
 import { loadState } from '../state/index';
 import { getCloudConnector } from '../services/cloud-connector';
 import { getEnrollmentService } from '../services/enrollment';
+import { getActivationService } from '../services/activation';
+import { getStorage } from '@agenshield/storage';
 
 // Lazy-loaded integrations — avoids top-level await (TLA) which breaks CJS bundles
 let getOpenClawStatusSync: (() => unknown) | undefined;
@@ -74,6 +76,24 @@ export function buildDaemonStatus(): DaemonStatus {
   const enrollmentPending = enrollmentState.state === 'pending_user_auth';
   const includeEnrollment = enrollmentState.state !== 'idle';
 
+  // Activation state
+  const servicesActive = getActivationService().isActive();
+
+  // Aggregate stats for menu bar
+  let stats: DaemonStatus['stats'] | undefined;
+  try {
+    const storage = getStorage();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    stats = {
+      events: storage.activities.count({ since: todayStart.toISOString() }),
+      policies: storage.policies.getAll().length,
+      skills: storage.skills.getAll().length,
+    };
+  } catch {
+    // Storage may not be initialized yet
+  }
+
   return {
     running: true,
     pid: process.pid,
@@ -82,6 +102,8 @@ export function buildDaemonStatus(): DaemonStatus {
     port: config.daemon.port,
     startedAt: startedAt.toISOString(),
     agentUsername: agentUser?.username,
+    servicesActive,
+    ...(stats ? { stats } : {}),
     ...(openclaw ? { openclaw } : {}),
     ...(cloudConnected ? { cloudConnected, cloudCompany } : {}),
     ...(enrollmentPending ? { enrollmentPending } : {}),
@@ -103,5 +125,11 @@ export async function statusRoutes(app: FastifyInstance): Promise<void> {
       success: true,
       data: buildDaemonStatus(),
     };
+  });
+
+  app.post('/shutdown', async (_request, reply) => {
+    reply.send({ success: true, data: { message: 'Shutting down...' } });
+    // Delay so the response is sent before exit
+    setTimeout(() => { process.exit(0); }, 500);
   });
 }

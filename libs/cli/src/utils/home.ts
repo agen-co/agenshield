@@ -12,7 +12,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { isSEA } from '@agenshield/ipc';
+import { isSEA, resolveCodesignIdentifier } from '@agenshield/ipc';
 
 // ---------------------------------------------------------------------------
 // Async spawn helpers
@@ -783,7 +783,7 @@ export function isRootOwned(p: string): boolean {
  */
 async function signBinaryHardened(
   binaryPath: string,
-  options?: { sudo?: boolean; identity?: string },
+  options?: { sudo?: boolean; identity?: string; identifier?: string },
 ): Promise<void> {
   if (process.platform !== 'darwin') return;
 
@@ -793,6 +793,10 @@ async function signBinaryHardened(
   const identity = options?.identity
     ?? process.env['AGENSHIELD_CODESIGN_IDENTITY']
     ?? null;
+
+  // Resolve bundle identifier: explicit param → auto-resolve from binary name
+  const resolvedId = options?.identifier ?? resolveCodesignIdentifier(binaryPath);
+  const idFlag = resolvedId ? ` --identifier "${resolvedId}"` : '';
 
   // Remove quarantine attribute
   try {
@@ -818,13 +822,13 @@ async function signBinaryHardened(
     if (identity) {
       // Developer ID signing with timestamp + hardened runtime
       execSync(
-        `${prefix}codesign --force --sign "${identity}" --timestamp --options runtime --entitlements "${tmpPlist}" "${binaryPath}"`,
+        `${prefix}codesign --force --sign "${identity}"${idFlag} --timestamp --options runtime --entitlements "${tmpPlist}" "${binaryPath}"`,
         { stdio: 'pipe' },
       );
     } else {
       // Try 1: ad-hoc codesign with entitlements + hardened runtime
       execSync(
-        `${prefix}codesign --force --sign - --options runtime --entitlements "${tmpPlist}" "${binaryPath}"`,
+        `${prefix}codesign --force --sign -${idFlag} --options runtime --entitlements "${tmpPlist}" "${binaryPath}"`,
         { stdio: 'pipe' },
       );
     }
@@ -832,7 +836,7 @@ async function signBinaryHardened(
     // Fallback: plain ad-hoc signing without entitlements
     try {
       execSync(
-        `${prefix}codesign --force --sign - "${binaryPath}"`,
+        `${prefix}codesign --force --sign -${idFlag} "${binaryPath}"`,
         { stdio: 'pipe' },
       );
     } catch { /* codesign is best-effort — continue silently */ }

@@ -41,6 +41,23 @@ export const ALIASES: Record<string, string> = {
  */
 export const EXTERNAL: string[] = [];
 
+/**
+ * Codesign identifiers for macOS code signing.
+ * Duplicated from @agenshield/ipc because .mts build scripts cannot import workspace libs at build time.
+ */
+export const CODESIGN_IDENTIFIERS: Record<string, string> = {
+  'agenshield': 'com.frontegg.agenshield.cli',
+  'agenshield-daemon': 'com.frontegg.agenshield.daemon',
+  'agenshield-broker': 'com.frontegg.agenshield.broker',
+  'better_sqlite3.node': 'com.frontegg.agenshield.native.better-sqlite3',
+};
+
+/** Resolve codesign identifier from a binary path. Returns undefined for unknown binaries. */
+export function resolveCodesignId(binaryPath: string): string | undefined {
+  const basename = path.basename(binaryPath);
+  return CODESIGN_IDENTIFIERS[basename];
+}
+
 /** Node.js built-in modules to keep external */
 export const NODE_BUILTINS = [
   'assert', 'buffer', 'child_process', 'cluster', 'console', 'constants',

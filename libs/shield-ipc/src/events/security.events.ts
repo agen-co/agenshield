@@ -30,6 +30,13 @@ export interface SecurityLockedPayload {
   reason: 'idle_timeout' | 'manual' | 'session_expired';
 }
 
+export interface AclFailurePayload {
+  path: string;
+  userName: string;
+  action: 'allow' | 'deny';
+  reason: string;
+}
+
 declare module '@agenshield/ipc' {
   interface EventRegistry {
     'security:status': SecurityStatusPayload;
@@ -38,6 +45,7 @@ declare module '@agenshield/ipc' {
     'security:alert': MessagePayload;
     'security:config_tampered': ConfigTamperedPayload;
     'security:locked': SecurityLockedPayload;
+    'security:acl_failure': AclFailurePayload;
   }
 }
 
@@ -48,6 +56,7 @@ export const SECURITY_EVENT_TYPES = [
   'security:alert',
   'security:config_tampered',
   'security:locked',
+  'security:acl_failure',
 ] as const;
 
 registerEventTypes(SECURITY_EVENT_TYPES);

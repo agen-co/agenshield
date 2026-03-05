@@ -136,6 +136,19 @@ export class ShieldStepTracker {
     return this.profileId;
   }
 
+  /**
+   * Mark all remaining `pending` steps as `skipped` and broadcast.
+   * Call at the end of the shield pipeline to ensure progress reaches 100%.
+   */
+  finalize(): void {
+    for (const step of this.steps) {
+      if (step.status === 'pending') {
+        step.status = 'skipped';
+      }
+    }
+    this.broadcast();
+  }
+
   // ── Internal ────────────────────────────────────────────────
 
   private get(id: string): ShieldStepState | undefined {

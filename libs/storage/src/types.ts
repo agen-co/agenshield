@@ -42,6 +42,7 @@ export interface DbConfigRow {
   soul_json: string | null;
   broker_json: string | null;
   enforcer_interval_ms: number | null;
+  proxy_tls_reject_unauthorized: number | null;
   updated_at: string;
 }
 

@@ -39,6 +39,24 @@ import { createAuthHook } from '../auth/middleware';
 import { registerShieldContext } from '../context';
 import { sanitizeLogUrl } from '../utils/log-sanitizer';
 
+// System routes — never tagged with a profile in activity events
+const SYSTEM_ROUTE_PREFIXES = [
+  '/api/openclaw/',
+  '/api/status',
+  '/api/metrics',
+  '/api/agenco/',
+  '/api/auth/',
+  '/api/discovery/',
+  '/api/config',
+  '/api/security',
+  '/api/alerts',
+  '/api/logs/',
+  '/api/fs/',
+  '/api/profiles',
+  '/api/setup/',
+  '/api/enrollment/',
+];
+
 /**
  * Register all API routes under the /api prefix
  */
@@ -82,7 +100,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       // Include request/response bodies for non-GET, non-auth routes
       const isAuthRoute = request.url.includes('/auth/');
       const includeBody = request.method !== 'GET' && !isAuthRoute;
-      const profileId = request.shieldContext?.profileId ?? undefined;
+      const isSystemRoute = SYSTEM_ROUTE_PREFIXES.some(p => safeUrl.startsWith(p));
+      const profileId = isSystemRoute ? undefined : (request.shieldContext?.profileId ?? undefined);
 
       if (includeBody) {
         const requestBody = request.body as unknown;

@@ -112,6 +112,16 @@ describe('createDirectoryStructure', () => {
     expect(openclawDir.acl![0]).toContain('ash_default_broker');
   });
 
+  it('creates tmp directory owned by agent user', () => {
+    const structure = createDirectoryStructure();
+    const tmpDir = structure.agent['/Users/ash_default_agent/tmp'];
+
+    expect(tmpDir).toBeDefined();
+    expect(tmpDir.owner).toBe('ash_default_agent');
+    expect(tmpDir.group).toBe('ash_default');
+    expect(tmpDir.mode).toBe(0o755);
+  });
+
   it('system directories object is empty (moved to per-target)', () => {
     const structure = createDirectoryStructure();
 

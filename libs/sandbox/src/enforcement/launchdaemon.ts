@@ -31,8 +31,6 @@ export function generateBrokerPlist(
     isSEABinary?: boolean;
     daemonUrl?: string;
     nativeModulePath?: string;
-    /** Include AssociatedBundleIdentifiers block. Only set to true when /Applications/AgenShield.app exists. */
-    includeAssociatedBundle?: boolean;
     /** Path to broker launcher shell script. When set, ProgramArguments uses /bin/bash + this path instead of the binary directly. */
     launcherScriptPath?: string;
   }
@@ -48,14 +46,12 @@ export function generateBrokerPlist(
   const socketGroupName = config.groups.socket.name;
   const label = options?.baseName ? `${LABEL}.${options.baseName}` : LABEL;
   const resolvedLogDir = options?.logDir ?? `${agentHome}/.agenshield/logs`;
-  const associatedBundleBlock = options?.includeAssociatedBundle
-    ? `
+  const associatedBundleBlock = `
     <key>AssociatedBundleIdentifiers</key>
     <array>
         <string>${AGENSHIELD_HOST_BUNDLE_ID}</string>
     </array>
-`
-    : '';
+`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

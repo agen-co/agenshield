@@ -71,6 +71,7 @@ export class FsInterceptor extends BaseInterceptor {
 
     // Intercept async methods
     this.interceptMethod(fsModule, 'readFile', 'file_read');
+    this.interceptMethod(fsModule, 'open', 'file_read');
     this.interceptMethod(fsModule, 'writeFile', 'file_write');
     this.interceptMethod(fsModule, 'appendFile', 'file_write');
     this.interceptMethod(fsModule, 'unlink', 'file_write');
@@ -81,6 +82,7 @@ export class FsInterceptor extends BaseInterceptor {
 
     // Intercept sync methods
     this.interceptSyncMethod(fsModule, 'readFileSync', 'file_read');
+    this.interceptSyncMethod(fsModule, 'openSync', 'file_read');
     this.interceptSyncMethod(fsModule, 'writeFileSync', 'file_write');
     this.interceptSyncMethod(fsModule, 'appendFileSync', 'file_write');
     this.interceptSyncMethod(fsModule, 'unlinkSync', 'file_write');
@@ -91,6 +93,7 @@ export class FsInterceptor extends BaseInterceptor {
 
     // Intercept promises API
     this.interceptPromiseMethod(fsPromisesModule, 'readFile', 'file_read');
+    this.interceptPromiseMethod(fsPromisesModule, 'open', 'file_read');
     this.interceptPromiseMethod(fsPromisesModule, 'writeFile', 'file_write');
     this.interceptPromiseMethod(fsPromisesModule, 'appendFile', 'file_write');
     this.interceptPromiseMethod(fsPromisesModule, 'unlink', 'file_write');
@@ -98,6 +101,9 @@ export class FsInterceptor extends BaseInterceptor {
     this.interceptPromiseMethod(fsPromisesModule, 'rmdir', 'file_write');
     this.interceptPromiseMethod(fsPromisesModule, 'rm', 'file_write');
     this.interceptPromiseMethod(fsPromisesModule, 'readdir', 'file_list');
+
+    // Intercept createReadStream (alternative way to read file contents)
+    this.interceptSyncMethod(fsModule, 'createReadStream', 'file_read');
 
     this.installed = true;
   }

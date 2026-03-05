@@ -59,6 +59,55 @@ export function stripGlobToBasePath(pattern: string): string {
 }
 
 /**
+ * Resolve a cross-cutting glob pattern against concrete workspace directories
+ * by walking them up to maxDepth levels deep.
+ *
+ * Returns absolute paths to files matching the glob's filename component.
+ */
+export function resolveGlobInWorkspaces(
+  pattern: string,
+  workspacePaths: string[],
+  maxDepth = 5,
+): string[] {
+  // Extract the filename component from the glob (e.g. '.env' from '**/.env')
+  const segments = pattern.split('/').filter(Boolean);
+  const filenameSegment = segments[segments.length - 1];
+  if (!filenameSegment || /[*?[]/.test(filenameSegment)) {
+    // If the filename itself is a glob (e.g. `**/*`), skip — too broad
+    return [];
+  }
+
+  const SKIP_DIRS = new Set(['node_modules', '.git', 'vendor', '.hg', '__pycache__']);
+  const results: string[] = [];
+
+  function walk(dir: string, depth: number): void {
+    if (depth > maxDepth) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name)) {
+          walk(fullPath, depth + 1);
+        }
+      } else if (entry.name === filenameSegment) {
+        results.push(fullPath);
+      }
+    }
+  }
+
+  for (const ws of workspacePaths) {
+    walk(ws, 0);
+  }
+
+  return results;
+}
+
+/**
  * Map AgenShield operation names to macOS ACL permission keywords.
  */
 export function operationsToAclPerms(operations: string[]): string {
@@ -85,7 +134,7 @@ function hasUserAcl(
   action: 'allow' | 'deny',
 ): boolean {
   try {
-    const output = execSync(`ls -le "${targetPath}" 2>/dev/null || true`, {
+    const output = execSync(`ls -led "${targetPath}" 2>/dev/null || true`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -116,6 +165,8 @@ function hasUserAcl(
 /**
  * Add a user ACL entry to a path.
  * Idempotent: skips if a matching entry with sufficient permissions already exists.
+ *
+ * @returns `true` if the ACL was already present or successfully added; `false` on failure.
  */
 export function addUserAcl(
   targetPath: string,
@@ -123,16 +174,16 @@ export function addUserAcl(
   permissions: string,
   log: Logger = noop,
   action: 'allow' | 'deny' = 'allow',
-): void {
+): boolean {
   if (isDevMode()) {
     log.warn(`[acl] dev mode — attempting ACL add (may fail): ${targetPath}`);
   }
   try {
     if (!fs.existsSync(targetPath)) {
       log.warn(`[acl] skipping non-existent path: ${targetPath}`);
-      return;
+      return false;
     }
-    if (hasUserAcl(targetPath, userName, permissions, action)) return;
+    if (hasUserAcl(targetPath, userName, permissions, action)) return true;
     const cmd = `chmod +a "user:${userName} ${action} ${permissions}" "${targetPath}"`;
     try {
       execSync(cmd, { stdio: 'pipe' });
@@ -140,9 +191,24 @@ export function addUserAcl(
       // Fall back to sudo (e.g. for system-owned files)
       execSync(`sudo ${cmd}`, { stdio: 'pipe' });
     }
+    return true;
   } catch (err) {
     log.warn(`[acl] failed to add ${action} ACL on ${targetPath}: ${(err as Error).message}`);
+    return false;
   }
+}
+
+/**
+ * Verify that an ACL entry actually exists on a path after applying it.
+ * Re-checks via `hasUserAcl` and returns `true` if the entry is present.
+ */
+export function verifyUserAcl(
+  targetPath: string,
+  userName: string,
+  permissions: string,
+  action: 'allow' | 'deny' = 'allow',
+): boolean {
+  return hasUserAcl(targetPath, userName, permissions, action);
 }
 
 /**
@@ -162,7 +228,7 @@ export function removeUserAcl(targetPath: string, userName: string, log: Logger 
       return;
     }
 
-    const output = execSync(`ls -le "${targetPath}" 2>/dev/null || true`, {
+    const output = execSync(`ls -led "${targetPath}" 2>/dev/null || true`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -191,6 +257,61 @@ export function removeUserAcl(targetPath: string, userName: string, log: Logger 
         log.warn(`[acl] failed to remove ACL entry ${idx} on ${targetPath}: ${(err as Error).message}`);
       }
     }
+  } catch (err) {
+    log.warn(`[acl] failed to read ACLs on ${targetPath}: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * Remove orphaned (bare-UUID) ACL entries from a path.
+ *
+ * When a macOS user is deleted, their `user:username` ACL entries are converted
+ * to bare UUID format (e.g., `33C7868A-...-4F2E1A3B`). These stale entries
+ * accumulate and can hit the 128-entry-per-file macOS ACL limit, preventing
+ * new entries from being added.
+ *
+ * This function reads the ACL list, matches entries that show a bare UUID
+ * instead of `user:username`, and removes them highest-index-first.
+ *
+ * Safe to call on any path — active users always show as `user:username`.
+ */
+export function removeOrphanedAcls(targetPath: string, log: Logger = noop): void {
+  try {
+    if (!fs.existsSync(targetPath)) return;
+
+    const output = execSync(`ls -led "${targetPath}" 2>/dev/null || true`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    // Match bare UUID entries: " 0: 33C7868A-1234-5678-9ABC-4F2E1A3B allow ..."
+    const UUID_RE = /^\s*(\d+):\s+[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\s+(?:allow|deny)\s+/;
+    const indices: number[] = [];
+    for (const line of output.split('\n')) {
+      const match = line.match(UUID_RE);
+      if (match) {
+        indices.push(Number(match[1]));
+      }
+    }
+
+    if (indices.length === 0) return;
+
+    // Remove highest index first so lower indices stay valid
+    indices.sort((a, b) => b - a);
+    for (const idx of indices) {
+      try {
+        const cmd = `chmod -a# ${idx} "${targetPath}"`;
+        try {
+          execSync(cmd, { stdio: 'pipe' });
+        } catch {
+          execSync(`sudo ${cmd}`, { stdio: 'pipe' });
+        }
+      } catch (err) {
+        log.warn(`[acl] failed to remove orphaned ACL entry ${idx} on ${targetPath}: ${(err as Error).message}`);
+      }
+    }
+
+    log.warn(`[acl] removed ${indices.length} orphaned UUID-based ACL entr${indices.length === 1 ? 'y' : 'ies'} from ${targetPath}`);
   } catch (err) {
     log.warn(`[acl] failed to read ACLs on ${targetPath}: ${(err as Error).message}`);
   }
@@ -227,7 +348,7 @@ export function removeAllUserAcls(
 
   // 2. Filesystem policy paths (both allow and deny maps)
   const fsPolicies = policies.filter(p => p.enabled !== false && isFilesystemRelevant(p));
-  const { allow, deny } = computeAclMap(fsPolicies);
+  const { allow, deny } = computeAclMap(fsPolicies, workspacePaths);
   for (const targetPath of [...allow.keys(), ...deny.keys()]) {
     if (!cleaned.has(targetPath)) {
       removeUserAcl(targetPath, userName, log);
@@ -283,11 +404,16 @@ export function isFilesystemRelevant(p: PolicyConfig): boolean {
  *
  * Allow map:
  *   Pass 1: collect direct targets with merged permissions.
- *   Pass 2: add `search` for traversal ancestors not already in the map.
+ *   Pass 2: add "search" for traversal ancestors not already in the map.
  * Deny map:
  *   Pass 3: collect deny targets (no traversal ancestors needed for deny).
+ *           Cross-cutting globs that resolve to "/" are expanded against
+ *           concrete workspace paths when provided.
  */
-export function computeAclMap(policies: PolicyConfig[]): { allow: Map<string, string>; deny: Map<string, string> } {
+export function computeAclMap(
+  policies: PolicyConfig[],
+  workspacePaths: string[] = [],
+): { allow: Map<string, string>; deny: Map<string, string> } {
   const allowMap = new Map<string, string>();
   const denyMap = new Map<string, string>();
 
@@ -322,6 +448,17 @@ export function computeAclMap(policies: PolicyConfig[]): { allow: Map<string, st
     if (!perms) continue;
     for (const pattern of policy.patterns) {
       const target = stripGlobToBasePath(pattern);
+      if (target === '/') {
+        // Cross-cutting glob (e.g. **/.env) — resolve against workspace paths
+        if (workspacePaths.length > 0) {
+          const concreteFiles = resolveGlobInWorkspaces(pattern, workspacePaths);
+          for (const filePath of concreteFiles) {
+            const existing = denyMap.get(filePath);
+            denyMap.set(filePath, existing ? mergePerms(existing, perms) : perms);
+          }
+        }
+        continue;
+      }
       const existing = denyMap.get(target);
       denyMap.set(target, existing ? mergePerms(existing, perms) : perms);
     }
@@ -346,14 +483,15 @@ export function syncFilesystemPolicyAcls(
   newPolicies: PolicyConfig[],
   userName: string,
   logger?: Logger,
+  workspacePaths: string[] = [],
 ): void {
   const log = logger ?? noop;
 
   const oldFs = oldPolicies.filter((p) => p.enabled !== false && isFilesystemRelevant(p));
   const newFs = newPolicies.filter((p) => p.enabled !== false && isFilesystemRelevant(p));
 
-  const oldMaps = computeAclMap(oldFs);
-  const newMaps = computeAclMap(newFs);
+  const oldMaps = computeAclMap(oldFs, workspacePaths);
+  const newMaps = computeAclMap(newFs, workspacePaths);
 
   // Collect ALL paths that had or will have ACLs (from both allow + deny maps)
   const allPaths = new Set([
@@ -387,13 +525,17 @@ const SKILL_DENY_PERMS = 'read,readattr,readextattr,list,search,execute';
  * Deny agent user from reading a workspace skill directory.
  * macOS deny ACL entries are evaluated before allow entries,
  * so the workspace-level allow is overridden by this deny.
+ *
+ * @returns `true` if the deny ACL was applied and verified; `false` on failure.
  */
 export function denyWorkspaceSkill(
   skillPath: string,
   userName: string,
   log: Logger = noop,
-): void {
-  addUserAcl(skillPath, userName, SKILL_DENY_PERMS, log, 'deny');
+): boolean {
+  const applied = addUserAcl(skillPath, userName, SKILL_DENY_PERMS, log, 'deny');
+  if (!applied) return false;
+  return verifyUserAcl(skillPath, userName, SKILL_DENY_PERMS, 'deny');
 }
 
 /**

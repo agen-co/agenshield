@@ -167,6 +167,39 @@ export const PRIVILEGE_HELPER_LAUNCHD_PLIST = '/Library/LaunchDaemons/com.agensh
  */
 export const SYSTEM_LOG_DIR = '/var/log/agenshield';
 
+// Code signing identifiers (macOS)
+/** Reverse-DNS prefix for all AgenShield codesign identifiers */
+export const AGENSHIELD_CODESIGN_PREFIX = 'com.frontegg.agenshield';
+
+/** Codesign identifier for the CLI binary */
+export const CLI_CODESIGN_ID = `${AGENSHIELD_CODESIGN_PREFIX}.cli`;
+
+/** Codesign identifier for the daemon binary */
+export const DAEMON_CODESIGN_ID = `${AGENSHIELD_CODESIGN_PREFIX}.daemon`;
+
+/** Codesign identifier for the broker binary */
+export const BROKER_CODESIGN_ID = `${AGENSHIELD_CODESIGN_PREFIX}.broker`;
+
+/** Codesign identifier for the better-sqlite3 native module */
+export const NATIVE_SQLITE_CODESIGN_ID = `${AGENSHIELD_CODESIGN_PREFIX}.native.better-sqlite3`;
+
+/** Map of binary base names to their codesign identifiers */
+const CODESIGN_ID_MAP: Record<string, string> = {
+  'agenshield': CLI_CODESIGN_ID,
+  'agenshield-daemon': DAEMON_CODESIGN_ID,
+  'agenshield-broker': BROKER_CODESIGN_ID,
+  'better_sqlite3.node': NATIVE_SQLITE_CODESIGN_ID,
+};
+
+/**
+ * Resolve the codesign identifier for a binary given its file path.
+ * Returns `undefined` for unknown binaries.
+ */
+export function resolveCodesignIdentifier(binaryPath: string): string | undefined {
+  const basename = path.basename(binaryPath);
+  return CODESIGN_ID_MAP[basename];
+}
+
 // API Endpoints
 /** API route prefix */
 export const API_PREFIX = '/api';

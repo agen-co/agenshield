@@ -96,6 +96,13 @@ export class SetupService {
     });
 
     log.info('[setup] Local setup complete');
+
+    // Activate monitoring services if daemon was in standby
+    try {
+      const { getActivationService } = await import('./activation');
+      await getActivationService().activate();
+    } catch { /* best effort */ }
+
     return { adminToken };
   }
 

@@ -45,8 +45,6 @@ export const BASE_ENV_ALLOWLIST: readonly string[] = [
 
   // AgenShield variables
   'AGENSHIELD_*',
-
-  'NODE_OPTIONS',
 ] as const;
 
 /**
