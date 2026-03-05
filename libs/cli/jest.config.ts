@@ -15,7 +15,7 @@ export default {
     ],
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
-  coverageDirectory: '../../coverage/libs/cli',
+  coverageDirectory: '../../test-output/coverage/libs/cli',
   coveragePathIgnorePatterns: [
     '/node_modules/',
     '/src/index.ts', // Ignore index.ts (re-exports only, no logic to test)

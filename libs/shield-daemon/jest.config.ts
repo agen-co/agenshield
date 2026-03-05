@@ -22,5 +22,6 @@ export default {
     '^@agenshield/sandbox$': '<rootDir>/../sandbox/src/index.ts',
     '^(.*)\\.js$': '$1',
   },
+  coverageDirectory: '../../test-output/coverage/libs/shield-daemon',
   testMatch: ['<rootDir>/src/__tests__/**/*.spec.ts'],
 };

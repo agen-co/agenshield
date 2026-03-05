@@ -40,10 +40,22 @@
     },
     "test": {
       "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "outputs": ["{workspaceRoot}/test-output/coverage/{projectRoot}"],
       "options": {
         "jestConfig": "libs/shield-broker/jest.config.ts",
         "passWithNoTests": true
+      }
+    },
+    "perf": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/test-output/performance/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/shield-broker/jest.config.ts",
+        "testPathPatterns": ["performance"],
+        "passWithNoTests": true,
+        "coverageDirectory": "../../test-output/performance/libs/shield-broker",
+        "codeCoverage": true,
+        "coverageReporters": ["json-summary", "json"]
       }
     },
     "publish": {

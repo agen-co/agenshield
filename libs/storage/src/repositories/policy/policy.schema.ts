@@ -8,7 +8,6 @@ import { PolicyConfigSchema } from '@agenshield/ipc';
 // ---- Create type ----
 
 export type CreatePolicyInput = z.input<typeof PolicyConfigSchema>;
-export { PolicyConfigSchema };
 
 // ---- Update schema ----
 

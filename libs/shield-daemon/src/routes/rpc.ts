@@ -511,17 +511,7 @@ async function handlePolicyCheck(params: Record<string, unknown>, profileId?: st
   return result;
 }
 
-// ─── open_url notification-based approval ────────────────────────────────────
-
-/** Pending URL open requests awaiting user approval via macOS app notification */
-export const pendingUrlRequests = new Map<string, {
-  url: string;
-  browser?: string;
-  resolve: (approved: boolean) => void;
-  timer: NodeJS.Timeout;
-}>();
-
-const URL_APPROVAL_TIMEOUT_MS = 60_000;
+// ─── open_url ────────────────────────────────────────────────────────────────
 
 async function openUrlInBrowser(url: string, browser?: string): Promise<void> {
   const { exec } = await import('node:child_process');
@@ -534,8 +524,8 @@ async function openUrlInBrowser(url: string, browser?: string): Promise<void> {
 }
 
 /**
- * Handle open_url: evaluate policy, then either request user approval via
- * macOS app notification (if connected) or open directly (fallback).
+ * Handle open_url: evaluate policy, then emit SSE event for macOS app
+ * (which opens the URL directly) or open via shell command as fallback.
  */
 async function handleOpenUrl(
   params: Record<string, unknown>,
@@ -584,43 +574,16 @@ async function handleOpenUrl(
     timestamp: new Date().toISOString(),
   }, profileId);
 
-  // If macOS app is connected, request user approval via notification
+  // If macOS app is connected, emit SSE event — the app opens the URL directly
   if (daemonEvents.sseClientCount > 0) {
     const requestId = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + URL_APPROVAL_TIMEOUT_MS).toISOString();
-
-    // Create promise that resolves when user responds or times out
-    const approvalPromise = new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => {
-        pendingUrlRequests.delete(requestId);
-        resolve(false);
-      }, URL_APPROVAL_TIMEOUT_MS);
-      pendingUrlRequests.set(requestId, { url, browser, resolve, timer });
-    });
-
-    // Emit SSE event for macOS app BEFORE awaiting
-    emitEvent('api:open_url_request', { requestId, url, browser, profileId, expiresAt }, profileId);
-
-    const approved = await approvalPromise;
-
-    if (!approved) {
-      emitEvent('api:open_url_denied', { requestId, url, reason: 'Timed out or denied by user' }, profileId);
-      return { opened: false, reason: 'URL open request was denied or timed out' };
-    }
-
-    try {
-      await openUrlInBrowser(url, browser);
-      emitEvent('api:open_url_approved', { requestId, url }, profileId);
-      return { opened: true };
-    } catch (error) {
-      return { opened: false, reason: `Failed to open URL: ${(error as Error).message}` };
-    }
+    emitEvent('api:open_url_request', { requestId, url, browser, profileId, expiresAt: new Date(Date.now() + 60_000).toISOString() }, profileId);
+    return { opened: true };
   }
 
   // Fallback: no macOS app connected, open directly
   try {
     await openUrlInBrowser(url, browser);
-    emitEvent('api:open_url_approved', { requestId: crypto.randomUUID(), url }, profileId);
     return { opened: true };
   } catch (error) {
     return { opened: false, reason: `Failed to open URL: ${(error as Error).message}` };

@@ -144,6 +144,12 @@ export async function buildSandboxConfig(
     sandbox.envInjection['AGENSHIELD_DEPTH'] = String(depth);
   }
 
+  // Enforce SHELL → guarded shell so parent process cannot override
+  const guardedShell = `${deps.agentHome}/.agenshield/bin/guarded-shell`;
+  if (nodefs.existsSync(guardedShell)) {
+    sandbox.envInjection['SHELL'] = guardedShell;
+  }
+
   // Extract command basename early for scope filtering
   const commandBasename = target ? extractCommandBasename(target) : undefined;
   const policies = deps.getPolicies();

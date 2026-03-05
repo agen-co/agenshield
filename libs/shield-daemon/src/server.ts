@@ -479,7 +479,7 @@ export async function startEssentialServices(app: FastifyInstance, config: Daemo
 
   const skillManager = new SkillManager(storage, {
     deployers: deployAdapter ? [deployAdapter] : [],
-    watcher: skillsDir ? { pollIntervalMs: 30000, skillsDir, quarantineDir } : undefined,
+    watcher: skillsDir ? { pollIntervalMs: 5000, skillsDir, quarantineDir } : undefined,
     autoStartWatcher: false, // Watcher starts in monitoring phase
     eventBus,
     backupDir,

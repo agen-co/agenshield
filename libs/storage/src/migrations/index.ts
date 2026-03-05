@@ -7,25 +7,6 @@
 import type Database from 'better-sqlite3';
 import type { Migration } from './types';
 import { SchemaMigration } from './001-schema';
-import { ProfileBrokerTokenMigration } from './011-profile-broker-token';
-import { SetupStateMigration } from './012-setup-state';
-import { PolicySetsMigration } from './013-policy-sets';
-import { ProfileInstallManifestMigration } from './014-profile-install-manifest';
-import { DismissedTargetsMigration } from './015-dismissed-targets';
-import { ProfileGatewayPortMigration } from './016-profile-gateway-port';
-import { PolicyTiersMigration } from './017-policy-tiers';
-import { PolicyEnforcementMigration } from './018-policy-enforcement';
-import { PolicyTargetProcessMigration } from './019-policy-target-process';
-import { BinarySignaturesMigration } from './020-binary-signatures';
-import { PolicyTargetRouterMigration } from './021-policy-target-router';
-import { ProfileIdToUsernameMigration } from './022-profile-id-to-username';
-import { RemoveSlugPrefixMigration } from './023-remove-slug-prefix';
-import { EnforcerIntervalMigration } from './024-enforcer-interval';
-import { ProfileEnforcementModeMigration } from './025-profile-enforcement-mode';
-import { ProfileWorkspacePathsMigration } from './026-profile-workspace-paths';
-import { PolicyMethodsMigration } from './027-policy-methods';
-import { WorkspaceSkillsMigration } from './028-workspace-skills';
-import { ProxyTlsMigration } from './029-proxy-tls';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -35,25 +16,6 @@ const TABLE = '_migrations';
 
 export const ALL_MIGRATIONS: Migration[] = [
   new SchemaMigration(),
-  new ProfileBrokerTokenMigration(),
-  new SetupStateMigration(),
-  new PolicySetsMigration(),
-  new ProfileInstallManifestMigration(),
-  new DismissedTargetsMigration(),
-  new ProfileGatewayPortMigration(),
-  new PolicyTiersMigration(),
-  new PolicyEnforcementMigration(),
-  new PolicyTargetProcessMigration(),
-  new BinarySignaturesMigration(),
-  new PolicyTargetRouterMigration(),
-  new ProfileIdToUsernameMigration(),
-  new RemoveSlugPrefixMigration(),
-  new EnforcerIntervalMigration(),
-  new ProfileEnforcementModeMigration(),
-  new ProfileWorkspacePathsMigration(),
-  new PolicyMethodsMigration(),
-  new WorkspaceSkillsMigration(),
-  new ProxyTlsMigration(),
 ];
 
 /**

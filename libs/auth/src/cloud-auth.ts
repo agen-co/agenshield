@@ -24,7 +24,10 @@ export const CLOUD_CONFIG = {
     return process.env['AGENSHIELD_CLOUD_URL'] || DEFAULT_CLOUD_URL;
   },
   /** Path to local cloud credentials */
-  credentialsPath: path.join(os.homedir(), '.agenshield', 'cloud.json'),
+  get credentialsPath(): string {
+    const home = process.env['AGENSHIELD_USER_HOME'] || process.env['HOME'] || os.homedir();
+    return path.join(home, '.agenshield', 'cloud.json');
+  },
 };
 
 // ---------------------------------------------------------------------------

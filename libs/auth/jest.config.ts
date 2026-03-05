@@ -29,5 +29,6 @@ export default {
   moduleNameMapper: {
     '^(.*)\\.js$': '$1',
   },
+  coverageDirectory: '../../test-output/coverage/libs/auth',
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
 };

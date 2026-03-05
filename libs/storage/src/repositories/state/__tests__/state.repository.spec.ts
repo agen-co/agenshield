@@ -265,6 +265,154 @@ describe('StateRepository', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // getFull
+  // ---------------------------------------------------------------------------
+  describe('getFull', () => {
+    it('returns null when no state', () => {
+      expect(repo.getFull()).toBeNull();
+    });
+
+    it('returns state with users and groups when populated', () => {
+      repo.init('1.0.0');
+      repo.addUser({ username: 'agent1', uid: 1001, type: 'agent', createdAt: new Date().toISOString(), homeDir: '/home/agent1' });
+      repo.addGroup({ name: 'workspace-1', gid: 2001, type: 'workspace' });
+
+      const full = repo.getFull();
+      expect(full).not.toBeNull();
+      expect(full!.users.length).toBe(1);
+      expect(full!.users[0].username).toBe('agent1');
+      expect(full!.groups.length).toBe(1);
+      expect(full!.groups[0].name).toBe('workspace-1');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // updateSetup
+  // ---------------------------------------------------------------------------
+  describe('updateSetup', () => {
+    beforeEach(() => {
+      repo.init('1.0.0');
+    });
+
+    it('sets completed flag', () => {
+      repo.updateSetup({ completed: true });
+      const state = repo.get()!;
+      expect(state.setup?.completed).toBe(true);
+    });
+
+    it('sets phase field', () => {
+      repo.updateSetup({ phase: 'enrollment' });
+      const state = repo.get()!;
+      expect(state.setup?.phase).toBe('enrollment');
+    });
+
+    it('clears phase with null', () => {
+      repo.updateSetup({ phase: 'enrollment' });
+      repo.updateSetup({ phase: null });
+      const state = repo.get()!;
+      expect(state.setup?.phase).toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Users CRUD
+  // ---------------------------------------------------------------------------
+  describe('users', () => {
+    beforeEach(() => {
+      repo.init('1.0.0');
+    });
+
+    it('getUsers returns empty initially', () => {
+      expect(repo.getUsers()).toEqual([]);
+    });
+
+    it('addUser inserts a user', () => {
+      repo.addUser({ username: 'agent1', uid: 1001, type: 'agent', createdAt: new Date().toISOString(), homeDir: '/home/agent1' });
+      const users = repo.getUsers();
+      expect(users.length).toBe(1);
+      expect(users[0].username).toBe('agent1');
+      expect(users[0].uid).toBe(1001);
+      expect(users[0].type).toBe('agent');
+      expect(users[0].homeDir).toBe('/home/agent1');
+    });
+
+    it('addUser upserts on duplicate username', () => {
+      repo.addUser({ username: 'agent1', uid: 1001, type: 'agent', createdAt: new Date().toISOString(), homeDir: '/home/agent1' });
+      repo.addUser({ username: 'agent1', uid: 1002, type: 'broker', createdAt: new Date().toISOString(), homeDir: '/home/agent1-new' });
+      const users = repo.getUsers();
+      expect(users.length).toBe(1);
+      expect(users[0].uid).toBe(1002);
+    });
+
+    it('removeUser deletes a user', () => {
+      repo.addUser({ username: 'agent1', uid: 1001, type: 'agent', createdAt: new Date().toISOString(), homeDir: '/home/agent1' });
+      repo.removeUser('agent1');
+      expect(repo.getUsers()).toEqual([]);
+    });
+
+    it('removeUser is safe for non-existent user', () => {
+      expect(() => repo.removeUser('nonexistent')).not.toThrow();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Groups CRUD
+  // ---------------------------------------------------------------------------
+  describe('groups', () => {
+    beforeEach(() => {
+      repo.init('1.0.0');
+    });
+
+    it('getGroups returns empty initially', () => {
+      expect(repo.getGroups()).toEqual([]);
+    });
+
+    it('addGroup inserts a group', () => {
+      repo.addGroup({ name: 'workspace-1', gid: 2001, type: 'workspace' });
+      const groups = repo.getGroups();
+      expect(groups.length).toBe(1);
+      expect(groups[0].name).toBe('workspace-1');
+      expect(groups[0].gid).toBe(2001);
+      expect(groups[0].type).toBe('workspace');
+    });
+
+    it('addGroup upserts on duplicate name', () => {
+      repo.addGroup({ name: 'workspace-1', gid: 2001, type: 'workspace' });
+      repo.addGroup({ name: 'workspace-1', gid: 2002, type: 'workspace' });
+      const groups = repo.getGroups();
+      expect(groups.length).toBe(1);
+      expect(groups[0].gid).toBe(2002);
+    });
+
+    it('removeGroup deletes a group', () => {
+      repo.addGroup({ name: 'workspace-1', gid: 2001, type: 'workspace' });
+      repo.removeGroup('workspace-1');
+      expect(repo.getGroups()).toEqual([]);
+    });
+
+    it('removeGroup is safe for non-existent group', () => {
+      expect(() => repo.removeGroup('nonexistent')).not.toThrow();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // resetAll
+  // ---------------------------------------------------------------------------
+  describe('resetAll', () => {
+    it('clears state, users, and groups', () => {
+      repo.init('1.0.0');
+      repo.addUser({ username: 'agent1', uid: 1001, type: 'agent', createdAt: new Date().toISOString(), homeDir: '/home/agent1' });
+      repo.addGroup({ name: 'workspace-1', gid: 2001, type: 'workspace' });
+
+      repo.resetAll();
+
+      expect(repo.get()).toBeNull();
+      expect(repo.getUsers()).toEqual([]);
+      expect(repo.getGroups()).toEqual([]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Performance
   // ---------------------------------------------------------------------------
   describe('Performance', () => {

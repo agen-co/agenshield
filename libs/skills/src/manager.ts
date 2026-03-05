@@ -39,6 +39,7 @@ import { SyncService } from './sync/sync.service';
 import type { SyncServiceOptions } from './sync/sync.service';
 import type { AdapterSyncResult, TargetPlatform } from '@agenshield/ipc';
 import { SkillBackupService } from './backup';
+import { SkillNotFoundError, VersionNotFoundError } from './errors';
 
 /** @deprecated Use AnalyzeAdapter instead */
 export type SkillAnalyzer = AnalyzeAdapter;
@@ -240,7 +241,7 @@ export class SkillManager extends EventEmitter {
    */
   async installToTargets(slug: string, targetIds: string[]): Promise<SkillInstallation[]> {
     const skill = this.skills.getBySlug(slug);
-    if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
+    if (!skill) throw new SkillNotFoundError(slug);
 
     const results: SkillInstallation[] = [];
     for (const targetId of targetIds) {
@@ -319,10 +320,10 @@ export class SkillManager extends EventEmitter {
    */
   async approveSkill(slug: string, opts?: { profileId?: string }): Promise<SkillInstallation> {
     const skill = this.skills.getBySlug(slug);
-    if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
+    if (!skill) throw new SkillNotFoundError(slug);
 
     const version = this.skills.getLatestVersion(skill.id);
-    if (!version) throw new (await import('./errors')).VersionNotFoundError('latest', { skillSlug: slug });
+    if (!version) throw new VersionNotFoundError('latest', { skillSlug: slug });
 
     // Approve the version
     this.skills.approveVersion(version.id);
@@ -339,7 +340,7 @@ export class SkillManager extends EventEmitter {
    */
   async revokeSkill(slug: string): Promise<void> {
     const skill = this.skills.getBySlug(slug);
-    if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
+    if (!skill) throw new SkillNotFoundError(slug);
 
     // Find active installations
     const installations = this.skills.getInstallations();
@@ -364,7 +365,7 @@ export class SkillManager extends EventEmitter {
    */
   async rejectSkill(slug: string): Promise<void> {
     const skill = this.skills.getBySlug(slug);
-    if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
+    if (!skill) throw new SkillNotFoundError(slug);
 
     // Uninstall any active installations first
     const installations = this.skills.getInstallations();
@@ -390,7 +391,7 @@ export class SkillManager extends EventEmitter {
     opts?: { profileId?: string },
   ): Promise<{ action: 'enabled' | 'disabled' }> {
     const skill = this.skills.getBySlug(slug);
-    if (!skill) throw new (await import('./errors')).SkillNotFoundError(slug);
+    if (!skill) throw new SkillNotFoundError(slug);
 
     // Check for active installations
     const installations = this.skills.getInstallations();
@@ -409,7 +410,7 @@ export class SkillManager extends EventEmitter {
     } else {
       // Enable: install latest approved version
       const version = this.skills.getLatestVersion(skill.id);
-      if (!version) throw new (await import('./errors')).VersionNotFoundError('latest', { skillSlug: slug });
+      if (!version) throw new VersionNotFoundError('latest', { skillSlug: slug });
 
       // Approve if not already
       if (version.approval !== 'approved') {

@@ -57,3 +57,11 @@ When a `DeployService` is provided to the constructor, `install()` checks if an 
 Without a deployer, installations are created directly as `'active'`.
 
 `uninstall()` uses `getInstallationById()` for a direct PK lookup (no full-table scan), then calls `deployer.undeploy()` before deleting the DB record.
+
+## Contributing
+
+When modifying this module:
+- Update this README if public API changes
+- Add tests in `__tests__/install.service.spec.ts`
+- Emit events for new async operations
+- Use typed errors from `../errors.ts`

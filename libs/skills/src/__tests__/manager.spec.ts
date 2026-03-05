@@ -102,6 +102,12 @@ describe('SkillManager', () => {
     expect(results).toEqual([]);
   });
 
+  it('applyUpdates returns empty in offline mode', async () => {
+    const manager = new SkillManager(storage, { offlineMode: true });
+    const results = await manager.applyUpdates();
+    expect(results).toEqual([]);
+  });
+
   it('creates with deployers and watcher options', () => {
     const adapter: DeployAdapter = {
       id: 'test',
@@ -171,5 +177,103 @@ describe('SkillManager', () => {
     expect(manager.deployer.findAdapter(undefined)).toBeNull(); // no adapters configured
     expect(manager.watcher).toBeDefined();
     expect(manager.watcher.isRunning).toBe(false);
+  });
+
+  it('resolveSlugForInstallation falls back to installationId when lookup fails', () => {
+    const manager = new SkillManager(storage, { offlineMode: true });
+    // Non-existent installation → returns the ID unchanged
+    expect(manager.resolveSlugForInstallation('non-existent-id')).toBe('non-existent-id');
+  });
+
+  it('resolveSlugForInstallation returns slug when installation exists', () => {
+    const manager = new SkillManager(storage, { offlineMode: true });
+    const { skill, version } = manager.uploadFiles({
+      name: 'Slug Test', slug: 'slug-test', version: '1.0.0', author: 'test',
+      files: [{ relativePath: 'index.ts', content: Buffer.from('code') }],
+    });
+    const repo = manager.getRepository();
+    const inst = repo.install({ skillVersionId: version.id, status: 'active' });
+
+    expect(manager.resolveSlugForInstallation(inst.id)).toBe('slug-test');
+  });
+
+  it('resolveSlugForInstallation catches errors from db', () => {
+    const manager = new SkillManager(storage, { offlineMode: true });
+    const repo = manager.getRepository();
+    const original = repo.getInstallationById.bind(repo);
+    repo.getInstallationById = () => { throw new Error('db error'); };
+
+    expect(manager.resolveSlugForInstallation('any-id')).toBe('any-id');
+
+    repo.getInstallationById = original;
+  });
+
+  it('approveSkill throws VersionNotFoundError when no latest version', async () => {
+    const manager = new SkillManager(storage, { offlineMode: true });
+    const repo = manager.getRepository();
+    repo.create({ name: 'No Version', slug: 'no-version', tags: [], source: 'manual' });
+
+    await expect(manager.approveSkill('no-version')).rejects.toThrow('No version found');
+  });
+
+  it('getSkillBySlug returns skill with versions and installations', () => {
+    const manager = new SkillManager(storage, { offlineMode: true });
+    const { skill, version } = manager.uploadFiles({
+      name: 'Detail Test', slug: 'detail-test', version: '1.0.0', author: 'test',
+      files: [{ relativePath: 'index.ts', content: Buffer.from('code') }],
+    });
+    const repo = manager.getRepository();
+    repo.install({ skillVersionId: version.id, status: 'active' });
+
+    const result = manager.getSkillBySlug('detail-test');
+    expect(result).not.toBeNull();
+    expect(result!.skill.slug).toBe('detail-test');
+    expect(result!.versions).toHaveLength(1);
+    expect(result!.installations).toHaveLength(1);
+  });
+
+  it('getSkillBySlug returns null for unknown slug', () => {
+    const manager = new SkillManager(storage, { offlineMode: true });
+    expect(manager.getSkillBySlug('nonexistent')).toBeNull();
+  });
+
+  it('bridges events to EventBus when provided', async () => {
+    const { EventBus } = await import('@agenshield/ipc');
+    const bus = new EventBus();
+    const busEvents: Array<{ type: string; payload: unknown }> = [];
+    bus.on('skills:install_started', (p) => busEvents.push({ type: 'skills:install_started', payload: p }));
+    bus.on('skills:installed', (p) => busEvents.push({ type: 'skills:installed', payload: p }));
+    bus.on('skills:deploy_failed', (p) => busEvents.push({ type: 'skills:deploy_failed', payload: p }));
+    bus.on('skills:quarantined', (p) => busEvents.push({ type: 'skills:quarantined', payload: p }));
+
+    const manager = new SkillManager(storage, { offlineMode: true, eventBus: bus });
+    const { skill, version } = manager.uploadFiles({
+      name: 'Bus Test', slug: 'bus-test', version: '1.0.0', author: 'test',
+      files: [{ relativePath: 'index.ts', content: Buffer.from('code') }],
+    });
+    await manager.install({ skillId: skill.id });
+
+    expect(busEvents.some((e) => e.type === 'skills:install_started')).toBe(true);
+    expect(busEvents.some((e) => e.type === 'skills:installed')).toBe(true);
+  });
+
+  it('bridges watcher:quarantined event to EventBus', async () => {
+    const { EventBus } = await import('@agenshield/ipc');
+    const bus = new EventBus();
+    const busEvents: Array<{ type: string; payload: unknown }> = [];
+    bus.on('skills:quarantined', (p) => busEvents.push({ type: 'skills:quarantined', payload: p }));
+
+    const manager = new SkillManager(storage, { offlineMode: true, eventBus: bus });
+
+    // Manually emit the watcher:quarantined event on the manager
+    manager.emit('skill-event', {
+      type: 'watcher:quarantined',
+      operationId: 'op-1',
+      installationId: 'inst-1',
+    });
+
+    expect(busEvents).toHaveLength(1);
+    expect((busEvents[0].payload as Record<string, unknown>).name).toBe('inst-1');
+    expect((busEvents[0].payload as Record<string, unknown>).reason).toContain('quarantined');
   });
 });

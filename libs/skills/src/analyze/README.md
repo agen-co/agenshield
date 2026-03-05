@@ -79,3 +79,11 @@ Detects:
 - MCP-specific risks (tool-poisoning, prompt-injection, etc.)
 
 On error (network, timeout, no files), returns `{ status: 'error', error: '...' }` instead of throwing.
+
+## Contributing
+
+When modifying this module:
+- Update this README if public API changes
+- Add tests in `__tests__/analyze.service.spec.ts`
+- Emit events for new async operations
+- Use typed errors from `../errors.ts`

@@ -71,6 +71,27 @@ describe('BasicAnalyzeAdapter', () => {
     expect(result.requiredBins).toContain('python3');
     expect(result.extractedCommands).toContain('pip install');
   });
+
+  it('deduplicates requiredBins when metadataJson has duplicates', () => {
+    const version = {
+      id: 'v1', skillId: 's1', version: '1.0.0', folderPath: '/tmp',
+      contentHash: 'abc', hashUpdatedAt: new Date().toISOString(),
+      approval: 'unknown' as const, trusted: false,
+      analysisStatus: 'pending' as const,
+      requiredBins: ['node'], requiredEnv: ['KEY'],
+      extractedCommands: [],
+      metadataJson: { requiredBins: ['node', 'python3'], requiredEnv: ['KEY', 'OTHER'] },
+      createdAt: '', updatedAt: '',
+    };
+
+    const result = adapter.analyze(version, []);
+    // 'node' should not be duplicated
+    expect(result.requiredBins.filter(b => b === 'node')).toHaveLength(1);
+    expect(result.requiredBins).toContain('python3');
+    // 'KEY' should not be duplicated
+    expect(result.requiredEnv.filter(e => e === 'KEY')).toHaveLength(1);
+    expect(result.requiredEnv).toContain('OTHER');
+  });
 });
 
 describe('AnalyzeService', () => {
@@ -152,7 +173,7 @@ describe('AnalyzeService', () => {
       id: 'warning-adapter',
       displayName: 'Warning Adapter',
       analyze: () => ({
-        status: 'warning',
+        status: 'error' as const,
         data: { flagged: true },
         requiredBins: ['docker'],
         requiredEnv: ['DOCKER_HOST'],
@@ -175,8 +196,8 @@ describe('AnalyzeService', () => {
 
     const result = await multiService.analyzeVersion(v.id);
 
-    // Worst-wins: warning > success
-    expect(result.status).toBe('warning');
+    // Worst-wins: error > success
+    expect(result.status).toBe('error');
 
     // Union of bins/env/commands
     expect(result.requiredBins).toContain('node');
@@ -203,6 +224,7 @@ describe('RemoteAnalyzeAdapter', () => {
     const ndjson = [
       JSON.stringify({ type: 'progress', data: { step: 'analyzing' } }),
       JSON.stringify({ type: 'done', data: summary }),
+      '', // trailing newline ensures 'done' is processed in main loop, not remainder
     ].join('\n');
 
     const encoder = new TextEncoder();
@@ -346,6 +368,75 @@ describe('RemoteAnalyzeAdapter', () => {
 
     expect(result.status).toBe('error');
     expect(result.error).toContain('No readable files');
+  });
+
+  it('returns error result when remote returns non-ok status', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: () => Promise.resolve('Internal server error'),
+    });
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'remote-test-'));
+    fs.writeFileSync(path.join(dir, 'index.ts'), 'code');
+
+    const adapter = new RemoteAnalyzeAdapter({ baseUrl: 'https://test.example.com' });
+    const result = await adapter.analyze(
+      {
+        id: 'v1', skillId: 's1', version: '1.0.0', folderPath: dir,
+        contentHash: 'abc', hashUpdatedAt: '', approval: 'unknown', trusted: false,
+        analysisStatus: 'pending', requiredBins: [], requiredEnv: [], extractedCommands: [],
+        createdAt: '', updatedAt: '',
+      },
+      [{ id: 'f1', skillVersionId: 'v1', relativePath: 'index.ts', fileHash: 'h1', sizeBytes: 4, createdAt: '', updatedAt: '' }],
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('500');
+    fs.rmSync(dir, { recursive: true });
+  });
+
+  it('parses done event from remaining buffer (no trailing newline)', async () => {
+    const summary = {
+      status: 'complete',
+      vulnerability: { level: 'safe', details: [] },
+      commands: [],
+      envVariables: [],
+      runCommands: [],
+    };
+
+    // NDJSON without trailing newline — 'done' lands in the remaining buffer
+    const ndjson = [
+      JSON.stringify({ type: 'progress', data: { step: 'analyzing' } }),
+      JSON.stringify({ type: 'done', data: summary }),
+    ].join('\n'); // no trailing newline
+
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(ndjson));
+        controller.close();
+      },
+    });
+
+    globalThis.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, body, text: () => Promise.resolve(ndjson) });
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'remote-test-'));
+    fs.writeFileSync(path.join(dir, 'index.ts'), 'code');
+
+    const adapter = new RemoteAnalyzeAdapter({ baseUrl: 'https://test.example.com' });
+    const result = await adapter.analyze(
+      {
+        id: 'v1', skillId: 's1', version: '1.0.0', folderPath: dir,
+        contentHash: 'abc', hashUpdatedAt: '', approval: 'unknown', trusted: false,
+        analysisStatus: 'pending', requiredBins: [], requiredEnv: [], extractedCommands: [],
+        createdAt: '', updatedAt: '',
+      },
+      [{ id: 'f1', skillVersionId: 'v1', relativePath: 'index.ts', fileHash: 'h1', sizeBytes: 4, createdAt: '', updatedAt: '' }],
+    );
+
+    expect(result.status).toBe('success');
+    fs.rmSync(dir, { recursive: true });
   });
 
   it('sends noCache flag when configured', async () => {

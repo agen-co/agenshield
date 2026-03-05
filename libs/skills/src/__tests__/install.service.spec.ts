@@ -139,6 +139,21 @@ describe('InstallService', () => {
     installations = repo.getInstallations();
     expect(installations.find((i) => i.id === inst.id)!.pinnedVersion).toBeUndefined();
   });
+
+  it('uninstall emits uninstall:error when repo throws', async () => {
+    const skill = repo.create(makeSkillInput());
+    const v = repo.addVersion(makeVersionInput(skill.id));
+    const inst = repo.install({ skillVersionId: v.id, status: 'active' });
+
+    // Mock uninstall to throw
+    const originalUninstall = repo.uninstall.bind(repo);
+    repo.uninstall = () => { throw new Error('db error'); };
+
+    await expect(service.uninstall(inst.id)).rejects.toThrow('db error');
+    expect(events.some((e) => e.type === 'uninstall:error')).toBe(true);
+
+    repo.uninstall = originalUninstall;
+  });
 });
 
 describe('InstallService with DeployService', () => {

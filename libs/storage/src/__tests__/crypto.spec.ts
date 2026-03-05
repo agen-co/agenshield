@@ -1,4 +1,4 @@
-import { deriveKey, generateSalt, hashPasscode, verifyPasscode, encrypt, decrypt } from '../crypto';
+import { deriveKey, generateSalt, hashPasscode, verifyPasscode, encrypt, decrypt, deriveMachineKey } from '../crypto';
 
 describe('crypto', () => {
   describe('generateSalt', () => {
@@ -101,6 +101,20 @@ describe('crypto', () => {
 
     it('throws on truncated ciphertext', () => {
       expect(() => decrypt('short', deriveKey('p', generateSalt()))).toThrow('Invalid ciphertext');
+    });
+  });
+
+  describe('deriveMachineKey', () => {
+    it('returns a 32-byte Buffer', () => {
+      const key = deriveMachineKey();
+      expect(key).toBeInstanceOf(Buffer);
+      expect(key.length).toBe(32);
+    });
+
+    it('is deterministic (same machine produces same key)', () => {
+      const a = deriveMachineKey();
+      const b = deriveMachineKey();
+      expect(a.equals(b)).toBe(true);
     });
   });
 });

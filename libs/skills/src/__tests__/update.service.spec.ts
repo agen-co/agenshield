@@ -93,6 +93,90 @@ describe('UpdateService', () => {
     expect(() => service.propagateUpdate('non-existent', 'v1')).toThrow('Skill not found');
   });
 
+  it('propagateUpdate records errors when updateInstallationVersion throws', () => {
+    const service = new UpdateService(repo, null, emitter);
+
+    const skill = repo.create({
+      name: 'S', slug: 's-err', tags: [], source: 'manual', sourceOrigin: 'unknown' as const, remoteId: 'r1',
+    });
+    const v1 = repo.addVersion({
+      skillId: skill.id, version: '1.0.0', folderPath: '/tmp',
+      contentHash: 'abc', hashUpdatedAt: new Date().toISOString(),
+      approval: 'unknown', trusted: false, analysisStatus: 'pending',
+      requiredBins: [], requiredEnv: [], extractedCommands: [],
+    });
+
+    const inst = repo.install({ skillVersionId: v1.id, status: 'active', autoUpdate: true });
+
+    // Mock updateInstallationVersion to throw
+    const original = repo.updateInstallationVersion.bind(repo);
+    repo.updateInstallationVersion = () => { throw new Error('update failed'); };
+
+    const result = service.propagateUpdate(skill.id, 'non-existent-version');
+
+    expect(result.installationsUpdated).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain('update failed');
+
+    repo.updateInstallationVersion = original;
+  });
+
+  it('applyPendingUpdates handles individual skill update failure', async () => {
+    const mockRemote = {
+      search: async () => ({ results: [], total: 0, page: 1, pageSize: 10 }),
+      getSkill: async () => null,
+      download: jest.fn().mockRejectedValue(new Error('download failed')),
+      upload: async () => ({ remoteId: '', name: '', slug: '', tags: [], latestVersion: '', downloadUrl: '', checksum: '' }),
+      checkVersion: jest.fn().mockResolvedValue({
+        remoteId: 'r-1', currentVersion: '1.0.0', latestVersion: '2.0.0', downloadUrl: '', checksum: '',
+      }),
+    };
+
+    const service = new UpdateService(repo, mockRemote, emitter);
+
+    const skill = repo.create({
+      name: 'Remote S', slug: 'remote-fail', tags: [], source: 'marketplace', sourceOrigin: 'unknown' as const, remoteId: 'r-1',
+    });
+    const v = repo.addVersion({
+      skillId: skill.id, version: '1.0.0', folderPath: '/tmp',
+      contentHash: 'abc', hashUpdatedAt: new Date().toISOString(),
+      approval: 'unknown', trusted: false, analysisStatus: 'pending',
+      requiredBins: [], requiredEnv: [], extractedCommands: [],
+    });
+    repo.install({ skillVersionId: v.id, status: 'active', autoUpdate: true });
+
+    const results = await service.applyPendingUpdates();
+
+    expect(results).toHaveLength(1);
+    expect(results[0].errors).toHaveLength(1);
+    expect(results[0].errors[0]).toContain('download failed');
+  });
+
+  it('applyPendingUpdates emits update:error on outer exception', async () => {
+    // Mock a remote that makes checkForUpdates fail at the outer level
+    // by having getAll throw (used inside checkForUpdates)
+    const mockRemote = {
+      search: async () => ({ results: [], total: 0, page: 1, pageSize: 10 }),
+      getSkill: async () => null,
+      download: async () => ({ zipBuffer: Buffer.alloc(0), checksum: '', version: '2.0.0' }),
+      upload: async () => ({ remoteId: '', name: '', slug: '', tags: [], latestVersion: '', downloadUrl: '', checksum: '' }),
+      checkVersion: jest.fn().mockResolvedValue(null),
+    };
+
+    const service = new UpdateService(repo, mockRemote, emitter);
+
+    // Make getAll throw to trigger the outer catch in applyPendingUpdates
+    const originalGetAll = repo.getAll.bind(repo);
+    repo.getAll = () => { throw new Error('outer boom'); };
+
+    const results = await service.applyPendingUpdates();
+
+    expect(events.some((e) => e.type === 'update:error')).toBe(true);
+    expect(results).toHaveLength(0);
+
+    repo.getAll = originalGetAll;
+  });
+
   it('checkForUpdates calls remote for skills with remoteId', async () => {
     const mockRemote = {
       search: async () => ({ results: [], total: 0, page: 1, pageSize: 10 }),

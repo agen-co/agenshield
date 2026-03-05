@@ -4,10 +4,14 @@
  * Intercepts global fetch() calls.
  */
 
+import * as http from 'node:http';
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { debugLog } from '../debug-log.js';
 import { getProxyConfig, shouldBypassProxy, type ProxyConfig } from '../proxy-env.js';
 import type { PolicyExecutionContext } from '@agenshield/ipc';
+
+// Capture the raw http.request before any interception can modify it
+const _rawHttpRequest = http.request;
 
 export class FetchInterceptor extends BaseInterceptor {
   private originalFetch: typeof fetch | null = null;
@@ -47,6 +51,82 @@ export class FetchInterceptor extends BaseInterceptor {
       agentId: config.contextAgentId,
       depth: 0,
     };
+  }
+
+  /**
+   * Route a fetch request through the proxy via raw http.request.
+   * This avoids the need for undici.ProxyAgent — it sends the full URL
+   * as the request path, mirroring how HttpInterceptor handles proxy routing.
+   */
+  private proxyViaHttp(url: string, init?: RequestInit): Promise<Response> {
+    return new Promise<Response>((resolve, reject) => {
+      let parsedHost: string;
+      try {
+        parsedHost = new URL(url).host;
+      } catch {
+        parsedHost = 'unknown';
+      }
+
+      const method = init?.method || 'GET';
+      const headers: Record<string, string> = { host: parsedHost };
+      if (init?.headers) {
+        const h = init.headers;
+        if (h instanceof Headers) {
+          h.forEach((v, k) => { headers[k] = v; });
+        } else if (Array.isArray(h)) {
+          for (const [k, v] of h) { headers[k] = v; }
+        } else {
+          Object.assign(headers, h);
+        }
+      }
+
+      const proxyOptions: http.RequestOptions = {
+        hostname: this.proxyConfig.hostname,
+        port: this.proxyConfig.port,
+        path: url,
+        method,
+        headers,
+      };
+
+      const req = _rawHttpRequest(proxyOptions, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const body = Buffer.concat(chunks);
+          const responseHeaders: Record<string, string> = {};
+          for (const [key, val] of Object.entries(res.headers)) {
+            if (val !== undefined) {
+              responseHeaders[key] = Array.isArray(val) ? val.join(', ') : val;
+            }
+          }
+          resolve(new Response(body, {
+            status: res.statusCode ?? 502,
+            statusText: res.statusMessage ?? '',
+            headers: responseHeaders,
+          }));
+        });
+        res.on('error', reject);
+      });
+
+      req.on('error', reject);
+
+      // Forward request body
+      if (init?.body != null) {
+        const body = init.body;
+        if (typeof body === 'string') {
+          req.end(body);
+        } else if (body instanceof ArrayBuffer) {
+          req.end(Buffer.from(body));
+        } else if (Buffer.isBuffer(body)) {
+          req.end(body);
+        } else {
+          // ReadableStream or other — pipe not easily supported, end without body
+          req.end();
+        }
+      } else {
+        req.end();
+      }
+    });
   }
 
   install(): void {
@@ -127,9 +207,9 @@ export class FetchInterceptor extends BaseInterceptor {
         return this.originalFetch(input, { ...init, dispatcher: this.proxyDispatcher } as RequestInit);
       }
 
-      // Fallback: ProxyAgent not available — try direct (will likely fail in sandbox)
-      debugLog('fetch PROXY-ROUTE: no dispatcher available, falling back to direct');
-      return this.originalFetch(input, init);
+      // Fallback: ProxyAgent not available — route via raw http.request to proxy
+      debugLog('fetch PROXY-ROUTE: no dispatcher, falling back to http.request proxy');
+      return this.proxyViaHttp(url, init);
     }
 
     // Direct mode (no proxy): check policy via RPC

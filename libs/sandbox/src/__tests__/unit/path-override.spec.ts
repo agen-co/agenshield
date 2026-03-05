@@ -201,15 +201,37 @@ describe('generateRouterWrapper', () => {
     expect(content).not.toContain('SUDO_GID');
   });
 
-  it('builds safe PATH without host HOME references', () => {
+  it('restricts PATH to agent-only dirs when AGENT_HOME is set', () => {
     const content = generateRouterWrapper('openclaw');
 
-    // PATH is built from known safe locations
-    expect(content).toContain('SAFE_PATH=');
-    expect(content).toContain('/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin');
+    // Agent dirs are included
     expect(content).toContain('$AGENT_HOME/bin');
+    expect(content).toContain('$AGENT_HOME/.local/bin');
+    expect(content).toContain('$AGENT_HOME/.agenshield/bin');
     // No $HOME in PATH (uses $AGENT_HOME explicitly)
     expect(content).not.toContain('PATH="$HOME');
+  });
+
+  it('excludes system paths from SAFE_PATH when AGENT_HOME is set', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    // The AGENT_HOME branch should NOT include system dirs
+    const agentBranch = content.match(
+      /if \[ -n "\$AGENT_HOME" \]; then\s*\n\s*local SAFE_PATH="([^"]+)"/,
+    );
+    expect(agentBranch).not.toBeNull();
+    const agentPath = agentBranch![1];
+    expect(agentPath).not.toContain('/usr/bin');
+    expect(agentPath).not.toContain('/usr/local/bin');
+    expect(agentPath).not.toContain('/sbin');
+    expect(agentPath).not.toContain('/opt/homebrew');
+  });
+
+  it('includes system paths in SAFE_PATH when AGENT_HOME is NOT set', () => {
+    const content = generateRouterWrapper('openclaw');
+
+    // The else branch (no AGENT_HOME) still has system paths as fallback
+    expect(content).toContain('/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin');
   });
 
   it('forwards proxy vars when set', () => {

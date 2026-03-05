@@ -19,5 +19,6 @@ export default {
     '^@agenshield/proxy$': '<rootDir>/../proxy/src/index.ts',
     '^(.*)\\.js$': '$1',
   },
+  coverageDirectory: '../../test-output/coverage/libs/shield-broker',
   testMatch: ['<rootDir>/src/__tests__/**/*.spec.ts'],
 };

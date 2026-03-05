@@ -28,6 +28,7 @@ import {
   compareSemver,
 } from '../migrations/index.js';
 import { getVersion } from '../utils/version.js';
+import { resolveHostHome } from '../utils/host-user.js';
 
 const VERSION = getVersion();
 
@@ -73,7 +74,7 @@ function discoverSandboxUsers(): Array<{ username: string; uid?: number; home?: 
  * Reads the encrypted vault to determine if passcode auth is needed.
  */
 function checkPasscodeExists(): boolean {
-  const configDir = path.join(os.homedir(), '.agenshield');
+  const configDir = path.join(resolveHostHome(), '.agenshield');
   const vaultPath = path.join(configDir, VAULT_FILE);
   return fs.existsSync(vaultPath);
 }

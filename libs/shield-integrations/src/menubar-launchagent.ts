@@ -20,16 +20,36 @@ import { execSync } from 'node:child_process';
 const MENUBAR_LABEL = 'com.agenshield.menubar';
 const MENUBAR_PLIST_NAME = `${MENUBAR_LABEL}.plist`;
 
-function getPlistPath(): string {
-  return path.join(os.homedir(), 'Library', 'LaunchAgents', MENUBAR_PLIST_NAME);
+function getPlistPath(home?: string): string {
+  return path.join(home || os.homedir(), 'Library', 'LaunchAgents', MENUBAR_PLIST_NAME);
 }
 
-function getAppsDir(): string {
-  return path.join(os.homedir(), '.agenshield', 'apps');
+function getAppsDir(home?: string): string {
+  return path.join(home || os.homedir(), '.agenshield', 'apps');
 }
 
-function getAppPath(): string {
-  return path.join(getAppsDir(), 'AgenShield.app');
+function getAppPath(home?: string): string {
+  return path.join(getAppsDir(home), 'AgenShield.app');
+}
+
+/**
+ * Resolve the UID for launchctl gui/ domain.
+ * When running as root with a userHome override, resolve the target user's UID.
+ */
+function resolveGuiUid(home?: string): string {
+  if (home && process.getuid?.() === 0) {
+    const match = home.match(/\/Users\/([^/]+)/);
+    if (match) {
+      try {
+        return execSync(`id -u ${match[1]}`, {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+          timeout: 3_000,
+        }).trim();
+      } catch { /* fall through */ }
+    }
+  }
+  return '$(id -u)';
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -54,19 +74,20 @@ export interface MenuBarAgentStatus {
 export interface MenuBarAgentOptions {
   policyUrl?: string;
   orgName?: string;
+  userHome?: string;
 }
 
 /**
  * Generate the LaunchAgent plist for the menu bar app.
  */
-function getEffectiveAppPath(): string {
+function getEffectiveAppPath(home?: string): string {
   const applicationsApp = '/Applications/AgenShield.app';
   if (fs.existsSync(applicationsApp)) return applicationsApp;
-  return getAppPath();
+  return getAppPath(home);
 }
 
 function generateMenuBarPlist(options?: MenuBarAgentOptions): string {
-  const appBinary = path.join(getEffectiveAppPath(), 'Contents', 'MacOS', 'AgenShield');
+  const appBinary = path.join(getEffectiveAppPath(options?.userHome), 'Contents', 'MacOS', 'AgenShield');
 
   // Build EnvironmentVariables section if any options provided
   let envSection = '';
@@ -128,8 +149,11 @@ ${envSection}</dict>
  */
 export function installMenuBarAgent(sourceAppPath: string, options?: MenuBarAgentOptions): MenuBarAgentResult {
   try {
-    const appsDir = getAppsDir();
-    const destAppPath = getAppPath();
+    const home = options?.userHome;
+    const appsDir = getAppsDir(home);
+    const destAppPath = getAppPath(home);
+    const plistPath = getPlistPath(home);
+    const uid = resolveGuiUid(home);
 
     // 1. Create apps directory
     fs.mkdirSync(appsDir, { recursive: true });
@@ -145,19 +169,19 @@ export function installMenuBarAgent(sourceAppPath: string, options?: MenuBarAgen
     }
 
     // 3. Ensure LaunchAgents directory exists
-    const launchAgentsDir = path.dirname(getPlistPath());
+    const launchAgentsDir = path.dirname(plistPath);
     fs.mkdirSync(launchAgentsDir, { recursive: true });
 
     // 4. Unload existing agent if present
     try {
-      execSync(`launchctl bootout gui/$(id -u) "${getPlistPath()}" 2>/dev/null`, { stdio: 'pipe' });
+      execSync(`launchctl bootout gui/${uid} "${plistPath}" 2>/dev/null`, { stdio: 'pipe' });
     } catch { /* not loaded */ }
 
     // 5. Write plist
-    fs.writeFileSync(getPlistPath(), generateMenuBarPlist(options));
+    fs.writeFileSync(plistPath, generateMenuBarPlist(options));
 
     // 6. Load the agent
-    execSync(`launchctl bootstrap gui/$(id -u) "${getPlistPath()}"`, { stdio: 'pipe' });
+    execSync(`launchctl bootstrap gui/${uid} "${plistPath}"`, { stdio: 'pipe' });
 
     return {
       success: true,

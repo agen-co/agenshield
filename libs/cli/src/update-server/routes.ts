@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { VAULT_FILE } from '@agenshield/ipc';
 import type { UpdateEngine } from '../update/engine.js';
 import { broadcastUpdateEvent } from './sse.js';
+import { resolveHostHome } from '../utils/host-user.js';
 
 /** Race guard — prevent double-triggering */
 let isRunning = false;
@@ -25,7 +26,7 @@ async function verifyPasscodeDirect(passcode: string): Promise<boolean> {
   try {
     // Import vault crypto utilities from daemon package
     const { getMachineId, deriveKey, decrypt } = await import('@agenshield/daemon/vault');
-    const configDir = path.join(os.homedir(), '.agenshield');
+    const configDir = path.join(resolveHostHome(), '.agenshield');
     const vaultPath = path.join(configDir, VAULT_FILE);
 
     if (!fs.existsSync(vaultPath)) {

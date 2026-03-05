@@ -17,6 +17,7 @@ export default {
     '^@agenshield/ipc$': '<rootDir>/src/index.ts',
     '^(.*)\\.js$': '$1',
   },
+  coverageDirectory: '../../test-output/coverage/libs/shield-ipc',
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
   modulePathIgnorePatterns: ['<rootDir>/dist'],
 };

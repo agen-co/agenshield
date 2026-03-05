@@ -7,7 +7,7 @@ export default {
       {
         jsc: {
           parser: { syntax: 'typescript' },
-          target: 'es2022',
+          target: 'esnext',
         },
       },
     ],
@@ -18,5 +18,6 @@ export default {
     '^@agenshield/ipc$': '<rootDir>/../shield-ipc/src/index.ts',
     '^@agenshield/storage$': '<rootDir>/../storage/src/index.ts',
   },
+  coverageDirectory: '../../test-output/coverage/libs/skills',
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
 };

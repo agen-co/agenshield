@@ -12,7 +12,7 @@ import type { DeployService } from '../deploy';
 import type { SkillBackupService } from '../backup';
 import type { WatcherOptions, WatcherPolicy, ResolvedWatcherPolicy, WatcherAction, SkillScanCallbacks } from './types';
 
-const DEFAULT_POLL_INTERVAL = 30_000;
+const DEFAULT_POLL_INTERVAL = 5_000;
 const DEFAULT_POLICY: ResolvedWatcherPolicy = { onModified: 'reinstall', onDeleted: 'reinstall' };
 
 interface SkillMeta {
@@ -41,8 +41,10 @@ export class SkillWatcherService {
   private scanCallbacks: SkillScanCallbacks = {};
   private timer: ReturnType<typeof setInterval> | null = null;
   private fsWatcher: fs.FSWatcher | null = null;
+  private parentWatcher: fs.FSWatcher | null = null;
   private readonly debounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private readonly suppressedSlugs: Set<string> = new Set();
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(skills: SkillsRepository, deployer: DeployService, emitter: EventEmitter, options?: WatcherOptions, backup?: SkillBackupService | null) {
     this.skills = skills;
@@ -55,7 +57,7 @@ export class SkillWatcherService {
       onModified: options?.defaultPolicy?.onModified ?? DEFAULT_POLICY.onModified,
       onDeleted: options?.defaultPolicy?.onDeleted ?? DEFAULT_POLICY.onDeleted,
     };
-    this.fsScanDebounceMs = options?.fsScanDebounceMs ?? 500;
+    this.fsScanDebounceMs = options?.fsScanDebounceMs ?? 150;
     this.backup = backup ?? null;
     this.installationPolicies = new Map(
       options?.installationPolicies ? Object.entries(options.installationPolicies) : [],
@@ -101,6 +103,8 @@ export class SkillWatcherService {
       });
     }, this.pollIntervalMs);
     this.startFsWatch();
+    // Initial poll — detect pre-existing violations immediately
+    this.poll().catch(() => { /* handled internally */ });
   }
 
   /** Stop the polling loop and filesystem watcher */
@@ -123,7 +127,10 @@ export class SkillWatcherService {
   private startFsWatch(): void {
     if (!this.skillsDir || this.fsWatcher) return;
     try {
-      if (!fs.existsSync(this.skillsDir)) return;
+      if (!fs.existsSync(this.skillsDir)) {
+        this.watchParentForCreation();
+        return;
+      }
       this.fsWatcher = fs.watch(this.skillsDir, { persistent: true, recursive: true }, (_eventType, filename) => {
         if (!filename) return;
         // Extract slug = first path segment
@@ -149,16 +156,43 @@ export class SkillWatcherService {
         this.fsWatcher?.close();
         this.fsWatcher = null;
         // Attempt restart after a delay
-        setTimeout(() => this.startFsWatch(), 5000);
+        this.retryTimer = setTimeout(() => this.startFsWatch(), 5000);
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.emit({ type: 'watcher:error', error: `Failed to start fs.watch: ${msg}` });
+      this.retryTimer = setTimeout(() => this.startFsWatch(), 5000);
     }
+  }
+
+  /** Watch the parent directory for skillsDir to be created, then set up fs.watch */
+  private watchParentForCreation(): void {
+    if (!this.skillsDir || this.parentWatcher) return;
+    const parentDir = path.dirname(this.skillsDir);
+    const targetName = path.basename(this.skillsDir);
+    if (!fs.existsSync(parentDir)) return; // polling will handle it
+
+    try {
+      this.parentWatcher = fs.watch(parentDir, { persistent: true }, (_evt, filename) => {
+        if (filename === targetName && fs.existsSync(this.skillsDir!)) {
+          this.parentWatcher?.close();
+          this.parentWatcher = null;
+          this.startFsWatch();
+        }
+      });
+      this.parentWatcher.on('error', () => {
+        this.parentWatcher?.close();
+        this.parentWatcher = null;
+      });
+    } catch { /* polling fallback */ }
   }
 
   /** Stop the filesystem watcher and clear pending debounce timers */
   private stopFsWatch(): void {
+    if (this.parentWatcher) {
+      this.parentWatcher.close();
+      this.parentWatcher = null;
+    }
     if (this.fsWatcher) {
       this.fsWatcher.close();
       this.fsWatcher = null;
@@ -168,6 +202,10 @@ export class SkillWatcherService {
     }
     this.debounceTimers.clear();
     this.suppressedSlugs.clear();
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
   }
 
   // ---- fs.watch routing ----

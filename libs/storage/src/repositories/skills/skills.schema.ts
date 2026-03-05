@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { CreateSkillSchema, CreateSkillVersionSchema, CreateSkillFileSchema, CreateSkillInstallationSchema } from '@agenshield/ipc';
+import { CreateSkillSchema, CreateSkillVersionSchema, CreateSkillInstallationSchema } from '@agenshield/ipc';
 import type { CreateSkillInput, CreateSkillVersionInput, CreateSkillInstallationInput } from '@agenshield/ipc';
 
 // ---- Filter / param types ----
@@ -82,4 +82,4 @@ export const UpdateInstallationStatusSchema = z.object({
 export type UpdateInstallationStatusInput = z.input<typeof UpdateInstallationStatusSchema>;
 
 // Re-export create schemas for convenience
-export { CreateSkillSchema, CreateSkillVersionSchema, CreateSkillFileSchema, CreateSkillInstallationSchema };
+export { CreateSkillSchema, CreateSkillVersionSchema, CreateSkillInstallationSchema };

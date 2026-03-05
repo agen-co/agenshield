@@ -27,10 +27,12 @@ describe('001-schema', () => {
 
   const expectedTables = [
     'meta', 'profiles', 'config', 'policies',
-    'state', 'secrets',
+    'state', 'secrets', 'secret_policies',
     'skills', 'skill_versions', 'skill_files', 'skill_installations',
     'allowed_commands',
     'policy_nodes', 'policy_edges', 'edge_activations',
+    'policy_sets', 'policy_set_members',
+    'dismissed_targets', 'binary_signatures', 'workspace_skills',
   ];
 
   for (const table of expectedTables) {

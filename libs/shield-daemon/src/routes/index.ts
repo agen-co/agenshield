@@ -34,7 +34,6 @@ import { enrollmentRoutes } from './enrollment';
 import { workspacePathsRoutes } from './workspace-paths';
 import { workspaceSkillsRoutes } from './workspace-skills';
 import { setupRoutes } from './setup';
-import { openUrlRespondRoutes } from './open-url-respond';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 import { registerShieldContext } from '../context';
@@ -166,7 +165,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(workspacePathsRoutes);
       await api.register(workspaceSkillsRoutes);
       await api.register(setupRoutes);
-      await api.register(openUrlRespondRoutes);
     },
     { prefix: API_PREFIX }
   );

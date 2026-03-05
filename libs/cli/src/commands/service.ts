@@ -13,6 +13,7 @@ import { withGlobals } from './base.js';
 import { ServiceError, PrivilegeError } from '../errors.js';
 import { output } from '../utils/output.js';
 import { findDaemonExecutable, DAEMON_CONFIG } from '../utils/daemon.js';
+import { resolveHostHome } from '../utils/host-user.js';
 import {
   installDaemonService,
   uninstallDaemonService,
@@ -59,10 +60,12 @@ export function registerServiceCommand(program: Command): void {
 
       output.info(`Installing daemon service (${daemonPath})...`);
 
+      const hostHome = resolveHostHome();
       const result = installDaemonService({
         daemonPath,
         port: Number(opts['port']) || DAEMON_CONFIG.PORT,
         host: (opts['host'] as string) || DAEMON_CONFIG.HOST,
+        userHome: hostHome,
       });
 
       if (result.success) {
@@ -73,6 +76,7 @@ export function registerServiceCommand(program: Command): void {
           daemonPath,
           port: Number(opts['port']) || DAEMON_CONFIG.PORT,
           host: (opts['host'] as string) || DAEMON_CONFIG.HOST,
+          userHome: hostHome,
         });
         if (helperResult.success) {
           output.success(helperResult.message);

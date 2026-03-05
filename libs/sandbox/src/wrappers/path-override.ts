@@ -247,11 +247,15 @@ _agenshield_exec() {
     exec "$BIN" "$@"
   fi
 
-  # Build safe PATH: agent bins + system paths only
-  local SAFE_PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-  [ -d "/opt/homebrew/bin" ] && SAFE_PATH="$SAFE_PATH:/opt/homebrew/bin:/opt/homebrew/sbin"
+  # Build safe PATH: when AGENT_HOME is set, restrict to agent-only paths.
+  # System paths (/usr/bin, /bin, etc.) are NOT included — all commands must
+  # go through wrappers in agent dirs. Wrappers use absolute paths internally
+  # (e.g. exec /usr/bin/curl) so they still work without system dirs on PATH.
   if [ -n "$AGENT_HOME" ]; then
-    SAFE_PATH="$AGENT_HOME/bin:$AGENT_HOME/.local/bin:$AGENT_HOME/.agenshield/bin:$SAFE_PATH"
+    local SAFE_PATH="$AGENT_HOME/bin:$AGENT_HOME/.local/bin:$AGENT_HOME/.agenshield/bin"
+  else
+    local SAFE_PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    [ -d "/opt/homebrew/bin" ] && SAFE_PATH="$SAFE_PATH:/opt/homebrew/bin:/opt/homebrew/sbin"
   fi
 
   # Start with empty env — no SUDO_*, no SSH_AUTH_SOCK, no host PATH

@@ -56,3 +56,5 @@ libs/*/src/**/*.d.ts
 libs/*/src/**/*.d.ts.map
 apps/*/src/**/*.d.ts
 apps/*/src/**/*.d.ts.map
+/libs/*/coverage/
+coverage/

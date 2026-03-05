@@ -9,10 +9,6 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { SchemaMigration } from '../../../migrations/001-schema';
-import { PolicyTiersMigration } from '../../../migrations/017-policy-tiers';
-import { PolicyEnforcementMigration } from '../../../migrations/018-policy-enforcement';
-import { PolicyTargetProcessMigration } from '../../../migrations/019-policy-target-process';
-import { PolicyMethodsMigration } from '../../../migrations/027-policy-methods';
 import { PolicyRepository } from '../policy.repository';
 
 function insertProfile(db: Database.Database, id: string, name?: string): void {
@@ -33,10 +29,6 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   new SchemaMigration().up(db);
-  new PolicyTiersMigration().up(db);
-  new PolicyEnforcementMigration().up(db);
-  new PolicyTargetProcessMigration().up(db);
-  new PolicyMethodsMigration().up(db);
   return {
     db,
     cleanup: () => {

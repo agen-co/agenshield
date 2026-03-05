@@ -18,5 +18,6 @@ export default {
     '^@agenshield/ipc$': '<rootDir>/../shield-ipc/src/index.ts',
     '^@agenshield/policies$': '<rootDir>/../policies/src/index.ts',
   },
+  coverageDirectory: '../../test-output/coverage/libs/proxy',
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
 };

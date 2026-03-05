@@ -45,3 +45,11 @@ Searches the local SQLite database via `SkillsRepository.search()`. Returns resu
 ### `RemoteSearchAdapter`
 
 Searches the remote marketplace via `RemoteSkillClient.search()`. Returns results with `source: 'remote'`. Silently returns empty on network errors.
+
+## Contributing
+
+When modifying this module:
+- Update this README if public API changes
+- Add tests in `__tests__/catalog.service.spec.ts`
+- Emit events for new async operations
+- Use typed errors from `../errors.ts`

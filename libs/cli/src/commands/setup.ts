@@ -45,6 +45,7 @@ import type {
 import { saveMdmConfig } from '@agenshield/auth';
 import { installDaemonService, installPrivilegeHelperService } from '@agenshield/integrations';
 import { inkSelect, inkInput, inkBrowserLink } from '../prompts/index.js';
+import { resolveHostHome } from '../utils/host-user.js';
 
 // ---------------------------------------------------------------------------
 // Daemon helpers
@@ -259,6 +260,11 @@ async function runTokenSetup(options: { cloudUrl: string; token: string }): Prom
   output.info(`  ${output.bold('Cloud Setup (Token)')}`);
   output.info('');
 
+  // Ensure downstream libs (@agenshield/auth) resolve paths correctly under sudo/root
+  if (process.getuid?.() === 0 && !process.env['AGENSHIELD_USER_HOME']) {
+    process.env['AGENSHIELD_USER_HOME'] = resolveHostHome();
+  }
+
   // Check if already enrolled
   if (isCloudEnrolled()) {
     output.warn('This device is already enrolled in AgenShield Cloud.');
@@ -308,6 +314,7 @@ async function runTokenSetup(options: { cloudUrl: string; token: string }): Prom
   output.info('');
 
   // 5. Auto-install LaunchDaemon service (macOS)
+  const hostHome = resolveHostHome();
   if (process.platform === 'darwin') {
     const serviceSpinner = await createSpinner('Installing daemon service...');
     const daemonPath = findDaemonExecutable();
@@ -317,13 +324,14 @@ async function runTokenSetup(options: { cloudUrl: string; token: string }): Prom
         daemonPath,
         port: DAEMON_CONFIG.PORT,
         host: DAEMON_CONFIG.HOST,
+        userHome: hostHome,
       });
 
       if (serviceResult.success) {
         // Also install privilege helper
         const helperResult = installPrivilegeHelperService({
           daemonPath,
-          userHome: os.homedir(),
+          userHome: hostHome,
         });
         if (helperResult.success) {
           serviceSpinner.succeed('Services installed (daemon + privilege helper)');
@@ -376,6 +384,11 @@ async function runOrgSetup(options: { cloudUrl: string; orgClientId: string }): 
   output.info(`  ${output.bold('Cloud Setup (Org)')}`);
   output.info('');
 
+  // Ensure downstream libs (@agenshield/auth) resolve paths correctly under sudo/root
+  if (process.getuid?.() === 0 && !process.env['AGENSHIELD_USER_HOME']) {
+    process.env['AGENSHIELD_USER_HOME'] = resolveHostHome();
+  }
+
   const { cloudUrl, orgClientId } = options;
 
   // 1. Write MDM config
@@ -400,6 +413,7 @@ async function runOrgSetup(options: { cloudUrl: string; orgClientId: string }): 
   });
 
   // 3. Install LaunchDaemon service (macOS, best-effort)
+  const orgHostHome = resolveHostHome();
   if (process.platform === 'darwin') {
     const serviceSpinner = await createSpinner('Installing daemon service...');
     const daemonPath = findDaemonExecutable();
@@ -409,13 +423,14 @@ async function runOrgSetup(options: { cloudUrl: string; orgClientId: string }): 
         daemonPath,
         port: DAEMON_CONFIG.PORT,
         host: DAEMON_CONFIG.HOST,
+        userHome: orgHostHome,
       });
 
       if (serviceResult.success) {
         // Also install privilege helper
         const helperResult = installPrivilegeHelperService({
           daemonPath,
-          userHome: os.homedir(),
+          userHome: orgHostHome,
         });
         if (helperResult.success) {
           serviceSpinner.succeed('Services installed (daemon + privilege helper)');

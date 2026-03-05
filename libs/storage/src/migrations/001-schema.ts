@@ -1,7 +1,7 @@
 /**
  * Migration 001 — Consolidated schema (fresh DB only)
  *
- * Single migration creating all tables, indexes, and the singleton state row.
+ * Single migration creating all tables, indexes, and constraints.
  * Uses profile_id for scoping (replaces target_id/user_username).
  */
 
@@ -36,6 +36,10 @@ export class SchemaMigration implements Migration {
         broker_uid       INTEGER,
         broker_home_dir  TEXT,
         broker_token     TEXT,
+        install_manifest TEXT,
+        gateway_port     INTEGER,
+        enforcement_mode TEXT,
+        workspace_paths  TEXT,
         created_at       TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
       );
@@ -43,20 +47,22 @@ export class SchemaMigration implements Migration {
 
       -- Config (scoped: global -> profile)
       CREATE TABLE config (
-        id                        INTEGER PRIMARY KEY AUTOINCREMENT,
-        profile_id                TEXT REFERENCES profiles(id) ON DELETE CASCADE,
-        version                   TEXT,
-        daemon_port               INTEGER,
-        daemon_host               TEXT,
-        daemon_log_level          TEXT,
-        daemon_enable_hosts_entry INTEGER,
-        default_action            TEXT,
-        vault_enabled             INTEGER,
-        vault_provider            TEXT,
-        skills_json               TEXT,
-        soul_json                 TEXT,
-        broker_json               TEXT,
-        updated_at                TEXT NOT NULL DEFAULT (datetime('now')),
+        id                             INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_id                     TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+        version                        TEXT,
+        daemon_port                    INTEGER,
+        daemon_host                    TEXT,
+        daemon_log_level               TEXT,
+        daemon_enable_hosts_entry      INTEGER,
+        default_action                 TEXT,
+        vault_enabled                  INTEGER,
+        vault_provider                 TEXT,
+        skills_json                    TEXT,
+        soul_json                      TEXT,
+        broker_json                    TEXT,
+        enforcer_interval_ms           INTEGER,
+        proxy_tls_reject_unauthorized  INTEGER,
+        updated_at                     TEXT NOT NULL DEFAULT (datetime('now')),
         UNIQUE(profile_id)
       );
 
@@ -66,7 +72,7 @@ export class SchemaMigration implements Migration {
         profile_id     TEXT REFERENCES profiles(id) ON DELETE CASCADE,
         name           TEXT NOT NULL,
         action         TEXT NOT NULL CHECK (action IN ('allow', 'deny', 'approval')),
-        target         TEXT NOT NULL CHECK (target IN ('skill', 'command', 'url', 'filesystem')),
+        target         TEXT NOT NULL CHECK (target IN ('skill', 'command', 'url', 'filesystem', 'process', 'router')),
         patterns       TEXT NOT NULL,
         enabled        INTEGER NOT NULL DEFAULT 1,
         priority       INTEGER,
@@ -74,12 +80,17 @@ export class SchemaMigration implements Migration {
         preset         TEXT,
         scope          TEXT,
         network_access TEXT,
+        managed        INTEGER NOT NULL DEFAULT 0,
+        managed_source TEXT,
+        enforcement    TEXT,
+        methods        TEXT,
         created_at     TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
       );
       CREATE INDEX idx_policies_scope ON policies(profile_id);
       CREATE INDEX idx_policies_target ON policies(target);
       CREATE INDEX idx_policies_enabled ON policies(enabled);
+      CREATE INDEX idx_policies_managed ON policies(managed);
 
       -- State (global singleton)
       CREATE TABLE state (
@@ -102,6 +113,8 @@ export class SchemaMigration implements Migration {
         passcode_allow_anonymous_read_only INTEGER,
         passcode_failed_attempts           INTEGER,
         passcode_locked_until              TEXT,
+        setup_completed                    INTEGER NOT NULL DEFAULT 0,
+        setup_phase                        TEXT,
         updated_at                         TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
@@ -270,6 +283,71 @@ export class SchemaMigration implements Migration {
       );
       CREATE INDEX idx_ea_edge ON edge_activations(edge_id);
       CREATE INDEX idx_ea_active ON edge_activations(consumed, expires_at);
+
+      -- Policy sets (hierarchical policy grouping)
+      CREATE TABLE policy_sets (
+        id         TEXT PRIMARY KEY,
+        name       TEXT NOT NULL,
+        parent_id  TEXT REFERENCES policy_sets(id) ON DELETE SET NULL,
+        profile_id TEXT REFERENCES profiles(id) ON DELETE CASCADE,
+        enforced   INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_policy_sets_parent ON policy_sets(parent_id);
+      CREATE INDEX idx_policy_sets_profile ON policy_sets(profile_id);
+
+      -- Policy set members (junction table)
+      CREATE TABLE policy_set_members (
+        policy_set_id TEXT NOT NULL REFERENCES policy_sets(id) ON DELETE CASCADE,
+        policy_id     TEXT NOT NULL REFERENCES policies(id) ON DELETE CASCADE,
+        PRIMARY KEY (policy_set_id, policy_id)
+      );
+      CREATE INDEX idx_policy_set_members_policy ON policy_set_members(policy_id);
+
+      -- Dismissed targets
+      CREATE TABLE dismissed_targets (
+        target_id    TEXT PRIMARY KEY,
+        dismissed_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      -- Binary signatures
+      CREATE TABLE binary_signatures (
+        id            TEXT PRIMARY KEY,
+        sha256        TEXT NOT NULL,
+        package_name  TEXT NOT NULL,
+        version       TEXT,
+        platform      TEXT,
+        source        TEXT NOT NULL DEFAULT 'cloud',
+        metadata      TEXT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX idx_binsig_sha256_platform ON binary_signatures(sha256, platform);
+      CREATE INDEX idx_binsig_package ON binary_signatures(package_name);
+
+      -- Workspace skills (per-profile workspace skill governance)
+      CREATE TABLE workspace_skills (
+        id               TEXT PRIMARY KEY,
+        profile_id       TEXT NOT NULL,
+        workspace_path   TEXT NOT NULL,
+        skill_name       TEXT NOT NULL,
+        status           TEXT NOT NULL DEFAULT 'pending'
+                           CHECK (status IN ('pending','approved','denied','removed','cloud_forced')),
+        content_hash     TEXT,
+        backup_hash      TEXT,
+        approved_by      TEXT,
+        approved_at      TEXT,
+        cloud_skill_id   TEXT,
+        removed_at       TEXT,
+        acl_applied      INTEGER NOT NULL DEFAULT 0,
+        created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(workspace_path, skill_name)
+      );
+      CREATE INDEX idx_ws_skills_workspace ON workspace_skills(workspace_path);
+      CREATE INDEX idx_ws_skills_status ON workspace_skills(status);
+      CREATE INDEX idx_ws_skills_profile ON workspace_skills(profile_id);
     `);
   }
 }

@@ -42,6 +42,7 @@ import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
 import { ensureSudoAccess } from '../utils/privileges.js';
+import { resolveHostUser, resolveHostHome } from '../utils/host-user.js';
 
 /**
  * Read the version from the CLI's own package.json (fallback for --version).
@@ -89,18 +90,19 @@ async function installMacOSServices(menuBarOptions?: { policyUrl?: string; orgNa
 
   // Step A: LaunchDaemon + privilege helper (requires sudo)
   const daemonPath = findDaemonExecutable();
+  const hostHome = resolveHostHome();
   if (daemonPath) {
     try {
       const { installDaemonService, installPrivilegeHelperService } = await import('@agenshield/integrations');
 
-      const daemonResult = installDaemonService({ daemonPath });
+      const daemonResult = installDaemonService({ daemonPath, userHome: hostHome });
       if (daemonResult.success) {
         output.success('Installed LaunchDaemon service');
       } else {
         output.warn(`LaunchDaemon install: ${daemonResult.message}`);
       }
 
-      const helperResult = installPrivilegeHelperService({ daemonPath });
+      const helperResult = installPrivilegeHelperService({ daemonPath, userHome: hostHome });
       if (helperResult.success) {
         output.success('Installed privilege helper service');
       } else {
@@ -118,7 +120,7 @@ async function installMacOSServices(menuBarOptions?: { policyUrl?: string; orgNa
   if (fs.existsSync(menuBarAppPath)) {
     try {
       const { installMenuBarAgent } = await import('@agenshield/integrations');
-      const agentResult = installMenuBarAgent(menuBarAppPath, menuBarOptions);
+      const agentResult = installMenuBarAgent(menuBarAppPath, { ...menuBarOptions, userHome: hostHome });
       if (agentResult.success) {
         output.success('Installed menu bar agent');
       } else {
@@ -245,7 +247,8 @@ export function registerInstallCommand(program: Command): void {
       // 2b. Fix ownership if ~/.agenshield was left behind as root-owned
       if (fs.existsSync(AGENSHIELD_HOME) && isRootOwned(AGENSHIELD_HOME)) {
         try {
-          execSync(`sudo chown -R $(whoami) "${AGENSHIELD_HOME}"`, {
+          const { username: hostUsername } = resolveHostUser();
+          execSync(`sudo chown -R ${hostUsername} "${AGENSHIELD_HOME}"`, {
             encoding: 'utf-8',
             stdio: ['pipe', 'pipe', 'pipe'],
           });

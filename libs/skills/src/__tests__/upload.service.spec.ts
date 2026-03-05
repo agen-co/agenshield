@@ -123,6 +123,40 @@ describe('UploadService', () => {
     try { fs.rmSync(backupDir, { recursive: true }); } catch { /* */ }
   });
 
+  it('uploadFromFiles deletes existing version before re-uploading same version', () => {
+    // Upload v1
+    service.uploadFromFiles({
+      name: 'Re-Upload', slug: 're-upload-skill', version: '1.0.0',
+      files: [{ relativePath: 'a.ts', content: Buffer.from('original') }],
+    });
+
+    // Upload same version again with different content
+    const result = service.uploadFromFiles({
+      name: 'Re-Upload', slug: 're-upload-skill', version: '1.0.0',
+      files: [{ relativePath: 'a.ts', content: Buffer.from('updated') }],
+    });
+
+    // Only one version should exist
+    const versions = repo.getVersions(result.skill.id);
+    expect(versions).toHaveLength(1);
+    expect(versions[0].id).toBe(result.version.id);
+  });
+
+  it('uploadFromFiles emits upload:error when create throws', () => {
+    // Mock create to throw
+    const originalCreate = repo.create.bind(repo);
+    repo.create = () => { throw new Error('db error'); };
+
+    expect(() => service.uploadFromFiles({
+      name: 'Fail', slug: 'fail-upload', version: '1.0.0',
+      files: [{ relativePath: 'a.ts', content: Buffer.from('a') }],
+    })).toThrow('db error');
+
+    expect(events.some((e) => e.type === 'upload:error')).toBe(true);
+
+    repo.create = originalCreate;
+  });
+
   it('uploadFromFiles generates deterministic content hash', () => {
     const files = [
       { relativePath: 'b.ts', content: Buffer.from('b-content') },

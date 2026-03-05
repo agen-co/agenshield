@@ -1248,11 +1248,13 @@ describe('Skill Lifecycle Integration', () => {
       const deployedSkillMd = path.join(dirs.skillsDir, SKILL_SLUG, 'SKILL.md');
       fs.writeFileSync(deployedSkillMd, '# TAMPERED CONTENT');
 
-      // Start watcher → integrity violation → reinstall
-      manager.startWatcher();
-      await sleep(100);
+      // Register event listener BEFORE startWatcher — initial poll() may resolve before sleep
+      const reinstallPromise = waitForEvent(manager, 'watcher:reinstalled', 10000);
 
-      await waitForEvent(manager, 'watcher:reinstalled', 5000);
+      // Start watcher → initial poll() detects integrity violation → reinstall
+      manager.startWatcher();
+
+      await reinstallPromise;
       await sleep(SETTLE_MS);
 
       // Assert: file restored from backup (not from source — source is gone)
@@ -1282,11 +1284,13 @@ describe('Skill Lifecycle Integration', () => {
       const deployedConfig = path.join(dirs.skillsDir, SKILL_SLUG, 'config.json');
       fs.unlinkSync(deployedConfig);
 
-      // Start watcher → integrity violation → reinstall
-      manager.startWatcher();
-      await sleep(100);
+      // Register event listener BEFORE startWatcher — initial poll() may resolve before sleep
+      const reinstallPromise = waitForEvent(manager, 'watcher:reinstalled', 10000);
 
-      await waitForEvent(manager, 'watcher:reinstalled', 5000);
+      // Start watcher → initial poll() detects integrity violation → reinstall
+      manager.startWatcher();
+
+      await reinstallPromise;
       await sleep(SETTLE_MS);
 
       // Assert: file restored from backup
@@ -1318,11 +1322,13 @@ describe('Skill Lifecycle Integration', () => {
       fs.rmSync(deployDir, { recursive: true, force: true });
       fs.mkdirSync(deployDir, { recursive: true });
 
-      // Start watcher → integrity violation → reinstall
-      manager.startWatcher();
-      await sleep(100);
+      // Register event listener BEFORE startWatcher — initial poll() may resolve before sleep
+      const reinstallPromise = waitForEvent(manager, 'watcher:reinstalled', 10000);
 
-      await waitForEvent(manager, 'watcher:reinstalled', 5000);
+      // Start watcher → initial poll() detects integrity violation → reinstall
+      manager.startWatcher();
+
+      await reinstallPromise;
       await sleep(SETTLE_MS);
 
       // Assert: all files restored from backup with correct content

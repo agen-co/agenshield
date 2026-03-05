@@ -142,4 +142,49 @@ describe('SkillBackupService', () => {
       expect(service.loadSkillMd('v1')).toBeNull();
     });
   });
+
+  describe('verifyIntegrity', () => {
+    it('returns true for untampered backup', () => {
+      const files = [
+        { relativePath: 'index.ts', content: Buffer.from('export default {}') },
+        { relativePath: 'lib/util.ts', content: Buffer.from('export const x = 1') },
+      ];
+      const hash = service.saveFiles('v1', files);
+
+      expect(service.verifyIntegrity('v1', hash)).toBe(true);
+    });
+
+    it('returns false for tampered backup', () => {
+      const files = [
+        { relativePath: 'index.ts', content: Buffer.from('export default {}') },
+      ];
+      const hash = service.saveFiles('v1', files);
+
+      // Tamper the backup file
+      fs.writeFileSync(path.join(backupDir, 'v1', 'index.ts'), 'tampered content');
+
+      expect(service.verifyIntegrity('v1', hash)).toBe(false);
+    });
+
+    it('returns false for missing directory', () => {
+      expect(service.verifyIntegrity('nonexistent', 'abc123')).toBe(false);
+    });
+
+    it('returns false for empty directory', () => {
+      const dir = path.join(backupDir, 'empty-v1');
+      fs.mkdirSync(dir, { recursive: true });
+
+      expect(service.verifyIntegrity('empty-v1', 'abc123')).toBe(false);
+    });
+
+    it('returns false when hash lengths differ', () => {
+      const files = [
+        { relativePath: 'index.ts', content: Buffer.from('code') },
+      ];
+      service.saveFiles('v1', files);
+
+      // Pass a short hash that doesn't match length
+      expect(service.verifyIntegrity('v1', 'short')).toBe(false);
+    });
+  });
 });

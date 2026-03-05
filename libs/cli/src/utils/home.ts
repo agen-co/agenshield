@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { isSEA, resolveCodesignIdentifier } from '@agenshield/ipc';
+import { resolveHostHome } from './host-user.js';
 
 // ---------------------------------------------------------------------------
 // Async spawn helpers
@@ -65,7 +66,7 @@ function shellAsync(
 // ---------------------------------------------------------------------------
 
 /** Root of the local installation: ~/.agenshield */
-export const AGENSHIELD_HOME = path.join(os.homedir(), '.agenshield');
+export const AGENSHIELD_HOME = path.join(resolveHostHome(), '.agenshield');
 
 /** Directory containing the shell shim */
 export function getBinDir(): string {
@@ -474,18 +475,20 @@ export function ensurePathInShellRc(): { added: boolean; rcFile: string } {
   let rcFile: string;
   const exportLine = 'export PATH="$HOME/.agenshield/bin:$PATH"';
 
+  const hostHome = resolveHostHome();
+
   if (shell.endsWith('/zsh')) {
-    rcFile = path.join(os.homedir(), '.zshrc');
+    rcFile = path.join(hostHome, '.zshrc');
   } else if (shell.endsWith('/bash')) {
-    const bashProfile = path.join(os.homedir(), '.bash_profile');
+    const bashProfile = path.join(hostHome, '.bash_profile');
     rcFile = fs.existsSync(bashProfile)
       ? bashProfile
-      : path.join(os.homedir(), '.bashrc');
+      : path.join(hostHome, '.bashrc');
   } else if (shell.endsWith('/fish')) {
     // fish uses different syntax — skip auto-add, just return
     return { added: false, rcFile: '~/.config/fish/config.fish' };
   } else {
-    rcFile = path.join(os.homedir(), '.profile');
+    rcFile = path.join(hostHome, '.profile');
   }
 
   // Check if already present
@@ -559,7 +562,7 @@ export const PATH_OVERRIDE_END_MARKER = '# <<< AgenShield PATH override <<<';
  * Resolve the shell rc file path for a given home/shell combination.
  */
 function resolveShellRcPath(hostHome?: string, hostShell?: string): string {
-  const home = hostHome || os.homedir();
+  const home = hostHome || resolveHostHome();
   const shell = hostShell || process.env['SHELL'] || '';
 
   if (shell.endsWith('/zsh')) {
@@ -1137,7 +1140,7 @@ export async function buildAndInstallSEAFromLocal(
     }
 
     // Step 2: Copy native modules
-    const libDir = path.join(os.homedir(), '.agenshield', 'lib', `v${version}`);
+    const libDir = path.join(resolveHostHome(), '.agenshield', 'lib', `v${version}`);
     const nativeDir = path.join(libDir, 'native');
     fs.mkdirSync(nativeDir, { recursive: true });
 

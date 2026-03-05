@@ -19,22 +19,14 @@ import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
 import { inkMultiSelect } from '../prompts/index.js';
+import { resolveHostUser, resolveHostHome } from '../utils/host-user.js';
 
 /**
  * Resolve the data directory (~/.agenshield) for the calling user.
- * When running under sudo, SUDO_USER points to the real user.
+ * When running under sudo or as root, detects the real human user.
  */
 function resolveDataDir(): string {
-  const sudoUser = process.env['SUDO_USER'];
-  if (sudoUser) {
-    try {
-      const home = execSync(`eval echo ~${sudoUser}`, { encoding: 'utf-8' }).trim();
-      return path.join(home, '.agenshield');
-    } catch {
-      // fall through
-    }
-  }
-  return path.join(os.homedir(), '.agenshield');
+  return path.join(resolveHostHome(), '.agenshield');
 }
 
 /**
@@ -81,16 +73,8 @@ function makeExecAsRoot() {
  * Resolve the host user's home directory and username.
  */
 function resolveHostInfo(): { hostHome: string; hostUsername: string } {
-  const sudoUser = process.env['SUDO_USER'];
-  if (sudoUser) {
-    return { hostHome: `/Users/${sudoUser}`, hostUsername: sudoUser };
-  }
-  try {
-    const consoleUser = execSync('stat -f "%Su" /dev/console', { encoding: 'utf-8', timeout: 3_000 }).trim();
-    return { hostHome: `/Users/${consoleUser}`, hostUsername: consoleUser };
-  } catch {
-    return { hostHome: process.env['HOME'] || '', hostUsername: process.env['USER'] || '' };
-  }
+  const { username, home } = resolveHostUser();
+  return { hostHome: home, hostUsername: username };
 }
 
 /**

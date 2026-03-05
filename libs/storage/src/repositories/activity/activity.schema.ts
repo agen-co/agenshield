@@ -1,9 +1,6 @@
 /**
- * Activity schemas — Re-exports from IPC + storage-specific option types
+ * Activity schemas — storage-specific option types
  */
-
-import { CreateActivityEventSchema } from '@agenshield/ipc';
-import type { CreateActivityEventInput } from '@agenshield/ipc';
 
 // ---- Options types ----
 
@@ -20,7 +17,3 @@ export interface ActivityCountOptions {
   type?: string;
   since?: string;
 }
-
-// Re-export create schema/input for convenience
-export { CreateActivityEventSchema };
-export type { CreateActivityEventInput };

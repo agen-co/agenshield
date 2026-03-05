@@ -7,7 +7,6 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { SchemaMigration } from '../../../migrations/001-schema';
-import { BinarySignaturesMigration } from '../../../migrations/020-binary-signatures';
 import { BinarySignatureRepository } from '../binary-signature.repository';
 import type { CreateSignatureInput } from '../binary-signature.schema';
 
@@ -18,7 +17,6 @@ function createTestDb(): { db: Database.Database; cleanup: () => void } {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   new SchemaMigration().up(db);
-  new BinarySignaturesMigration().up(db);
   return {
     db,
     cleanup: () => {

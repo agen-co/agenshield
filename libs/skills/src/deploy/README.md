@@ -54,6 +54,25 @@ interface DeployAdapter {
 
 `canDeploy()` routes installations to the right adapter based on `targetId`.
 
+## Data Flow
+
+```mermaid
+graph LR
+    DP[deploy] --> FA[findAdapter]
+    FA --> CA{canDeploy?}
+    CA -->|Yes| AD[adapter.deploy]
+    AD --> DR[DeployResult]
+    DR --> EVT[Emit Events]
+
+    UDP[undeploy] --> FA2[findAdapter]
+    FA2 --> RM[adapter.undeploy]
+    RM --> EVT
+
+    CI[checkAllIntegrity] --> AI[All Active Installations]
+    AI --> CHK[adapter.checkIntegrity for each]
+    CHK --> IR["IntegrityCheckResult[]"]
+```
+
 ### Types
 
 ```typescript
@@ -79,3 +98,11 @@ interface IntegrityCheckResult {
   expectedHash?: string;
 }
 ```
+
+## Contributing
+
+When modifying this module:
+- Update this README if public API changes
+- Add tests in `__tests__/deploy.service.spec.ts`
+- Emit events for new async operations
+- Use typed errors from `../errors.ts`

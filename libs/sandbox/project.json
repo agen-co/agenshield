@@ -7,10 +7,22 @@
   "targets": {
     "test": {
       "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "outputs": ["{workspaceRoot}/test-output/coverage/{projectRoot}"],
       "options": {
         "jestConfig": "libs/sandbox/jest.config.ts",
         "passWithNoTests": true
+      }
+    },
+    "perf": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/test-output/performance/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/sandbox/jest.config.ts",
+        "testPathPatterns": ["performance"],
+        "passWithNoTests": true,
+        "coverageDirectory": "../../test-output/performance/libs/sandbox",
+        "codeCoverage": true,
+        "coverageReporters": ["json-summary", "json"]
       }
     },
     "build-cjs": {

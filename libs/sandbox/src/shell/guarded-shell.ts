@@ -69,8 +69,8 @@ unset PYTHONPATH NODE_PATH RUBYLIB PERL5LIB
 unset SSH_ASKPASS LD_PRELOAD
 
 # Dynamically resolve the calling user's home for per-target ZDOTDIR
-_ASH_HOME="\$(dscl . -read /Users/\$(id -un) NFSHomeDirectory 2>/dev/null | awk '{print \$2}')"
-[ -z "\$_ASH_HOME" ] && _ASH_HOME="/Users/\$(id -un)"
+_ASH_HOME="\$(/usr/bin/dscl . -read /Users/\$(/usr/bin/id -un) NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print \$2}')"
+[ -z "\$_ASH_HOME" ] && _ASH_HOME="/Users/\$(/usr/bin/id -un)"
 export HOME="\${_ASH_HOME}"
 
 # Per-target ZDOTDIR under agent home
@@ -147,7 +147,7 @@ export NO_PROXY="localhost,127.0.0.1"
 # interactive shells and non-interactive \`zsh -c '...'\` are restricted.
 
 # ALWAYS set HOME based on actual user, never inherit
-export HOME="/Users/\$(id -un)"
+export HOME="/Users/\$(/usr/bin/id -un)"
 export HISTFILE="\$HOME/.zsh_history"
 
 # Suppress locale to prevent /etc/zshrc from calling locale command

@@ -188,6 +188,17 @@ describe('DeployService', () => {
     });
   });
 
+  describe('addAdapter', () => {
+    it('registers a new adapter after construction', () => {
+      const service = new DeployService(repo, [], emitter);
+      expect(service.findAdapter(undefined)).toBeNull();
+
+      const adapter = createMockAdapter();
+      service.addAdapter(adapter);
+      expect(service.findAdapter(undefined)).toBe(adapter);
+    });
+  });
+
   describe('undeploy', () => {
     it('calls adapter and emits events', async () => {
       const adapter = createMockAdapter();
@@ -203,6 +214,25 @@ describe('DeployService', () => {
       const types = events.map((e) => e.type);
       expect(types).toContain('undeploy:started');
       expect(types).toContain('undeploy:completed');
+    });
+
+    it('emits undeploy:error and re-throws when adapter throws', async () => {
+      const failingAdapter: DeployAdapter = {
+        id: 'failing',
+        displayName: 'Failing',
+        canDeploy: () => true,
+        deploy: async () => ({ deployedPath: '', deployedHash: '' }),
+        undeploy: async () => { throw new Error('undeploy failed'); },
+        checkIntegrity: async () => ({ intact: true, modifiedFiles: [], missingFiles: [], unexpectedFiles: [] }),
+      };
+
+      const service = new DeployService(repo, [failingAdapter], emitter);
+      const skill = repo.create(makeSkillInput());
+      const version = repo.addVersion(makeVersionInput(skill.id));
+      const installation = repo.install({ skillVersionId: version.id, status: 'active' });
+
+      await expect(service.undeploy(installation, version, skill)).rejects.toThrow('undeploy failed');
+      expect(events.some((e) => e.type === 'undeploy:error')).toBe(true);
     });
   });
 
@@ -235,6 +265,81 @@ describe('DeployService', () => {
 
       const results = await service.checkAllIntegrity();
       expect(results).toHaveLength(0);
+    });
+  });
+
+  describe('deployPending', () => {
+    it('deploys active installations with integrity failures', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-pending-'));
+      const deployDir = path.join(tmpDir, 'deployed', 'test-skill');
+      fs.mkdirSync(deployDir, { recursive: true });
+
+      const adapter: DeployAdapter = {
+        id: 'pending-test',
+        displayName: 'Pending Test',
+        canDeploy: () => true,
+        deploy: async (ctx) => {
+          for (const file of ctx.files) {
+            const filePath = path.join(deployDir, file.relativePath);
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            fs.writeFileSync(filePath, 'deployed');
+          }
+          return { deployedPath: deployDir, deployedHash: 'hash' };
+        },
+        undeploy: async () => {},
+        checkIntegrity: async () => ({ intact: false, modifiedFiles: ['index.ts'], missingFiles: [], unexpectedFiles: [] }),
+      };
+
+      const service = new DeployService(repo, [adapter], emitter);
+      const skill = repo.create(makeSkillInput());
+      const version = repo.addVersion(makeVersionInput(skill.id));
+      repo.registerFiles({ versionId: version.id, files: [{ relativePath: 'index.ts', fileHash: 'abc', sizeBytes: 10 }] });
+      repo.install({ skillVersionId: version.id, status: 'active' });
+
+      const deployed = await service.deployPending();
+      expect(deployed).toBe(1);
+
+      try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* */ }
+    });
+
+    it('skips already-intact installations', async () => {
+      const adapter: DeployAdapter = {
+        id: 'intact-test',
+        displayName: 'Intact Test',
+        canDeploy: () => true,
+        deploy: async () => ({ deployedPath: '/deployed', deployedHash: 'hash' }),
+        undeploy: async () => {},
+        checkIntegrity: async () => ({ intact: true, modifiedFiles: [], missingFiles: [], unexpectedFiles: [] }),
+      };
+
+      const service = new DeployService(repo, [adapter], emitter);
+      const skill = repo.create(makeSkillInput());
+      const version = repo.addVersion(makeVersionInput(skill.id));
+      repo.install({ skillVersionId: version.id, status: 'active' });
+
+      const deployed = await service.deployPending();
+      expect(deployed).toBe(0);
+    });
+
+    it('swallows errors from individual deploy failures', async () => {
+      const adapter: DeployAdapter = {
+        id: 'fail-deploy',
+        displayName: 'Fail Deploy',
+        canDeploy: () => true,
+        deploy: async () => { throw new Error('deploy boom'); },
+        undeploy: async () => {},
+        checkIntegrity: async () => ({ intact: false, modifiedFiles: ['a.ts'], missingFiles: [], unexpectedFiles: [] }),
+      };
+
+      const service = new DeployService(repo, [adapter], emitter);
+      const skill = repo.create(makeSkillInput());
+      const version = repo.addVersion(makeVersionInput(skill.id));
+      repo.registerFiles({ versionId: version.id, files: [{ relativePath: 'a.ts', fileHash: 'abc', sizeBytes: 10 }] });
+      repo.install({ skillVersionId: version.id, status: 'active' });
+
+      // Should not throw
+      const deployed = await service.deployPending();
+      expect(deployed).toBe(0);
     });
   });
 });
@@ -522,6 +627,25 @@ describe('OpenClawDeployAdapter', () => {
       const result = await adapter.checkIntegrity(installation, version, files, skill);
       expect(result.intact).toBe(false);
       expect(result.missingFiles).toContain('missing.ts');
+    });
+
+    it('detects unexpected files in nested subdirectories', async () => {
+      const deployDir = path.join(skillsDir, 'test-skill');
+      fs.mkdirSync(path.join(deployDir, 'src', 'lib'), { recursive: true });
+      const content = 'export default {}';
+      fs.writeFileSync(path.join(deployDir, 'index.ts'), content);
+      fs.writeFileSync(path.join(deployDir, 'src', 'lib', 'nested-extra.ts'), 'unexpected nested');
+      const hash = crypto.createHash('sha256').update(content).digest('hex');
+
+      const version = { id: '1', skillId: '1', version: '1.0.0', folderPath: '/skills/test-skill/1.0.0', contentHash: '', hashUpdatedAt: '', approval: 'unknown' as const, trusted: false, analysisStatus: 'pending' as const, requiredBins: [] as string[], requiredEnv: [] as string[], extractedCommands: [] as unknown[], createdAt: '', updatedAt: '' };
+      const installation = { id: '1', skillVersionId: '1', status: 'active' as const, autoUpdate: true, installedAt: '', updatedAt: '' };
+      const files: SkillFile[] = [
+        { id: '1', skillVersionId: '1', relativePath: 'index.ts', fileHash: hash, sizeBytes: content.length, createdAt: '', updatedAt: '' },
+      ];
+
+      const result = await adapter.checkIntegrity(installation, version, files, skill);
+      expect(result.intact).toBe(false);
+      expect(result.unexpectedFiles).toContain('src/lib/nested-extra.ts');
     });
 
     it('detects unexpected files', async () => {

@@ -65,6 +65,7 @@ import type {
   WizardOptions,
 } from './types.js';
 import { createWizardSteps, getStepsByPhase, getAllStepIds } from './types.js';
+import { resolveHostHome } from '../utils/host-user.js';
 
 export type StepExecutor = (context: WizardContext) => Promise<{ success: boolean; error?: string }>;
 
@@ -1581,7 +1582,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
 
       const esConfig = {
         monitoredUsers,
-        daemonSocketPath: context.pathsConfig?.socketPath ?? `${os.homedir()}/.agenshield/run/agenshield.sock`,
+        daemonSocketPath: context.pathsConfig?.socketPath ?? `${resolveHostHome()}/.agenshield/run/agenshield.sock`,
         daemonHost: '127.0.0.1',
         daemonPort: 5200,
         mode: 'monitor',

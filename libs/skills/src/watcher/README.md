@@ -150,3 +150,11 @@ interface WatcherOptions {
   fsScanDebounceMs?: number;          // Default: 500
 }
 ```
+
+## Contributing
+
+When modifying this module:
+- Update this README if public API changes
+- Add tests in `__tests__/watcher.service.spec.ts`
+- Emit events for new async operations
+- Use typed errors from `../errors.ts`

@@ -45,3 +45,11 @@ The content hash is deterministic and order-independent:
 1. Each file is hashed individually with SHA-256
 2. File hashes are sorted by `relativePath`
 3. Sorted hashes are concatenated and hashed again with SHA-256
+
+## Contributing
+
+When modifying this module:
+- Update this README if public API changes
+- Add tests in `__tests__/upload.service.spec.ts`
+- Emit events for new async operations
+- Use typed errors from `../errors.ts`

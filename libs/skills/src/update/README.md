@@ -8,7 +8,7 @@ Auto-update management for marketplace skills. Checks for newer versions and pro
 graph LR
     CU[checkForUpdates] --> QR[Query Remote for Each Skill]
     QR --> CR[Compare Versions]
-    CR --> R[Return UpdateCheckResult[]]
+    CR --> R["Return UpdateCheckResult[]"]
 
     PU[propagateUpdate] --> GA[Get Auto-Updatable Installations]
     GA --> UV[Update Version for Each]
@@ -39,3 +39,11 @@ Installations with `pinnedVersion` set are excluded from auto-updates. Use `Inst
 - **User-level** installations (matching `targetId` + `userUsername`) — if scope has both
 
 Unscoped repositories update all eligible installations (backward compatible).
+
+## Contributing
+
+When modifying this module:
+- Update this README if public API changes
+- Add tests in `__tests__/update.service.spec.ts`
+- Emit events for new async operations
+- Use typed errors from `../errors.ts`

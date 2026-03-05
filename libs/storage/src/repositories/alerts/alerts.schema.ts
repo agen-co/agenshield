@@ -1,9 +1,6 @@
 /**
- * Alerts schemas — Re-exports from IPC + storage-specific option types
+ * Alerts schemas — storage-specific option types
  */
-
-import { CreateAlertSchema } from '@agenshield/ipc';
-import type { CreateAlertInput } from '@agenshield/ipc';
 
 // ---- Options types ----
 
@@ -18,7 +15,3 @@ export interface AlertCountOptions {
   includeAcknowledged?: boolean;
   severity?: string;
 }
-
-// Re-export create schema/input for convenience
-export { CreateAlertSchema };
-export type { CreateAlertInput };

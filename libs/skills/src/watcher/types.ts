@@ -13,7 +13,7 @@ export interface WatcherPolicy {
 
 /** Options for configuring the watcher service */
 export interface WatcherOptions {
-  /** Polling interval in milliseconds (default: 30000) */
+  /** Polling interval in milliseconds (default: 5000) */
   pollIntervalMs?: number;
   /** Default policy for all installations */
   defaultPolicy?: Partial<WatcherPolicy>;
@@ -23,7 +23,7 @@ export interface WatcherOptions {
   skillsDir?: string;
   /** Directory to move unregistered skills for quarantine + analysis */
   quarantineDir?: string;
-  /** Debounce interval for fs.watch events in ms (default: 500) */
+  /** Debounce interval for fs.watch events in ms (default: 150) */
   fsScanDebounceMs?: number;
 }
 

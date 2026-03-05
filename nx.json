@@ -71,6 +71,9 @@
     "test": {
       "dependsOn": ["^build"]
     },
+    "perf": {
+      "dependsOn": ["^build"]
+    },
     "@nx/js:tsc": {
       "cache": true,
       "dependsOn": ["^build"],

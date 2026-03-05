@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { CreatePolicyNodeSchema, CreatePolicyEdgeSchema, CreateEdgeActivationSchema, EdgeEffectSchema, EdgeLifetimeSchema } from '@agenshield/ipc';
+import { CreatePolicyNodeSchema, CreatePolicyEdgeSchema, EdgeEffectSchema, EdgeLifetimeSchema } from '@agenshield/ipc';
 import type { CreatePolicyNodeInput, CreatePolicyEdgeInput } from '@agenshield/ipc';
 
 // ---- Param types ----
@@ -73,4 +73,4 @@ export const UpdateEdgeCodec = z.codec(
 );
 
 // Re-export create schemas for convenience
-export { CreatePolicyNodeSchema, CreatePolicyEdgeSchema, CreateEdgeActivationSchema };
+export { CreatePolicyNodeSchema, CreatePolicyEdgeSchema };

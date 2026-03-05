@@ -15,6 +15,7 @@ import { isSEA } from '@agenshield/ipc';
 import { isSecretEnvVar } from '@agenshield/sandbox';
 import { isOpenClawInstalled, stopOpenClawServices } from '@agenshield/integrations';
 import { captureCallingUserEnv } from './sudo-env.js';
+import { resolveHostHome } from './host-user.js';
 
 const require = createRequire(import.meta.url);
 
@@ -26,13 +27,15 @@ const __dirname = path.dirname(__filename);
  *
  * Respects AGENSHIELD_PORT and AGENSHIELD_HOST env vars for overrides.
  */
+const _hostHome = resolveHostHome();
+
 export const DAEMON_CONFIG = {
-  PID_FILE: path.join(os.homedir(), '.agenshield', 'daemon.pid'),
+  PID_FILE: path.join(_hostHome, '.agenshield', 'daemon.pid'),
   PORT: Number(process.env['AGENSHIELD_PORT']) || 5200,
   HOST: process.env['AGENSHIELD_HOST'] || '127.0.0.1', // Use IPv4 for actual connections (avoids IPv6 issues)
   DISPLAY_HOST: 'localhost', // Use localhost for user-facing URLs
-  LOG_DIR: path.join(os.homedir(), '.agenshield', 'logs'),
-  SOCKET_DIR: path.join(os.homedir(), '.agenshield', 'run'),
+  LOG_DIR: path.join(_hostHome, '.agenshield', 'logs'),
+  SOCKET_DIR: path.join(_hostHome, '.agenshield', 'run'),
 };
 
 /**
@@ -98,7 +101,7 @@ export function findDaemonExecutable(): string | null {
     const libexecBin = path.join(binDir, '..', 'libexec', 'agenshield-daemon');
     if (fs.existsSync(libexecBin)) return libexecBin;
     // Fallback: check ~/.agenshield/libexec/
-    const homeLibexec = path.join(os.homedir(), '.agenshield', 'libexec', 'agenshield-daemon');
+    const homeLibexec = path.join(_hostHome, '.agenshield', 'libexec', 'agenshield-daemon');
     if (fs.existsSync(homeLibexec)) return homeLibexec;
     // Legacy: alongside the CLI binary (pre-libexec layout)
     const legacyBin = path.join(binDir, 'agenshield-daemon');
@@ -108,7 +111,7 @@ export function findDaemonExecutable(): string | null {
 
   // Check local installation first (~/.agenshield/dist/)
   const localDaemonPkgPath = path.join(
-    os.homedir(), '.agenshield', 'dist', 'node_modules',
+    _hostHome, '.agenshield', 'dist', 'node_modules',
     '@agenshield', 'daemon', 'package.json',
   );
   if (fs.existsSync(localDaemonPkgPath)) {
@@ -184,7 +187,7 @@ function findTsx(): string | null {
  * Throws if the fix was needed but failed.
  */
 function fixConfigOwnership(): boolean {
-  const configDir = path.join(os.homedir(), '.agenshield');
+  const configDir = path.join(_hostHome, '.agenshield');
   if (!fs.existsSync(configDir)) return false;
 
   const currentUid = process.getuid?.();
@@ -259,7 +262,7 @@ function isProcessAlive(pid: number): boolean {
  * Find daemon PID from known PID file locations
  */
 function findDaemonPid(): number | null {
-  const homePidPath = path.join(os.homedir(), '.agenshield', 'daemon.pid');
+  const homePidPath = path.join(_hostHome, '.agenshield', 'daemon.pid');
   const legacyPidPath = DAEMON_CONFIG.PID_FILE;
   const pidPaths = [homePidPath, legacyPidPath];
 
@@ -417,7 +420,7 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
   }
 
   // Ensure user config dir
-  const configDir = path.join(os.homedir(), '.agenshield');
+  const configDir = path.join(_hostHome, '.agenshield');
   fs.mkdirSync(configDir, { recursive: true });
 
   // Fix ownership of files created by a previous root-owned daemon
@@ -478,7 +481,7 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
       logFd = fs.openSync(logFile, 'a');
     } catch {
       // File open failed — fall back to user-local log
-      logDir = path.join(os.homedir(), '.agenshield', 'logs');
+      logDir = path.join(_hostHome, '.agenshield', 'logs');
       fs.mkdirSync(logDir, { recursive: true });
       logFile = path.join(logDir, 'daemon.log');
       logFd = fs.openSync(logFile, 'a');
@@ -700,7 +703,7 @@ function cleanupAgenshieldPlists(): void {
  * Remove all known PID files for the daemon.
  */
 function cleanupAllPidFiles(): void {
-  const homePidPath = path.join(os.homedir(), '.agenshield', 'daemon.pid');
+  const homePidPath = path.join(_hostHome, '.agenshield', 'daemon.pid');
   const legacyPidPath = DAEMON_CONFIG.PID_FILE;
   const pidPaths = [homePidPath, legacyPidPath];
 
@@ -893,7 +896,7 @@ export async function stopDaemon(): Promise<{
  */
 export function readAdminToken(): string | null {
   const paths = [
-    path.join(os.homedir(), '.agenshield', '.admin-token'),
+    path.join(_hostHome, '.agenshield', '.admin-token'),
   ];
   for (const tokenPath of paths) {
     try {
