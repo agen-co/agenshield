@@ -5,6 +5,7 @@ import { HttpFallbackServer } from '../http-fallback.js';
 // Mock daemon-forward module
 jest.mock('../daemon-forward.js', () => ({
   forwardPolicyToDaemon: jest.fn().mockResolvedValue(null),
+  forwardEventsToDaemon: jest.fn(),
 }));
 
 // Mock handlers module so processRequest doesn't need real handler implementations

@@ -54,4 +54,11 @@ export interface DaemonStatus {
     expiresAt?: string;
     error?: string;
   };
+  /** Auto-shield state (present when auto-shield has been triggered) */
+  autoShield?: {
+    state: 'pending' | 'in_progress' | 'complete' | 'failed';
+    progress?: { current: number; total: number; currentTarget?: string };
+    result?: { shielded: number; failed: number; skipped: number };
+    error?: string;
+  };
 }

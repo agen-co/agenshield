@@ -157,3 +157,12 @@ export {
   type WorkspaceSensitiveFilesProtectedPayload,
   WORKSPACE_EVENT_TYPES,
 } from './workspace.events';
+
+export {
+  type AutoShieldStartedPayload,
+  type AutoShieldTargetStartedPayload,
+  type AutoShieldTargetCompletePayload,
+  type AutoShieldTargetFailedPayload,
+  type AutoShieldCompletePayload,
+  AUTO_SHIELD_EVENT_TYPES,
+} from './auto-shield.events';

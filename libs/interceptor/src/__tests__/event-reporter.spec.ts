@@ -33,19 +33,30 @@ describe('EventReporter', () => {
     });
 
     it('drops oldest events when queue exceeds MAX_QUEUE_SIZE', () => {
-      for (let i = 0; i < 510; i++) {
-        reporter.report({
-          type: 'intercept',
-          operation: 'exec',
-          target: `cmd-${i}`,
-          timestamp: new Date(),
+      // Make flush a no-op to prevent auto-flush from clearing the queue
+      const origFlush = reporter.flush.bind(reporter);
+      reporter.flush = jest.fn();
+
+      // Push 500 events directly to bypass auto-flush at 100
+      for (let i = 0; i < 500; i++) {
+        (reporter as any).queue.push({
+          type: 'intercept', operation: 'exec', target: `bg-${i}`, timestamp: new Date(),
         });
       }
 
-      expect((reporter as any).queue.length).toBeLessThanOrEqual(500);
-      // Oldest events should be dropped
+      // Now report one more — queue length becomes 501, triggering the splice on line 75
+      reporter.report({
+        type: 'intercept', operation: 'exec', target: 'overflow', timestamp: new Date(),
+      });
+
+      expect((reporter as any).queue.length).toBe(500);
+      // First bg event should be dropped
       const targets = (reporter as any).queue.map((e: any) => e.target);
-      expect(targets).not.toContain('cmd-0');
+      expect(targets).not.toContain('bg-0');
+      expect(targets).toContain('overflow');
+
+      // Restore flush
+      reporter.flush = origFlush;
     });
 
     it('auto-flushes at 100 queued events', () => {
@@ -172,6 +183,33 @@ describe('EventReporter', () => {
 
       expect((reporter as any).queue).toHaveLength(0);
     });
+
+    it('trims re-queued events if queue exceeds MAX_QUEUE_SIZE during retry', async () => {
+      // Fill queue to near max
+      for (let i = 0; i < 499; i++) {
+        (reporter as any).queue.push({
+          type: 'intercept', operation: 'exec', target: `bg-${i}`, timestamp: new Date(),
+        });
+      }
+
+      // Add 10 events and flush — they'll go into the splice buffer
+      const events: any[] = [];
+      for (let i = 0; i < 10; i++) {
+        events.push({ type: 'allow', operation: 'exec', target: `flush-${i}`, timestamp: new Date() });
+      }
+      // Manually set up the retry scenario: splice the queue's events, fail, re-queue
+      const savedQueue = (reporter as any).queue.splice(0);
+      (reporter as any).queue.push(...events);
+
+      mockClient.request.mockRejectedValueOnce(new Error('fail'));
+      // Re-add the background events so the re-queue makes it overflow
+      (reporter as any).queue.push(...savedQueue);
+
+      await reporter.flush();
+
+      // Queue should be trimmed to MAX_QUEUE_SIZE
+      expect((reporter as any).queue.length).toBeLessThanOrEqual(500);
+    });
   });
 
   describe('stop()', () => {
@@ -246,6 +284,12 @@ describe('EventReporter', () => {
       expect(logMsg).toContain('[42ms]');
       debugSpy.mockRestore();
       warnReporter.stop();
+    });
+
+    it('getLogLevel returns info for unknown event types', () => {
+      // Directly test the private getLogLevel with a synthetic event type
+      const level = (reporter as any).getLogLevel({ type: 'unknown_type' });
+      expect(level).toBe('info');
     });
   });
 });

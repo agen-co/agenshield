@@ -2,7 +2,7 @@
  * Python Wrapper Script Generator
  */
 
-import type { WrapperConfig } from '../types.js';
+import type { WrapperConfig } from './types.js';
 
 export function generatePythonWrapper(config: WrapperConfig): string {
   const envVars = Object.entries(config.environmentVariables || {})

@@ -9,9 +9,11 @@ jest.mock('../client/sync-client', () => ({
   })),
 }));
 
+const mockGetProxyConfig = jest.fn();
+const mockShouldBypassProxy = jest.fn();
 jest.mock('../proxy-env', () => ({
-  getProxyConfig: jest.fn().mockReturnValue({ enabled: false, hostname: '', port: 0, url: '', noProxy: [] }),
-  shouldBypassProxy: jest.fn().mockReturnValue(false),
+  getProxyConfig: (...args: any[]) => mockGetProxyConfig(...args),
+  shouldBypassProxy: (...args: any[]) => mockShouldBypassProxy(...args),
 }));
 
 import { HttpInterceptor } from '../interceptors/http';
@@ -65,6 +67,11 @@ describe('HttpInterceptor', () => {
     origHttpGet = httpModule.get;
     origHttpsRequest = httpsModule.request;
     origHttpsGet = httpsModule.get;
+  });
+
+  beforeEach(() => {
+    mockGetProxyConfig.mockReturnValue({ enabled: false, hostname: '', port: 0, url: '', noProxy: [] });
+    mockShouldBypassProxy.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -173,6 +180,81 @@ describe('HttpInterceptor', () => {
       });
     });
 
+    it('reports deny event when policy result is not allowed', () => {
+      const mockReporter = {
+        intercept: jest.fn(), allow: jest.fn(),
+        deny: jest.fn(), error: jest.fn(),
+      };
+      mockSyncRequest.mockReturnValue({ allowed: false, policyId: 'deny-p', reason: 'blocked' });
+
+      const interceptor = createInterceptor({ eventReporter: mockReporter });
+      interceptor.install();
+
+      const req = httpModule.request('http://evil.com/data');
+
+      return new Promise<void>((resolve) => {
+        req.on('error', (err: Error) => {
+          expect(err).toBeInstanceOf(PolicyDeniedError);
+          expect(mockReporter.deny).toHaveBeenCalledWith('http_request', 'http://evil.com/data', 'deny-p', 'blocked');
+          interceptor.uninstall();
+          resolve();
+        });
+      });
+    });
+
+    it('reports allow event when policy result is allowed', () => {
+      const mockReporter = {
+        intercept: jest.fn(), allow: jest.fn(),
+        deny: jest.fn(), error: jest.fn(),
+      };
+      mockSyncRequest.mockReturnValue({ allowed: true, policyId: 'allow-p' });
+
+      const interceptor = createInterceptor({ eventReporter: mockReporter });
+      interceptor.install();
+
+      const req = httpModule.request('http://example.com/ok');
+      req.on('error', () => {});
+      req.destroy();
+
+      expect(mockReporter.allow).toHaveBeenCalledWith('http_request', 'http://example.com/ok', 'allow-p', expect.any(Number));
+      interceptor.uninstall();
+    });
+
+    it('handles non-PolicyDeniedError with failOpen=true', () => {
+      mockSyncRequest.mockImplementation(() => {
+        throw new Error('broker unavailable');
+      });
+
+      const interceptor = createInterceptor({ failOpen: true });
+      interceptor.install();
+
+      // Should not throw — failOpen returns null from syncPolicyCheck
+      const req = httpModule.request('http://example.com/data');
+      req.on('error', () => {});
+      req.destroy();
+
+      interceptor.uninstall();
+    });
+
+    it('throws non-PolicyDeniedError with failOpen=false', () => {
+      mockSyncRequest.mockImplementation(() => {
+        throw new Error('broker unavailable');
+      });
+
+      const interceptor = createInterceptor({ failOpen: false });
+      interceptor.install();
+
+      const req = httpModule.request('http://example.com/data');
+
+      return new Promise<void>((resolve) => {
+        req.on('error', (err: Error) => {
+          expect(err.message).toBe('broker unavailable');
+          interceptor.uninstall();
+          resolve();
+        });
+      });
+    });
+
     it('handles RequestOptions (object) input', () => {
       mockSyncRequest.mockReturnValue({ allowed: true });
 
@@ -209,6 +291,53 @@ describe('HttpInterceptor', () => {
       req.on('error', () => {});
       req.destroy();
 
+      expect(mockSyncRequest).toHaveBeenCalled();
+
+      interceptor.uninstall();
+    });
+
+    it('routes through proxy when proxy is enabled', () => {
+      mockGetProxyConfig.mockReturnValue({
+        enabled: true,
+        hostname: '127.0.0.1',
+        port: 8888,
+        url: 'http://127.0.0.1:8888',
+        noProxy: [],
+      });
+      mockShouldBypassProxy.mockReturnValue(false);
+
+      const interceptor = createInterceptor();
+      interceptor.install();
+
+      const req = httpModule.request('http://example.com/proxied');
+      req.on('error', () => {});
+      req.destroy();
+
+      // Policy check should NOT be called (proxy mode skips it)
+      expect(mockSyncRequest).not.toHaveBeenCalled();
+
+      interceptor.uninstall();
+    });
+
+    it('skips proxy for bypassed URLs', () => {
+      mockGetProxyConfig.mockReturnValue({
+        enabled: true,
+        hostname: '127.0.0.1',
+        port: 8888,
+        url: 'http://127.0.0.1:8888',
+        noProxy: ['internal.com'],
+      });
+      mockShouldBypassProxy.mockReturnValue(true);
+      mockSyncRequest.mockReturnValue({ allowed: true });
+
+      const interceptor = createInterceptor();
+      interceptor.install();
+
+      const req = httpModule.request('http://internal.com/api');
+      req.on('error', () => {});
+      req.destroy();
+
+      // Should fall through to direct policy check
       expect(mockSyncRequest).toHaveBeenCalled();
 
       interceptor.uninstall();

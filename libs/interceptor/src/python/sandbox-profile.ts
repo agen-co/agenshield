@@ -2,7 +2,7 @@
  * macOS Sandbox Profile Generator for Python
  */
 
-import type { SandboxProfileConfig } from '../types.js';
+import type { SandboxProfileConfig } from './types.js';
 
 export function generateSandboxProfile(config: SandboxProfileConfig): string {
   const additionalReadPaths = (config.additionalReadPaths || [])

@@ -146,6 +146,7 @@ export function registerInstallCommand(program: Command): void {
     .option('--policy-url <url>', 'Policy server URL for cloud login', 'http://localhost:9090')
     .option('--org <name>', 'Organization name displayed in menu bar login')
     .option('--skip-services', 'Skip automatic macOS LaunchDaemon and menu bar agent installation', false)
+    .option('--auto-shield', 'Automatically shield detected targets after enrollment', false)
     .action(withGlobals(async (opts) => {
       const useSEA = opts['sea'] as boolean;
       const menuBarOptions = {
@@ -349,6 +350,13 @@ export function registerInstallCommand(program: Command): void {
           await installMacOSServices(menuBarOptions);
         }
 
+        // Write auto-shield intent file
+        if (opts['autoShield']) {
+          const autoShieldPath = path.join(AGENSHIELD_HOME, 'auto-shield.json');
+          fs.writeFileSync(autoShieldPath, JSON.stringify({ enabled: true, createdAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o644 });
+          output.success('Auto-shield enabled');
+        }
+
         // Restart daemon if it was running before install
         if (wasDaemonRunning) {
           const restartSpinner = await createSpinner('Restarting daemon...');
@@ -478,6 +486,13 @@ export function registerInstallCommand(program: Command): void {
         output.info('');
         output.info('  Installing macOS services...');
         await installMacOSServices(menuBarOptions);
+      }
+
+      // 9d. Write auto-shield intent file
+      if (opts['autoShield']) {
+        const autoShieldPath = path.join(AGENSHIELD_HOME, 'auto-shield.json');
+        fs.writeFileSync(autoShieldPath, JSON.stringify({ enabled: true, createdAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o644 });
+        output.success('Auto-shield enabled');
       }
 
       // 10. Restart daemon if it was running before install

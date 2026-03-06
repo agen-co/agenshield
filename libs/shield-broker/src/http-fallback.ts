@@ -364,7 +364,7 @@ export class HttpFallbackServer {
         error: `DNS resolution failed for ${hostname}`,
       });
       clientSocket.write(
-        'HTTP/1.1 403 Forbidden\r\n' +
+        'HTTP/1.1 502 Bad Gateway\r\n' +
         'X-Proxy-Error: dns-resolution-failed\r\n' +
         'Content-Type: text/plain\r\n\r\n' +
         `DNS resolution failed: ${hostname}`,

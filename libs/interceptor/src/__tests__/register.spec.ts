@@ -93,7 +93,7 @@ jest.mock('../policy/evaluator', () => ({
   })),
 }));
 
-import { installInterceptors, uninstallInterceptors, isInstalled } from '../installer';
+import { installInterceptors, uninstallInterceptors, isInstalled, getClient } from '../installer';
 import { FetchInterceptor } from '../interceptors/fetch';
 import { HttpInterceptor } from '../interceptors/http';
 import { WebSocketInterceptor } from '../interceptors/websocket';
@@ -226,6 +226,27 @@ describe('installInterceptors', () => {
     expect(consoleSpy).toHaveBeenCalledWith('[AgenShield] AgenShield interceptors installed');
 
     consoleSpy.mockRestore();
+  });
+
+  it('dumps config to stderr when logLevel is debug', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    installInterceptors({ logLevel: 'debug' });
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[AgenShield:config]',
+      expect.stringContaining('"logLevel"')
+    );
+
+    errorSpy.mockRestore();
+  });
+
+  it('getClient returns null before install and client after install', () => {
+    expect(getClient()).toBeNull();
+
+    installInterceptors({ logLevel: 'error' });
+
+    expect(getClient()).not.toBeNull();
   });
 
   it('passes config to interceptor constructors', () => {
@@ -928,14 +949,313 @@ describe('ChildProcessInterceptor - intercepted methods', () => {
     const child = cpModule.fork('/nonexistent-module.js', [], { silent: true });
     child.on('error', () => {}); // ignore errors
 
-    // The fork should have modified the env
-    // We can't easily test the env passed to the real fork, but the interceptor
-    // exercises the env filtering code path
-
     process.env['SECRET'] = savedEnv['SECRET'];
     process.env['HOME'] = savedEnv['HOME'];
 
     interceptor.uninstall();
+  });
+
+  it('constructor creates resourceMonitor when enableResourceMonitoring is true', () => {
+    const { interceptor } = createCpInterceptor({
+      config: {
+        enableResourceMonitoring: true,
+        enableSeatbelt: false,
+        socketPath: '/tmp/test.sock',
+        httpHost: 'localhost',
+        httpPort: 5201,
+        timeout: 5000,
+      },
+    });
+    expect((interceptor as any).resourceMonitor).not.toBeNull();
+  });
+
+  it('trackChild calls resourceMonitor.track when limits exist', () => {
+    const { interceptor } = createCpInterceptor();
+    const mockTrack = jest.fn();
+    (interceptor as any).resourceMonitor = { track: mockTrack, stopAll: jest.fn() };
+
+    const mockChild = { pid: 123 };
+    const policyResult = {
+      allowed: true,
+      sandbox: { resourceLimits: { memoryMb: { warn: 100, kill: 200 } } },
+      traceId: 'trace-1',
+    };
+
+    (interceptor as any).trackChild(mockChild, 'cmd', policyResult);
+    expect(mockTrack).toHaveBeenCalledWith(mockChild, 'cmd', { memoryMb: { warn: 100, kill: 200 } }, 'trace-1');
+  });
+
+  it('trackChild does nothing when no limits', () => {
+    const { interceptor } = createCpInterceptor();
+    const mockTrack = jest.fn();
+    (interceptor as any).resourceMonitor = { track: mockTrack, stopAll: jest.fn() };
+
+    (interceptor as any).trackChild({ pid: 123 }, 'cmd', { allowed: true });
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it('trackChild does nothing when child has no pid', () => {
+    const { interceptor } = createCpInterceptor();
+    const mockTrack = jest.fn();
+    (interceptor as any).resourceMonitor = { track: mockTrack, stopAll: jest.fn() };
+
+    (interceptor as any).trackChild({ pid: undefined }, 'cmd', {
+      sandbox: { resourceLimits: { memoryMb: { warn: 100, kill: 200 } } },
+    });
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it('syncPolicyCheck returns null on non-PolicyDenied error with failOpen', () => {
+    const { interceptor } = createCpInterceptor({ failOpen: true });
+    (interceptor as any).syncClient = {
+      request: jest.fn().mockImplementation(() => { throw new Error('broker unavailable'); }),
+    };
+
+    const result = (interceptor as any).syncPolicyCheck('cmd');
+    expect(result).toBeNull();
+  });
+
+  it('syncPolicyCheck throws on non-PolicyDenied error with failOpen=false', () => {
+    const { interceptor } = createCpInterceptor({ failOpen: false });
+    (interceptor as any).failOpen = false;
+    (interceptor as any).syncClient = {
+      request: jest.fn().mockImplementation(() => { throw new Error('broker down'); }),
+    };
+
+    expect(() => (interceptor as any).syncPolicyCheck('cmd')).toThrow('broker down');
+  });
+
+  it('execSync re-entrancy guard with _executing flag', () => {
+    const { interceptor } = createCpInterceptor();
+    const mockRequest = jest.fn().mockReturnValue({ allowed: true });
+    (interceptor as any).syncClient = { request: mockRequest };
+
+    interceptor.install();
+
+    (interceptor as any)._executing = true;
+    const result = cpModule.execSync('echo skipped', { encoding: 'utf-8' });
+    expect(mockRequest).not.toHaveBeenCalled();
+    (interceptor as any)._executing = false;
+
+    interceptor.uninstall();
+  });
+
+  it('spawn re-entrancy guard with _executing flag', () => {
+    const { interceptor } = createCpInterceptor();
+    const mockRequest = jest.fn().mockReturnValue({ allowed: true });
+    (interceptor as any).syncClient = { request: mockRequest };
+
+    interceptor.install();
+
+    (interceptor as any)._executing = true;
+    const child = cpModule.spawn('echo', ['skipped']);
+    child.on('error', () => {});
+    expect(mockRequest).not.toHaveBeenCalled();
+    (interceptor as any)._executing = false;
+
+    interceptor.uninstall();
+  });
+
+  it('spawnSync re-entrancy guard with _executing flag', () => {
+    const { interceptor } = createCpInterceptor();
+    const mockRequest = jest.fn().mockReturnValue({ allowed: true });
+    (interceptor as any).syncClient = { request: mockRequest };
+
+    interceptor.install();
+
+    (interceptor as any)._executing = true;
+    cpModule.spawnSync('echo', ['skipped']);
+    expect(mockRequest).not.toHaveBeenCalled();
+    (interceptor as any)._executing = false;
+
+    interceptor.uninstall();
+  });
+
+  it('execFile re-entrancy guard with _executing flag', (done) => {
+    const { interceptor } = createCpInterceptor();
+    const mockRequest = jest.fn().mockReturnValue({ allowed: true });
+    (interceptor as any).syncClient = { request: mockRequest };
+
+    interceptor.install();
+
+    (interceptor as any)._executing = true;
+    cpModule.execFile('echo', ['skipped'], () => {
+      expect(mockRequest).not.toHaveBeenCalled();
+      (interceptor as any)._executing = false;
+      interceptor.uninstall();
+      done();
+    });
+  });
+
+  it('fork re-entrancy guard with _executing flag', () => {
+    const { interceptor } = createCpInterceptor();
+    const mockRequest = jest.fn().mockReturnValue({ allowed: true });
+    (interceptor as any).syncClient = { request: mockRequest };
+
+    interceptor.install();
+
+    (interceptor as any)._executing = true;
+    const child = cpModule.fork('/nonexistent.js', [], { silent: true });
+    child.on('error', () => {});
+    expect(mockRequest).not.toHaveBeenCalled();
+    (interceptor as any)._executing = false;
+
+    interceptor.uninstall();
+  });
+
+  it('exec with options passes wrapped options', (done) => {
+    const { interceptor } = createCpInterceptor();
+    (interceptor as any).syncClient = {
+      request: jest.fn().mockReturnValue({ allowed: true }),
+    };
+
+    interceptor.install();
+
+    cpModule.exec('echo opts', { cwd: '/tmp' }, (err: any) => {
+      interceptor.uninstall();
+      done();
+    });
+  });
+
+  it('execFile without callback', () => {
+    const { interceptor } = createCpInterceptor();
+    (interceptor as any).syncClient = {
+      request: jest.fn().mockReturnValue({ allowed: true }),
+    };
+
+    interceptor.install();
+
+    // Call execFile without a callback — exercises line 627
+    const child = cpModule.execFile('echo', ['no-callback']);
+    child.on('error', () => {});
+
+    interceptor.uninstall();
+  });
+
+  it('execFile with options object', (done) => {
+    const { interceptor } = createCpInterceptor();
+    (interceptor as any).syncClient = {
+      request: jest.fn().mockReturnValue({ allowed: true }),
+    };
+
+    interceptor.install();
+
+    // Pass args + options + callback to exercise object option parsing (lines 586-587)
+    cpModule.execFile('echo', ['with-opts'], { cwd: '/tmp' }, (err) => {
+      interceptor.uninstall();
+      done();
+    });
+  });
+
+  it('wrapWithSeatbelt wraps command with sandbox-exec', () => {
+    const { interceptor } = createCpInterceptor();
+    (interceptor as any).profileManager = {
+      generateProfile: jest.fn().mockReturnValue('(version 1)'),
+      getOrCreateProfile: jest.fn().mockReturnValue('/tmp/profile.sb'),
+    };
+
+    const result = (interceptor as any).wrapWithSeatbelt(
+      'ls', ['-la'], undefined,
+      {
+        allowed: true,
+        sandbox: {
+          enabled: true,
+          envAllow: ['HOME', 'PATH'],
+          envInjection: { CUSTOM: 'val' },
+          envDeny: ['SECRET'],
+        },
+      }
+    );
+
+    expect(result.command).toBe('/usr/bin/sandbox-exec');
+    expect(result.args).toEqual(['-f', '/tmp/profile.sb', 'ls', '-la']);
+    expect(result.options.env.CUSTOM).toBe('val');
+    expect(result.options.env.SECRET).toBeUndefined();
+    expect(result.options.env.NODE_OPTIONS).toBeUndefined();
+  });
+
+  it('wrapCommandStringWithSeatbelt wraps command string', () => {
+    const { interceptor } = createCpInterceptor();
+    (interceptor as any).profileManager = {
+      generateProfile: jest.fn().mockReturnValue('(version 1)'),
+      getOrCreateProfile: jest.fn().mockReturnValue('/tmp/profile.sb'),
+    };
+
+    const result = (interceptor as any).wrapCommandStringWithSeatbelt(
+      'echo hello', undefined,
+      {
+        allowed: true,
+        sandbox: {
+          enabled: true,
+          envAllow: ['HOME'],
+          envInjection: { FOO: 'bar' },
+          envDeny: ['BAD'],
+        },
+      }
+    );
+
+    expect(result.command).toBe('/usr/bin/sandbox-exec -f /tmp/profile.sb echo hello');
+    expect(result.options.env.FOO).toBe('bar');
+    expect(result.options.env.BAD).toBeUndefined();
+    expect(result.options.env.NODE_OPTIONS).toBeUndefined();
+  });
+
+  it('resolveSandbox returns fail-open sandbox when policyResult is null and profileManager exists', () => {
+    const { interceptor } = createCpInterceptor();
+    (interceptor as any).profileManager = { generateProfile: jest.fn() };
+
+    const sandbox = (interceptor as any).resolveSandbox(null);
+    expect(sandbox).not.toBeNull();
+    expect(sandbox.enabled).toBe(true);
+    expect(sandbox.networkAllowed).toBe(false);
+  });
+
+  it('resolveSandbox returns null when policy has no sandbox enabled', () => {
+    const { interceptor } = createCpInterceptor();
+    const sandbox = (interceptor as any).resolveSandbox({ allowed: true, sandbox: { enabled: false } });
+    expect(sandbox).toBeNull();
+  });
+
+  it('resolveSandbox returns sandbox from policy when enabled', () => {
+    const { interceptor } = createCpInterceptor();
+    const policySandbox = { enabled: true, allowedReadPaths: ['/tmp'] };
+    const sandbox = (interceptor as any).resolveSandbox({ allowed: true, sandbox: policySandbox });
+    expect(sandbox).toBe(policySandbox);
+  });
+
+  it('unwrapGuardedShell strips full-path guarded-shell', () => {
+    const { interceptor } = createCpInterceptor();
+    const result = (interceptor as any).unwrapGuardedShell('/usr/local/bin/guarded-shell -c gog auth list');
+    expect(result).toBe('gog auth list');
+  });
+
+  it('unwrapGuardedShell strips basename guarded-shell', () => {
+    const { interceptor } = createCpInterceptor();
+    const result = (interceptor as any).unwrapGuardedShell('guarded-shell -c echo hello');
+    expect(result).toBe('echo hello');
+  });
+
+  it('unwrapGuardedShell strips per-target path guarded-shell', () => {
+    const { interceptor } = createCpInterceptor();
+    const result = (interceptor as any).unwrapGuardedShell('/Users/me/.agenshield/bin/guarded-shell -c git status');
+    expect(result).toBe('git status');
+  });
+
+  it('unwrapGuardedShell passes through non-guarded commands', () => {
+    const { interceptor } = createCpInterceptor();
+    const result = (interceptor as any).unwrapGuardedShell('echo hello');
+    expect(result).toBe('echo hello');
+  });
+
+  it('uninstall calls resourceMonitor.stopAll', () => {
+    const { interceptor } = createCpInterceptor();
+    const mockStopAll = jest.fn();
+    (interceptor as any).resourceMonitor = { stopAll: mockStopAll };
+
+    interceptor.install();
+    interceptor.uninstall();
+
+    expect(mockStopAll).toHaveBeenCalled();
   });
 });
 
@@ -1306,5 +1626,31 @@ describe('FetchInterceptor (integration)', () => {
     expect((interceptor as any).isLocalUrl('http://[::1]:5000/api')).toBe(true);
     expect((interceptor as any).isLocalUrl('https://external.com')).toBe(false);
     expect((interceptor as any).isLocalUrl('not-a-url')).toBe(false);
+  });
+
+  it('creates ProxyAgent when HTTP_PROXY is set', () => {
+    const savedProxy = process.env['HTTP_PROXY'];
+    process.env['HTTP_PROXY'] = 'http://127.0.0.1:9999';
+
+    const mockReporter = {
+      intercept: jest.fn(), allow: jest.fn(), deny: jest.fn(),
+      error: jest.fn(), report: jest.fn(), flush: jest.fn(), stop: jest.fn(),
+    };
+
+    const interceptor = new RealFetchInterceptor({
+      client: { request: jest.fn() } as any,
+      policyEvaluator: { check: jest.fn() } as any,
+      eventReporter: mockReporter as any,
+      failOpen: true,
+      brokerHttpPort: 5201,
+    });
+
+    // ProxyAgent should be created (or null if undici not available, but no error)
+    expect(interceptor).toBeDefined();
+    // The proxyConfig should be enabled
+    expect((interceptor as any).proxyConfig.enabled).toBe(true);
+
+    if (savedProxy !== undefined) process.env['HTTP_PROXY'] = savedProxy;
+    else delete process.env['HTTP_PROXY'];
   });
 });

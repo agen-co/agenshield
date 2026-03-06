@@ -2,7 +2,7 @@
  * sitecustomize.py Generator
  */
 
-import type { SitecustomizeConfig } from '../types.js';
+import type { SitecustomizeConfig } from './types.js';
 
 export function generateSitecustomize(config: SitecustomizeConfig): string {
   return `# -*- coding: utf-8 -*-

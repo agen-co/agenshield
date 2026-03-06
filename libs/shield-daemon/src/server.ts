@@ -59,6 +59,7 @@ import { startFallbackNotifications, stopFallbackNotifications } from './service
 import { startAutoUpdateWatcher, stopAutoUpdateWatcher } from './watchers/auto-update';
 import { WorkspaceSkillScanner } from './services/workspace-skill-scanner';
 import { getActivationService } from './services/activation';
+import { getAutoShieldService } from './services/auto-shield';
 
 /**
  * Create and configure the Fastify server
@@ -212,6 +213,9 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // MDM org enrollment: if MDM config exists and not yet enrolled,
   // initiate the device code flow asynchronously.
   startEnrollmentIfNeeded(app);
+
+  // Bind Fastify instance to auto-shield service so it can use app.inject()
+  getAutoShieldService().setApp(app);
 
   return app;
 }

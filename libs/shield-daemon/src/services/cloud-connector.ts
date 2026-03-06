@@ -57,6 +57,7 @@ export class CloudConnector {
   private connected = false;
   private stopped = false;
   private lastCommandFetch: string | undefined;
+  private _autoShieldFromCloud: boolean | undefined;
 
   /**
    * Try to connect to AgenShield Cloud.
@@ -121,6 +122,13 @@ export class CloudConnector {
    */
   getCompanyName(): string | undefined {
     return this.credentials?.companyName;
+  }
+
+  /**
+   * Get the cloud-driven auto-shield flag (undefined if not received from cloud).
+   */
+  getAutoShieldFlag(): boolean | undefined {
+    return this._autoShieldFromCloud;
   }
 
   // ─── WebSocket connection ──────────────────────────────────
@@ -569,13 +577,16 @@ export class CloudConnector {
         throw new Error(`HTTP ${res.status} pulling policies`);
       }
 
-      const body = await res.json() as { source?: string; policies?: PolicyConfig[] };
+      const body = await res.json() as { source?: string; policies?: PolicyConfig[]; autoShield?: boolean };
       if (body.policies && Array.isArray(body.policies)) {
         await this.applyPolicyPush({
           source: body.source ?? 'cloud',
           policies: body.policies,
         });
         log.info(`[cloud] Pulled ${body.policies.length} policies from cloud`);
+      }
+      if (body.autoShield !== undefined) {
+        this._autoShieldFromCloud = body.autoShield;
       }
     } catch (err) {
       log.warn({ err }, '[cloud] Failed to pull policies');
