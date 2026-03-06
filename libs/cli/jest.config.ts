@@ -16,6 +16,7 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../test-output/coverage/libs/cli',
+  coverageReporters: ['text', 'lcov', 'json-summary'],
   coveragePathIgnorePatterns: [
     '/node_modules/',
     '/src/index.ts', // Ignore index.ts (re-exports only, no logic to test)

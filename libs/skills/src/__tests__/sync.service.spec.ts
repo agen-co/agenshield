@@ -13,7 +13,7 @@ import Database from 'better-sqlite3';
 import { SchemaMigration } from '../../../storage/src/migrations/001-schema';
 import { SkillsRepository } from '../../../storage/src/repositories/skills/skills.repository';
 import { SkillManager } from '../manager';
-import { OpenClawDeployAdapter } from '../deploy/adapters/openclaw.adapter';
+import { TestDeployAdapter } from './helpers/test-deploy-adapter';
 import type { Storage } from '@agenshield/storage';
 import type {
   SkillSourceAdapter,
@@ -135,7 +135,7 @@ describe('SyncService raw slugs (no prefixing)', () => {
     const fakeStorage = { skills: repo } as unknown as Storage;
     return new SkillManager(fakeStorage, {
       offlineMode: true,
-      deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+      deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
       watcher: {
         skillsDir: dirs.skillsDir,
         quarantineDir: dirs.quarantineDir,
@@ -224,7 +224,7 @@ describe('SyncService.registerSource / unregisterSource', () => {
     const fakeStorage = { skills: repo } as unknown as Storage;
     return new SkillManager(fakeStorage, {
       offlineMode: true,
-      deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+      deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
       watcher: {
         skillsDir: dirs.skillsDir,
         quarantineDir: dirs.quarantineDir,
@@ -317,7 +317,7 @@ describe('SyncService aggregated queries', () => {
     const fakeStorage = { skills: repo } as unknown as Storage;
     return new SkillManager(fakeStorage, {
       offlineMode: true,
-      deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+      deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
       watcher: {
         skillsDir: dirs.skillsDir,
         quarantineDir: dirs.quarantineDir,
@@ -611,7 +611,7 @@ describe('SyncService.syncSource (update + removal)', () => {
     const fakeStorage = { skills: repo } as unknown as Storage;
     return new SkillManager(fakeStorage, {
       offlineMode: true,
-      deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+      deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
       watcher: {
         skillsDir: dirs.skillsDir,
         quarantineDir: dirs.quarantineDir,
@@ -787,7 +787,7 @@ describe('SyncService.syncAll', () => {
     const fakeStorage = { skills: repo } as unknown as Storage;
     return new SkillManager(fakeStorage, {
       offlineMode: true,
-      deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+      deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
       watcher: {
         skillsDir: dirs.skillsDir,
         quarantineDir: dirs.quarantineDir,
@@ -849,7 +849,7 @@ describe('SyncService.getSkillFiles', () => {
     const fakeStorage = { skills: repo } as unknown as Storage;
     manager = new SkillManager(fakeStorage, {
       offlineMode: true,
-      deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+      deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
       watcher: { skillsDir: dirs.skillsDir, pollIntervalMs: 60_000 },
       backupDir: dirs.backupDir,
     });
@@ -891,7 +891,7 @@ describe('SyncService.syncSource error paths', () => {
     const fakeStorage = { skills: repo } as unknown as Storage;
     return new SkillManager(fakeStorage, {
       offlineMode: true,
-      deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+      deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
       watcher: { skillsDir: dirs.skillsDir, quarantineDir: dirs.quarantineDir, pollIntervalMs: 60_000 },
       backupDir: dirs.backupDir,
     });
@@ -1005,7 +1005,7 @@ describe('SyncService.emit error resilience', () => {
     const fakeStorage = { skills: repo } as unknown as Storage;
     manager = new SkillManager(fakeStorage, {
       offlineMode: true,
-      deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+      deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
       watcher: {
         skillsDir: dirs.skillsDir,
         quarantineDir: dirs.quarantineDir,

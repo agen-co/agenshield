@@ -30,5 +30,6 @@ export default {
     '^(.*)\\.js$': '$1',
   },
   coverageDirectory: '../../test-output/coverage/libs/auth',
+  coverageReporters: ['text', 'lcov', 'json-summary'],
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
 };

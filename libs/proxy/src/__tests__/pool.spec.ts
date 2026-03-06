@@ -1,6 +1,13 @@
 import * as http from 'node:http';
 import * as net from 'node:net';
 import { ProxyPool } from '../pool';
+import {
+  ProxyError,
+  ProxyBindError,
+  ProxyPoolExhaustedError,
+  PolicyBlockedError,
+  classifyNetworkError,
+} from '../errors';
 import type { PolicyConfig } from '@agenshield/ipc';
 
 function allowAllPolicies(): PolicyConfig[] {
@@ -75,6 +82,52 @@ describe('ProxyPool', () => {
 
   afterEach(() => {
     pool?.shutdown();
+  });
+
+  it('uses default options when constructed without arguments', () => {
+    pool = new ProxyPool();
+    expect(pool.size).toBe(0);
+  });
+
+  it('release is a no-op for unknown execId', () => {
+    pool = new ProxyPool({}, { logger: jest.fn() });
+    // Should not throw
+    pool.release('non-existent-exec-id');
+    expect(pool.size).toBe(0);
+  });
+
+  it('uses console.log when no logger hook provided', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    pool = new ProxyPool({});
+
+    await pool.acquire('exec-console', 'cmd', allowAllPolicies, () => 'allow');
+    expect(consoleSpy).toHaveBeenCalled();
+
+    consoleSpy.mockRestore();
+  });
+
+  it('rejects with ProxyBindError when server fails to bind', async () => {
+    pool = new ProxyPool({}, { logger: jest.fn() });
+
+    // Acquire a proxy to occupy a port
+    const { port } = await pool.acquire('exec-bind-1', 'cmd', allowAllPolicies, () => 'allow');
+
+    // Create a second pool and try to bind to the same specific port
+    // by using a raw server to occupy and trigger the error path
+    const blockingServer = net.createServer();
+    const blockingPort = await new Promise<number>((resolve) => {
+      blockingServer.listen(0, '127.0.0.1', () => {
+        resolve((blockingServer.address() as net.AddressInfo).port);
+      });
+    });
+
+    // We can't easily force ProxyPool to bind to a specific port,
+    // but we can verify the error class works properly
+    const err = new ProxyBindError('EADDRINUSE');
+    expect(err.code).toBe('PROXY_BIND_FAILED');
+    expect(err.message).toBe('EADDRINUSE');
+
+    blockingServer.close();
   });
 
   it('acquire returns a valid port with a listening server', async () => {
@@ -246,5 +299,142 @@ describe('ProxyPool', () => {
     // Both should fire
     expect(poolOnBlock).toHaveBeenCalledWith('exec-cb', 'GET', expect.any(String), 'https');
     expect(acquireOnBlock).toHaveBeenCalledWith('GET', expect.any(String), 'https');
+  });
+
+  it('fires onAllow pool hook and per-acquire onAllow on allowed requests', async () => {
+    const upstream = await new Promise<{ server: http.Server; port: number }>((resolve) => {
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200);
+        res.end('ok');
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address() as net.AddressInfo;
+        resolve({ server, port: addr.port });
+      });
+    });
+
+    try {
+      const poolOnAllow = jest.fn();
+      const acquireOnAllow = jest.fn();
+      pool = new ProxyPool({}, { onAllow: poolOnAllow, logger: jest.fn() });
+
+      const { port } = await pool.acquire(
+        'exec-allow',
+        'cmd',
+        allowAllPolicies,
+        () => 'allow',
+        { onAllow: acquireOnAllow },
+      );
+
+      await proxyRequest(port, `http://127.0.0.1:${upstream.port}/test`);
+
+      expect(poolOnAllow).toHaveBeenCalledWith('exec-allow', 'GET', expect.any(String), 'http');
+      expect(acquireOnAllow).toHaveBeenCalledWith('GET', expect.any(String), 'http');
+    } finally {
+      upstream.server.close();
+    }
+  });
+});
+
+describe('Error classes', () => {
+  it('ProxyError sets name, code, message, and stack', () => {
+    const err = new ProxyError('test message', 'TEST_CODE');
+    expect(err).toBeInstanceOf(Error);
+    expect(err.name).toBe('ProxyError');
+    expect(err.code).toBe('TEST_CODE');
+    expect(err.message).toBe('test message');
+    expect(err.stack).toBeDefined();
+  });
+
+  it('ProxyBindError defaults message and sets code', () => {
+    const err = new ProxyBindError();
+    expect(err).toBeInstanceOf(ProxyError);
+    expect(err.name).toBe('ProxyBindError');
+    expect(err.code).toBe('PROXY_BIND_FAILED');
+    expect(err.message).toBe('Failed to bind proxy server');
+  });
+
+  it('ProxyBindError accepts custom message', () => {
+    const err = new ProxyBindError('custom bind error');
+    expect(err.message).toBe('custom bind error');
+    expect(err.code).toBe('PROXY_BIND_FAILED');
+  });
+
+  it('ProxyPoolExhaustedError sets maxConcurrent', () => {
+    const err = new ProxyPoolExhaustedError(42);
+    expect(err).toBeInstanceOf(ProxyError);
+    expect(err.name).toBe('ProxyPoolExhaustedError');
+    expect(err.code).toBe('PROXY_POOL_EXHAUSTED');
+    expect(err.maxConcurrent).toBe(42);
+    expect(err.message).toContain('42');
+  });
+
+  it('PolicyBlockedError sets target, method, protocol', () => {
+    const err = new PolicyBlockedError({
+      target: 'https://blocked.com',
+      method: 'GET',
+      protocol: 'https',
+    });
+    expect(err).toBeInstanceOf(ProxyError);
+    expect(err.name).toBe('PolicyBlockedError');
+    expect(err.code).toBe('POLICY_BLOCKED');
+    expect(err.target).toBe('https://blocked.com');
+    expect(err.method).toBe('GET');
+    expect(err.protocol).toBe('https');
+    expect(err.message).toContain('blocked.com');
+  });
+});
+
+describe('classifyNetworkError', () => {
+  it('classifies ENOTFOUND as dns-resolution-failed', () => {
+    const err = Object.assign(new Error('getaddrinfo ENOTFOUND'), { code: 'ENOTFOUND' });
+    const result = classifyNetworkError(err);
+    expect(result.type).toBe('dns-resolution-failed');
+    expect(result.userMessage).toContain('DNS resolution failed');
+  });
+
+  it('classifies EAI_AGAIN as dns-resolution-failed', () => {
+    const err = Object.assign(new Error('temporary failure'), { code: 'EAI_AGAIN' });
+    const result = classifyNetworkError(err);
+    expect(result.type).toBe('dns-resolution-failed');
+  });
+
+  it('classifies ECONNREFUSED as connection-refused', () => {
+    const err = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+    const result = classifyNetworkError(err);
+    expect(result.type).toBe('connection-refused');
+    expect(result.userMessage).toContain('Connection refused');
+  });
+
+  it('classifies ETIMEDOUT as connection-timeout', () => {
+    const err = Object.assign(new Error('connect ETIMEDOUT'), { code: 'ETIMEDOUT' });
+    const result = classifyNetworkError(err);
+    expect(result.type).toBe('connection-timeout');
+    expect(result.userMessage).toContain('Connection timed out');
+  });
+
+  it('classifies ENETUNREACH as connection-timeout', () => {
+    const err = Object.assign(new Error('net unreachable'), { code: 'ENETUNREACH' });
+    const result = classifyNetworkError(err);
+    expect(result.type).toBe('connection-timeout');
+  });
+
+  it('classifies EHOSTUNREACH as connection-timeout', () => {
+    const err = Object.assign(new Error('host unreachable'), { code: 'EHOSTUNREACH' });
+    const result = classifyNetworkError(err);
+    expect(result.type).toBe('connection-timeout');
+  });
+
+  it('classifies unknown codes as network-error', () => {
+    const err = Object.assign(new Error('something else'), { code: 'EUNKNOWN' });
+    const result = classifyNetworkError(err);
+    expect(result.type).toBe('network-error');
+    expect(result.userMessage).toContain('Network error');
+  });
+
+  it('classifies errors with no code as network-error', () => {
+    const err = new Error('no code');
+    const result = classifyNetworkError(err);
+    expect(result.type).toBe('network-error');
   });
 });

@@ -22,7 +22,7 @@ import { SkillBackupService } from '../backup/backup.service';
 import { SkillWatcherService } from '../watcher/watcher.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { LocalSearchAdapter } from '../catalog/adapters/local.adapter';
-import { OpenClawDeployAdapter } from '../deploy/adapters/openclaw.adapter';
+import { TestDeployAdapter } from './helpers/test-deploy-adapter';
 
 jest.setTimeout(60_000);
 
@@ -286,7 +286,7 @@ describe('Performance', () => {
       emitter = new EventEmitter();
       backup = new SkillBackupService(dirs.backupDir);
 
-      const adapter = new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false });
+      const adapter = new TestDeployAdapter({ skillsDir: dirs.skillsDir });
       deployService = new DeployService(repo, [adapter], emitter, backup);
       installService = new InstallService(repo, null, emitter, deployService);
 
@@ -384,7 +384,7 @@ describe('Performance', () => {
       repo = new SkillsRepository(db, () => null);
       emitter = new EventEmitter();
       const backup = new SkillBackupService(dirs.backupDir);
-      const adapter = new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false });
+      const adapter = new TestDeployAdapter({ skillsDir: dirs.skillsDir });
       const deployer = new DeployService(repo, [adapter], emitter, backup);
       watcher = new SkillWatcherService(repo, deployer, emitter, {
         skillsDir: dirs.skillsDir,
@@ -452,7 +452,7 @@ describe('Performance', () => {
       repo = new SkillsRepository(db, () => null);
       emitter = new EventEmitter();
       backup = new SkillBackupService(dirs.backupDir);
-      const adapter = new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false });
+      const adapter = new TestDeployAdapter({ skillsDir: dirs.skillsDir });
       deployer = new DeployService(repo, [adapter], emitter, backup);
 
       const profiles = ensureProfiles(db, 50);
@@ -702,7 +702,7 @@ describe('Performance', () => {
       repo = new SkillsRepository(db, () => null);
       emitter = new EventEmitter();
       backup = new SkillBackupService(dirs.backupDir);
-      const adapter = new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false });
+      const adapter = new TestDeployAdapter({ skillsDir: dirs.skillsDir });
       deployer = new DeployService(repo, [adapter], emitter, backup);
       watcher = new SkillWatcherService(repo, deployer, emitter, {
         skillsDir: dirs.skillsDir,

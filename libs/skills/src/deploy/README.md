@@ -8,22 +8,19 @@ Pluggable deploy adapters for writing skill files to disk and managing wrapper s
 deploy/
   types.ts                  # DeployAdapter interface, DeployContext, DeployResult, IntegrityCheckResult
   deploy.service.ts         # Orchestrates adapters, emits events
-  adapters/
-    openclaw.adapter.ts     # OpenClaw filesystem deployer
-    index.ts
   index.ts
 ```
+
+Adapters are provided by consumers (e.g., `DaemonDeployAdapter` in `libs/shield-daemon`).
 
 ## Usage
 
 ```typescript
-import { DeployService, OpenClawDeployAdapter } from '@agentshield/skills';
+import { DeployService } from '@agentshield/skills';
+import type { DeployAdapter } from '@agentshield/skills';
 
-const adapter = new OpenClawDeployAdapter({
-  skillsDir: '~/.openclaw/workspace/skills',
-  binDir: '~/bin',
-  createWrappers: true,
-});
+// Consumers provide their own adapter implementation
+const adapter: DeployAdapter = createMyAdapter();
 
 const deployer = new DeployService(skillsRepo, [adapter], emitter);
 ```

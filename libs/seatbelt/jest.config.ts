@@ -20,5 +20,6 @@ export default {
     '^@agenshield/storage$': '<rootDir>/../storage/src/index.ts',
   },
   coverageDirectory: '../../test-output/coverage/libs/seatbelt',
+  coverageReporters: ['text', 'lcov', 'json-summary'],
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
 };

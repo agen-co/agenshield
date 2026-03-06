@@ -20,5 +20,6 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
   coverageDirectory: '../../test-output/coverage/libs/sandbox',
+  coverageReporters: ['text', 'lcov', 'json-summary'],
   testMatch: ['<rootDir>/src/__tests__/**/*.spec.ts'],
 };

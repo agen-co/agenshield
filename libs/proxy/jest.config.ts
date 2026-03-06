@@ -19,5 +19,6 @@ export default {
     '^@agenshield/policies$': '<rootDir>/../policies/src/index.ts',
   },
   coverageDirectory: '../../test-output/coverage/libs/proxy',
+  coverageReporters: ['text', 'lcov', 'json-summary'],
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
 };

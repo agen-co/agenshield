@@ -39,13 +39,12 @@ export type { UploadFromZipParams, UploadResult } from './upload';
 export { UpdateService } from './update';
 
 // Deploy
-export { DeployService, OpenClawDeployAdapter } from './deploy';
+export { DeployService } from './deploy';
 export type {
   DeployAdapter,
   DeployContext,
   DeployResult,
   IntegrityCheckResult,
-  OpenClawDeployAdapterOptions,
 } from './deploy';
 
 // Watcher

@@ -1,7 +1,7 @@
 /**
  * Skill lifecycle integration tests — real filesystem + real SQLite
  *
- * Tests the full install/uninstall/watcher cycle using OpenClawDeployAdapter
+ * Tests the full install/uninstall/watcher cycle using TestDeployAdapter
  * with real file I/O and real SQLite, verifying that:
  *   - SkillManager.install() suppresses watcher events
  *   - SkillManager.uninstall() suppresses watcher events
@@ -19,7 +19,7 @@ import { SkillsRepository } from '../../../storage/src/repositories/skills/skill
 import { SkillManager } from '../manager';
 import { DeployService } from '../deploy/deploy.service';
 import { SkillWatcherService } from '../watcher/watcher.service';
-import { OpenClawDeployAdapter } from '../deploy/adapters/openclaw.adapter';
+import { TestDeployAdapter } from './helpers/test-deploy-adapter';
 import type { SkillEvent } from '../events';
 import type { Storage } from '@agenshield/storage';
 
@@ -107,7 +107,7 @@ function waitForEvent(emitter: EventEmitter, type: string, timeoutMs = 5000): Pr
   });
 }
 
-/** Create a SkillManager with real OpenClaw adapter and watcher */
+/** Create a SkillManager with real deploy adapter and watcher */
 function createManager(
   repo: SkillsRepository,
   skillsDir: string,
@@ -120,7 +120,7 @@ function createManager(
   const fakeStorage = { skills: repo } as unknown as Storage;
   return new SkillManager(fakeStorage, {
     offlineMode: true,
-    deployers: [new OpenClawDeployAdapter({ skillsDir, createWrappers: false })],
+    deployers: [new TestDeployAdapter({ skillsDir })],
     watcher: {
       skillsDir,
       quarantineDir,
@@ -527,7 +527,7 @@ describe('Skill Lifecycle Integration', () => {
       const fakeStorage = { skills: repo } as unknown as Storage;
       manager = new SkillManager(fakeStorage, {
         offlineMode: true,
-        deployers: [new OpenClawDeployAdapter({ skillsDir: relativeSkillsDir, createWrappers: false })],
+        deployers: [new TestDeployAdapter({ skillsDir: relativeSkillsDir })],
         watcher: {
           skillsDir: relativeSkillsDir,
           quarantineDir: relativeQuarantineDir,
@@ -581,7 +581,7 @@ describe('Skill Lifecycle Integration', () => {
       const fakeStorage = { skills: repo } as unknown as Storage;
       manager = new SkillManager(fakeStorage, {
         offlineMode: true,
-        deployers: [new OpenClawDeployAdapter({ skillsDir: relativeSkillsDir, createWrappers: false })],
+        deployers: [new TestDeployAdapter({ skillsDir: relativeSkillsDir })],
         watcher: {
           skillsDir: relativeSkillsDir,
           quarantineDir: relativeQuarantineDir,
@@ -634,7 +634,7 @@ describe('Skill Lifecycle Integration', () => {
       const fakeStorage = { skills: repo } as unknown as Storage;
       manager = new SkillManager(fakeStorage, {
         offlineMode: true,
-        deployers: [new OpenClawDeployAdapter({ skillsDir: relativeSkillsDir, createWrappers: false })],
+        deployers: [new TestDeployAdapter({ skillsDir: relativeSkillsDir })],
         watcher: {
           skillsDir: relativeSkillsDir,
           quarantineDir: relativeQuarantineDir,
@@ -809,7 +809,7 @@ describe('Skill Lifecycle Integration', () => {
       const fakeStorage = { skills: repo } as unknown as Storage;
       manager = new SkillManager(fakeStorage, {
         offlineMode: true,
-        deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+        deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
         watcher: {
           skillsDir: dirs.skillsDir,
           quarantineDir: dirs.quarantineDir,
@@ -851,7 +851,7 @@ describe('Skill Lifecycle Integration', () => {
       const fakeStorage = { skills: repo } as unknown as Storage;
       manager = new SkillManager(fakeStorage, {
         offlineMode: true,
-        deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+        deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
         watcher: {
           skillsDir: dirs.skillsDir,
           quarantineDir: dirs.quarantineDir,
@@ -892,7 +892,7 @@ describe('Skill Lifecycle Integration', () => {
       const fakeStorage = { skills: repo } as unknown as Storage;
       manager = new SkillManager(fakeStorage, {
         offlineMode: true,
-        deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+        deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
         watcher: {
           skillsDir: dirs.skillsDir,
           quarantineDir: dirs.quarantineDir,
@@ -939,7 +939,7 @@ describe('Skill Lifecycle Integration', () => {
       const fakeStorage = { skills: repo } as unknown as Storage;
       manager = new SkillManager(fakeStorage, {
         offlineMode: true,
-        deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+        deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
         watcher: {
           skillsDir: dirs.skillsDir,
           quarantineDir: dirs.quarantineDir,
@@ -992,7 +992,7 @@ describe('Skill Lifecycle Integration', () => {
       const fakeStorage = { skills: repo } as unknown as Storage;
       manager = new SkillManager(fakeStorage, {
         offlineMode: true,
-        deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+        deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
         watcher: {
           skillsDir: dirs.skillsDir,
           quarantineDir: dirs.quarantineDir,
@@ -1040,7 +1040,7 @@ describe('Skill Lifecycle Integration', () => {
       const fakeStorage = { skills: repo } as unknown as Storage;
       manager = new SkillManager(fakeStorage, {
         offlineMode: true,
-        deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+        deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
         watcher: {
           skillsDir: dirs.skillsDir,
           quarantineDir: dirs.quarantineDir,
@@ -1087,7 +1087,7 @@ describe('Skill Lifecycle Integration', () => {
       const fakeStorage = { skills: repo } as unknown as Storage;
       manager = new SkillManager(fakeStorage, {
         offlineMode: true,
-        deployers: [new OpenClawDeployAdapter({ skillsDir: dirs.skillsDir, createWrappers: false })],
+        deployers: [new TestDeployAdapter({ skillsDir: dirs.skillsDir })],
         watcher: {
           skillsDir: dirs.skillsDir,
           quarantineDir: dirs.quarantineDir,

@@ -17,10 +17,8 @@
       "executor": "@nx/jest:jest",
       "outputs": ["{workspaceRoot}/test-output/performance/{projectRoot}"],
       "options": {
-        "jestConfig": "libs/proxy/jest.config.ts",
-        "testPathPatterns": ["performance"],
+        "jestConfig": "libs/proxy/jest.perf.config.ts",
         "passWithNoTests": true,
-        "coverageDirectory": "../../test-output/performance/libs/proxy",
         "codeCoverage": true,
         "coverageReporters": ["json-summary", "json"]
       }

@@ -40,8 +40,7 @@ graph TD
     UDS --> SR
     UDS --> RC
 
-    DS --> OCA[OpenClawDeployAdapter]
-    DS --> DA[Custom Deploy Adapters...]
+    DS --> DA[Deploy Adapters...]
     DS --> SR
 
     WS --> DS
@@ -71,7 +70,7 @@ const offline = new SkillManager(storage, { offlineMode: true });
 // Custom analyzers + deployers + watcher
 const full = new SkillManager(storage, {
   analyzers: [new BasicAnalyzeAdapter(), myCustomAdapter],
-  deployers: [new OpenClawDeployAdapter({ skillsDir: '~/.openclaw/workspace/skills' })],
+  deployers: [myDeployAdapter],
   watcher: { pollIntervalMs: 30_000 },
   autoStartWatcher: true,
   backupDir: '/path/to/backups',
@@ -115,7 +114,7 @@ Sub-services are also accessible directly: `manager.catalog`, `manager.installer
 | [`analyze/`](src/analyze/README.md) | `AnalyzeService` | `BasicAnalyzeAdapter`, `RemoteAnalyzeAdapter` | Multi-adapter skill analysis |
 | [`backup/`](src/backup/README.md) | `SkillBackupService` | — | SHA-256 verified file backups |
 | [`catalog/`](src/catalog/README.md) | `CatalogService` | `LocalSearchAdapter`, `RemoteSearchAdapter` | Search and browse skills |
-| [`deploy/`](src/deploy/README.md) | `DeployService` | `OpenClawDeployAdapter` | Deploy skills to filesystem, integrity checks |
+| [`deploy/`](src/deploy/README.md) | `DeployService` | Consumer-provided (e.g. `DaemonDeployAdapter`) | Deploy skills to filesystem, integrity checks |
 | [`download/`](src/download/README.md) | `DownloadService` | — | Download skills from marketplace |
 | [`install/`](src/install/README.md) | `InstallService` | — | Install/uninstall skills with deploy integration |
 | [`remote/`](src/remote/README.md) | `DefaultRemoteClient` | — | HTTP client for marketplace API |

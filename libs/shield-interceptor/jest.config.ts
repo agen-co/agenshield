@@ -21,5 +21,6 @@ export default {
     '^@agenshield/storage$': '<rootDir>/../storage/src/index.ts',
   },
   coverageDirectory: '../../test-output/coverage/libs/shield-interceptor',
+  coverageReporters: ['text', 'lcov', 'json-summary'],
   testMatch: ['<rootDir>/src/__tests__/**/*.spec.ts'],
 };

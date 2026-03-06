@@ -1,5 +1,5 @@
 export default {
-  displayName: 'storage',
+  displayName: 'proxy-perf',
   testEnvironment: 'node',
   transform: {
     '^.+\\.tsx?$': [
@@ -16,12 +16,8 @@ export default {
   moduleNameMapper: {
     '^(.*)\\.js$': '$1',
     '^@agenshield/ipc$': '<rootDir>/../shield-ipc/src/index.ts',
+    '^@agenshield/policies$': '<rootDir>/../policies/src/index.ts',
   },
-  testMatch: ['<rootDir>/src/**/*.spec.ts'],
-  coverageDirectory: '../../test-output/coverage/libs/storage',
-  coverageReporters: ['text', 'lcov', 'json-summary'],
-  coveragePathIgnorePatterns: [
-    '/node_modules/',
-    '/src/migrations/',
-  ],
+  coverageDirectory: '../../test-output/performance/libs/proxy',
+  testMatch: ['<rootDir>/src/**/*.perf.ts'],
 };

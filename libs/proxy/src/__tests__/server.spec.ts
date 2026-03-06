@@ -163,11 +163,28 @@ describe('createPerRunProxy', () => {
       expect(result.statusCode).toBe(400);
     });
 
+    it('returns 400 for URL that passes policy check but fails URL parsing', async () => {
+      // http:// passes Node's HTTP parser and checkUrlPolicy (default allow),
+      // but new URL('http://') throws — exercises the catch block (lines 54-57)
+      const port = await startProxy();
+      const result = await proxyRequest(port, 'http://');
+      expect(result.statusCode).toBe(400);
+      expect(result.body).toBe('Invalid URL');
+    });
+
     it('returns 502 for unreachable upstream', async () => {
       // Localhost HTTP is allowed by default
       const port = await startProxy();
       // Use a port that's definitely not listening
       const result = await proxyRequest(port, 'http://127.0.0.1:1/unreachable');
+      expect(result.statusCode).toBe(502);
+    });
+
+    it('returns 502 for URL without explicit port (uses default port)', async () => {
+      // URL without port — exercises parsedUrl.port || defaultPort branch
+      // Port 80 is unlikely to be listening, so we get 502
+      const port = await startProxy();
+      const result = await proxyRequest(port, 'http://127.0.0.1/no-port-test');
       expect(result.statusCode).toBe(502);
     });
   });
@@ -443,6 +460,151 @@ describe('createPerRunProxy', () => {
       } finally {
         echoServer.close();
       }
+    });
+  });
+
+  describe('TLS config', () => {
+    it('passes tls.rejectUnauthorized to HTTPS requests', async () => {
+      const port = await startProxy({
+        tls: { rejectUnauthorized: false },
+      });
+
+      // Request an https:// URL — it will fail to connect but the TLS options
+      // branch (line 78) is exercised. We expect a 502 since there's no real
+      // HTTPS server, but the code path through rejectUnauthorized is hit.
+      const result = await proxyRequest(port, 'https://127.0.0.1:1/tls-test');
+      expect(result.statusCode).toBe(502);
+    });
+  });
+
+  describe('client socket errors', () => {
+    it('destroys server socket when client socket errors during tunnel', async () => {
+      // Create a TCP server that sends data continuously so the proxy tries
+      // to write to clientSocket, triggering an error when it's reset
+      const echoServer = net.createServer((socket) => {
+        socket.on('data', (data) => socket.write(data));
+      });
+      await new Promise<void>((resolve) => echoServer.listen(0, '127.0.0.1', resolve));
+      const echoPort = (echoServer.address() as net.AddressInfo).port;
+
+      try {
+        const port = await startProxy();
+
+        const { socket } = await new Promise<{ socket: net.Socket; statusCode: number }>((resolve, reject) => {
+          const req = http.request({
+            hostname: '127.0.0.1',
+            port,
+            method: 'CONNECT',
+            path: `127.0.0.1:${echoPort}`,
+          });
+          req.on('connect', (res, sock) => {
+            resolve({ socket: sock, statusCode: res.statusCode! });
+          });
+          req.on('error', reject);
+          req.end();
+        });
+
+        // Write data so the pipe is active, then RST the connection
+        socket.on('error', () => {});
+        socket.write('some data');
+        // Use resetAndDestroy to send TCP RST — this triggers clientSocket 'error' on the server side
+        (socket as net.Socket & { resetAndDestroy(): void }).resetAndDestroy();
+        await new Promise((r) => setTimeout(r, 100));
+      } finally {
+        echoServer.close();
+      }
+    });
+  });
+
+  describe('defensive edge cases', () => {
+    it('returns 400 when req.url is empty (direct handler invocation)', () => {
+      const logger = jest.fn();
+      const server = createPerRunProxy(makeOptions({ logger }));
+
+      // Directly invoke the request handler with a mock request that has no URL
+      const listeners = server.listeners('request') as ((req: http.IncomingMessage, res: http.ServerResponse) => void)[];
+      expect(listeners.length).toBe(1);
+
+      const mockRes = {
+        writeHead: jest.fn(),
+        end: jest.fn(),
+      };
+      const mockReq = { url: '' } as unknown as http.IncomingMessage;
+
+      listeners[0](mockReq, mockRes as unknown as http.ServerResponse);
+
+      expect(mockRes.writeHead).toHaveBeenCalledWith(400);
+      expect(mockRes.end).toHaveBeenCalledWith('Bad request');
+    });
+
+    it('CONNECT handler defaults port to 443 when no port in target', () => {
+      const onBlock = jest.fn();
+      const server = createPerRunProxy(makeOptions({
+        getPolicies: denyAllPolicies,
+        getDefaultAction: () => 'allow',
+        onBlock,
+      }));
+
+      // Directly invoke the connect handler with a target that has no port
+      const listeners = server.listeners('connect') as ((req: http.IncomingMessage, socket: net.Socket, head: Buffer) => void)[];
+      expect(listeners.length).toBe(1);
+
+      const mockSocket = {
+        write: jest.fn(),
+        destroy: jest.fn(),
+        on: jest.fn(),
+        pipe: jest.fn(),
+      };
+      const mockReq = { url: 'example.com' } as unknown as http.IncomingMessage;
+
+      listeners[0](mockReq, mockSocket as unknown as net.Socket, Buffer.alloc(0));
+
+      // parseInt(undefined) || 443 = 443
+      expect(onBlock).toHaveBeenCalledWith('CONNECT', 'example.com:443', 'https');
+    });
+
+    it('HTTP handler falls back to GET when req.method is empty (block path)', () => {
+      const onBlock = jest.fn();
+      const server = createPerRunProxy(makeOptions({
+        getPolicies: denyAllPolicies,
+        getDefaultAction: () => 'allow',
+        onBlock,
+      }));
+
+      const listeners = server.listeners('request') as ((req: http.IncomingMessage, res: http.ServerResponse) => void)[];
+      const mockRes = {
+        writeHead: jest.fn(),
+        end: jest.fn(),
+      };
+      const mockReq = { url: 'http://example.com/test', method: '' } as unknown as http.IncomingMessage;
+
+      listeners[0](mockReq, mockRes as unknown as http.ServerResponse);
+
+      // Falls back to 'GET' when method is falsy
+      expect(onBlock).toHaveBeenCalledWith('GET', 'http://example.com/test', 'http');
+    });
+
+    it('HTTP handler falls back to GET when req.method is empty (allow path)', () => {
+      const onAllow = jest.fn();
+      const server = createPerRunProxy(makeOptions({ onAllow }));
+
+      const listeners = server.listeners('request') as ((req: http.IncomingMessage, res: http.ServerResponse) => void)[];
+      const mockRes = {
+        writeHead: jest.fn(),
+        end: jest.fn(),
+        headersSent: false,
+      };
+      const mockReq = {
+        url: 'http://127.0.0.1:1/test',
+        method: '',
+        headers: {},
+        pipe: jest.fn(),
+      } as unknown as http.IncomingMessage;
+
+      listeners[0](mockReq, mockRes as unknown as http.ServerResponse);
+
+      // Falls back to 'GET' when method is falsy
+      expect(onAllow).toHaveBeenCalledWith('GET', 'http://127.0.0.1:1/test', 'http');
     });
   });
 

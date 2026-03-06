@@ -158,4 +158,123 @@ jobs:
         uses: nrwl/nx-set-shas@v4
 
       - name: Run unit tests
-        run: npx nx affected -t test --passWithNoTests
+        id: tests
+        continue-on-error: true
+        run: npx nx affected -t test --passWithNoTests --codeCoverage
+
+      - name: Generate test summary
+        if: always()
+        run: |
+          echo "## Unit Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.tests.outcome }}" == "success" ]; then
+            echo "> ✅ All tests passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "> ❌ Some tests failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Coverage table
+          has_coverage=false
+          for f in test-output/coverage/libs/*/coverage-summary.json; do
+            [ -f "$f" ] || continue
+            if [ "$has_coverage" = false ]; then
+              echo "### Coverage" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "| Library | Statements | Branches | Functions | Lines |" >> $GITHUB_STEP_SUMMARY
+              echo "|---------|-----------|----------|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+              has_coverage=true
+            fi
+            lib=$(echo "$f" | sed 's|.*/libs/||;s|/coverage.*||')
+            stmts=$(jq -r '.total.statements.pct' "$f")
+            branches=$(jq -r '.total.branches.pct' "$f")
+            funcs=$(jq -r '.total.functions.pct' "$f")
+            lines=$(jq -r '.total.lines.pct' "$f")
+            echo "| $lib | ${stmts}% | ${branches}% | ${funcs}% | ${lines}% |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          if [ "$has_coverage" = false ]; then
+            echo "_No coverage data produced (no affected libraries with tests)._" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail if tests failed
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
+
+  # Performance tests (depends on build)
+  perf-tests:
+    name: "Performance Tests"
+    needs: [setup, build]
+    runs-on: ubuntu-latest
+    env:
+      NX_DAEMON: "false"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+          cache: "yarn"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+
+      - name: Restore Nx cache
+        uses: ./.github/actions/nx-cache-restore
+
+      - name: Run performance tests
+        id: perf
+        continue-on-error: true
+        run: npx nx run-many -t perf --parallel 1
+
+      - name: Generate perf summary
+        if: always()
+        run: |
+          echo "## Performance Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.perf.outcome }}" == "success" ]; then
+            echo "> ✅ All benchmarks passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "> ❌ Some benchmarks failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Coverage table from perf tests
+          has_coverage=false
+          for f in test-output/performance/libs/*/coverage-summary.json; do
+            [ -f "$f" ] || continue
+            if [ "$has_coverage" = false ]; then
+              echo "### Coverage" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "| Library | Statements | Branches | Functions | Lines |" >> $GITHUB_STEP_SUMMARY
+              echo "|---------|-----------|----------|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+              has_coverage=true
+            fi
+            lib=$(echo "$f" | sed 's|.*/libs/||;s|/coverage.*||')
+            stmts=$(jq -r '.total.statements.pct' "$f")
+            branches=$(jq -r '.total.branches.pct' "$f")
+            funcs=$(jq -r '.total.functions.pct' "$f")
+            lines=$(jq -r '.total.lines.pct' "$f")
+            echo "| $lib | ${stmts}% | ${branches}% | ${funcs}% | ${lines}% |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          if [ "$has_coverage" = false ]; then
+            echo "_No coverage data produced._" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail if perf tests failed
+        if: steps.perf.outcome == 'failure'
+        run: exit 1

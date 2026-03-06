@@ -20,8 +20,10 @@ export default {
     '^@agenshield/ipc$': '<rootDir>/../shield-ipc/src/index.ts',
     '^@agenshield/storage$': '<rootDir>/../storage/src/index.ts',
     '^@agenshield/sandbox$': '<rootDir>/../sandbox/src/index.ts',
+    '^@agentshield/skills$': '<rootDir>/../skills/src/index.ts',
     '^(.*)\\.js$': '$1',
   },
   coverageDirectory: '../../test-output/coverage/libs/shield-daemon',
+  coverageReporters: ['text', 'lcov', 'json-summary'],
   testMatch: ['<rootDir>/src/__tests__/**/*.spec.ts'],
 };
