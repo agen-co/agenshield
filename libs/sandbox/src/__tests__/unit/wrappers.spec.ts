@@ -1,3 +1,31 @@
+jest.mock('node:child_process', () => ({
+  exec: jest.fn(),
+  spawn: jest.fn(),
+}));
+jest.mock('node:fs/promises', () => ({
+  writeFile: jest.fn().mockResolvedValue(undefined),
+  chmod: jest.fn().mockResolvedValue(undefined),
+  mkdir: jest.fn().mockResolvedValue(undefined),
+  readdir: jest.fn().mockResolvedValue([]),
+  readFile: jest.fn(),
+  stat: jest.fn(),
+  access: jest.fn().mockResolvedValue(undefined),
+  unlink: jest.fn().mockResolvedValue(undefined),
+  copyFile: jest.fn().mockResolvedValue(undefined),
+  symlink: jest.fn().mockResolvedValue(undefined),
+  constants: { X_OK: 1 },
+}));
+jest.mock('node:util', () => ({
+  ...jest.requireActual('node:util'),
+  promisify: jest.fn(() => jest.fn().mockResolvedValue({ stdout: '', stderr: '' })),
+}));
+jest.mock('../../wrappers/generic-wrapper', () => ({
+  installGenericWrapper: jest.fn().mockResolvedValue('/mock/generic-wrapper'),
+  syncGenericWrappers: jest.fn().mockResolvedValue({ created: [], skipped: [] }),
+}));
+
+import * as fs from 'node:fs/promises';
+import { promisify } from 'node:util';
 import {
   WRAPPERS,
   WRAPPER_DEFINITIONS,
@@ -6,7 +34,16 @@ import {
   getAvailableWrappers,
   wrapperUsesSeatbelt,
   wrapperUsesInterceptor,
+  installWrapper,
+  installAllWrappers,
+  uninstallWrapper,
+  verifyWrappers,
+  deployInterceptor,
+  copyNodeBinary,
+  installAgentNvm,
 } from '../../wrappers/wrappers';
+
+const mockFs = fs as jest.Mocked<typeof fs>;
 
 describe('WRAPPERS', () => {
   it('is defined and non-empty', () => {
@@ -193,5 +230,268 @@ describe('wrapperUsesInterceptor', () => {
 
   it('returns false for unknown wrapper', () => {
     expect(wrapperUsesInterceptor('nonexistent')).toBe(false);
+  });
+});
+
+describe('installWrapper', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFs.writeFile.mockResolvedValue(undefined);
+  });
+
+  it('installs a single wrapper with correct file operations', async () => {
+    const result = await installWrapper('git', '#!/bin/bash\nexec /usr/bin/git "$@"', '/tmp/bin');
+
+    expect(result.success).toBe(true);
+    expect(result.name).toBe('git');
+    expect(result.path).toBe('/tmp/bin/git');
+    expect(result.message).toContain('Installed git');
+    expect(mockFs.writeFile).toHaveBeenCalledWith(
+      '/tmp/bin/git',
+      '#!/bin/bash\nexec /usr/bin/git "$@"',
+      { mode: 0o755 },
+    );
+  });
+
+  it('returns failure result on write error', async () => {
+    mockFs.writeFile.mockRejectedValue(new Error('Permission denied'));
+
+    const result = await installWrapper('git', '#!/bin/bash', '/root/bin');
+
+    expect(result.success).toBe(false);
+    expect(result.name).toBe('git');
+    expect(result.message).toContain('Failed to install git');
+    expect(result.error).toBeDefined();
+  });
+
+  it('sets mode 755 on wrapper file', async () => {
+    await installWrapper('curl', '#!/bin/bash\nexec /usr/bin/curl "$@"', '/tmp/bin');
+
+    expect(mockFs.writeFile).toHaveBeenCalledWith(
+      '/tmp/bin/curl',
+      expect.any(String),
+      { mode: 0o755 },
+    );
+  });
+});
+
+describe('installWrapperWithSudo', () => {
+  it('uses sudo for installation', async () => {
+    const { installWrapperWithSudo } = await import('../../wrappers/wrappers');
+
+    const result = await installWrapperWithSudo(
+      'git',
+      '#!/bin/bash\nexec /usr/bin/git "$@"',
+      '/usr/local/bin',
+      'agenshield_agent',
+      'agenshield',
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.name).toBe('git');
+    expect(result.path).toBe('/usr/local/bin/git');
+    expect(result.message).toContain('with sudo');
+  });
+});
+
+describe('installAllWrappers', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFs.writeFile.mockResolvedValue(undefined);
+    mockFs.mkdir.mockResolvedValue(undefined);
+  });
+
+  it('installs all wrappers and returns their names', async () => {
+    const userConfig = {
+      agentUser: {
+        username: 'agenshield_agent',
+        uid: 5200,
+        gid: 5100,
+        home: '/Users/agenshield_agent',
+        shell: '/bin/bash',
+        realname: 'Agent',
+        groups: ['ash_socket'],
+      },
+      brokerUser: {
+        username: 'agenshield_broker',
+        uid: 5201,
+        gid: 5100,
+        home: '/var/empty',
+        shell: '/bin/bash',
+        realname: 'Broker',
+        groups: ['ash_socket'],
+      },
+      groups: {
+        socket: { name: 'ash_socket', gid: 5100, description: 'Socket group' },
+      },
+      prefix: '',
+      baseName: 'default',
+      baseUid: 5200,
+      baseGid: 5100,
+    };
+
+    const result = await installAllWrappers(userConfig, {
+      binDir: '/tmp/test-bin',
+      wrappersDir: '/tmp/test-wrappers',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.installed).toBeDefined();
+    expect(result.installed!.length).toBeGreaterThan(0);
+    // Should include all wrapper definitions
+    const wrapperNames = Object.keys(WRAPPER_DEFINITIONS);
+    for (const name of wrapperNames) {
+      expect(result.installed).toContain(name);
+    }
+  });
+});
+
+describe('uninstallWrapper', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFs.unlink.mockResolvedValue(undefined);
+  });
+
+  it('removes a wrapper', async () => {
+    const result = await uninstallWrapper('git', '/tmp/bin');
+
+    expect(result.success).toBe(true);
+    expect(result.name).toBe('git');
+    expect(result.path).toBe('/tmp/bin/git');
+    expect(result.message).toContain('Uninstalled git');
+    expect(mockFs.unlink).toHaveBeenCalledWith('/tmp/bin/git');
+  });
+
+  it('succeeds when file already removed (ENOENT)', async () => {
+    const err = new Error('not found') as NodeJS.ErrnoException;
+    err.code = 'ENOENT';
+    mockFs.unlink.mockRejectedValue(err);
+
+    const result = await uninstallWrapper('git', '/tmp/bin');
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('already removed');
+  });
+
+  it('returns failure for other errors', async () => {
+    const err = new Error('permission denied') as NodeJS.ErrnoException;
+    err.code = 'EACCES';
+    mockFs.unlink.mockRejectedValue(err);
+
+    const result = await uninstallWrapper('git', '/tmp/bin');
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('Failed to uninstall git');
+    expect(result.error).toBeDefined();
+  });
+});
+
+describe('verifyWrappers', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('reports installed wrappers when access succeeds', async () => {
+    mockFs.access.mockResolvedValue(undefined);
+
+    const result = await verifyWrappers('/tmp/bin');
+
+    expect(result.valid).toBe(true);
+    expect(result.missing).toHaveLength(0);
+    expect(result.installed.length).toBe(Object.keys(WRAPPER_DEFINITIONS).length);
+  });
+
+  it('reports missing wrappers when access fails', async () => {
+    mockFs.access.mockRejectedValue(new Error('not found'));
+
+    const result = await verifyWrappers('/tmp/bin');
+
+    expect(result.valid).toBe(false);
+    expect(result.installed).toHaveLength(0);
+    expect(result.missing.length).toBe(Object.keys(WRAPPER_DEFINITIONS).length);
+  });
+
+  it('reports partial installation correctly', async () => {
+    let callIndex = 0;
+    mockFs.access.mockImplementation(() => {
+      callIndex++;
+      if (callIndex <= 3) {
+        return Promise.resolve(undefined);
+      }
+      return Promise.reject(new Error('not found'));
+    });
+
+    const result = await verifyWrappers('/tmp/bin');
+    const totalWrappers = Object.keys(WRAPPER_DEFINITIONS).length;
+
+    expect(result.valid).toBe(false);
+    expect(result.installed).toHaveLength(3);
+    expect(result.missing).toHaveLength(totalWrappers - 3);
+  });
+});
+
+describe('deployInterceptor', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFs.access.mockResolvedValue(undefined);
+  });
+
+  it('returns correct target path based on hostHome', async () => {
+    const result = await deployInterceptor(undefined, '/Users/custom');
+
+    expect(result.path).toBe('/Users/custom/.agenshield/lib/interceptor/register.cjs');
+  });
+
+  it('returns failure when interceptor source cannot be resolved', async () => {
+    mockFs.access.mockRejectedValue(new Error('ENOENT'));
+
+    const result = await deployInterceptor(undefined, '/Users/testuser');
+
+    expect(result.success).toBe(false);
+    expect(result.name).toBe('interceptor');
+    expect(result.message).toContain('Failed to deploy interceptor');
+  });
+});
+
+describe('copyNodeBinary', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFs.access.mockResolvedValue(undefined);
+  });
+
+  it('copies node binary to agent bin', async () => {
+    const result = await copyNodeBinary(undefined, '/usr/local/bin/node', '/Users/testuser');
+
+    expect(result.success).toBe(true);
+    expect(result.name).toBe('node-bin');
+    expect(result.path).toBe('/Users/testuser/.agenshield/bin/node-bin');
+    expect(result.message).toContain('Copied node binary');
+  });
+
+  it('uses process.execPath when sourcePath not provided', async () => {
+    const result = await copyNodeBinary(undefined, undefined, '/Users/testuser');
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain(process.execPath);
+  });
+});
+
+describe('installAgentNvm', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('installs NVM for agent user', async () => {
+    const result = await installAgentNvm({
+      agentHome: '/Users/agenshield_agent',
+      agentUsername: 'agenshield_agent',
+      socketGroupName: 'ash_socket',
+      nodeVersion: '24',
+      verbose: false,
+    });
+
+    expect(result.nvmDir).toBe('/Users/agenshield_agent/.nvm');
+    // Success depends on the mock behavior of execAsync
+    expect(result.message).toBeDefined();
   });
 });

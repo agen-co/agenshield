@@ -154,16 +154,16 @@ export interface PolicyExecutionContext {
   depth: number;
   /** Parent trace ID from AGENSHIELD_TRACE_ID env var (for execution chain tracing) */
   parentTraceId?: string;
-  /** Source layer: interceptor (Node.js) or es-extension (macOS EndpointSecurity) */
-  sourceLayer?: 'interceptor' | 'es-extension';
-  /** Agent user name from ES extension (e.g. "ash_default_agent") */
-  esUser?: string;
-  /** Process ID from ES extension */
-  esPid?: number;
-  /** Parent process ID from ES extension */
-  esPpid?: number;
+  /** Source layer: interceptor (Node.js) or native (macOS app / EndpointSecurity) */
+  sourceLayer?: 'interceptor' | 'native';
+  /** Agent user name from native macOS app (e.g. "ash_default_agent") */
+  nativeUser?: string;
+  /** Process ID from native macOS app */
+  nativePid?: number;
+  /** Parent process ID from native macOS app */
+  nativePpid?: number;
   /** macOS audit session ID — groups all execs in a login session */
-  esSessionId?: number;
+  nativeSessionId?: number;
 }
 
 /**

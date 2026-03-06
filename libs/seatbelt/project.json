@@ -17,12 +17,8 @@
       "executor": "@nx/jest:jest",
       "outputs": ["{workspaceRoot}/test-output/performance/{projectRoot}"],
       "options": {
-        "jestConfig": "libs/seatbelt/jest.config.ts",
-        "testPathPatterns": ["performance"],
-        "passWithNoTests": true,
-        "coverageDirectory": "../../test-output/performance/libs/seatbelt",
-        "codeCoverage": true,
-        "coverageReporters": ["json-summary", "json"]
+        "jestConfig": "libs/seatbelt/jest.perf.config.ts",
+        "passWithNoTests": false
       }
     },
     "build-cjs": {

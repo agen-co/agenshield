@@ -1,0 +1,54 @@
+/**
+ * @agenshield/interceptor
+ *
+ * Node.js runtime interception via ESM loader and CJS preload.
+ * Intercepts network, file system, and process operations to route
+ * them through the AgenShield broker daemon.
+ */
+
+export { installInterceptors, uninstallInterceptors } from './installer.js';
+export { InterceptorConfig, createConfig } from './config.js';
+
+// Interceptor exports
+export { FetchInterceptor } from './interceptors/fetch.js';
+export { HttpInterceptor } from './interceptors/http.js';
+export { WebSocketInterceptor } from './interceptors/websocket.js';
+export { ChildProcessInterceptor } from './interceptors/child-process.js';
+export { FsInterceptor } from './interceptors/fs.js';
+
+// Client exports
+export { AsyncClient } from './client/http-client.js';
+export { SyncClient } from './client/sync-client.js';
+
+// Policy exports
+export { PolicyEvaluator } from './policy/evaluator.js';
+
+// Event exports
+export { EventReporter } from './events/reporter.js';
+
+// Resource monitoring
+export { ResourceMonitor } from './resource/index.js';
+
+// Proxy environment
+export { getProxyConfig, shouldBypassProxy, type ProxyConfig } from './proxy-env.js';
+
+// Error types
+export { AgenShieldError, PolicyDeniedError, ResourceLimitExceededError } from './errors.js';
+
+// Python patcher
+export {
+  PythonPatcher,
+  PythonVerifier,
+  verifyPython,
+  generateSitecustomize,
+  generatePythonWrapper,
+  generateSandboxProfile,
+} from './python/index.js';
+export type {
+  PatcherConfig,
+  PatcherResult,
+  VerificationResult,
+  SitecustomizeConfig,
+  WrapperConfig,
+  SandboxProfileConfig,
+} from './python/index.js';

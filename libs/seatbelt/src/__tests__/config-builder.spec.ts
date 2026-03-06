@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { buildSandboxConfig } from '../config-builder';
 import type { SeatbeltDeps, BuildSandboxInput, SharedCapabilities } from '../config-builder';
 import type { GraphEffects } from '@agenshield/policies';
@@ -291,6 +294,24 @@ describe('buildSandboxConfig', () => {
       // Network should NOT be allowed since proxy couldn't be acquired
       expect(result.envInjection['HTTP_PROXY']).toBeUndefined();
     });
+
+    it('proxy mode with no target (graph network only)', async () => {
+      const effects = emptyEffects();
+      effects.grantedNetworkPatterns = ['*.example.com'];
+
+      let capturedTarget = '';
+      const deps = createDeps({
+        acquireProxy: async (_id, cmd, _policies) => {
+          capturedTarget = cmd;
+          return { port: 22222 };
+        },
+      });
+
+      // No target — proxy triggered by graph network grants
+      const result = await buildSandboxConfig(deps, { effects });
+      expect(result.networkAllowed).toBe(true);
+      expect(capturedTarget).toBe('');
+    });
   });
 
   describe('filesystem paths from policies', () => {
@@ -352,6 +373,12 @@ describe('buildSandboxConfig', () => {
       // "node" is not absolute, so it shouldn't be in allowedBinaries
       // essential paths like agentHome/homebrew/ are still there
       expect(result.allowedBinaries).not.toContain('node');
+    });
+
+    it('empty command after fork: prefix stripping does not add binaries', async () => {
+      const result = await buildSandboxConfig(createDeps(), { target: 'fork: ' });
+      // cmd would be empty string after split, so the if(cmd) branch is false
+      expect(result.enabled).toBe(true);
     });
 
     it('essential agent home paths always added', async () => {
@@ -515,6 +542,134 @@ describe('buildSandboxConfig', () => {
     it('no sharedCapabilities → no crash', async () => {
       const result = await buildSandboxConfig(createDeps(), { target: 'echo hi' });
       expect(result.enabled).toBe(true);
+    });
+  });
+
+  describe('guarded shell injection', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seatbelt-gs-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('injects SHELL when guarded shell exists on disk', async () => {
+      // Create the guarded-shell file at the expected path
+      const guardedShellDir = path.join(tempDir, '.agenshield', 'bin');
+      fs.mkdirSync(guardedShellDir, { recursive: true });
+      const guardedShellPath = path.join(guardedShellDir, 'guarded-shell');
+      fs.writeFileSync(guardedShellPath, '#!/bin/sh\n', { mode: 0o755 });
+
+      const deps = createDeps({ agentHome: tempDir });
+      const result = await buildSandboxConfig(deps, { target: 'echo hi' });
+      expect(result.envInjection['SHELL']).toBe(guardedShellPath);
+    });
+
+    it('does NOT inject SHELL when guarded shell does not exist', async () => {
+      const result = await buildSandboxConfig(createDeps(), { target: 'echo hi' });
+      expect(result.envInjection['SHELL']).toBeUndefined();
+    });
+  });
+
+  describe('realpath symlink resolution', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seatbelt-rl-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('adds resolved realpath when it differs from command path (symlink)', async () => {
+      // Create a real binary and a symlink to it
+      const realBin = path.join(tempDir, 'mybin-real');
+      const symlinkBin = path.join(tempDir, 'mybin');
+      fs.writeFileSync(realBin, '#!/bin/sh\n', { mode: 0o755 });
+      fs.symlinkSync(realBin, symlinkBin);
+
+      // macOS resolves /var → /private/var via realpath, so use realpathSync
+      // to get the actual resolved paths the code will produce
+      const resolvedSymlink = fs.realpathSync(symlinkBin);
+
+      const result = await buildSandboxConfig(createDeps(), { target: `${symlinkBin} arg1` });
+      expect(result.allowedBinaries).toContain(symlinkBin);
+      // The resolved realpath differs from the original symlink path
+      expect(resolvedSymlink).not.toBe(symlinkBin);
+      expect(result.allowedBinaries).toContain(resolvedSymlink);
+    });
+
+    it('does not duplicate when realpath matches original (no symlink)', async () => {
+      // Create a real file (not a symlink) — realpath returns the same path
+      const realBin = path.join(fs.realpathSync(tempDir), 'realbin');
+      fs.writeFileSync(realBin, '#!/bin/sh\n', { mode: 0o755 });
+
+      const result = await buildSandboxConfig(createDeps(), { target: `${realBin} arg1` });
+      // Should appear exactly once — no duplicate from realpath
+      const entries = result.allowedBinaries.filter(b => b === realBin);
+      expect(entries.length).toBe(1);
+    });
+  });
+
+  describe('resource limits', () => {
+    it('merges policy resource limits when resourceMonitoring enabled', async () => {
+      const deps = createDeps({
+        resourceMonitoring: { enabled: true, defaults: { memoryMb: 256, cpuPercent: 50 } },
+      });
+      const result = await buildSandboxConfig(deps, {
+        target: 'echo hi',
+        matchedPolicy: {
+          id: 'p1', name: 'Limited', target: 'command', action: 'allow',
+          patterns: ['echo'], enabled: true,
+          resourceLimits: { memoryMb: 512, timeoutMs: 30000 },
+        },
+      });
+      expect(result.resourceLimits).toEqual({
+        memoryMb: 512,       // policy override
+        cpuPercent: 50,      // global default
+        timeoutMs: 30000,    // policy override
+        sampleIntervalMs: undefined,
+      });
+    });
+
+    it('uses global defaults when no policy limits', async () => {
+      const deps = createDeps({
+        resourceMonitoring: { enabled: true, defaults: { memoryMb: 128, cpuPercent: 25, timeoutMs: 60000 } },
+      });
+      const result = await buildSandboxConfig(deps, { target: 'echo hi' });
+      expect(result.resourceLimits).toEqual({
+        memoryMb: 128,
+        cpuPercent: 25,
+        timeoutMs: 60000,
+        sampleIntervalMs: undefined,
+      });
+    });
+
+    it('no resource limits when resourceMonitoring disabled', async () => {
+      const deps = createDeps({
+        resourceMonitoring: { enabled: false, defaults: { memoryMb: 128 } },
+      });
+      const result = await buildSandboxConfig(deps, { target: 'echo hi' });
+      expect(result.resourceLimits).toBeUndefined();
+    });
+
+    it('no resource limits when resourceMonitoring not provided', async () => {
+      const deps = createDeps();
+      const result = await buildSandboxConfig(deps, { target: 'echo hi' });
+      expect(result.resourceLimits).toBeUndefined();
+    });
+
+    it('no resource limits when enabled but no defaults and no policy limits', async () => {
+      const deps = createDeps({
+        resourceMonitoring: { enabled: true },
+      });
+      const result = await buildSandboxConfig(deps, { target: 'echo hi' });
+      // Both policyLimits and globalDefaults are undefined → no resourceLimits set
+      expect(result.resourceLimits).toBeUndefined();
     });
   });
 });

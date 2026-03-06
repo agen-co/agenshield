@@ -253,8 +253,8 @@ export {
   stripEnvFromSkillMd,
 } from './detection/discovery/index.js';
 
-// ES Extension (embedded .app path resolver)
-export { getESExtensionAppPath } from './inject/es-extension.js';
+// macOS App (embedded .app path resolver)
+export { getMacAppBundlePath } from './inject/macos-app.js';
 
 // Skill Injector (AgenCo skill injection)
 export {

@@ -252,7 +252,7 @@ describe('evaluateGraphEffects', () => {
     const secrets = mockSecretsRepo();
 
     const effects = evaluateGraphEffects('p1', graph, repo as never, secrets, {
-      esPid: 42,
+      nativePid: 42,
       callerType: 'agent',
     });
 

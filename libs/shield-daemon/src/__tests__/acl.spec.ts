@@ -589,6 +589,8 @@ describe('denyWorkspaceSkill (return value)', () => {
     mockExecSync.mockReturnValueOnce('total 0\n' as never);
     // chmod succeeds
     mockExecSync.mockReturnValueOnce('' as never);
+    // chflags hidden (best-effort)
+    mockExecSync.mockReturnValueOnce('' as never);
     // verifyUserAcl check: ACL now present
     mockExecSync.mockReturnValueOnce(
       'total 0\n 0: user:ash_agent deny read,readattr,readextattr,list,search,execute\n' as never,

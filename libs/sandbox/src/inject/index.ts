@@ -1,4 +1,4 @@
-export { getESExtensionAppPath } from './es-extension.js';
+export { getMacAppBundlePath } from './macos-app.js';
 
 export {
   injectAgenCoSkill,

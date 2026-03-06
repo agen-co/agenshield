@@ -147,13 +147,13 @@ jobs:
             exit 0
           fi
 
-          rm -rf libs/sandbox/es-extension/AgenShield.app
-          cp -R "$MAC_APP" libs/sandbox/es-extension/AgenShield.app
+          rm -rf libs/sandbox/macos-app/AgenShield.app
+          cp -R "$MAC_APP" libs/sandbox/macos-app/AgenShield.app
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -n "$(git status --porcelain libs/sandbox/es-extension/)" ]; then
-            git add libs/sandbox/es-extension/AgenShield.app
+          if [ -n "$(git status --porcelain libs/sandbox/macos-app/)" ]; then
+            git add libs/sandbox/macos-app/AgenShield.app
             git commit -m "chore: update signed AgenShield.app for npm distribution"
             git push origin HEAD
           else

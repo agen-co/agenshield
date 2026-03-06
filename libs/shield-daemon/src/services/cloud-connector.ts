@@ -531,6 +531,7 @@ export class CloudConnector {
 
       if (action === 'kill') {
         log.warn(`[cloud] Killing process PID ${proc.pid}: ${proc.command.slice(0, 120)}`);
+        emitProcessViolation(payload);
         await killProcessTree(proc.pid);
         emitProcessKilled(payload);
       } else {

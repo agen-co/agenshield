@@ -21,11 +21,11 @@ function ensureIntegrations(): void {
   _integrationsLoaded = true;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const integrations = require('@agenshield/integrations') as Record<string, unknown>;
+    const integrations = require('@agenshield/seatbelt') as Record<string, unknown>;
     getOpenClawStatusSync = integrations['getOpenClawStatusSync'] as typeof getOpenClawStatusSync;
     detectHostOpenClawVersion = integrations['detectHostOpenClawVersion'] as typeof detectHostOpenClawVersion;
   } catch {
-    // @agenshield/integrations may not be available
+    // @agenshield/seatbelt may not be available
   }
 }
 

@@ -17,7 +17,7 @@ import {
   type ExecMonitoredPayload,
   type ExecDeniedPayload,
   type InterceptorEventPayload,
-  type ESExecPayload,
+  type NativeExecPayload,
   type AgenCoAuthRequiredPayload,
   type AgenCoErrorPayload,
   type SkillInstallProgressPayload,
@@ -125,7 +125,7 @@ function deriveSource(type: string, data: unknown, profileId?: string): string {
   }
   if (type.startsWith('setup:')) return (d?.targetId as string) ?? 'daemon';
   if (type.startsWith('process:broker')) return (d?.process as string) ?? 'system';
-  if (type.startsWith('exec:') || type.startsWith('es:')) return profile ?? 'daemon';
+  if (type.startsWith('exec:') || type.startsWith('native:')) return profile ?? 'daemon';
   if (type.startsWith('broker:')) return profile ?? 'daemon';
   if (type.startsWith('trace:')) return profile ?? 'daemon';
   if (type.startsWith('skills:')) return profile ?? (d?.target as string) ?? 'daemon';
@@ -262,8 +262,8 @@ export function emitSkillInstallProgress(skillName: string, step: string, messag
   broadcast('skills:install_progress', { name: skillName, step, message }, profileId);
 }
 
-export function emitESExecEvent(event: ESExecPayload, profileId?: string): void {
-  broadcast('es:exec', event, profileId);
+export function emitNativeExecEvent(event: NativeExecPayload, profileId?: string): void {
+  broadcast('native:exec', event, profileId);
 }
 
 export function emitInterceptorEvent(event: InterceptorEventPayload, profileId?: string): void {

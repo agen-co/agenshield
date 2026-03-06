@@ -457,4 +457,249 @@ describe('ProfileManager', () => {
       expect(profile).toContain('(allow file-read* (subpath "/data/b"))');
     });
   });
+
+  describe('generateProfile — env-dependent branches', () => {
+    const pm = new ProfileManager('/tmp/test-profiles');
+
+    it('skips HOME-based paths when HOME is not set', () => {
+      const origHome = process.env['HOME'];
+      const origNvm = process.env['NVM_DIR'];
+      const origBrew = process.env['HOMEBREW_PREFIX'];
+      delete process.env['HOME'];
+      delete process.env['NVM_DIR'];
+      delete process.env['HOMEBREW_PREFIX'];
+      try {
+        const profile = pm.generateProfile(createSandbox());
+        // Should still have system paths
+        expect(profile).toContain('(subpath "/usr/bin")');
+        // No HOME-derived ~/bin or ~/homebrew paths (only system /bin is present)
+        const lines = profile.split('\n');
+        const homeBinLines = lines.filter(l =>
+          l.includes('/bin")') &&
+          !l.includes('/usr/') &&
+          !l.includes('/sbin') &&
+          !l.includes('/opt/') &&
+          !l.includes('"/bin"'),  // system /bin
+        );
+        expect(homeBinLines.length).toBe(0);
+        // NVM_DIR fallback requires HOME — with both unset, no .nvm subpath
+        expect(profile).not.toContain('.nvm');
+      } finally {
+        process.env['HOME'] = origHome;
+        if (origNvm !== undefined) process.env['NVM_DIR'] = origNvm;
+        if (origBrew !== undefined) process.env['HOMEBREW_PREFIX'] = origBrew;
+      }
+    });
+
+    it('NVM_DIR falls back to HOME/.nvm when NVM_DIR not set', () => {
+      const origHome = process.env['HOME'];
+      const origNvm = process.env['NVM_DIR'];
+      process.env['HOME'] = '/Users/testfallback';
+      delete process.env['NVM_DIR'];
+      try {
+        const profile = pm.generateProfile(createSandbox());
+        expect(profile).toContain('(subpath "/Users/testfallback/.nvm")');
+      } finally {
+        process.env['HOME'] = origHome;
+        if (origNvm !== undefined) process.env['NVM_DIR'] = origNvm;
+      }
+    });
+
+    it('HOMEBREW_PREFIX skipped when HOME is not set', () => {
+      const origHome = process.env['HOME'];
+      const origBrew = process.env['HOMEBREW_PREFIX'];
+      delete process.env['HOME'];
+      process.env['HOMEBREW_PREFIX'] = '/opt/homebrew';
+      try {
+        const profile = pm.generateProfile(createSandbox());
+        // With no HOME, the condition `!home || !brewPrefix.startsWith(home)` → true
+        expect(profile).toContain('(subpath "/opt/homebrew/bin")');
+        expect(profile).toContain('(subpath "/opt/homebrew/lib")');
+      } finally {
+        process.env['HOME'] = origHome;
+        if (origBrew !== undefined) {
+          process.env['HOMEBREW_PREFIX'] = origBrew;
+        } else {
+          delete process.env['HOMEBREW_PREFIX'];
+        }
+      }
+    });
+
+    it('brokerHttpPort defaults to 5201 when 0', () => {
+      const profile = pm.generateProfile(createSandbox({ brokerHttpPort: 0 }));
+      expect(profile).toContain('(allow network-outbound (remote tcp "localhost:5201"))');
+    });
+  });
+
+  describe('getOrCreateProfileAsync', () => {
+    let tempDir: string;
+    let pm: ProfileManager;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seatbelt-async-'));
+      pm = new ProfileManager(tempDir);
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('creates file with content-hash name (sb-{hash}.sb)', async () => {
+      const profilePath = await pm.getOrCreateProfileAsync('(version 1)');
+      expect(path.basename(profilePath)).toMatch(/^sb-[0-9a-f]{16}\.sb$/);
+      expect(fs.existsSync(profilePath)).toBe(true);
+      expect(fs.readFileSync(profilePath, 'utf-8')).toBe('(version 1)');
+    });
+
+    it('returns same path for identical content (idempotent)', async () => {
+      const path1 = await pm.getOrCreateProfileAsync('(version 1)\n(deny default)');
+      const path2 = await pm.getOrCreateProfileAsync('(version 1)\n(deny default)');
+      expect(path1).toBe(path2);
+    });
+
+    it('returns different path for different content', async () => {
+      const path1 = await pm.getOrCreateProfileAsync('content-a');
+      const path2 = await pm.getOrCreateProfileAsync('content-b');
+      expect(path1).not.toBe(path2);
+    });
+
+    it('creates profile directory if not exists', async () => {
+      const nestedDir = path.join(tempDir, 'nested', 'async-profiles');
+      const nestedPm = new ProfileManager(nestedDir);
+      const profilePath = await nestedPm.getOrCreateProfileAsync('test content');
+      expect(fs.existsSync(nestedDir)).toBe(true);
+      expect(fs.existsSync(profilePath)).toBe(true);
+    });
+  });
+
+  describe('cleanupAsync', () => {
+    let tempDir: string;
+    let pm: ProfileManager;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seatbelt-cleanup-async-'));
+      pm = new ProfileManager(tempDir);
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('removes .sb files older than maxAgeMs', async () => {
+      const filePath = path.join(tempDir, 'sb-old.sb');
+      fs.writeFileSync(filePath, 'old profile');
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      fs.utimesSync(filePath, twoHoursAgo, twoHoursAgo);
+
+      await pm.cleanupAsync(60 * 60 * 1000);
+      expect(fs.existsSync(filePath)).toBe(false);
+    });
+
+    it('keeps .sb files newer than maxAgeMs', async () => {
+      const filePath = path.join(tempDir, 'sb-recent.sb');
+      fs.writeFileSync(filePath, 'recent profile');
+
+      await pm.cleanupAsync(60 * 60 * 1000);
+      expect(fs.existsSync(filePath)).toBe(true);
+    });
+
+    it('skips non-.sb files', async () => {
+      const filePath = path.join(tempDir, 'readme.txt');
+      fs.writeFileSync(filePath, 'not a profile');
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      fs.utimesSync(filePath, twoHoursAgo, twoHoursAgo);
+
+      await pm.cleanupAsync(60 * 60 * 1000);
+      expect(fs.existsSync(filePath)).toBe(true);
+    });
+
+    it('no-op when profileDir does not exist', async () => {
+      const nonExistent = new ProfileManager('/tmp/does-not-exist-seatbelt-async-test');
+      await expect(nonExistent.cleanupAsync(60 * 60 * 1000)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('ensureDirAsync — chmod branch', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seatbelt-chmod-async-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('chmod applied when dir exists with restrictive permissions', async () => {
+      const profileDir = path.join(tempDir, 'profiles');
+      fs.mkdirSync(profileDir, { mode: 0o755 });
+
+      const pm = new ProfileManager(profileDir);
+      await pm.getOrCreateProfileAsync('(version 1)');
+
+      const stat = fs.statSync(profileDir);
+      expect(stat.mode & 0o7777).toBe(0o1777);
+    });
+
+    it('no chmod when dir already has 0o777 permissions', async () => {
+      const profileDir = path.join(tempDir, 'profiles');
+      fs.mkdirSync(profileDir);
+      fs.chmodSync(profileDir, 0o1777);
+
+      const pm = new ProfileManager(profileDir);
+      await pm.getOrCreateProfileAsync('(version 1)');
+
+      const stat = fs.statSync(profileDir);
+      expect(stat.mode & 0o7777).toBe(0o1777);
+    });
+
+    it('creates directory when it does not exist', async () => {
+      const profileDir = path.join(tempDir, 'new-async-dir');
+
+      const pm = new ProfileManager(profileDir);
+      await pm.getOrCreateProfileAsync('(version 1)');
+
+      expect(fs.existsSync(profileDir)).toBe(true);
+    });
+  });
+
+  describe('ensureDir — chmod branch', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seatbelt-chmod-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('chmod applied when dir exists with restrictive permissions', () => {
+      // Create dir with restrictive perms
+      const profileDir = path.join(tempDir, 'profiles');
+      fs.mkdirSync(profileDir, { mode: 0o755 });
+
+      const pm = new ProfileManager(profileDir);
+      // getOrCreateProfile triggers ensureDir
+      pm.getOrCreateProfile('(version 1)');
+
+      const stat = fs.statSync(profileDir);
+      // Should have been chmod'd to 0o1777 (sticky + rwxrwxrwx)
+      expect(stat.mode & 0o7777).toBe(0o1777);
+    });
+
+    it('no chmod when dir already has 0o777 permissions', () => {
+      const profileDir = path.join(tempDir, 'profiles');
+      fs.mkdirSync(profileDir);
+      // Explicitly chmod to 0o1777 after creation (mkdirSync respects umask)
+      fs.chmodSync(profileDir, 0o1777);
+
+      const pm = new ProfileManager(profileDir);
+      pm.getOrCreateProfile('(version 1)');
+
+      // Verify the dir still has the expected permissions (wasn't changed)
+      const stat = fs.statSync(profileDir);
+      expect(stat.mode & 0o7777).toBe(0o1777);
+    });
+  });
 });

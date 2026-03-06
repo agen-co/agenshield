@@ -8,6 +8,7 @@
  * Decoupled from daemon internals — uses ProxyPoolHooks for event callbacks.
  */
 
+import type * as net from 'node:net';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { createPerRunProxy } from './server';
 import { ProxyBindError } from './errors';
@@ -17,11 +18,13 @@ export class ProxyPool {
   private proxies = new Map<string, ProxyInstance>();
   private maxConcurrent: number;
   private idleTimeoutMs: number;
+  private drainTimeoutMs: number;
   private hooks: ProxyPoolHooks;
 
   constructor(options: ProxyPoolOptions = {}, hooks: ProxyPoolHooks = {}) {
     this.maxConcurrent = options.maxConcurrent ?? 50;
     this.idleTimeoutMs = options.idleTimeoutMs ?? 5 * 60 * 1000;
+    this.drainTimeoutMs = options.drainTimeoutMs ?? 5000;
     this.hooks = hooks;
   }
 
@@ -93,6 +96,15 @@ export class ProxyPool {
       tls: this.hooks.tls,
     });
 
+    // Track active sockets for graceful shutdown
+    const activeSockets = new Set<net.Socket>();
+    server.on('connection', (socket: net.Socket) => {
+      activeSockets.add(socket);
+      socket.on('close', () => {
+        activeSockets.delete(socket);
+      });
+    });
+
     // Listen on port 0 — OS picks a free port
     const port = await new Promise<number>((resolve, reject) => {
       server.listen(0, '127.0.0.1', () => {
@@ -118,6 +130,7 @@ export class ProxyPool {
       server,
       lastActivity: Date.now(),
       idleTimer,
+      activeSockets,
     });
 
     this.log(`[proxy-pool] acquired port ${port} for exec_id=${execId.slice(0, 8)} command=${command.slice(0, 60)}`);
@@ -141,12 +154,72 @@ export class ProxyPool {
   }
 
   /**
+   * Gracefully release a proxy: stop accepting new connections,
+   * wait for active sockets to drain, then force-destroy remaining.
+   */
+  async releaseGracefully(execId: string, drainTimeoutMs?: number): Promise<void> {
+    const inst = this.proxies.get(execId);
+    if (!inst) return;
+
+    const timeout = drainTimeoutMs ?? this.drainTimeoutMs;
+
+    clearTimeout(inst.idleTimer);
+    this.proxies.delete(execId);
+
+    // Stop accepting new connections
+    inst.server.close();
+    this.log(`[proxy-pool] graceful release started for port ${inst.port} (exec_id=${execId.slice(0, 8)}, drain=${timeout}ms)`);
+
+    if (inst.activeSockets.size === 0) {
+      this.log(`[proxy-pool] graceful release complete (no active sockets) for port ${inst.port}`);
+      this.hooks.onRelease?.(execId);
+      return;
+    }
+
+    // Wait for sockets to drain or timeout
+    await new Promise<void>((resolve) => {
+      const checkDrained = () => {
+        if (inst.activeSockets.size === 0) {
+          clearTimeout(timer);
+          resolve();
+        }
+      };
+
+      // Listen for socket close events
+      for (const socket of inst.activeSockets) {
+        socket.on('close', checkDrained);
+      }
+
+      // Force-destroy remaining sockets after timeout
+      const timer = setTimeout(() => {
+        const remaining = inst.activeSockets.size;
+        if (remaining > 0) {
+          this.log(`[proxy-pool] force-destroying ${remaining} sockets after drain timeout for port ${inst.port}`);
+          for (const socket of inst.activeSockets) {
+            socket.destroy();
+          }
+          inst.activeSockets.clear();
+        }
+        resolve();
+      }, timeout);
+    });
+
+    this.log(`[proxy-pool] graceful release complete for port ${inst.port} (exec_id=${execId.slice(0, 8)})`);
+    this.hooks.onRelease?.(execId);
+  }
+
+  /**
    * Shut down all active proxies.
    */
   shutdown(): void {
     for (const [execId, inst] of this.proxies) {
       clearTimeout(inst.idleTimer);
       inst.server.close();
+      // Force-destroy all tracked sockets
+      for (const socket of inst.activeSockets) {
+        socket.destroy();
+      }
+      inst.activeSockets.clear();
       this.log(`[proxy-pool] shutdown: closed port ${inst.port} (exec_id=${execId.slice(0, 8)})`);
     }
     this.proxies.clear();

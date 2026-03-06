@@ -5,14 +5,19 @@
  */
 
 // Server
-export { createPerRunProxy } from './server';
+export { createPerRunProxy, sanitizeHeaders } from './server';
 
 // Pool
 export { ProxyPool } from './pool';
 
+// TLS
+export { CertificateCache, generateHostCertificate, createHostTlsContext } from './tls';
+export type { GeneratedCert } from './tls';
+
 // Types
 export type {
   TlsOptions,
+  SslTerminationConfig,
   ProxyCallbacks,
   CreateProxyOptions,
   ProxyInstance,
@@ -26,6 +31,8 @@ export {
   ProxyBindError,
   ProxyPoolExhaustedError,
   PolicyBlockedError,
+  UpstreamTimeoutError,
+  SslTerminationError,
   classifyNetworkError,
   type NetworkErrorType,
   type ClassifiedNetworkError,

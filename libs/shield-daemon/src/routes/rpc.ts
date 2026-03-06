@@ -17,7 +17,7 @@ import { getStorage } from '@agenshield/storage';
 import { buildSandboxConfig } from '@agenshield/seatbelt';
 import type { SharedCapabilities } from '@agenshield/seatbelt';
 import { loadConfig } from '../config/index';
-import { emitInterceptorEvent, emitExecDenied, emitESExecEvent, emitSecurityWarning, emitEvent, emitResourceWarning, emitResourceLimitEnforced, daemonEvents } from '../events/emitter';
+import { emitInterceptorEvent, emitExecDenied, emitNativeExecEvent, emitSecurityWarning, emitEvent, emitResourceWarning, emitResourceLimitEnforced, daemonEvents } from '../events/emitter';
 import { resolveProfileByToken } from '../services/profile-token';
 import { resolveTargetContext } from '../services/target-context';
 import { getPolicyManager } from '../services/policy-manager';
@@ -42,7 +42,7 @@ interface JsonRpcResponse {
 /** Maximum depth of nested execution chains */
 const MAX_TRACE_DEPTH = 10;
 
-/* ---- ES Extension: Execution Chain Tracking ---- */
+/* ---- Native macOS App: Execution Chain Tracking ---- */
 
 interface SessionExecRecord {
   binary: string;
@@ -62,10 +62,10 @@ const SESSION_MAX_IDLE_MS = 5 * 60 * 1000;
 const RAPID_EXEC_THRESHOLD = 10;
 
 /**
- * Record an exec from the ES extension and check for suspicious patterns.
+ * Record an exec from the native macOS app and check for suspicious patterns.
  */
-function trackESExec(context: PolicyExecutionContext, target: string, allowed: boolean): void {
-  const sessionId = context.esSessionId;
+function trackNativeExec(context: PolicyExecutionContext, target: string, allowed: boolean): void {
+  const sessionId = context.nativeSessionId;
   if (sessionId == null) return;
 
   const now = Date.now();
@@ -78,7 +78,7 @@ function trackESExec(context: PolicyExecutionContext, target: string, allowed: b
     args,
     timestamp: now,
     allowed,
-    pid: context.esPid ?? 0,
+    pid: context.nativePid ?? 0,
   };
 
   // Get or create session chain
@@ -94,7 +94,7 @@ function trackESExec(context: PolicyExecutionContext, target: string, allowed: b
   const recentExecs = chain.filter(r => now - r.timestamp < 1000);
   if (recentExecs.length > RAPID_EXEC_THRESHOLD) {
     emitSecurityWarning(
-      `Rapid exec chain detected: ${recentExecs.length} execs in 1s from session ${sessionId} (user: ${context.esUser || 'unknown'})`
+      `Rapid exec chain detected: ${recentExecs.length} execs in 1s from session ${sessionId} (user: ${context.nativeUser || 'unknown'})`
     );
   }
 
@@ -465,22 +465,22 @@ async function handlePolicyCheck(params: Record<string, unknown>, profileId?: st
 
   const result = await evaluatePolicyCheck(operation, target, context, profileId);
 
-  // ES extension: track exec chain and emit dedicated event
-  if (context?.sourceLayer === 'es-extension' && operation === 'exec') {
-    trackESExec(context, target, result.allowed);
+  // Native macOS app: track exec chain and emit dedicated event
+  if (context?.sourceLayer === 'native' && operation === 'exec') {
+    trackNativeExec(context, target, result.allowed);
 
     const parts = target.split(' ');
-    emitESExecEvent({
+    emitNativeExecEvent({
       binary: parts[0] || target,
       args: parts.slice(1).join(' '),
-      pid: context.esPid ?? 0,
-      ppid: context.esPpid ?? 0,
-      sessionId: context.esSessionId ?? 0,
-      user: context.esUser ?? 'unknown',
+      pid: context.nativePid ?? 0,
+      ppid: context.nativePpid ?? 0,
+      sessionId: context.nativeSessionId ?? 0,
+      user: context.nativeUser ?? 'unknown',
       allowed: result.allowed,
       policyId: result.policyId,
       reason: result.reason,
-      sourceLayer: 'es-extension',
+      sourceLayer: 'native',
     }, profileId);
   }
 

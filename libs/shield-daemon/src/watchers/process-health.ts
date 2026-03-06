@@ -28,10 +28,10 @@ let getOpenClawStatusSync: (() => { gateway: ProcessState }) | undefined;
 
 async function loadIntegrations(): Promise<void> {
   try {
-    const integrations = await import('@agenshield/integrations');
+    const integrations = await import('@agenshield/seatbelt');
     getOpenClawStatusSync = (integrations as Record<string, unknown>)['getOpenClawStatusSync'] as typeof getOpenClawStatusSync;
   } catch {
-    // @agenshield/integrations may not be available
+    // @agenshield/seatbelt may not be available
   }
 }
 
@@ -87,7 +87,7 @@ async function getBrokerStatus(): Promise<ProcessState> {
 }
 
 /**
- * Get gateway process status via @agenshield/integrations.
+ * Get gateway process status via @agenshield/seatbelt.
  */
 function getGatewayStatus(): ProcessState {
   if (!getOpenClawStatusSync) return { running: false };

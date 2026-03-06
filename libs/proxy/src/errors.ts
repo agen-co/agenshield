@@ -105,3 +105,34 @@ export class PolicyBlockedError extends ProxyError {
     this.protocol = options.protocol;
   }
 }
+
+/**
+ * Error thrown when an upstream request times out
+ */
+export class UpstreamTimeoutError extends ProxyError {
+  public readonly target: string;
+  public readonly timeoutMs: number;
+
+  constructor(target: string, timeoutMs: number) {
+    super(`Upstream timeout after ${timeoutMs}ms for ${target}`, 'UPSTREAM_TIMEOUT');
+    this.name = 'UpstreamTimeoutError';
+    this.target = target;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
+ * Error thrown when SSL termination fails for a hostname
+ */
+export class SslTerminationError extends ProxyError {
+  public readonly hostname: string;
+
+  constructor(hostname: string, cause?: string) {
+    super(
+      `SSL termination failed for ${hostname}${cause ? `: ${cause}` : ''}`,
+      'SSL_TERMINATION_FAILED',
+    );
+    this.name = 'SslTerminationError';
+    this.hostname = hostname;
+  }
+}

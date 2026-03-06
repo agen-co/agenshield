@@ -90,6 +90,33 @@ describe('JwtSecretManager', () => {
     it('should return the correct path', () => {
       expect(getSecretPath('/test/dir', '.secret')).toBe('/test/dir/.secret');
     });
+
+    it('should use default dir when called with no args', () => {
+      const result = getSecretPath();
+      expect(result).toContain('.agenshield');
+      expect(result).toContain('.jwt-secret');
+    });
+  });
+
+  describe('loadOrCreateSecret (directory creation)', () => {
+    it('should create the directory if it does not exist', () => {
+      const nestedDir = path.join(tmpDir, 'nested', 'subdir');
+      expect(fs.existsSync(nestedDir)).toBe(false);
+
+      loadOrCreateSecret(nestedDir, '.jwt-secret');
+      expect(fs.existsSync(nestedDir)).toBe(true);
+      expect(fs.existsSync(path.join(nestedDir, '.jwt-secret'))).toBe(true);
+    });
+  });
+
+  describe('loadOrCreateSecret (default parameters)', () => {
+    it('should use defaults when called with no arguments', () => {
+      // Calling with defaults exercises the default parameter branches
+      // This may create/read from the real ~/.agenshield dir
+      const secret = loadOrCreateSecret();
+      expect(secret).toBeInstanceOf(Uint8Array);
+      expect(secret.length).toBe(32);
+    });
   });
 
   describe('clearSecretCache', () => {

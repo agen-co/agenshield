@@ -148,11 +148,11 @@ Runtime context passed during evaluation. Carries caller identity and process me
 | `skillSlug` | `string?` | Slug of the skill (if callerType is `'skill'`) |
 | `agentId` | `string?` | Agent identifier |
 | `depth` | `number` | Call depth in the execution chain |
-| `sourceLayer` | `'interceptor' \| 'es-extension'` | Source: Node.js interceptor or macOS EndpointSecurity |
-| `esUser` | `string?` | Agent user name from ES extension |
-| `esPid` | `number?` | Process ID from ES extension |
-| `esPpid` | `number?` | Parent process ID from ES extension |
-| `esSessionId` | `number?` | macOS audit session ID |
+| `sourceLayer` | `'interceptor' \| 'native'` | Source: Node.js interceptor or native macOS app |
+| `nativeUser` | `string?` | Agent user name from native macOS app |
+| `nativePid` | `number?` | Process ID from native macOS app |
+| `nativePpid` | `number?` | Parent process ID from native macOS app |
+| `nativeSessionId` | `number?` | macOS audit session ID |
 
 ### `EvaluationInput`
 

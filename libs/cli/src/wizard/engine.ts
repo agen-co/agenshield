@@ -32,8 +32,8 @@ import {
   // Preset system
   getPreset,
   autoDetectPreset,
-  // ES Extension
-  getESExtensionAppPath,
+  // macOS App
+  getMacAppBundlePath,
   type MigrationContext,
   type MigrationDirectories,
 } from '@agenshield/sandbox';
@@ -54,7 +54,7 @@ import {
   startOpenClawServices,
   OPENCLAW_DAEMON_PLIST,
   OPENCLAW_GATEWAY_PLIST,
-} from '@agenshield/integrations';
+} from '@agenshield/seatbelt';
 import type { OriginalInstallation, MigratedPaths, SandboxUserInfo, UserConfig } from '@agenshield/ipc';
 import { isSEA } from '@agenshield/ipc';
 import type {
@@ -619,7 +619,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
     // Find host config path
     const sourceConfigPath = context.presetDetection?.configPath
-      || getHostOpenClawConfigPath();
+      || await getHostOpenClawConfigPath();
 
     if (context.options?.dryRun) {
       logVerbose(`[dry-run] Would copy .openclaw from ${sourceConfigPath || '(not found)'} to ${agentUser.home}/.openclaw`, context);
@@ -637,7 +637,7 @@ const stepExecutors: Record<WizardStepId, StepExecutor> = {
 
     logVerbose(`Copying OpenClaw config to agent user`, context);
     const onLog = (msg: string) => logVerbose(msg, context);
-    const result = copyOpenClawConfig({
+    const result = await copyOpenClawConfig({
       sourceConfigPath: sourceConfigPath || '/nonexistent',
       agentHome: agentUser.home,
       agentUsername: agentUser.username,
@@ -1449,13 +1449,13 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
 
   // NOTE: migrate step removed — replaced by install-openclaw + copy-openclaw-config
 
-  'install-es-extension': async (context) => {
+  'install-macos-app': async (context) => {
     // Always install the app bundle to /Applications (needed for Login Items attribution
     // via AssociatedBundleIdentifiers so macOS shows "AgenShield" instead of "NodeJS Foundation")
     if (!context.options?.dryRun) {
       const { execSync } = await import('node:child_process');
       const fs = await import('node:fs');
-      const embeddedApp = getESExtensionAppPath();
+      const embeddedApp = getMacAppBundlePath();
       if (embeddedApp) {
         const installedApp = '/Applications/AgenShield.app';
         const installedPlist = `${installedApp}/Contents/Info.plist`;
@@ -1511,13 +1511,13 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     // ES extension activation disabled — pending Apple approval for the system extension.
     // Once approved, remove this early return to re-enable.
     logVerbose('ES extension activation disabled — pending Apple approval, skipping', context);
-    context.esExtensionInstalled = { status: 'skipped', message: 'disabled — pending Apple approval' };
+    context.macAppInstalled = { status: 'skipped', message: 'disabled — pending Apple approval' };
     return { success: true };
 
     // ES extension is optional — skip in dry-run or if app bundle not found
     if (context.options?.dryRun) {
       logVerbose('[dry-run] Would install ES extension', context);
-      context.esExtensionInstalled = { status: 'skipped', message: 'dry-run mode' };
+      context.macAppInstalled = { status: 'skipped', message: 'dry-run mode' };
       return { success: true };
     }
 
@@ -1525,10 +1525,10 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     const { existsSync, writeFileSync, mkdirSync } = await import('node:fs');
 
     // Resolve the embedded .app from the @agenshield/sandbox package
-    const embeddedApp = getESExtensionAppPath();
+    const embeddedApp = getMacAppBundlePath();
     if (!embeddedApp) {
       logVerbose('ES extension app not bundled in @agenshield/sandbox — skipping (optional)', context);
-      context.esExtensionInstalled = { status: 'skipped', message: 'app bundle not bundled' };
+      context.macAppInstalled = { status: 'skipped', message: 'app bundle not bundled' };
       return { success: true };
     }
 
@@ -1570,7 +1570,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
 
       if (monitoredUsers.length === 0) {
         logVerbose('No ash_* agent users found — skipping ES extension', context);
-        context.esExtensionInstalled = { status: 'skipped', message: 'no agent users found' };
+        context.macAppInstalled = { status: 'skipped', message: 'no agent users found' };
         return { success: true };
       }
 
@@ -1624,10 +1624,10 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       logVerbose(`ES extension install output: ${installOutput}`, context);
 
       if (installOutput.startsWith('OK')) {
-        context.esExtensionInstalled = { status: 'active' };
+        context.macAppInstalled = { status: 'active' };
         logVerbose('ES extension activated successfully', context);
       } else if (installOutput === 'NEEDS_APPROVAL') {
-        context.esExtensionInstalled = { status: 'needs_approval' };
+        context.macAppInstalled = { status: 'needs_approval' };
         logVerbose('ES extension needs user approval in System Settings > Privacy & Security', context);
 
         // Open System Settings
@@ -1652,7 +1652,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
               stdio: ['pipe', 'pipe', 'pipe'],
             });
             if (listOutput.includes(extensionId) && listOutput.includes('[activated enabled]')) {
-              context.esExtensionInstalled = { status: 'active' };
+              context.macAppInstalled = { status: 'active' };
               logVerbose('ES extension approved and activated!', context);
               break;
             }
@@ -1661,7 +1661,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       } else if (installOutput.startsWith('ERROR:')) {
         const errorMsg = installOutput.slice(6);
         logVerbose(`ES extension install error: ${errorMsg} (non-fatal)`, context);
-        context.esExtensionInstalled = { status: 'error', message: errorMsg };
+        context.macAppInstalled = { status: 'error', message: errorMsg };
         // Non-fatal — basic operation works without ES
       }
 
@@ -1670,7 +1670,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
       // Non-fatal — ES extension is optional
       const msg = (err as Error).message;
       logVerbose(`ES extension installation failed (non-fatal): ${msg}`, context);
-      context.esExtensionInstalled = { status: 'error', message: msg };
+      context.macAppInstalled = { status: 'error', message: msg };
       return { success: true };
     }
   },

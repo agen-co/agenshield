@@ -146,7 +146,8 @@ export async function buildSandboxConfig(
 
   // Enforce SHELL → guarded shell so parent process cannot override
   const guardedShell = `${deps.agentHome}/.agenshield/bin/guarded-shell`;
-  if (nodefs.existsSync(guardedShell)) {
+  const guardedShellExists = await nodefs.promises.access(guardedShell).then(() => true, () => false);
+  if (guardedShellExists) {
     sandbox.envInjection['SHELL'] = guardedShell;
   }
 
@@ -179,7 +180,7 @@ export async function buildSandboxConfig(
       if (cmd.startsWith('/') && !sandbox.deniedBinaries.includes(cmd)) {
         sandbox.allowedBinaries.push(cmd);
         try {
-          const realCmd = nodefs.realpathSync(cmd);
+          const realCmd = await nodefs.promises.realpath(cmd);
           if (realCmd !== cmd) sandbox.allowedBinaries.push(realCmd);
         } catch { /* command may not exist yet */ }
       }

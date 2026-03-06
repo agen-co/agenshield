@@ -2,10 +2,11 @@
  * Tests for JWT signing and verification
  */
 
-import { loadOrCreateSecret, clearSecretCache } from '../secret';
+import { loadOrCreateSecret, clearSecretCache, getSecret } from '../secret';
 import { signAdminToken, signBrokerToken, getAdminTtlSeconds } from '../sign';
 import { verifyToken, verifyTokenOrThrow } from '../verify';
 import { TokenExpiredError, TokenInvalidError } from '../errors';
+import { SignJWT } from 'jose';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -82,6 +83,65 @@ describe('JWT sign/verify', () => {
       expect(result.valid).toBe(false);
     });
 
+    it('should reject a token with no role claim', async () => {
+      const secret = getSecret();
+      const token = await new SignJWT({ foo: 'bar' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setSubject('shield-ui')
+        .setIssuedAt()
+        .setExpirationTime('30m')
+        .sign(secret);
+
+      const result = await verifyToken(token);
+      expect(result.valid).toBe(false);
+      expect(result.error).toBe('Missing or invalid role claim');
+    });
+
+    it('should reject a token with an invalid role claim', async () => {
+      const secret = getSecret();
+      const token = await new SignJWT({ role: 'superuser' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setSubject('shield-ui')
+        .setIssuedAt()
+        .setExpirationTime('30m')
+        .sign(secret);
+
+      const result = await verifyToken(token);
+      expect(result.valid).toBe(false);
+      expect(result.error).toBe('Missing or invalid role claim');
+    });
+
+    it('should return expired error for expired token', async () => {
+      const secret = getSecret();
+      const now = Math.floor(Date.now() / 1000);
+      const token = await new SignJWT({ role: 'admin' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setSubject('shield-ui')
+        .setIssuedAt(now - 3600)
+        .setExpirationTime(now - 1800)
+        .sign(secret);
+
+      const result = await verifyToken(token);
+      expect(result.valid).toBe(false);
+      expect(result.error).toBe('Token has expired');
+    });
+
+    it('should return claim validation error for nbf in future', async () => {
+      const secret = getSecret();
+      const now = Math.floor(Date.now() / 1000);
+      const token = await new SignJWT({ role: 'admin' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setSubject('shield-ui')
+        .setIssuedAt()
+        .setExpirationTime('30m')
+        .setNotBefore(now + 3600)
+        .sign(secret);
+
+      const result = await verifyToken(token);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('Token claim validation failed');
+    });
+
     it('should reject a token signed with a different secret', async () => {
       const token = await signAdminToken();
 
@@ -110,6 +170,19 @@ describe('JWT sign/verify', () => {
 
     it('should throw TokenInvalidError for invalid token', async () => {
       await expect(verifyTokenOrThrow('bad-token')).rejects.toThrow(TokenInvalidError);
+    });
+
+    it('should throw TokenExpiredError for expired token', async () => {
+      const secret = getSecret();
+      const now = Math.floor(Date.now() / 1000);
+      const token = await new SignJWT({ role: 'admin' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setSubject('shield-ui')
+        .setIssuedAt(now - 3600)
+        .setExpirationTime(now - 1800)
+        .sign(secret);
+
+      await expect(verifyTokenOrThrow(token)).rejects.toThrow(TokenExpiredError);
     });
   });
 

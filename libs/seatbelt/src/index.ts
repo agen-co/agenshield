@@ -33,3 +33,19 @@ export {
   ProfileGenerationError,
   SandboxConfigError,
 } from './errors';
+
+// Agent profile generation (moved from @agenshield/sandbox/enforcement)
+export {
+  generateAgentProfile,
+  generateOperationProfile,
+  installProfiles,
+  verifyProfile,
+  installSeatbeltProfiles,
+  generateAgentProfileFromConfig,
+  generateAgentProfile_v2,
+  getInstalledProfiles,
+  type ProfileResult,
+} from './agent-profile';
+
+// Services (LaunchDaemon/Agent lifecycle)
+export * from './services/index';

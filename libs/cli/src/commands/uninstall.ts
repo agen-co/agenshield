@@ -530,8 +530,8 @@ async function systemCleanup(dataDir: string): Promise<void> {
 
   // Remove menu bar LaunchAgent and app (user-level, no sudo needed)
   try {
-    const { uninstallMenuBarAgent } = await import('@agenshield/integrations');
-    uninstallMenuBarAgent();
+    const { uninstallMenuBarAgent } = await import('@agenshield/seatbelt');
+    await uninstallMenuBarAgent();
   } catch { /* best effort */ }
 
   const cleanupPaths = [
@@ -705,8 +705,8 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
   // Remove daemon LaunchDaemon service (macOS)
   if (process.platform === 'darwin') {
     try {
-      const { uninstallDaemonService } = await import('@agenshield/integrations');
-      const result = uninstallDaemonService();
+      const { uninstallDaemonService } = await import('@agenshield/seatbelt');
+      const result = await uninstallDaemonService();
       if (result.success) {
         output.success('Removed daemon LaunchDaemon service');
       }
@@ -779,8 +779,8 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
 
   // Remove menu bar LaunchAgent and app (user-level, no sudo needed)
   try {
-    const { uninstallMenuBarAgent } = await import('@agenshield/integrations');
-    uninstallMenuBarAgent();
+    const { uninstallMenuBarAgent } = await import('@agenshield/seatbelt');
+    await uninstallMenuBarAgent();
   } catch { /* best effort */ }
 
   const dataDir = resolveDataDir();

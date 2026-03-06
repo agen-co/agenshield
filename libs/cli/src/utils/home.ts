@@ -280,10 +280,9 @@ export async function downloadAndExtract(
 const WORKSPACE_PKG_MAP: Record<string, string> = {
   '@agenshield/broker': 'libs/shield-broker',
   '@agenshield/daemon': 'libs/shield-daemon',
-  '@agenshield/integrations': 'libs/shield-integrations',
-  '@agenshield/interceptor': 'libs/shield-interceptor',
+  '@agenshield/interceptor': 'libs/interceptor',
   '@agenshield/ipc': 'libs/shield-ipc',
-  '@agenshield/patcher': 'libs/shield-patcher',
+  '@agenshield/patcher': 'libs/interceptor',
   '@agenshield/sandbox': 'libs/sandbox',
   '@agenshield/storage': 'libs/storage',
   '@agenshield/auth': 'libs/auth',
@@ -1022,7 +1021,7 @@ export async function downloadAndInstallSEARemote(
  * `~/.agenshield/apps/AgenShield.app`.
  *
  * This bridges the gap between the npm-pack install path (where the .app
- * lives inside `node_modules/@agenshield/sandbox/es-extension/`) and the
+ * lives inside `node_modules/@agenshield/sandbox/macos-app/`) and the
  * menu bar installer which expects it at `~/.agenshield/apps/`.
  *
  * @param distDir - The installation dist directory (e.g. `~/.agenshield/dist/`)
@@ -1032,7 +1031,7 @@ export function extractMacAppFromSandbox(distDir: string): boolean {
   if (process.platform !== 'darwin') return false;
 
   const sandboxAppPath = path.join(
-    distDir, 'node_modules', '@agenshield', 'sandbox', 'es-extension', 'AgenShield.app',
+    distDir, 'node_modules', '@agenshield', 'sandbox', 'macos-app', 'AgenShield.app',
   );
 
   if (!fs.existsSync(sandboxAppPath)) return false;

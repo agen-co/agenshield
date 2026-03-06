@@ -37,7 +37,7 @@ export type WizardStepId =
   | 'stop-host-openclaw'
   | 'onboard-openclaw'
   | 'verify'
-  | 'install-es-extension'
+  | 'install-macos-app'
   | 'start-openclaw'
   | 'open-dashboard'
   | 'complete';
@@ -267,8 +267,8 @@ export interface WizardContext {
     running: boolean;
   };
 
-  /** ES extension installation result */
-  esExtensionInstalled?: {
+  /** macOS app installation result */
+  macAppInstalled?: {
     status: 'active' | 'needs_approval' | 'skipped' | 'error';
     message?: string;
   };
@@ -498,9 +498,9 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
     dependsOn: ['onboard-openclaw'],
   },
   {
-    id: 'install-es-extension',
-    name: 'Install ES Extension',
-    description: 'Install macOS EndpointSecurity system extension (optional)',
+    id: 'install-macos-app',
+    name: 'Install macOS App',
+    description: 'Install AgenShield macOS menu bar app (optional)',
     phase: 'setup',
     requiresSudo: true,
     dependsOn: ['verify'],
@@ -511,7 +511,7 @@ export const WIZARD_STEPS: WizardStepDefinition[] = [
     description: 'Install and start OpenClaw LaunchDaemons with intercepted Node.js',
     phase: 'setup',
     requiresSudo: true,
-    dependsOn: ['install-es-extension'],
+    dependsOn: ['install-macos-app'],
   },
   {
     id: 'open-dashboard',

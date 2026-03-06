@@ -8,6 +8,20 @@ import type { PolicyConfig } from '@agenshield/ipc';
 export interface TlsOptions {
   /** Whether to reject self-signed or invalid certificates. Defaults to true. */
   rejectUnauthorized?: boolean;
+  /** SSL termination config. When set, CONNECT tunnels use MITM to inspect HTTPS traffic. */
+  sslTermination?: SslTerminationConfig;
+}
+
+/** SSL termination configuration for MITM HTTPS inspection */
+export interface SslTerminationConfig {
+  /** PEM root CA certificate */
+  ca: string;
+  /** PEM root CA private key */
+  key: string;
+  /** PEM root CA certificate (for node:tls API) */
+  cert: string;
+  /** Whether to cache generated per-host certificates. Defaults to true. */
+  cacheCerts?: boolean;
 }
 
 /** Callbacks fired on proxy allow/block decisions */
@@ -32,6 +46,12 @@ export interface CreateProxyOptions {
   onAllow?: (method: string, target: string, protocol: 'http' | 'https') => void;
   /** TLS options for HTTPS forwarding */
   tls?: TlsOptions;
+  /** Maximum number of concurrent connections. Defaults to 128. */
+  maxConnections?: number;
+  /** Upstream request timeout in milliseconds. Defaults to 30000. */
+  upstreamTimeoutMs?: number;
+  /** Maximum request body size in bytes. Defaults to 104857600 (100MB). */
+  maxBodyBytes?: number;
 }
 
 /** Metadata for an active proxy instance in the pool */
@@ -42,12 +62,16 @@ export interface ProxyInstance {
   server: import('node:http').Server;
   lastActivity: number;
   idleTimer: NodeJS.Timeout;
+  /** Active TCP sockets for graceful shutdown drain */
+  activeSockets: Set<import('node:net').Socket>;
 }
 
 /** Options for the proxy pool */
 export interface ProxyPoolOptions {
   maxConcurrent?: number;
   idleTimeoutMs?: number;
+  /** Timeout for graceful drain on releaseGracefully(). Defaults to 5000. */
+  drainTimeoutMs?: number;
 }
 
 /** Decoupled hooks for pool events — replaces direct daemon imports */

@@ -93,16 +93,16 @@ async function installMacOSServices(menuBarOptions?: { policyUrl?: string; orgNa
   const hostHome = resolveHostHome();
   if (daemonPath) {
     try {
-      const { installDaemonService, installPrivilegeHelperService } = await import('@agenshield/integrations');
+      const { installDaemonService, installPrivilegeHelperService } = await import('@agenshield/seatbelt');
 
-      const daemonResult = installDaemonService({ daemonPath, userHome: hostHome });
+      const daemonResult = await installDaemonService({ daemonPath, userHome: hostHome });
       if (daemonResult.success) {
         output.success('Installed LaunchDaemon service');
       } else {
         output.warn(`LaunchDaemon install: ${daemonResult.message}`);
       }
 
-      const helperResult = installPrivilegeHelperService({ daemonPath, userHome: hostHome });
+      const helperResult = await installPrivilegeHelperService({ daemonPath, userHome: hostHome });
       if (helperResult.success) {
         output.success('Installed privilege helper service');
       } else {
@@ -119,8 +119,8 @@ async function installMacOSServices(menuBarOptions?: { policyUrl?: string; orgNa
   // Step B: Menu bar app LaunchAgent (no sudo needed)
   if (fs.existsSync(menuBarAppPath)) {
     try {
-      const { installMenuBarAgent } = await import('@agenshield/integrations');
-      const agentResult = installMenuBarAgent(menuBarAppPath, { ...menuBarOptions, userHome: hostHome });
+      const { installMenuBarAgent } = await import('@agenshield/seatbelt');
+      const agentResult = await installMenuBarAgent(menuBarAppPath, { ...menuBarOptions, userHome: hostHome });
       if (agentResult.success) {
         output.success('Installed menu bar agent');
       } else {

@@ -194,7 +194,7 @@ export function createUpdateEngine(options: UpdateEngineOptions = {}) {
           log('Stopping OpenClaw services...');
           if (!ctx.dryRun) {
             try {
-              const { isOpenClawInstalled, stopOpenClawServices } = await import('@agenshield/integrations');
+              const { isOpenClawInstalled, stopOpenClawServices } = await import('@agenshield/seatbelt');
               if (await isOpenClawInstalled()) {
                 await stopOpenClawServices();
               }
@@ -288,7 +288,7 @@ export function createUpdateEngine(options: UpdateEngineOptions = {}) {
           log('Starting OpenClaw services...');
           if (!ctx.dryRun) {
             try {
-              const { isOpenClawInstalled, startOpenClawServices } = await import('@agenshield/integrations');
+              const { isOpenClawInstalled, startOpenClawServices } = await import('@agenshield/seatbelt');
               if (await isOpenClawInstalled()) {
                 await startOpenClawServices();
               }

@@ -1372,8 +1372,8 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           } else {
             // Try to install from embedded bundle (best-effort)
             try {
-              const { getESExtensionAppPath } = await import('@agenshield/sandbox');
-              const embeddedApp = getESExtensionAppPath();
+              const { getMacAppBundlePath } = await import('@agenshield/sandbox');
+              const embeddedApp = getMacAppBundlePath();
               if (embeddedApp) {
                 const cpResult = await executor.execAsRoot(
                   `cp -r "${embeddedApp}" "${hostAppPath}" && chown -R root:wheel "${hostAppPath}"`,

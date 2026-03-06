@@ -64,7 +64,7 @@ export {
   type ExecMonitoredPayload,
   type ExecDeniedPayload,
   type InterceptorEventPayload,
-  type ESExecPayload,
+  type NativeExecPayload,
   EXEC_EVENT_TYPES,
 } from './exec.events';
 
