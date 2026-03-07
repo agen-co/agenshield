@@ -34,6 +34,8 @@ describe('AuditLogger', () => {
   });
 
   afterEach(async () => {
+    // Allow any pending stream operations to complete before cleanup
+    await new Promise((r) => setTimeout(r, 50));
     fs.rmSync(tmpDir, { recursive: true, force: true });
     jest.restoreAllMocks();
   });

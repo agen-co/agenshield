@@ -1,6 +1,18 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+
+// Partial mock: keep real implementations but allow overriding specific methods
+jest.mock('node:fs/promises', () => {
+  const actual = jest.requireActual('node:fs/promises');
+  return {
+    ...actual,
+    readFile: jest.fn(actual.readFile),
+    readdir: jest.fn(actual.readdir),
+  };
+});
+
+import * as fsp from 'node:fs/promises';
 import { handleFileRead, handleFileWrite, handleFileList } from '../../handlers/file.js';
 import { createHandlerContext, createMockDeps } from '../helpers.js';
 
@@ -44,6 +56,19 @@ describe('handleFileRead', () => {
     expect(result.data!.size).toBe(5);
     expect(result.data!.mtime).toBeDefined();
   });
+
+  it('should return error 1005 when readFile throws unexpectedly (outer catch)', async () => {
+    const filePath = path.join(tmpDir, 'test-catch.txt');
+    fs.writeFileSync(filePath, 'content');
+
+    // Override the mocked readFile to throw once
+    (fsp.readFile as jest.Mock).mockRejectedValueOnce(new Error('Unexpected I/O error'));
+
+    const result = await handleFileRead({ path: filePath }, ctx, deps);
+    expect(result.success).toBe(false);
+    expect(result.error!.code).toBe(1005);
+    expect(result.error!.message).toContain('File read error');
+  });
 });
 
 describe('handleFileWrite', () => {
@@ -70,6 +95,18 @@ describe('handleFileWrite', () => {
     expect(result.success).toBe(true);
     expect(result.data!.bytesWritten).toBe(5);
     expect(fs.readFileSync(filePath, 'utf-8')).toBe('hello');
+  });
+
+  it('should return error 1005 when writeFile throws', async () => {
+    // Writing to a path where parent is a file (not a directory) will cause mkdir to fail
+    const blockingFile = path.join(tmpDir, 'blocker');
+    fs.writeFileSync(blockingFile, 'x');
+    // Try to write to blocker/sub/file.txt — mkdir will fail because 'blocker' is a file
+    const filePath = path.join(blockingFile, 'sub', 'file.txt');
+    const result = await handleFileWrite({ path: filePath, content: 'data' }, ctx, deps);
+    expect(result.success).toBe(false);
+    expect(result.error!.code).toBe(1005);
+    expect(result.error!.message).toContain('File write error');
   });
 });
 
@@ -142,5 +179,15 @@ describe('handleFileList', () => {
     expect(names).toContain('top.txt');
     expect(names).toContain('deep.txt');
     expect(names).toContain('a');
+  });
+
+  it('should return error 1005 when readdir throws unexpectedly (outer catch)', async () => {
+    // Override the mocked readdir to throw once
+    (fsp.readdir as jest.Mock).mockRejectedValueOnce(new Error('Unexpected readdir error'));
+
+    const result = await handleFileList({ path: tmpDir }, ctx, deps);
+    expect(result.success).toBe(false);
+    expect(result.error!.code).toBe(1005);
+    expect(result.error!.message).toContain('File list error');
   });
 });

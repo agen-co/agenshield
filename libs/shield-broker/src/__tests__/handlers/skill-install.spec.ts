@@ -1,12 +1,23 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { handleSkillInstall, handleSkillUninstall } from '../../handlers/skill-install.js';
-import { createHandlerContext, createMockDeps } from '../helpers.js';
 
 jest.mock('node:child_process', () => ({
   execSync: jest.fn(),
 }));
+
+// Partial mock of node:fs/promises to allow overriding rm
+jest.mock('node:fs/promises', () => {
+  const actual = jest.requireActual('node:fs/promises');
+  return {
+    ...actual,
+    rm: jest.fn(actual.rm),
+  };
+});
+
+import * as fsp from 'node:fs/promises';
+import { handleSkillInstall, handleSkillUninstall } from '../../handlers/skill-install.js';
+import { createHandlerContext, createMockDeps } from '../helpers.js';
 
 const ctx = createHandlerContext();
 const deps = createMockDeps();
@@ -151,6 +162,26 @@ describe('handleSkillInstall', () => {
     expect(result.data!.warnings!.length).toBeGreaterThan(0);
     consoleSpy.mockRestore();
   });
+
+  it('should return error 1005 when fs.mkdir throws during install', async () => {
+    // Use a skillsDir path where the parent is a file, so mkdir fails
+    const blockingFile = path.join(tmpDir, 'blocker');
+    fs.writeFileSync(blockingFile, 'x');
+    const skillsDir = path.join(blockingFile, 'skills');
+
+    const result = await handleSkillInstall(
+      {
+        slug: 'fail-skill',
+        files: [{ name: 'skill.md', content: 'x' }],
+        agentHome: tmpDir,
+        skillsDir,
+      },
+      ctx, deps
+    );
+    expect(result.success).toBe(false);
+    expect(result.error!.code).toBe(1005);
+    expect(result.error!.message).toContain('Skill installation failed');
+  });
 });
 
 describe('handleSkillUninstall', () => {
@@ -225,5 +256,23 @@ describe('handleSkillUninstall', () => {
     expect(result.success).toBe(false);
     expect(result.error!.code).toBe(1003);
     expect(result.error!.message).toContain('agentHome');
+  });
+
+  it('should return error 1005 when fs.rm throws during uninstall', async () => {
+    const skillsDir = path.join(tmpDir, 'skills');
+    const skillDir = path.join(skillsDir, 'fail-skill');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'file.txt'), 'x');
+
+    // Override the mocked rm to throw once
+    (fsp.rm as jest.Mock).mockRejectedValueOnce(new Error('Permission denied'));
+
+    const result = await handleSkillUninstall(
+      { slug: 'fail-skill', agentHome: tmpDir, skillsDir },
+      ctx, deps
+    );
+    expect(result.success).toBe(false);
+    expect(result.error!.code).toBe(1005);
+    expect(result.error!.message).toContain('Skill uninstallation failed');
   });
 });

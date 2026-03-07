@@ -31,4 +31,5 @@ export default {
   coverageDirectory: '../../test-output/coverage/libs/shield-broker',
   coverageReporters: ['text', 'lcov', 'json-summary'],
   testMatch: ['<rootDir>/src/__tests__/**/*.spec.ts'],
+  forceExit: true,
 };

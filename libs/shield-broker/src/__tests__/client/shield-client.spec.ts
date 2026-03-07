@@ -45,32 +45,35 @@ import { EventEmitter } from 'node:events';
 async function runCli(args: string[]): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   const originalArgv = process.argv;
   const originalExit = process.exit;
-  const originalStdoutWrite = process.stdout.write;
-  const originalStderrWrite = process.stderr.write;
 
   let exitCode: number | null = null;
   let stdout = '';
   let stderr = '';
 
-  const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation((...args) => {
-    stdout += args.join(' ') + '\n';
+  const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation((...msgArgs) => {
+    stdout += msgArgs.join(' ') + '\n';
   });
-  const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation((...args) => {
-    stderr += args.join(' ') + '\n';
+  const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation((...msgArgs) => {
+    stderr += msgArgs.join(' ') + '\n';
   });
 
   process.argv = ['node', 'shield-client', ...args];
+  // First call throws to halt execution in main(); subsequent calls
+  // (from the module-level .catch() re-invoking process.exit) are silent.
   process.exit = ((code: number) => {
-    exitCode = code;
-    throw new Error(`__EXIT_${code}__`);
+    if (exitCode === null) {
+      exitCode = code;
+      throw new Error(`__EXIT_${code}__`);
+    }
+    // Second+ call: just record if different, don't throw again
   }) as any;
 
   try {
     await jest.isolateModulesAsync(async () => {
       try {
         await import('../../client/shield-client.js');
-        // main() is called at module load, wait for it
-        await new Promise((r) => setTimeout(r, 50));
+        // main() is called at module load — give it time to settle
+        await new Promise((r) => setTimeout(r, 100));
       } catch (e) {
         if (!(e instanceof Error) || !e.message.startsWith('__EXIT_')) {
           throw e;
@@ -159,6 +162,46 @@ describe('shield-client CLI', () => {
       await runCli(['http', '--raw', 'GET', 'https://example.com']);
       expect(mockHttpRequest).toHaveBeenCalled();
     });
+
+    it('--raw flag exits 22 on HTTP error status', async () => {
+      mockHttpRequest.mockResolvedValue({
+        status: 500,
+        body: 'error',
+        headers: {},
+      });
+      const { exitCode } = await runCli(['http', '--raw', 'GET', 'https://example.com/fail']);
+      expect(exitCode).toBe(22);
+    });
+
+    it('passes body argument to httpRequest', async () => {
+      mockHttpRequest.mockResolvedValue({
+        status: 201,
+        statusText: 'Created',
+        headers: {},
+        body: 'created',
+      });
+      const { stdout } = await runCli(['http', 'POST', 'https://example.com/data', '{"key":"value"}']);
+      expect(mockHttpRequest).toHaveBeenCalledWith({
+        url: 'https://example.com/data',
+        method: 'POST',
+        body: '{"key":"value"}',
+      });
+      expect(stdout).toContain('Status: 201');
+    });
+
+    it('--raw with body passes body correctly', async () => {
+      mockHttpRequest.mockResolvedValue({
+        status: 200,
+        body: 'ok',
+        headers: {},
+      });
+      await runCli(['http', '--raw', 'POST', 'https://example.com', 'payload']);
+      expect(mockHttpRequest).toHaveBeenCalledWith({
+        url: 'https://example.com',
+        method: 'POST',
+        body: 'payload',
+      });
+    });
   });
 
   describe('file command', () => {
@@ -194,6 +237,25 @@ describe('shield-client CLI', () => {
       expect(mockFileList).toHaveBeenCalledWith({ path: '/tmp', recursive: true });
     });
 
+    it('file read exits 1 when path is missing', async () => {
+      const { exitCode, stderr } = await runCli(['file', 'read']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('Usage: shield-client file read');
+    });
+
+    it('file write exits 1 when content is missing', async () => {
+      const { exitCode, stderr } = await runCli(['file', 'write', '/tmp/out.txt']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('Usage: shield-client file write');
+    });
+
+    it('file write joins multiple content args with space', async () => {
+      mockFileWrite.mockResolvedValue({ bytesWritten: 15, path: '/tmp/out.txt' });
+      const { stdout } = await runCli(['file', 'write', '/tmp/out.txt', 'a', 'b', 'c']);
+      expect(mockFileWrite).toHaveBeenCalledWith({ path: '/tmp/out.txt', content: 'a b c' });
+      expect(stdout).toContain('15 bytes');
+    });
+
     it('exits 1 for unknown file subcommand', async () => {
       const { exitCode } = await runCli(['file', 'unknown']);
       expect(exitCode).toBe(1);
@@ -206,6 +268,20 @@ describe('shield-client CLI', () => {
       const { exitCode } = await runCli(['exec', 'echo', 'hello']);
       expect(mockExec).toHaveBeenCalledWith({ command: 'echo', args: ['hello'] });
       expect(exitCode).toBe(0);
+    });
+
+    it('writes stderr output via process.stderr.write', async () => {
+      const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      mockExec.mockResolvedValue({ exitCode: 1, stdout: 'out', stderr: 'err-output' });
+      try {
+        await runCli(['exec', 'failing-cmd']);
+        expect(stderrSpy).toHaveBeenCalledWith('err-output');
+        expect(stdoutSpy).toHaveBeenCalledWith('out');
+      } finally {
+        stderrSpy.mockRestore();
+        stdoutSpy.mockRestore();
+      }
     });
 
     it('exits 1 when command is missing', async () => {
@@ -239,6 +315,12 @@ describe('shield-client CLI', () => {
     it('exits 1 for invalid subcommand', async () => {
       const { exitCode } = await runCli(['secret', 'invalid']);
       expect(exitCode).toBe(1);
+    });
+
+    it('exits 1 when name is missing for secret get', async () => {
+      const { exitCode, stderr } = await runCli(['secret', 'get']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('Usage: shield-client secret get');
     });
   });
 
@@ -279,6 +361,16 @@ describe('shield-client CLI', () => {
       const { exitCode } = await runCli(['check-pkg', 'npm', 'evil-pkg']);
       expect(exitCode).toBe(126);
     });
+
+    it('exits 1 when manager or package is missing', async () => {
+      const { exitCode: e1, stderr: s1 } = await runCli(['check-pkg']);
+      expect(e1).toBe(1);
+      expect(s1).toContain('Usage: shield-client check-pkg');
+
+      const { exitCode: e2, stderr: s2 } = await runCli(['check-pkg', 'npm']);
+      expect(e2).toBe(1);
+      expect(s2).toContain('Usage: shield-client check-pkg');
+    });
   });
 
   describe('skill run command', () => {
@@ -300,6 +392,161 @@ describe('shield-client CLI', () => {
       const { exitCode } = await runCli(['skill', 'invalid']);
       expect(exitCode).toBe(1);
     });
+
+    it('exits 1 when slug is missing for skill run', async () => {
+      const { exitCode, stderr } = await runCli(['skill', 'run']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('Usage: shield-client skill run');
+    });
+
+    it('handles child process error event', async () => {
+      const origHome = process.env['AGENSHIELD_AGENT_HOME'];
+      process.env['AGENSHIELD_AGENT_HOME'] = '/opt/agent';
+      const origArgv = process.argv;
+      const origExit = process.exit;
+      let exitCode: number | null = null;
+      let stderr = '';
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation((...msgArgs) => {
+        stderr += msgArgs.join(' ') + '\n';
+      });
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        (existsSync as jest.Mock).mockImplementation((p: string) => {
+          return p === '/opt/agent/bin/.brew-originals/err-skill';
+        });
+
+        const mockProc = new EventEmitter() as any;
+        mockProc.stdin = null;
+        mockProc.stdout = null;
+        mockProc.stderr = null;
+        (spawn as jest.Mock).mockImplementation(() => {
+          // Schedule the error emission after listeners are registered
+          setTimeout(() => mockProc.emit('error', new Error('spawn ENOENT')), 10);
+          return mockProc;
+        });
+
+        process.argv = ['node', 'shield-client', 'skill', 'run', 'err-skill'];
+        // Non-throwing exit mock — just record the code
+        process.exit = ((code: number) => { if (exitCode === null) exitCode = code; }) as any;
+
+        await jest.isolateModulesAsync(async () => {
+          try {
+            await import('../../client/shield-client.js');
+            await new Promise((r) => setTimeout(r, 100));
+          } catch {
+            // swallow
+          }
+        });
+
+        expect(exitCode).toBe(1);
+        expect(stderr).toContain('Error executing skill');
+      } finally {
+        process.argv = origArgv;
+        process.exit = origExit;
+        consoleErrorSpy.mockRestore();
+        consoleLogSpy.mockRestore();
+        if (origHome === undefined) delete process.env['AGENSHIELD_AGENT_HOME'];
+        else process.env['AGENSHIELD_AGENT_HOME'] = origHome;
+      }
+    });
+
+    it('handles child process exit with signal', async () => {
+      const origHome = process.env['AGENSHIELD_AGENT_HOME'];
+      process.env['AGENSHIELD_AGENT_HOME'] = '/opt/agent';
+      const origArgv = process.argv;
+      const origExit = process.exit;
+      const origKill = process.kill;
+      let killCalled = false;
+      let killSignal: string | undefined;
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        (existsSync as jest.Mock).mockImplementation((p: string) => {
+          return p === '/opt/agent/bin/.brew-originals/sig-skill';
+        });
+
+        const mockProc = new EventEmitter() as any;
+        mockProc.stdin = null;
+        mockProc.stdout = null;
+        mockProc.stderr = null;
+        (spawn as jest.Mock).mockImplementation(() => {
+          setTimeout(() => mockProc.emit('exit', null, 'SIGTERM'), 10);
+          return mockProc;
+        });
+
+        process.argv = ['node', 'shield-client', 'skill', 'run', 'sig-skill'];
+        process.exit = (() => {}) as any;
+        process.kill = ((pid: number, sig: string) => {
+          killCalled = true;
+          killSignal = sig;
+        }) as any;
+
+        await jest.isolateModulesAsync(async () => {
+          try {
+            await import('../../client/shield-client.js');
+            await new Promise((r) => setTimeout(r, 100));
+          } catch {
+            // swallow
+          }
+        });
+
+        expect(killCalled).toBe(true);
+        expect(killSignal).toBe('SIGTERM');
+      } finally {
+        process.argv = origArgv;
+        process.exit = origExit;
+        process.kill = origKill;
+        consoleLogSpy.mockRestore();
+        consoleErrorSpy.mockRestore();
+        if (origHome === undefined) delete process.env['AGENSHIELD_AGENT_HOME'];
+        else process.env['AGENSHIELD_AGENT_HOME'] = origHome;
+      }
+    });
+
+    it('handles child process exit with code', async () => {
+      const origHome = process.env['AGENSHIELD_AGENT_HOME'];
+      process.env['AGENSHIELD_AGENT_HOME'] = '/opt/agent';
+      const origArgv = process.argv;
+      const origExit = process.exit;
+      let exitCode: number | null = null;
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        (existsSync as jest.Mock).mockImplementation((p: string) => {
+          return p === '/opt/agent/bin/.brew-originals/exit-skill';
+        });
+
+        const mockProc = new EventEmitter() as any;
+        mockProc.stdin = null;
+        mockProc.stdout = null;
+        mockProc.stderr = null;
+        (spawn as jest.Mock).mockImplementation(() => {
+          setTimeout(() => mockProc.emit('exit', 42, null), 10);
+          return mockProc;
+        });
+
+        process.argv = ['node', 'shield-client', 'skill', 'run', 'exit-skill'];
+        process.exit = ((code: number) => { if (exitCode === null) exitCode = code; }) as any;
+
+        await jest.isolateModulesAsync(async () => {
+          try {
+            await import('../../client/shield-client.js');
+            await new Promise((r) => setTimeout(r, 100));
+          } catch {
+            // swallow
+          }
+        });
+
+        expect(exitCode).toBe(42);
+      } finally {
+        process.argv = origArgv;
+        process.exit = origExit;
+        consoleLogSpy.mockRestore();
+        consoleErrorSpy.mockRestore();
+        if (origHome === undefined) delete process.env['AGENSHIELD_AGENT_HOME'];
+        else process.env['AGENSHIELD_AGENT_HOME'] = origHome;
+      }
+    });
   });
 });
 
@@ -308,34 +555,84 @@ describe('stripKnownPrefix', () => {
   // Access via the module's exports (these are file-level functions not exported,
   // so we test them indirectly via findSkillBinary behavior)
 
-  it('strips known prefixes via findSkillBinary fallback', () => {
+  it('strips known oc- prefix and finds binary in brew-originals', async () => {
     const origHome = process.env['AGENSHIELD_AGENT_HOME'];
     process.env['AGENSHIELD_AGENT_HOME'] = '/opt/agent';
+    const origPath = process.env['PATH'];
+    process.env['PATH'] = '/usr/bin';
     try {
-      // Mock existsSync to return true for stripped name on PATH
       (existsSync as jest.Mock).mockImplementation((p: string) => {
-        if (p === '/usr/bin/gog') return true;
-        return false;
+        // Only the stripped name in brew-originals should match
+        return p === '/opt/agent/bin/.brew-originals/gog';
       });
 
-      const origPath = process.env['PATH'];
-      process.env['PATH'] = '/usr/bin';
-      try {
-        // We can't easily test stripKnownPrefix directly since it's not exported,
-        // but we can observe its effect through findSkillBinary
-        // The test for "exits 1 when binary not found" above already exercises the code
-      } finally {
-        process.env['PATH'] = origPath;
-      }
+      const mockProc = new EventEmitter() as any;
+      mockProc.stdin = null;
+      mockProc.stdout = null;
+      mockProc.stderr = null;
+      (spawn as jest.Mock).mockReturnValue(mockProc);
+
+      await runCli(['skill', 'run', 'oc-gog']);
+
+      expect(spawn).toHaveBeenCalled();
+      expect((spawn as jest.Mock).mock.calls[0][0]).toBe('/opt/agent/bin/.brew-originals/gog');
     } finally {
       if (origHome === undefined) delete process.env['AGENSHIELD_AGENT_HOME'];
       else process.env['AGENSHIELD_AGENT_HOME'] = origHome;
+      process.env['PATH'] = origPath;
+    }
+  });
+
+  it('strips known prefix and finds binary on PATH', async () => {
+    const origHome = process.env['AGENSHIELD_AGENT_HOME'];
+    process.env['AGENSHIELD_AGENT_HOME'] = '/opt/agent';
+    const origPath = process.env['PATH'];
+    process.env['PATH'] = '/opt/agent/bin:/usr/local/bin';
+    try {
+      (existsSync as jest.Mock).mockImplementation((p: string) => {
+        // Only the stripped name on PATH should match
+        return p === '/usr/local/bin/myapp';
+      });
+
+      const mockProc = new EventEmitter() as any;
+      mockProc.stdin = null;
+      mockProc.stdout = null;
+      mockProc.stderr = null;
+      (spawn as jest.Mock).mockReturnValue(mockProc);
+
+      await runCli(['skill', 'run', 'ch-myapp']);
+
+      expect(spawn).toHaveBeenCalled();
+      expect((spawn as jest.Mock).mock.calls[0][0]).toBe('/usr/local/bin/myapp');
+    } finally {
+      if (origHome === undefined) delete process.env['AGENSHIELD_AGENT_HOME'];
+      else process.env['AGENSHIELD_AGENT_HOME'] = origHome;
+      process.env['PATH'] = origPath;
+    }
+  });
+
+  it('does not strip prefix when slug equals prefix length (no remaining name)', async () => {
+    const origHome = process.env['AGENSHIELD_AGENT_HOME'];
+    process.env['AGENSHIELD_AGENT_HOME'] = '/opt/agent';
+    const origPath = process.env['PATH'];
+    process.env['PATH'] = '';
+    try {
+      (existsSync as jest.Mock).mockReturnValue(false);
+
+      // "oc-" is exactly the prefix with nothing after it — stripKnownPrefix returns null
+      const { exitCode, stderr } = await runCli(['skill', 'run', 'oc-']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('Could not find binary');
+    } finally {
+      if (origHome === undefined) delete process.env['AGENSHIELD_AGENT_HOME'];
+      else process.env['AGENSHIELD_AGENT_HOME'] = origHome;
+      process.env['PATH'] = origPath;
     }
   });
 });
 
 describe('findSkillBinary', () => {
-  it('finds in .brew-originals', async () => {
+  it('finds in .brew-originals and spawns correct path', async () => {
     const origHome = process.env['AGENSHIELD_AGENT_HOME'];
     process.env['AGENSHIELD_AGENT_HOME'] = '/opt/agent';
     try {
@@ -343,25 +640,20 @@ describe('findSkillBinary', () => {
         return p === '/opt/agent/bin/.brew-originals/my-skill';
       });
 
-      // Create a mock spawn that emits exit
       const mockProc = new EventEmitter() as any;
       mockProc.stdin = null;
       mockProc.stdout = null;
       mockProc.stderr = null;
       (spawn as jest.Mock).mockReturnValue(mockProc);
 
-      // Test that running skill finds the binary
-      // We test this indirectly by verifying spawn is called with the right path
-      const promise = runCli(['skill', 'run', 'my-skill']);
+      // runCli will hang because handleSkillRun awaits a never-resolving promise,
+      // but the 100ms timeout in runCli will let isolateModulesAsync return.
+      // We just need to verify spawn was called with the right path.
+      const result = await runCli(['skill', 'run', 'my-skill']);
 
-      await new Promise((r) => setTimeout(r, 50));
       // spawn should have been called with the brew-originals path
-      if ((spawn as jest.Mock).mock.calls.length > 0) {
-        expect((spawn as jest.Mock).mock.calls[0][0]).toBe('/opt/agent/bin/.brew-originals/my-skill');
-      }
-
-      // Clean up by emitting exit
-      mockProc.emit('exit', 0, null);
+      expect(spawn).toHaveBeenCalled();
+      expect((spawn as jest.Mock).mock.calls[0][0]).toBe('/opt/agent/bin/.brew-originals/my-skill');
     } finally {
       if (origHome === undefined) delete process.env['AGENSHIELD_AGENT_HOME'];
       else process.env['AGENSHIELD_AGENT_HOME'] = origHome;
@@ -375,9 +667,7 @@ describe('findSkillBinary', () => {
     process.env['PATH'] = '/opt/agent/bin:/usr/local/bin';
     try {
       (existsSync as jest.Mock).mockImplementation((p: string) => {
-        // Not in brew-originals
         if (p.includes('.brew-originals')) return false;
-        // Found in /usr/local/bin (not the wrapper dir)
         return p === '/usr/local/bin/my-skill';
       });
 
@@ -387,14 +677,10 @@ describe('findSkillBinary', () => {
       mockProc.stderr = null;
       (spawn as jest.Mock).mockReturnValue(mockProc);
 
-      const promise = runCli(['skill', 'run', 'my-skill']);
+      await runCli(['skill', 'run', 'my-skill']);
 
-      await new Promise((r) => setTimeout(r, 50));
-      if ((spawn as jest.Mock).mock.calls.length > 0) {
-        expect((spawn as jest.Mock).mock.calls[0][0]).toBe('/usr/local/bin/my-skill');
-      }
-
-      mockProc.emit('exit', 0, null);
+      expect(spawn).toHaveBeenCalled();
+      expect((spawn as jest.Mock).mock.calls[0][0]).toBe('/usr/local/bin/my-skill');
     } finally {
       if (origHome === undefined) delete process.env['AGENSHIELD_AGENT_HOME'];
       else process.env['AGENSHIELD_AGENT_HOME'] = origHome;

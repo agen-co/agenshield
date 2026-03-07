@@ -169,6 +169,29 @@ describe('BrokerClient', () => {
       });
       expect(mockedNet.createConnection).toHaveBeenCalled();
     });
+
+    it('fileList calls request with file_list', async () => {
+      await client.fileList({ path: '/tmp' });
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.method).toBe('file_list');
+    });
+
+    it('openUrl calls request with open_url', async () => {
+      await client.openUrl({ url: 'https://example.com' });
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.method).toBe('open_url');
+    });
+
+    it('skillUninstall forces channel: socket', async () => {
+      const socket = createMockSocket({ uninstalled: true });
+      mockedNet.createConnection.mockReturnValue(socket as any);
+
+      await client.skillUninstall({ slug: 'test-skill' } as any);
+      expect(mockedNet.createConnection).toHaveBeenCalled();
+      const written = socket.write.mock.calls[0][0];
+      const body = JSON.parse(written.replace('\n', ''));
+      expect(body.method).toBe('skill_uninstall');
+    });
   });
 
   describe('isAvailable()', () => {

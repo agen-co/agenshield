@@ -331,4 +331,28 @@ describe('forwardEventsToDaemon()', () => {
     // HTTP should NOT be called since socket was used
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  it('should fall back to HTTP when socket throws synchronously (line 255)', async () => {
+    // trySocketForward only rejects if net.createConnection throws synchronously.
+    // That causes the async function to reject, which triggers .catch() on line 253.
+    mockedNet.createConnection.mockImplementation(() => {
+      throw new Error('createConnection sync throw');
+    });
+
+    mockFetch.mockResolvedValue({ ok: true });
+
+    forwardEventsToDaemon(
+      [{ id: 'e2' }],
+      'http://localhost:5200',
+      { daemonSocketPath: '/tmp/broken.sock', token: 'tok', profileId: 'p1' }
+    );
+
+    // Wait for the .catch() fallback to fire
+    await new Promise((r) => setTimeout(r, 100));
+    expect(mockedNet.createConnection).toHaveBeenCalled();
+    // HTTP fallback should have been called
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const fetchUrl = mockFetch.mock.calls[0][0];
+    expect(fetchUrl).toBe('http://localhost:5200/rpc');
+  });
 });

@@ -142,4 +142,43 @@ describe('handleHttpRequest', () => {
     expect(result.success).toBe(false);
     expect(result.error!.code).toBe(1003);
   });
+
+  it('should return error when redirect URL is invalid', async () => {
+    const { server, port } = await createTargetServer((_req, res) => {
+      // Redirect to an invalid URL
+      res.writeHead(302, { Location: '://invalid-redirect' });
+      res.end();
+    });
+    servers.push(server);
+
+    const result = await handleHttpRequest(
+      { url: `http://127.0.0.1:${port}/start`, timeout: 2000 },
+      ctx, deps
+    );
+    expect(result.success).toBe(false);
+    expect(result.error!.code).toBe(1004);
+  });
+
+  it('should return error 1004 when doRequest encounters invalid URL during redirect', async () => {
+    // The outer catch at line 191 covers unexpected errors during param extraction.
+    // We trigger it by passing params that cause an error in the outer try block
+    // after the URL validation but before doRequest returns.
+    // One way: pass a URL that passes `new URL()` validation but causes an error
+    // in http.request options construction (e.g., hostname extraction issue).
+    // Actually, line 191 is the outermost catch. Let's pass params that throw
+    // during destructuring — e.g., a params object with a getter that throws.
+    const badParams = {
+      get url(): string {
+        return 'http://example.com';
+      },
+      get method(): string {
+        throw new Error('Unexpected getter error');
+      },
+    };
+
+    const result = await handleHttpRequest(badParams, ctx, deps);
+    expect(result.success).toBe(false);
+    expect(result.error!.code).toBe(1004);
+    expect(result.error!.message).toContain('Handler error');
+  });
 });

@@ -289,6 +289,28 @@ describe('handleExec', () => {
       expect(result.success).toBe(true);
       expect(spawn).toHaveBeenCalled();
     });
+
+    it('should use Node.js cp builtin with src and dst', async () => {
+      const deps = createMockDeps();
+      (deps.commandAllowlist.resolve as jest.Mock).mockReturnValue('/usr/bin/cp');
+      (deps.policyEnforcer.getPolicies as jest.Mock).mockReturnValue({
+        fsConstraints: { allowedPaths: ['/'] },
+      });
+
+      const result = await handleExec(
+        { command: 'cp', args: ['-r', '/tmp/src', '/tmp/dst'] },
+        ctx,
+        deps
+      );
+      expect(result.success).toBe(true);
+      expect(result.data!.exitCode).toBe(0);
+      expect(fsp.cp).toHaveBeenCalledWith(
+        expect.stringContaining('/tmp/src'),
+        expect.stringContaining('/tmp/dst'),
+        { recursive: true }
+      );
+      expect(spawn).not.toHaveBeenCalled();
+    });
   });
 
   describe('execution', () => {
@@ -366,6 +388,100 @@ describe('handleExec', () => {
         if (origHome === undefined) delete process.env['AGENSHIELD_AGENT_HOME'];
         else process.env['AGENSHIELD_AGENT_HOME'] = origHome;
       }
+    });
+
+    it('should capture stderr data from spawned child', async () => {
+      const deps = createMockDeps();
+      (deps.commandAllowlist.resolve as jest.Mock).mockReturnValue('/usr/bin/node');
+      (spawn as jest.Mock).mockReturnValue(createMockProcess(1, '', 'some error output'));
+
+      const result = await handleExec({ command: 'node', args: ['bad.js'] }, ctx, deps);
+      expect(result.success).toBe(true);
+      expect(result.data!.stderr).toBe('some error output');
+    });
+
+    it('should fall through to spawn when builtin command (chmod) has missing operand', async () => {
+      const deps = createMockDeps();
+      (deps.commandAllowlist.resolve as jest.Mock).mockReturnValue('/bin/chmod');
+      (deps.policyEnforcer.getPolicies as jest.Mock).mockReturnValue({
+        fsConstraints: { allowedPaths: ['/'] },
+      });
+
+      // chmod with only one positional arg returns exitCode 1 from builtin
+      const result = await handleExec(
+        { command: 'chmod', args: ['755'] },
+        ctx,
+        deps
+      );
+      expect(result.success).toBe(true);
+      expect(result.data!.exitCode).toBe(1);
+      expect(result.data!.stderr).toContain('missing operand');
+    });
+  });
+
+  describe('parseArgs flag value extraction', () => {
+    it('should consume flag value as positional when flag is in flagsWithValue set', async () => {
+      // We test this indirectly: curl with -o <file> <url>
+      // The -o flag's value should be consumed, leaving the URL as the extracted URL
+      const deps = createMockDeps();
+      (deps.commandAllowlist.resolve as jest.Mock).mockReturnValue('/usr/bin/curl');
+      (deps.policyEnforcer.check as jest.Mock).mockResolvedValue({ allowed: true });
+
+      await handleExec(
+        { command: 'curl', args: ['-o', 'output.txt', 'https://target.com'] },
+        ctx,
+        deps
+      );
+      // The URL extracted should be https://target.com, not output.txt
+      expect(deps.policyEnforcer.check).toHaveBeenCalledWith(
+        'http_request',
+        { url: 'https://target.com' },
+        ctx
+      );
+    });
+  });
+
+  describe('timeout and SIGKILL', () => {
+    it('should send SIGTERM then SIGKILL after 5s on timeout', async () => {
+      jest.useFakeTimers();
+
+      const deps = createMockDeps();
+      (deps.commandAllowlist.resolve as jest.Mock).mockReturnValue('/usr/bin/long');
+
+      const proc = new EventEmitter() as any;
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.killed = false;
+      proc.kill = jest.fn((signal: string) => {
+        if (signal === 'SIGKILL') {
+          proc.killed = true;
+        }
+      });
+      (spawn as jest.Mock).mockReturnValue(proc);
+
+      const promise = handleExec(
+        { command: 'long', args: [], timeout: 1000 },
+        ctx,
+        deps
+      );
+
+      // Advance past the timeout (1000ms)
+      jest.advanceTimersByTime(1000);
+      expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
+
+      // proc.killed is still false → advance 5000ms to trigger SIGKILL
+      jest.advanceTimersByTime(5000);
+      expect(proc.kill).toHaveBeenCalledWith('SIGKILL');
+
+      // Resolve the process to avoid hanging
+      proc.emit('exit', -1, 'SIGKILL');
+      proc.emit('close', -1, 'SIGKILL');
+
+      jest.useRealTimers();
+
+      const result = await promise;
+      expect(result.success).toBe(true);
+      expect(result.data!.signal).toBe('SIGKILL');
     });
   });
 });
