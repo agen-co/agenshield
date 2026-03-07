@@ -774,6 +774,24 @@ export function isRootOwned(p: string): boolean {
   }
 }
 
+/** Try to find our Developer ID in the keychain. Returns the full identity string or null. */
+function resolveKeychainIdentity(): string | null {
+  if (process.platform !== 'darwin') return null;
+  const teamId = process.env['APPLE_TEAM_ID'];
+  const orgName = process.env['APPLE_CODESIGN_ORG'];
+  if (!teamId || !orgName) return null;
+  const identity = `Developer ID Application: ${orgName} (${teamId})`;
+  try {
+    const result = execSync('security find-identity -v -p codesigning', {
+      encoding: 'utf-8',
+      timeout: 10_000,
+    });
+    return result.includes(identity) ? identity : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Sign a binary with hardened runtime on macOS.
  *
@@ -781,7 +799,7 @@ export function isRootOwned(p: string): boolean {
  * - identity provided → `codesign --sign "$identity" --timestamp --options runtime --entitlements`
  * - no identity (ad-hoc) → `codesign --sign - --options runtime --entitlements`
  *
- * Identity resolution: explicit parameter → AGENSHIELD_CODESIGN_IDENTITY env → ad-hoc.
+ * Identity resolution: explicit parameter → AGENSHIELD_CODESIGN_IDENTITY env → keychain → ad-hoc.
  */
 async function signBinaryHardened(
   binaryPath: string,
@@ -794,7 +812,7 @@ async function signBinaryHardened(
   // Resolve signing identity: explicit param → env var → ad-hoc (null)
   const identity = options?.identity
     ?? process.env['AGENSHIELD_CODESIGN_IDENTITY']
-    ?? null;
+    ?? resolveKeychainIdentity();
 
   // Resolve bundle identifier: explicit param → auto-resolve from binary name
   const resolvedId = options?.identifier ?? resolveCodesignIdentifier(binaryPath);

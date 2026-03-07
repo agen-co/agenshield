@@ -98,10 +98,11 @@ jobs:
         env:
           APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CODESIGN_ORG: ${{ secrets.APPLE_CODESIGN_ORG }}
         run: |
           MAC_APP="dist/apps/shield-macos/Release/AgenShield.app"
           if [ -d "$MAC_APP" ] && [ -n "$APPLE_TEAM_ID" ]; then
-            codesign --force --deep --sign "Developer ID Application: Frontegg ($APPLE_TEAM_ID)" \
+            codesign --force --deep --sign "Developer ID Application: $APPLE_CODESIGN_ORG ($APPLE_TEAM_ID)" \
               --identifier com.frontegg.AgenShield --timestamp --options runtime "$MAC_APP"
             echo "Signed $MAC_APP"
           fi
@@ -493,10 +494,11 @@ jobs:
         env:
           APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CODESIGN_ORG: ${{ secrets.APPLE_CODESIGN_ORG }}
         run: |
           SIGN_FLAGS=""
           if [ "${{ matrix.platform }}" = "darwin" ] && [ -n "$APPLE_CERTIFICATE_P12_BASE64" ] && [ -n "$APPLE_TEAM_ID" ]; then
-            SIGN_FLAGS="--codesign-identity \"Developer ID Application: Frontegg ($APPLE_TEAM_ID)\" --entitlements tools/sea/entitlements.plist"
+            SIGN_FLAGS="--codesign-identity \"Developer ID Application: $APPLE_CODESIGN_ORG ($APPLE_TEAM_ID)\" --entitlements tools/sea/entitlements.plist"
             echo "has_identity=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_identity=false" >> "$GITHUB_OUTPUT"
