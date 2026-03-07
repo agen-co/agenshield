@@ -201,14 +201,14 @@ export class PolicyManager {
   }
 
   private compileEngine(scope?: ScopeFilter): CompiledPolicyEngine {
-    const scoped = scope ? this.storage.for(scope) : undefined;
-    const policies = scoped
-      ? scoped.policies.getEnabled()
-      : this.storage.policies.getAll().filter(p => p.enabled);
+    const scoped = scope
+      ? this.storage.for(scope)
+      : this.storage.for({ profileId: null });
+    const policies = scoped.policies.getEnabled();
 
     let graph: PolicyGraph | undefined;
     try {
-      const graphRepo = scoped?.policyGraph ?? this.storage.policyGraph;
+      const graphRepo = scoped.policyGraph;
       graph = graphRepo.loadGraph();
     } catch {
       // Graph may not be available — compile without it

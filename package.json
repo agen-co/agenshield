@@ -27,7 +27,8 @@
     "registry:publish": "node scripts/registry/publish.mjs",
     "registry:stop": "node scripts/registry/stop.mjs",
     "test:seatbelt": "npx nx build shield-daemon && npx tsx tools/test-seatbelt.ts",
-    "generate:macos-icons": "node --experimental-strip-types tools/generate-macos-icons.mts"
+    "generate:macos-icons": "node --experimental-strip-types tools/generate-macos-icons.mts",
+    "test:report": "tsx scripts/coverage-report.ts"
   },
   "private": true,
   "devDependencies": {

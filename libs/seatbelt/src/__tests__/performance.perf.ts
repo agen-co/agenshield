@@ -19,6 +19,7 @@ import { buildSandboxConfig } from '../config-builder';
 import { filterEnvByAllowlist } from '../env-allowlist';
 import type { SandboxConfig, PolicyConfig } from '@agenshield/ipc';
 import type { SeatbeltDeps, BuildSandboxInput } from '../config-builder';
+import { perf } from '../../../../tools/perf-metric';
 
 jest.setTimeout(120_000);
 
@@ -135,8 +136,7 @@ describe('Profile generation throughput', () => {
     const elapsed = performance.now() - start;
     const throughput = opsPerSec(count, elapsed);
 
-    console.log(`generateProfile: ${throughput} ops/sec (${count} in ${elapsed.toFixed(1)}ms)`);
-    expect(throughput).toBeGreaterThan(5000);
+    perf('seatbelt', 'generateProfile', throughput, '>', 5000, 'ops/sec');
   });
 });
 
@@ -155,8 +155,7 @@ describe('Profile caching — sync (getOrCreateProfile)', () => {
     const elapsed = performance.now() - start;
     const throughput = opsPerSec(count, elapsed);
 
-    console.log(`getOrCreateProfile cache miss: ${throughput} ops/sec (${count} in ${elapsed.toFixed(1)}ms)`);
-    expect(throughput).toBeGreaterThan(500);
+    perf('seatbelt', 'cacheSync.miss', throughput, '>', 500, 'ops/sec');
   });
 
   it('cache hit: > 2,000 ops/sec for identical content', () => {
@@ -175,8 +174,7 @@ describe('Profile caching — sync (getOrCreateProfile)', () => {
     const elapsed = performance.now() - start;
     const throughput = opsPerSec(count, elapsed);
 
-    console.log(`getOrCreateProfile cache hit: ${throughput} ops/sec (${count} in ${elapsed.toFixed(1)}ms)`);
-    expect(throughput).toBeGreaterThan(2000);
+    perf('seatbelt', 'cacheSync.hit', throughput, '>', 2000, 'ops/sec');
   });
 });
 
@@ -195,8 +193,7 @@ describe('Profile caching — async (getOrCreateProfileAsync)', () => {
     const elapsed = performance.now() - start;
     const throughput = opsPerSec(count, elapsed);
 
-    console.log(`getOrCreateProfileAsync cache miss: ${throughput} ops/sec (${count} in ${elapsed.toFixed(1)}ms)`);
-    expect(throughput).toBeGreaterThan(500);
+    perf('seatbelt', 'cacheAsync.miss', throughput, '>', 500, 'ops/sec');
   });
 
   it('cache hit: > 2,000 ops/sec for identical content', async () => {
@@ -215,8 +212,7 @@ describe('Profile caching — async (getOrCreateProfileAsync)', () => {
     const elapsed = performance.now() - start;
     const throughput = opsPerSec(count, elapsed);
 
-    console.log(`getOrCreateProfileAsync cache hit: ${throughput} ops/sec (${count} in ${elapsed.toFixed(1)}ms)`);
-    expect(throughput).toBeGreaterThan(2000);
+    perf('seatbelt', 'cacheAsync.hit', throughput, '>', 2000, 'ops/sec');
   });
 });
 
@@ -235,8 +231,7 @@ describe('buildSandboxConfig throughput', () => {
     const elapsed = performance.now() - start;
     const throughput = opsPerSec(count, elapsed);
 
-    console.log(`buildSandboxConfig (0 policies): ${throughput} ops/sec (${count} in ${elapsed.toFixed(1)}ms)`);
-    expect(throughput).toBeGreaterThan(1000);
+    perf('seatbelt', 'buildConfig.0policies', throughput, '>', 1000, 'ops/sec');
   });
 
   it('> 500 ops/sec with 10 policies', async () => {
@@ -252,8 +247,7 @@ describe('buildSandboxConfig throughput', () => {
     const elapsed = performance.now() - start;
     const throughput = opsPerSec(count, elapsed);
 
-    console.log(`buildSandboxConfig (10 policies): ${throughput} ops/sec (${count} in ${elapsed.toFixed(1)}ms)`);
-    expect(throughput).toBeGreaterThan(500);
+    perf('seatbelt', 'buildConfig.10policies', throughput, '>', 500, 'ops/sec');
   });
 
   it('> 200 ops/sec with 50 policies', async () => {
@@ -269,8 +263,7 @@ describe('buildSandboxConfig throughput', () => {
     const elapsed = performance.now() - start;
     const throughput = opsPerSec(count, elapsed);
 
-    console.log(`buildSandboxConfig (50 policies): ${throughput} ops/sec (${count} in ${elapsed.toFixed(1)}ms)`);
-    expect(throughput).toBeGreaterThan(200);
+    perf('seatbelt', 'buildConfig.50policies', throughput, '>', 200, 'ops/sec');
   });
 });
 
@@ -288,8 +281,7 @@ describe('Environment filtering (filterEnvByAllowlist)', () => {
     const elapsed = performance.now() - start;
     const throughput = opsPerSec(count, elapsed);
 
-    console.log(`filterEnvByAllowlist (200 vars): ${throughput} ops/sec (${count} in ${elapsed.toFixed(1)}ms)`);
-    expect(throughput).toBeGreaterThan(10_000);
+    perf('seatbelt', 'filterEnv.200vars', throughput, '>', 10_000, 'ops/sec');
   });
 });
 
@@ -319,8 +311,7 @@ describe('Profile cleanup at scale', () => {
     pm.cleanup(60 * 60 * 1000); // 1 hour
     const elapsed = performance.now() - start;
 
-    console.log(`cleanup sync (500 files): ${elapsed.toFixed(1)}ms`);
-    expect(elapsed).toBeLessThan(1000);
+    perf('seatbelt', 'cleanup.sync500', elapsed, '<', 1000, 'ms');
 
     // Verify correct files removed
     const remaining = fs.readdirSync(dir).filter(f => f.endsWith('.sb'));
@@ -336,8 +327,7 @@ describe('Profile cleanup at scale', () => {
     await pm.cleanupAsync(60 * 60 * 1000); // 1 hour
     const elapsed = performance.now() - start;
 
-    console.log(`cleanupAsync (500 files): ${elapsed.toFixed(1)}ms`);
-    expect(elapsed).toBeLessThan(1000);
+    perf('seatbelt', 'cleanup.async500', elapsed, '<', 1000, 'ms');
 
     // Verify correct files removed
     const remaining = fs.readdirSync(dir).filter(f => f.endsWith('.sb'));
@@ -366,8 +356,7 @@ describe('Concurrent profile generation under load', () => {
     await Promise.all(promises);
     const elapsed = performance.now() - start;
 
-    console.log(`Concurrent ${concurrency} pipelines: ${elapsed.toFixed(1)}ms`);
-    expect(elapsed).toBeLessThan(5000);
+    perf('seatbelt', 'concurrent.100pipelines', elapsed, '<', 5000, 'ms');
   });
 });
 
@@ -384,8 +373,7 @@ describe('Event loop blocking audit', () => {
       }
     });
 
-    console.log(`generateProfile ×1000: maxLag=${lag.maxLagMs.toFixed(2)}ms p99=${lag.p99LagMs.toFixed(2)}ms`);
-    expect(lag.maxLagMs).toBeLessThan(10);
+    perf('seatbelt', 'evloop.generateProfile', lag.maxLagMs, '<', 10, 'ms');
   });
 
   it('getOrCreateProfile cache hit ×100: block < 50ms', async () => {
@@ -400,8 +388,7 @@ describe('Event loop blocking audit', () => {
       }
     });
 
-    console.log(`getOrCreateProfile cache hit ×100: block=${block.toFixed(2)}ms`);
-    expect(block).toBeLessThan(50);
+    perf('seatbelt', 'evloop.cacheHitBlock', block, '<', 50, 'ms');
   });
 
   it('filterEnvByAllowlist ×10,000: maxLag < 10ms', async () => {
@@ -413,8 +400,7 @@ describe('Event loop blocking audit', () => {
       }
     });
 
-    console.log(`filterEnvByAllowlist ×10000: maxLag=${lag.maxLagMs.toFixed(2)}ms p99=${lag.p99LagMs.toFixed(2)}ms`);
-    expect(lag.maxLagMs).toBeLessThan(10);
+    perf('seatbelt', 'evloop.filterEnv', lag.maxLagMs, '<', 10, 'ms');
   });
 
   it('buildSandboxConfig (no proxy) ×50: maxLag < 50ms', async () => {
@@ -427,8 +413,7 @@ describe('Event loop blocking audit', () => {
       }
     });
 
-    console.log(`buildSandboxConfig ×50: maxLag=${lag.maxLagMs.toFixed(2)}ms p99=${lag.p99LagMs.toFixed(2)}ms`);
-    expect(lag.maxLagMs).toBeLessThan(50);
+    perf('seatbelt', 'evloop.buildConfig', lag.maxLagMs, '<', 50, 'ms');
   });
 
   it('getOrCreateProfileAsync ×100: maxLag < 10ms (non-blocking)', async () => {
@@ -443,7 +428,6 @@ describe('Event loop blocking audit', () => {
       }
     });
 
-    console.log(`getOrCreateProfileAsync ×100: maxLag=${lag.maxLagMs.toFixed(2)}ms p99=${lag.p99LagMs.toFixed(2)}ms`);
-    expect(lag.maxLagMs).toBeLessThan(10);
+    perf('seatbelt', 'evloop.asyncProfile', lag.maxLagMs, '<', 10, 'ms');
   });
 });

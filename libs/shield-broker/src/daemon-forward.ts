@@ -35,19 +35,21 @@ async function trySocketForward(
   params: Record<string, unknown>,
 ): Promise<unknown | null> {
   return new Promise<unknown | null>((resolve) => {
+    let socket: net.Socket | undefined;
+
     const timeout = setTimeout(() => {
-      socket.destroy();
+      socket?.destroy();
       resolve(null);
     }, DAEMON_RPC_TIMEOUT);
 
-    const socket = net.createConnection(socketPath, () => {
+    socket = net.createConnection(socketPath, () => {
       const request = JSON.stringify({
         jsonrpc: '2.0',
         id: `broker-fwd-${Date.now()}`,
         method,
         params,
       });
-      socket.write(request + '\n');
+      socket!.write(request + '\n');
     });
 
     let buffer = '';

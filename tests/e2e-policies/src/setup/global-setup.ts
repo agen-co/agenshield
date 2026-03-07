@@ -2,14 +2,13 @@
  * Global setup for E2E policy tests.
  *
  * 1. Create a temp HOME directory for config isolation
- * 2. Write a seed config with custom port and empty policies
- * 3. Spawn the daemon via npx tsx (no build needed)
- * 4. Wait for health endpoint
- * 5. Write state file for tests and teardown
+ * 2. Spawn the daemon via npx tsx with AGENSHIELD_PORT/HOST env vars
+ * 3. Wait for health endpoint
+ * 4. Write state file for tests and teardown
  */
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -33,30 +32,17 @@ export default async function globalSetup() {
   console.log(`[E2E Policies Setup] Temp HOME: ${tempHome}`);
   console.log(`[E2E Policies Setup] Port: ${TEST_PORT}`);
 
-  // 2. Write seed config
-  const seedConfig = {
-    version: '0.1.0',
-    daemon: {
-      port: TEST_PORT,
-      host: TEST_HOST,
-      logLevel: 'warn',
-      enableHostsEntry: false,
-    },
-    policies: [],
-    vault: {
-      enabled: false,
-      provider: 'local',
-    },
-  };
-  writeFileSync(join(configDir, 'config.json'), JSON.stringify(seedConfig, null, 2));
-
-  // 3. Spawn daemon with isolated HOME
+  // 2. Spawn daemon with isolated HOME and port/host via env vars
+  //    (Config lives in SQLite now — config.json is no longer read)
   const daemonProc = spawn('npx', ['tsx', 'libs/shield-daemon/src/main.ts'], {
     cwd: ROOT_DIR,
     env: {
       ...process.env,
       HOME: tempHome,
       AGENSHIELD_AGENT_HOME: agentHome,
+      AGENSHIELD_PORT: String(TEST_PORT),
+      AGENSHIELD_HOST: TEST_HOST,
+      AGENSHIELD_DEFAULT_ACTION: 'allow',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
@@ -70,7 +56,7 @@ export default async function globalSetup() {
     stderrBuf += chunk.toString();
   });
 
-  // 4. Wait for health endpoint
+  // 3. Wait for health endpoint
   const healthUrl = `http://${TEST_HOST}:${TEST_PORT}/api/health`;
   const start = Date.now();
   const timeout = 30_000;
@@ -99,7 +85,7 @@ export default async function globalSetup() {
     throw new Error(`Daemon failed to start on port ${TEST_PORT} within ${timeout}ms`);
   }
 
-  // 5. Write state for tests and teardown
+  // 4. Write state for tests and teardown
   writeFileSync(
     STATE_FILE,
     JSON.stringify({

@@ -20,6 +20,7 @@ import { classifyNetworkError } from '../errors';
 import type { CreateProxyOptions } from '../types';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { checkUrlPolicy } from '@agenshield/policies';
+import { perf } from '../../../../tools/perf-metric';
 
 jest.setTimeout(120_000);
 
@@ -194,8 +195,7 @@ describe('Proxy — Performance', () => {
 
       const elapsed = performance.now() - start;
       const ops = opsPerSec(count, elapsed);
-      console.log(`[lifecycle] create+listen+close: ${ops} ops/sec (${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(100);
+      perf('proxy', 'lifecycle.createListenClose', ops, '>', 100, 'ops/sec');
     });
 
     it('create without listen (sync): > 5000 ops/sec', () => {
@@ -209,8 +209,7 @@ describe('Proxy — Performance', () => {
 
       const elapsed = performance.now() - start;
       const ops = opsPerSec(count, elapsed);
-      console.log(`[lifecycle] create (no listen): ${ops} ops/sec (${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(5000);
+      perf('proxy', 'lifecycle.createNoListen', ops, '>', 5000, 'ops/sec');
     });
   });
 
@@ -229,8 +228,7 @@ describe('Proxy — Performance', () => {
 
       const elapsed = performance.now() - start;
       const ops = opsPerSec(count, elapsed);
-      console.log(`[pool] sequential acquire/release: ${ops} ops/sec (${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(50);
+      perf('proxy', 'pool.sequentialAcquireRelease', ops, '>', 50, 'ops/sec');
 
       pool.shutdown();
     });
@@ -246,16 +244,14 @@ describe('Proxy — Performance', () => {
         ),
       );
       const acquireElapsed = performance.now() - acquireStart;
-      console.log(`[pool] parallel acquire ${count}: ${acquireElapsed.toFixed(1)}ms`);
-      expect(acquireElapsed).toBeLessThan(500);
+      perf('proxy', 'pool.parallelAcquire', acquireElapsed, '<', 500, 'ms');
 
       const releaseStart = performance.now();
       for (let i = 0; i < count; i++) {
         pool.release(`s2-par-${i}`);
       }
       const releaseElapsed = performance.now() - releaseStart;
-      console.log(`[pool] release ${count}: ${releaseElapsed.toFixed(1)}ms`);
-      expect(releaseElapsed).toBeLessThan(100);
+      perf('proxy', 'pool.release', releaseElapsed, '<', 100, 'ms');
 
       pool.shutdown();
     });
@@ -279,8 +275,7 @@ describe('Proxy — Performance', () => {
       }
       const elapsed = performance.now() - start;
 
-      console.log(`[pool] eviction 15 into max=10: ${elapsed.toFixed(1)}ms, ${evicted.length} evictions`);
-      expect(elapsed).toBeLessThan(2000);
+      perf('proxy', 'pool.eviction15', elapsed, '<', 2000, 'ms');
       expect(evicted.length).toBe(5);
       // First 5 should be evicted (FIFO by oldest lastActivity)
       for (let i = 0; i < 5; i++) {
@@ -304,8 +299,7 @@ describe('Proxy — Performance', () => {
       }
       const elapsed = performance.now() - start;
 
-      console.log(`[pool] rapid eviction 50 into max=5: ${elapsed.toFixed(1)}ms, ${evicted.length} evictions`);
-      expect(elapsed).toBeLessThan(5000);
+      perf('proxy', 'pool.rapidEviction50', elapsed, '<', 5000, 'ms');
       expect(evicted.length).toBe(45);
 
       pool.shutdown();
@@ -341,8 +335,7 @@ describe('Proxy — Performance', () => {
 
       const elapsed = performance.now() - start;
       const ops = opsPerSec(count, elapsed);
-      console.log(`[http] sequential 500 requests: ${ops} req/sec (${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(200);
+      perf('proxy', 'http.sequential500', ops, '>', 200, 'ops/sec');
     });
 
     it('parallel batches (10x50): < 5000ms', async () => {
@@ -359,8 +352,7 @@ describe('Proxy — Performance', () => {
       }
 
       const elapsed = performance.now() - start;
-      console.log(`[http] parallel batches ${batches}x${batchSize}: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(5000);
+      perf('proxy', 'http.parallelBatches', elapsed, '<', 5000, 'ms');
     });
 
     it('blocked requests (deny policy) 500: > 500 req/sec', async () => {
@@ -380,8 +372,7 @@ describe('Proxy — Performance', () => {
 
         const elapsed = performance.now() - start;
         const ops = opsPerSec(count, elapsed);
-        console.log(`[http] blocked 500 requests: ${ops} req/sec (${elapsed.toFixed(1)}ms)`);
-        expect(ops).toBeGreaterThan(500);
+        perf('proxy', 'http.blocked500', ops, '>', 500, 'ops/sec');
       } finally {
         denyProxy.close();
       }
@@ -418,8 +409,7 @@ describe('Proxy — Performance', () => {
 
       const elapsed = performance.now() - start;
       const ops = opsPerSec(count, elapsed);
-      console.log(`[tunnel] sequential 200 establishments: ${ops} tunnels/sec (${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(100);
+      perf('proxy', 'tunnel.sequential200', ops, '>', 100, 'ops/sec');
     });
 
     it('tunnel data round-trip 50: < 2000ms', async () => {
@@ -437,8 +427,7 @@ describe('Proxy — Performance', () => {
       }
 
       const elapsed = performance.now() - start;
-      console.log(`[tunnel] 50 data round-trips: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(2000);
+      perf('proxy', 'tunnel.roundTrip50', elapsed, '<', 2000, 'ms');
     });
 
     it('blocked tunnels (deny policy) 200: > 300 tunnels/sec', async () => {
@@ -459,8 +448,7 @@ describe('Proxy — Performance', () => {
 
         const elapsed = performance.now() - start;
         const ops = opsPerSec(count, elapsed);
-        console.log(`[tunnel] blocked 200 tunnels: ${ops} tunnels/sec (${elapsed.toFixed(1)}ms)`);
-        expect(ops).toBeGreaterThan(300);
+        perf('proxy', 'tunnel.blocked200', ops, '>', 300, 'ops/sec');
       } finally {
         denyProxy.close();
       }
@@ -488,8 +476,7 @@ describe('Proxy — Performance', () => {
       proxy.close();
       echoSrv.close();
 
-      console.log(`[policy] 100-policy HTTP forwarding: ${ops} req/sec (${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(100);
+      perf('proxy', 'policy.100policyHttp', ops, '>', 100, 'ops/sec');
     });
 
     it('checkUrlPolicy alone with 100 policies, 10000 evaluations: > 3000 ops/sec', () => {
@@ -503,8 +490,7 @@ describe('Proxy — Performance', () => {
 
       const elapsed = performance.now() - start;
       const ops = opsPerSec(count, elapsed);
-      console.log(`[policy] checkUrlPolicy 100 policies x ${count}: ${ops} ops/sec (${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(3_000);
+      perf('proxy', 'policy.checkUrl100', ops, '>', 3_000, 'ops/sec');
     });
 
     it('checkUrlPolicy alone with 500 policies: > 500 ops/sec', () => {
@@ -518,8 +504,7 @@ describe('Proxy — Performance', () => {
 
       const elapsed = performance.now() - start;
       const ops = opsPerSec(count, elapsed);
-      console.log(`[policy] checkUrlPolicy 500 policies x ${count}: ${ops} ops/sec (${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(500);
+      perf('proxy', 'policy.checkUrl500', ops, '>', 500, 'ops/sec');
     });
   });
 
@@ -532,8 +517,7 @@ describe('Proxy — Performance', () => {
           createPerRunProxy(makeOptions());
         }
       });
-      console.log(`[evloop] proxy creation x100: maxLag=${lag.maxLagMs.toFixed(1)}ms, elapsed=${lag.elapsed.toFixed(1)}ms`);
-      expect(lag.maxLagMs).toBeLessThan(50);
+      perf('proxy', 'evloop.proxyCreation', lag.maxLagMs, '<', 50, 'ms');
     });
 
     it('pool acquire: maxLag < 50ms', async () => {
@@ -543,8 +527,7 @@ describe('Proxy — Performance', () => {
           await pool.acquire(`s7-acq-${i}`, `cmd-${i}`, allowAllPolicies, () => 'allow');
         }
       });
-      console.log(`[evloop] pool acquire x20: maxLag=${lag.maxLagMs.toFixed(1)}ms, elapsed=${lag.elapsed.toFixed(1)}ms`);
-      expect(lag.maxLagMs).toBeLessThan(50);
+      perf('proxy', 'evloop.poolAcquire', lag.maxLagMs, '<', 50, 'ms');
       pool.shutdown();
     });
 
@@ -558,8 +541,7 @@ describe('Proxy — Performance', () => {
         }
       });
 
-      console.log(`[evloop] 100 HTTP requests: maxLag=${lag.maxLagMs.toFixed(1)}ms, elapsed=${lag.elapsed.toFixed(1)}ms`);
-      expect(lag.maxLagMs).toBeLessThan(100);
+      perf('proxy', 'evloop.http100', lag.maxLagMs, '<', 100, 'ms');
 
       proxySrv.close();
       echoSrv.close();
@@ -576,8 +558,7 @@ describe('Proxy — Performance', () => {
         }
       });
 
-      console.log(`[evloop] 50 CONNECT tunnels: maxLag=${lag.maxLagMs.toFixed(1)}ms, elapsed=${lag.elapsed.toFixed(1)}ms`);
-      expect(lag.maxLagMs).toBeLessThan(100);
+      perf('proxy', 'evloop.connect50', lag.maxLagMs, '<', 100, 'ms');
 
       proxySrv.close();
       tcpSrv.close();
@@ -598,8 +579,7 @@ describe('Proxy — Performance', () => {
       }
 
       const elapsed = performance.now() - start;
-      console.log(`[evloop] classifyNetworkError x${count}: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(50);
+      perf('proxy', 'evloop.classifyNetworkError', elapsed, '<', 50, 'ms');
     });
   });
 
@@ -618,8 +598,7 @@ describe('Proxy — Performance', () => {
       }
       const elapsed = performance.now() - start;
 
-      console.log(`[bulk] acquire ${count} proxies: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(3000);
+      perf('proxy', 'bulk.acquire30', elapsed, '<', 3000, 'ms');
       expect(pool.size).toBe(count);
 
       pool.shutdown();
@@ -647,8 +626,7 @@ describe('Proxy — Performance', () => {
       );
       const elapsed = performance.now() - start;
 
-      console.log(`[bulk] ${proxyCount} proxies x ${reqsPerProxy} requests: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(5000);
+      perf('proxy', 'bulk.routeTraffic', elapsed, '<', 5000, 'ms');
 
       pool.shutdown();
       echoSrv.close();
@@ -665,8 +643,7 @@ describe('Proxy — Performance', () => {
       pool.shutdown();
       const elapsed = performance.now() - start;
 
-      console.log(`[bulk] shutdown 30 proxies: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(500);
+      perf('proxy', 'bulk.shutdown30', elapsed, '<', 500, 'ms');
       expect(pool.size).toBe(0);
     });
   });

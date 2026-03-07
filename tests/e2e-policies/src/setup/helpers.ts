@@ -5,6 +5,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 const STATE_FILE = '/tmp/agenshield-e2e-policies-state.json';
@@ -28,6 +29,16 @@ function getState(): TestState {
 function getBaseUrl(): string {
   const { host, port } = getState();
   return `http://${host}:${port}`;
+}
+
+let cachedAdminToken: string | null = null;
+
+function getAdminToken(): string {
+  if (!cachedAdminToken) {
+    const { tempHome } = getState();
+    cachedAdminToken = readFileSync(join(tempHome, '.agenshield', '.admin-token'), 'utf-8').trim();
+  }
+  return cachedAdminToken;
 }
 
 // ─── JSON-RPC ────────────────────────────────────────────────────────────────
@@ -88,7 +99,10 @@ export async function daemonAPI(
   const url = `${getBaseUrl()}/api${path}`;
   const opts: RequestInit = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${getAdminToken()}`,
+    },
     signal: AbortSignal.timeout(10_000),
   };
 

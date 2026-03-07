@@ -17,8 +17,7 @@
       "executor": "@nx/jest:jest",
       "outputs": ["{workspaceRoot}/test-output/performance/{projectRoot}"],
       "options": {
-        "jestConfig": "libs/interceptor/jest.config.ts",
-        "testPathPatterns": ["performance"],
+        "jestConfig": "libs/interceptor/jest.perf.config.ts",
         "passWithNoTests": true,
         "coverageDirectory": "../../test-output/performance/libs/interceptor",
         "codeCoverage": true,

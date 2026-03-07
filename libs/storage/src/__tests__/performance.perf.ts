@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { Storage } from '../storage';
 import { StorageLockedError } from '../errors';
+import { perf } from '../../../../tools/perf-metric';
 
 jest.setTimeout(120_000);
 
@@ -102,8 +103,7 @@ describe('Storage — End-to-end Performance', () => {
       }
       const elapsed = performance.now() - start;
       const ops = opsPerSec(count, elapsed);
-      console.log(`[profiles] getAll: ${ops} ops/sec (${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(2_000);
+      perf('storage', 'profiles.getAll', ops, '>', 2_000, 'ops/sec');
     });
 
     it('profiles.getById() > 1000 ops/sec', () => {
@@ -114,8 +114,7 @@ describe('Storage — End-to-end Performance', () => {
       }
       const elapsed = performance.now() - start;
       const ops = opsPerSec(count, elapsed);
-      console.log(`[profiles] getById: ${ops} ops/sec (${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(5_000);
+      perf('storage', 'profiles.getById', ops, '>', 5_000, 'ops/sec');
     });
   });
 
@@ -140,8 +139,7 @@ describe('Storage — End-to-end Performance', () => {
       }
       const elapsed = performance.now() - start;
       const ops = opsPerSec(total, elapsed);
-      console.log(`[activities] append: ${ops} ops/sec (${total} events in ${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(1_000);
+      perf('storage', 'activities.append', ops, '>', 1_000, 'ops/sec');
     });
 
     it('total count is 10,000', () => {
@@ -172,8 +170,7 @@ describe('Storage — End-to-end Performance', () => {
         storage.activities.getAll({ limit: 100, offset: page * 100 });
       }
       const elapsed = performance.now() - start;
-      console.log(`[activities] 10 pages: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(200);
+      perf('storage', 'activities.paginate', elapsed, '<', 200, 'ms');
     });
   });
 
@@ -200,8 +197,7 @@ describe('Storage — End-to-end Performance', () => {
       }
       const elapsed = performance.now() - start;
       const ops = opsPerSec(total, elapsed);
-      console.log(`[alerts] create: ${ops} ops/sec (${total} alerts in ${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(500);
+      perf('storage', 'alerts.create', ops, '>', 500, 'ops/sec');
     });
 
     it('count matches', () => {
@@ -262,8 +258,7 @@ describe('Storage — End-to-end Performance', () => {
 
       const elapsed = performance.now() - start;
       const ops = opsPerSec(total, elapsed);
-      console.log(`[policies] create: ${ops} ops/sec (${total} policies in ${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(500);
+      perf('storage', 'policies.create', ops, '>', 500, 'ops/sec');
     });
 
     it('scoped getAll per profile returns global + profile policies, each < 20ms', () => {
@@ -360,7 +355,7 @@ describe('Storage — End-to-end Performance', () => {
       }
       const elapsed = performance.now() - start;
       expect(resultLen).toBe(SKILL_COUNT);
-      console.log(`[skills] getAll: ${opsPerSec(count, elapsed)} ops/sec (${elapsed.toFixed(1)}ms)`);
+
     });
 
     it('getVersions for 20 skills each < 10ms', () => {
@@ -383,7 +378,7 @@ describe('Storage — End-to-end Performance', () => {
         expect(latest!.version).toBeTruthy();
       }
       const elapsed = performance.now() - start;
-      console.log(`[skills] getLatestVersion x${SKILL_COUNT}: ${elapsed.toFixed(1)}ms`);
+
     });
 
     it('getFiles for 50 versions each < 10ms', () => {
@@ -430,8 +425,7 @@ describe('Storage — End-to-end Performance', () => {
       const elapsed = performance.now() - start;
       const total = iterations * PROFILE_COUNT;
       const ops = opsPerSec(total, elapsed);
-      console.log(`[config] scoped get: ${ops} ops/sec (${total} reads in ${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(2_000);
+      perf('storage', 'config.scopedGet', ops, '>', 2_000, 'ops/sec');
     });
   });
 
@@ -468,8 +462,7 @@ describe('Storage — End-to-end Performance', () => {
 
       const elapsed = performance.now() - start;
       const ops = opsPerSec(total, elapsed);
-      console.log(`[secrets] create: ${ops} ops/sec (${total} secrets in ${elapsed.toFixed(1)}ms)`);
-      expect(ops).toBeGreaterThan(200);
+      perf('storage', 'secrets.create', ops, '>', 200, 'ops/sec');
     });
 
     it('scoped getAll (with decryption) < 100ms each', () => {
@@ -521,8 +514,7 @@ describe('Storage — End-to-end Performance', () => {
       const start = performance.now();
       storage.changePasscode('perf-test-passcode', 'new-perf-passcode');
       const elapsed = performance.now() - start;
-      console.log(`[secrets] changePasscode: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(5_000);
+      perf('storage', 'secrets.changePasscode', elapsed, '<', 5_000, 'ms');
       expect(storage.isUnlocked()).toBe(true);
 
       // Verify secrets still readable
@@ -563,8 +555,7 @@ describe('Storage — End-to-end Performance', () => {
           type: 'target',
         });
       });
-      console.log(`[evloop] profile create: ${drift.toFixed(1)}ms`);
-      expect(drift).toBeLessThan(BLOCK_THRESHOLD_MS);
+      perf('storage', 'evloop.profileCreate', drift, '<', BLOCK_THRESHOLD_MS, 'ms');
     });
 
     it('append 100 events < 100ms event loop block', async () => {
@@ -578,8 +569,7 @@ describe('Storage — End-to-end Performance', () => {
           });
         }
       });
-      console.log(`[evloop] append 100 events: ${drift.toFixed(1)}ms`);
-      expect(drift).toBeLessThan(BLOCK_THRESHOLD_MS);
+      perf('storage', 'evloop.append100Events', drift, '<', BLOCK_THRESHOLD_MS, 'ms');
     });
 
     it('scoped policies.getAll() < 100ms event loop block', async () => {
@@ -587,8 +577,7 @@ describe('Storage — End-to-end Performance', () => {
       const drift = await measureEventLoopBlock(() => {
         scoped.policies.getAll();
       });
-      console.log(`[evloop] scoped policies.getAll: ${drift.toFixed(1)}ms`);
-      expect(drift).toBeLessThan(BLOCK_THRESHOLD_MS);
+      perf('storage', 'evloop.scopedPolicies', drift, '<', BLOCK_THRESHOLD_MS, 'ms');
     });
 
     it('scoped config.get() < 100ms event loop block', async () => {
@@ -596,8 +585,7 @@ describe('Storage — End-to-end Performance', () => {
       const drift = await measureEventLoopBlock(() => {
         scoped.config.get();
       });
-      console.log(`[evloop] scoped config.get: ${drift.toFixed(1)}ms`);
-      expect(drift).toBeLessThan(BLOCK_THRESHOLD_MS);
+      perf('storage', 'evloop.scopedConfig', drift, '<', BLOCK_THRESHOLD_MS, 'ms');
     });
 
     it('secrets.getById (decrypt) < 100ms event loop block', async () => {
@@ -605,24 +593,21 @@ describe('Storage — End-to-end Performance', () => {
       const drift = await measureEventLoopBlock(() => {
         storage.secrets.getById(all[0].id);
       });
-      console.log(`[evloop] secrets.getById: ${drift.toFixed(1)}ms`);
-      expect(drift).toBeLessThan(BLOCK_THRESHOLD_MS);
+      perf('storage', 'evloop.secretsGetById', drift, '<', BLOCK_THRESHOLD_MS, 'ms');
     });
 
     it('skills.getAll() < 100ms event loop block', async () => {
       const drift = await measureEventLoopBlock(() => {
         storage.skills.getAll();
       });
-      console.log(`[evloop] skills.getAll: ${drift.toFixed(1)}ms`);
-      expect(drift).toBeLessThan(BLOCK_THRESHOLD_MS);
+      perf('storage', 'evloop.skillsGetAll', drift, '<', BLOCK_THRESHOLD_MS, 'ms');
     });
 
     it('activities.getAll({ limit: 1000 }) < 100ms event loop block', async () => {
       const drift = await measureEventLoopBlock(() => {
         storage.activities.getAll({ limit: 1000 });
       });
-      console.log(`[evloop] activities.getAll(1000): ${drift.toFixed(1)}ms`);
-      expect(drift).toBeLessThan(BLOCK_THRESHOLD_MS);
+      perf('storage', 'evloop.activitiesGetAll', drift, '<', BLOCK_THRESHOLD_MS, 'ms');
     });
   });
 
@@ -635,8 +620,7 @@ describe('Storage — End-to-end Performance', () => {
         storage.for({ profileId: pid }).policies.getAll();
       }
       const elapsed = performance.now() - start;
-      console.log(`[sweep] policies x${PROFILE_COUNT}: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(200);
+      perf('storage', 'sweep.policies', elapsed, '<', 200, 'ms');
     });
 
     it('config for all 25 profiles < 100ms total', () => {
@@ -645,8 +629,7 @@ describe('Storage — End-to-end Performance', () => {
         storage.for({ profileId: pid }).config.get();
       }
       const elapsed = performance.now() - start;
-      console.log(`[sweep] config x${PROFILE_COUNT}: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(100);
+      perf('storage', 'sweep.config', elapsed, '<', 100, 'ms');
     });
 
     it('secrets (masked) for all 25 profiles < 200ms total', () => {
@@ -655,8 +638,7 @@ describe('Storage — End-to-end Performance', () => {
         storage.for({ profileId: pid }).secrets.getAllMasked();
       }
       const elapsed = performance.now() - start;
-      console.log(`[sweep] secrets masked x${PROFILE_COUNT}: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(200);
+      perf('storage', 'sweep.secretsMasked', elapsed, '<', 200, 'ms');
     });
 
     it('activities by profileId for all 25 < 500ms total', () => {
@@ -665,8 +647,7 @@ describe('Storage — End-to-end Performance', () => {
         storage.activities.getAll({ profileId: pid, limit: 100 });
       }
       const elapsed = performance.now() - start;
-      console.log(`[sweep] activities x${PROFILE_COUNT}: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(500);
+      perf('storage', 'sweep.activities', elapsed, '<', 500, 'ms');
     });
   });
 
@@ -705,8 +686,7 @@ describe('Storage — End-to-end Performance', () => {
       const elapsedTransaction = performance.now() - startTransaction;
 
       const speedup = elapsedIndividual / elapsedTransaction;
-      console.log(`[txn] individual: ${elapsedIndividual.toFixed(1)}ms, transaction: ${elapsedTransaction.toFixed(1)}ms (${speedup.toFixed(1)}x faster)`);
-      expect(speedup).toBeGreaterThan(2);
+      perf('storage', 'transaction.speedup', speedup, '>', 2, 'x');
     });
 
     it('transaction rollback leaves no partial state', () => {
@@ -742,8 +722,7 @@ describe('Storage — End-to-end Performance', () => {
         storage.for({ profileId: pid }).policies.count();
       }
       const elapsed = performance.now() - start;
-      console.log(`[scope] 1000 random scope switches + count: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(1_000);
+      perf('storage', 'scope.randomSwitches', elapsed, '<', 1_000, 'ms');
     });
 
     it('per-profile burst (policies + secrets + config) < 500ms', () => {
@@ -755,8 +734,7 @@ describe('Storage — End-to-end Performance', () => {
         scoped.config.get();
       }
       const elapsed = performance.now() - start;
-      console.log(`[scope] per-profile burst x${PROFILE_COUNT}: ${elapsed.toFixed(1)}ms`);
-      expect(elapsed).toBeLessThan(500);
+      perf('storage', 'scope.perProfileBurst', elapsed, '<', 500, 'ms');
     });
   });
 });
