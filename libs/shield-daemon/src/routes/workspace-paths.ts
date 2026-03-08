@@ -99,7 +99,7 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
       // Verify ACLs actually took effect
       try {
         execSync(
-          `sudo -n -u ${JSON.stringify(userName)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)}`,
+          `sudo -n -u ${JSON.stringify(userName)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)} -a -w ${JSON.stringify(resolved)}`,
           { timeout: 5_000, stdio: 'pipe' },
         );
       } catch {
@@ -120,7 +120,7 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
     // Scan for sensitive files and apply deny ACLs
     if (userName) {
       const sensitiveFiles = scanForSensitiveFiles(resolved);
-      const SENSITIVE_DENY_PERMS = 'read,readattr,readextattr,list,search,execute';
+      const SENSITIVE_DENY_PERMS = 'read,readattr,readextattr,list,search,execute,write,append,writeattr,writeextattr';
       for (const file of sensitiveFiles) {
         addUserAcl(file.path, userName, SENSITIVE_DENY_PERMS, app.log, 'deny');
       }
@@ -245,7 +245,7 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
     // Verify the fix actually worked
     try {
       execSync(
-        `sudo -n -u ${JSON.stringify(agentUsername)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)}`,
+        `sudo -n -u ${JSON.stringify(agentUsername)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)} -a -w ${JSON.stringify(resolved)}`,
         { timeout: 5_000, stdio: 'pipe' },
       );
       return { success: true };
@@ -273,7 +273,7 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
     try {
       // Check target directory is readable + executable
       execSync(
-        `sudo -n -u ${JSON.stringify(agentUser)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)}`,
+        `sudo -n -u ${JSON.stringify(agentUser)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)} -a -w ${JSON.stringify(resolved)}`,
         { timeout: 5_000, stdio: 'pipe' },
       );
 
@@ -297,10 +297,14 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
   });
 }
 
-const READ_PERMS = 'read,readattr,readextattr,list,search,execute';
+/** Full read+write permissions for workspace directories */
+const WORKSPACE_PERMS = 'read,readattr,readextattr,list,search,execute,write,append,writeattr,writeextattr';
 
 /**
- * Apply macOS ACLs for a workspace path: traversal on ancestors, full read on target.
+ * Apply macOS ACLs for a workspace path: traversal on ancestors, full read+write on target.
+ *
+ * The seatbelt sandbox allows `file-read* file-write*` for workspace paths.
+ * The ACL layer must also grant write permissions so the agent can create/edit files.
  */
 function applyWorkspacePathAcls(
   targetPath: string,
@@ -314,11 +318,15 @@ function applyWorkspacePathAcls(
   }
   removeOrphanedAcls(targetPath, log);
 
+  // Remove existing user ACLs before reapplying — prevents stale read-only entries
+  // from blocking the new read+write permissions.
+  removeUserAcl(targetPath, userName, log);
+
   // Grant search (traversal) on non-world-traversable ancestors
   for (const ancestor of getAncestorsNeedingTraversal(targetPath)) {
     addUserAcl(ancestor, userName, 'search', log);
   }
 
-  // Grant full read access on the target directory
-  addUserAcl(targetPath, userName, READ_PERMS, log);
+  // Grant full read+write access on the target directory
+  addUserAcl(targetPath, userName, WORKSPACE_PERMS, log);
 }

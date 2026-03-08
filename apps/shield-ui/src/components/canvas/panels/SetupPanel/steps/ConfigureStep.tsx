@@ -87,9 +87,6 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
     () => new Set(configCategories.filter(c => c.defaultOn).map(c => c.id)),
   );
 
-  // Enforcement mode (claude-code only)
-  const [enforcementMode, setEnforcementMode] = useState<'proxy' | 'interceptor' | 'both'>('both');
-
   useEffect(() => {
     setBaseName(defaultBaseName);
     setTouched(false);
@@ -97,7 +94,6 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
     setCustomVersion('');
     const cats = target?.type === 'openclaw' ? OPENCLAW_CONFIG_CATEGORIES : CLAUDE_CONFIG_CATEGORIES;
     setSelectedCategories(new Set(cats.filter(c => c.defaultOn).map(c => c.id)));
-    setEnforcementMode('interceptor');
   }, [defaultBaseName, detectedVersion, target?.type]);
 
   if (!target) return null;
@@ -267,91 +263,6 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
         </div>
       )}
 
-      {/* Enforcement mode (claude-code only) */}
-      {isClaudeCode && (
-        <div style={{ marginBottom: 16 }}>
-          <label style={{
-            display: 'block',
-            fontSize: 12,
-            fontWeight: 600,
-            marginBottom: 2,
-            color: theme.palette.text.primary,
-          }}>
-            Enforcement mode
-          </label>
-          <div style={{
-            fontSize: 10,
-            marginBottom: 6,
-            color: theme.palette.text.secondary,
-          }}>
-            How network requests are intercepted and controlled
-          </div>
-
-          <label style={{ ...radioStyle, alignItems: 'flex-start' }}>
-            <input
-              type="radio"
-              name="enforcementMode"
-              checked={enforcementMode === 'both'}
-              onChange={() => setEnforcementMode('both')}
-              style={{ accentColor: isDark ? '#C0C0C0' : '#333', marginTop: 2 }}
-            />
-            <span>
-              <span style={{ fontWeight: 500 }}>Both (defense-in-depth)</span>
-              <span style={{
-                display: 'block',
-                fontSize: 10,
-                color: theme.palette.text.secondary,
-                marginTop: 1,
-              }}>
-                Proxy + interceptor. Strongest protection.
-              </span>
-            </span>
-          </label>
-
-          <label style={{ ...radioStyle, alignItems: 'flex-start' }}>
-            <input
-              type="radio"
-              name="enforcementMode"
-              checked={enforcementMode === 'proxy'}
-              onChange={() => setEnforcementMode('proxy')}
-              style={{ accentColor: isDark ? '#C0C0C0' : '#333', marginTop: 2 }}
-            />
-            <span>
-              <span style={{ fontWeight: 500 }}>Proxy only</span>
-              <span style={{
-                display: 'block',
-                fontSize: 10,
-                color: theme.palette.text.secondary,
-                marginTop: 1,
-              }}>
-                Network-level via HTTPS_PROXY + kernel sandbox.
-              </span>
-            </span>
-          </label>
-
-          <label style={{ ...radioStyle, alignItems: 'flex-start' }}>
-            <input
-              type="radio"
-              name="enforcementMode"
-              checked={enforcementMode === 'interceptor'}
-              onChange={() => setEnforcementMode('interceptor')}
-              style={{ accentColor: isDark ? '#C0C0C0' : '#333', marginTop: 2 }}
-            />
-            <span>
-              <span style={{ fontWeight: 500 }}>Interceptor only</span>
-              <span style={{
-                display: 'block',
-                fontSize: 10,
-                color: theme.palette.text.secondary,
-                marginTop: 1,
-              }}>
-                Application-level hooks. More compatible.
-              </span>
-            </span>
-          </label>
-        </div>
-      )}
-
       {/* Version picker */}
       <div style={{ marginBottom: 16 }}>
         <label style={{
@@ -450,7 +361,7 @@ export function ConfigureStep({ target, onBack, onShield, error }: ConfigureStep
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <ActionButton onClick={() => onShield(baseName, resolvedVersion, hasConfigCategories ? Array.from(selectedCategories) : undefined, isClaudeCode ? enforcementMode : undefined)} disabled={!isValid || !isCustomVersionValid}>
+        <ActionButton onClick={() => onShield(baseName, resolvedVersion, hasConfigCategories ? Array.from(selectedCategories) : undefined)} disabled={!isValid || !isCustomVersionValid}>
           Shield {target.name}
         </ActionButton>
         <SecondaryButton onClick={onBack}>

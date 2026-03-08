@@ -9,6 +9,7 @@ import { registerEventTypes } from './event-registry';
 
 export interface EnforcementProcessPayload {
   pid: number;
+  ppid?: number;
   user: string;
   command: string;
   commandPreview?: string;
@@ -16,6 +17,7 @@ export interface EnforcementProcessPayload {
   policyName?: string;
   enforcement: 'alert' | 'kill';
   reason: string;
+  processAncestry?: Array<{ pid: number; command: string }>;
 }
 
 declare module '@agenshield/ipc' {

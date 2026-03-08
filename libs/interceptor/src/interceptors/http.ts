@@ -8,11 +8,13 @@
  */
 
 import type * as http from 'node:http';
+import * as https from 'node:https';
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { SyncClient } from '../client/sync-client.js';
 import { PolicyDeniedError } from '../errors.js';
 import { debugLog } from '../debug-log.js';
 import { getProxyConfig, shouldBypassProxy, type ProxyConfig } from '../proxy-env.js';
+import { establishConnectTunnel } from '../proxy/connect-tunnel.js';
 import type { PolicyExecutionContext } from '@agenshield/ipc';
 import type { PolicyCheckResult } from '../policy/evaluator.js';
 
@@ -174,28 +176,65 @@ export class HttpInterceptor extends BaseInterceptor {
 
       // Proxy routing mode: when HTTP_PROXY/HTTPS_PROXY is set, route through the
       // proxy and skip the RPC policy check (the proxy enforces URL policies itself).
-      // We send the full URL as the request path to the proxy's HTTP handler, which
-      // detects the protocol and uses https.request for upstream TLS connections.
       if (self.proxyConfig.enabled && !shouldBypassProxy(url, self.proxyConfig.noProxy)) {
         debugLog(`http.request PROXY-ROUTE url=${url}`);
 
-        let parsedHost: string;
+        let parsedUrl: URL;
         try {
-          parsedHost = new URL(url).host;
+          parsedUrl = new URL(url);
         } catch {
-          parsedHost = 'unknown';
+          parsedUrl = new URL('http://unknown');
         }
 
+        // HTTPS: use CONNECT tunnel so the proxy can do policy checks on the
+        // CONNECT target and then pipe TLS end-to-end. This fixes the broken
+        // path-based forwarding that caused "Proxy error" for HTTPS URLs.
+        if (protocol === 'https') {
+          const targetHostname = parsedUrl.hostname;
+          const targetPort = parseInt(parsedUrl.port) || 443;
+
+          // Create a one-shot https.Agent with createConnection that returns the tunnel socket.
+          // The Agent callback pattern supports async socket provisioning natively.
+          // Cast needed: createConnection is a valid runtime option but not in AgentOptions typedef.
+          const tunnelAgent = new https.Agent({
+            maxSockets: 1,
+          } as any);
+          (tunnelAgent as any).createConnection = (_opts: any, oncreate: (err: Error | null, socket: any) => void) => {
+            establishConnectTunnel({
+              proxyHostname: self.proxyConfig.hostname,
+              proxyPort: self.proxyConfig.port,
+              targetHostname,
+              targetPort,
+            }).then(
+              ({ tlsSocket }) => oncreate(null, tlsSocket),
+              (err) => oncreate(err as Error, undefined),
+            );
+            // Return undefined — the Agent will wait for the oncreate callback
+            return undefined as any;
+          };
+
+          const httpsOptions: http.RequestOptions = {
+            hostname: targetHostname,
+            port: targetPort,
+            path: parsedUrl.pathname + parsedUrl.search,
+            method: options.method || 'GET',
+            headers: { ...(options.headers || {}), host: parsedUrl.host },
+            agent: tunnelAgent,
+          };
+
+          const reqFn = self.originalHttpsRequest! as (...args: unknown[]) => http.ClientRequest;
+          return reqFn.call(httpsModule, httpsOptions, cb);
+        }
+
+        // HTTP: path-based forwarding (send full URL as path to proxy)
         const proxyOptions: http.RequestOptions = {
           hostname: self.proxyConfig.hostname,
           port: self.proxyConfig.port,
           path: url,
           method: options.method || 'GET',
-          headers: { ...(options.headers || {}), host: parsedHost },
+          headers: { ...(options.headers || {}), host: parsedUrl.host },
         };
 
-        // Always use http module to talk to the localhost proxy.
-        // Cast needed: .call() confuses TS overload resolution for http.request.
         const reqFn = self.originalHttpRequest! as (...args: unknown[]) => http.ClientRequest;
         return reqFn.call(httpModule, proxyOptions, cb);
       }

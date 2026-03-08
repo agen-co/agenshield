@@ -19,7 +19,7 @@ import { getLogger } from '../logger';
 import { clearConfigCache } from '../config/index';
 import { emitPoliciesUpdated, emitProcessViolation, emitProcessKilled } from '../events/emitter';
 import { getPolicyManager } from './policy-manager';
-import { triggerProcessEnforcement, scanHostProcesses, killProcessTree } from './process-enforcer';
+import { triggerProcessEnforcement, scanHostProcesses, killProcessTree, resolveExePathsByPid } from './process-enforcer';
 import { matchProcessPattern } from '@agenshield/policies';
 import { fingerprintProcess } from './process-fingerprint';
 import type { ProcessFingerprint } from './process-fingerprint';
@@ -506,13 +506,16 @@ export class CloudConnector {
       } catch { return null; }
     };
 
+    // Batch-resolve executable paths from OS (macOS proc_pidpath)
+    const exePathsByPid = await resolveExePathsByPid(processes.map(p => p.pid));
+
     for (const proc of processes) {
       // Layer 1: Name-based pattern matching
       let matched = patterns.some(pattern => matchProcessPattern(pattern, proc.command));
 
       // Layer 2: Fingerprint-based identification (catches renamed binaries via SHA256)
       if (!matched) {
-        const fp = fingerprintProcess(proc.command, { cache: fpCache, hashLookup });
+        const fp = fingerprintProcess(proc.command, { cache: fpCache, hashLookup, resolvedExePath: exePathsByPid.get(proc.pid) });
         if (fp.candidateNames.length > 0) {
           matched = fp.candidateNames.some(candidate =>
             patterns.some(pattern => matchProcessPattern(pattern, candidate)),

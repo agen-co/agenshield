@@ -155,7 +155,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
         return mockReq;
       });
 
-      const res = await globalThis.fetch('https://external.com/api');
+      const res = await globalThis.fetch('http://external.com/api');
       expect(await res.text()).toBe('proxy-response');
       expect(res.status).toBe(200);
 
@@ -197,7 +197,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
 
       const headers = new Headers();
       headers.set('content-type', 'application/json');
-      await globalThis.fetch('https://api.example.com/data', {
+      await globalThis.fetch('http://api.example.com/data', {
         method: 'POST',
         headers,
         body: 'test body',
@@ -208,7 +208,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
         expect.objectContaining({
           hostname: '127.0.0.1',
           port: 8888,
-          path: 'https://api.example.com/data',
+          path: 'http://api.example.com/data',
           method: 'POST',
         }),
         expect.any(Function)
@@ -247,7 +247,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
         return mockReq;
       });
 
-      await globalThis.fetch('https://api.example.com/data', {
+      await globalThis.fetch('http://api.example.com/data', {
         headers: [['x-custom', 'val']],
       });
 
@@ -287,7 +287,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
         return mockReq;
       });
 
-      await globalThis.fetch('https://api.example.com/data', {
+      await globalThis.fetch('http://api.example.com/data', {
         headers: { 'authorization': 'Bearer tok' },
       });
 
@@ -331,7 +331,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
 
       const ab = new ArrayBuffer(4);
       new Uint8Array(ab).set([1, 2, 3, 4]);
-      await globalThis.fetch('https://api.example.com/data', {
+      await globalThis.fetch('http://api.example.com/data', {
         method: 'POST',
         body: ab,
       });
@@ -375,7 +375,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
       });
 
       const buf = Buffer.from('buffer-body');
-      await globalThis.fetch('https://api.example.com/data', {
+      await globalThis.fetch('http://api.example.com/data', {
         method: 'POST',
         body: buf,
       });
@@ -418,7 +418,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
       });
 
       // Use a plain object that's not string/ArrayBuffer/Buffer
-      await globalThis.fetch('https://api.example.com/data', {
+      await globalThis.fetch('http://api.example.com/data', {
         method: 'POST',
         body: { [Symbol.iterator]: () => {} } as any,
       });
@@ -459,7 +459,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
       });
 
       // The URL string here is actually valid but we can test the host extraction
-      await globalThis.fetch('https://example.com/path');
+      await globalThis.fetch('http://example.com/path');
 
       const callOptions = mockRawRequest.mock.calls[0][0];
       expect(callOptions.headers.host).toBe('example.com');
@@ -490,7 +490,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
         return mockReq;
       });
 
-      await expect(globalThis.fetch('https://example.com/fail'))
+      await expect(globalThis.fetch('http://example.com/fail'))
         .rejects.toThrow('connection refused');
 
       interceptor.uninstall();
@@ -526,7 +526,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
         return mockReq;
       });
 
-      const res = await globalThis.fetch('https://example.com/cookies');
+      const res = await globalThis.fetch('http://example.com/cookies');
       expect(res.headers.get('set-cookie')).toBe('a=1, b=2');
 
       interceptor.uninstall();
@@ -640,7 +640,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
         return mockReq;
       });
 
-      await expect((interceptor as any).proxyViaHttp('https://example.com/test'))
+      await expect((interceptor as any).proxyViaHttp('http://example.com/test'))
         .rejects.toThrow('response error');
     });
 
@@ -670,7 +670,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
         return mockReq;
       });
 
-      await (interceptor as any).proxyViaHttp('https://example.com/test');
+      await (interceptor as any).proxyViaHttp('http://example.com/test');
       expect(endArg).toBeUndefined();
     });
 
@@ -698,7 +698,7 @@ describe('FetchInterceptor (proxy & advanced)', () => {
         return mockReq;
       });
 
-      await (interceptor as any).proxyViaHttp('https://example.com/test', { method: 'POST' });
+      await (interceptor as any).proxyViaHttp('http://example.com/test', { method: 'POST' });
 
       const callOptions = mockRawRequest.mock.calls[0][0];
       expect(callOptions.method).toBe('POST');
@@ -718,6 +718,69 @@ describe('FetchInterceptor (proxy & advanced)', () => {
       // This may or may not work depending on the test environment
       // At minimum, it should not throw
       expect(interceptor).toBeDefined();
+    });
+  });
+
+  describe('proxyViaHttp protocol branching', () => {
+    it('uses path-based forwarding for HTTP URLs', async () => {
+      const interceptor = createInterceptor();
+      (interceptor as any).proxyConfig = {
+        enabled: true,
+        hostname: '127.0.0.1',
+        port: 8888,
+      };
+
+      const mockRes = new EventEmitter() as any;
+      mockRes.statusCode = 200;
+      mockRes.statusMessage = 'OK';
+      mockRes.headers = {};
+
+      mockRawRequest.mockImplementation((options: any, callback: any) => {
+        // For HTTP, the full URL should be sent as the path
+        expect(options.path).toBe('http://example.com/data');
+        expect(options.hostname).toBe('127.0.0.1');
+        expect(options.port).toBe(8888);
+        const mockReq = new EventEmitter() as any;
+        mockReq.end = jest.fn(() => {
+          process.nextTick(() => {
+            callback(mockRes);
+            mockRes.emit('data', Buffer.from('ok'));
+            mockRes.emit('end');
+          });
+        });
+        return mockReq;
+      });
+
+      const res = await (interceptor as any).proxyViaHttp('http://example.com/data');
+      expect(res.status).toBe(200);
+    });
+
+    it('falls back to path-based forwarding for invalid URLs', async () => {
+      const interceptor = createInterceptor();
+      (interceptor as any).proxyConfig = {
+        enabled: true,
+        hostname: '127.0.0.1',
+        port: 8888,
+      };
+
+      const mockRes = new EventEmitter() as any;
+      mockRes.statusCode = 200;
+      mockRes.statusMessage = 'OK';
+      mockRes.headers = {};
+
+      mockRawRequest.mockImplementation((options: any, callback: any) => {
+        expect(options.headers.host).toBe('unknown');
+        const mockReq = new EventEmitter() as any;
+        mockReq.end = jest.fn(() => {
+          process.nextTick(() => {
+            callback(mockRes);
+            mockRes.emit('end');
+          });
+        });
+        return mockReq;
+      });
+
+      await (interceptor as any).proxyViaHttp('not-a-valid-url');
     });
   });
 });

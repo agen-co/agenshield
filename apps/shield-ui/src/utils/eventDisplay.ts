@@ -406,7 +406,12 @@ export function getEventSummary(event: SSEEvent): string {
     const policyName = d.policyName ? ` — ${d.policyName}` : '';
     const truncated = command.length > 80 ? command.slice(0, 77) + '...' : command;
     const action = event.type === 'enforcement:process_killed' ? 'Killed' : 'Violation';
-    return pid ? `${action}: ${truncated} (PID ${pid})${policyName}` : `${action}: ${truncated}${policyName}`;
+    // Show immediate parent process name for quick identification
+    const ancestry = Array.isArray(d.processAncestry) ? d.processAncestry as Array<{ pid: number; command: string }> : [];
+    const parentHint = ancestry.length > 0
+      ? ` via ${ancestry[0].command.split('/').pop()?.split(/\s/)[0] ?? ''}`
+      : '';
+    return pid ? `${action}: ${truncated} (PID ${pid}${parentHint})${policyName}` : `${action}: ${truncated}${parentHint}${policyName}`;
   }
 
   if (event.type.startsWith('process:')) {

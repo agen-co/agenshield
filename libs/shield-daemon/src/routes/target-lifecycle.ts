@@ -19,6 +19,7 @@ import { registerShieldOperation, unregisterShieldOperation, getActiveShieldOper
 import { signBrokerToken } from '@agenshield/auth';
 import { writeTokenFile, invalidateTokenCache } from '../services/profile-token';
 import { removeAllUserAcls } from '../acl';
+import { registerLocalBinaryFingerprint } from '../services/process-fingerprint';
 
 // ── Gateway port allocation helper ────────────────────────────────
 
@@ -1916,6 +1917,23 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         // Mark any remaining pending steps as skipped so progress reaches 100%
         tracker.finalize();
         request.log.info({ targetId, logPath: shieldLog.logPath }, 'Shield log saved');
+
+        // Register local binary fingerprint for Layer C hash-based detection.
+        // This enables renamed-binary detection without cloud connectivity.
+        if (detection?.binaryPath && preset) {
+          try {
+            const registered = registerLocalBinaryFingerprint(
+              detection.binaryPath,
+              preset.id,
+              storage,
+            );
+            if (registered) {
+              request.log.info({ targetId, binaryPath: detection.binaryPath }, 'Registered local binary fingerprint');
+            }
+          } catch {
+            // Fingerprint registration is best-effort
+          }
+        }
 
         invalidateDetectionCache();
         triggerTargetCheck();

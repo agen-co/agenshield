@@ -2,9 +2,10 @@
  * Process Fingerprint Module
  *
  * Provides binary identity resolution for anti-rename detection.
- * Three-layer pipeline:
+ * Four-layer pipeline:
  *   Layer A — Symlink resolution: follow renamed symlinks back to original
  *   Layer B — package.json lookup: walk up to find npm package name
+ *   Layer B.5 — Script content inspection: scan shebang scripts for package refs
  *   Layer C — SHA256 hash DB: cloud-managed registry of known binary hashes
  *
  * Only invoked for processes that weren't caught by standard name matching,
@@ -14,6 +15,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import * as os from 'node:os';
 
 /** Standard directories to search for real binaries (mirrors command-sync.ts) */
 export const DEFAULT_BIN_SEARCH_DIRS = [
@@ -24,6 +26,48 @@ export const DEFAULT_BIN_SEARCH_DIRS = [
   '/usr/local/sbin',
   '/opt/homebrew/sbin',
 ];
+
+/** Memoized expanded search dirs (includes user-specific paths) */
+let _expandedSearchDirs: string[] | null = null;
+
+/**
+ * Get expanded binary search directories including user-specific paths.
+ * Memoized since HOME doesn't change during daemon lifetime.
+ */
+export function getDefaultBinSearchDirs(): string[] {
+  if (_expandedSearchDirs) return _expandedSearchDirs;
+
+  const home = os.homedir();
+  const dirs = [...DEFAULT_BIN_SEARCH_DIRS];
+
+  // User-local binary directories (where Claude, npm globals live)
+  dirs.push(path.join(home, '.local', 'bin'));
+  dirs.push(path.join(home, '.claude', 'local', 'bin'));
+
+  // nvm node versions — expand glob pattern
+  const nvmBase = path.join(home, '.nvm', 'versions', 'node');
+  try {
+    if (fs.existsSync(nvmBase)) {
+      const versions = fs.readdirSync(nvmBase);
+      for (const v of versions) {
+        const binDir = path.join(nvmBase, v, 'bin');
+        try {
+          if (fs.existsSync(binDir)) {
+            dirs.push(binDir);
+          }
+        } catch { /* skip unreadable */ }
+      }
+    }
+  } catch { /* nvm not installed */ }
+
+  _expandedSearchDirs = dirs;
+  return dirs;
+}
+
+/** Reset memoized search dirs (for testing) */
+export function resetDefaultBinSearchDirs(): void {
+  _expandedSearchDirs = null;
+}
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -37,16 +81,18 @@ export interface ProcessFingerprint {
   /** SHA256 of the binary file, if computed */
   sha256: string | null;
   /** How the identity was resolved */
-  resolvedVia: 'symlink' | 'package-json' | 'hash-db' | null;
+  resolvedVia: 'symlink' | 'package-json' | 'script-content' | 'hash-db' | null;
 }
 
 export interface FingerprintOptions {
-  /** Binary search directories (defaults to BIN_SEARCH_DIRS) */
+  /** Binary search directories (defaults to getDefaultBinSearchDirs()) */
   searchDirs?: string[];
   /** SHA256 lookup function (injected for testability) */
   hashLookup?: (sha256: string) => string | null;
   /** Per-scan cache to avoid re-reading filesystem */
   cache?: Map<string, ProcessFingerprint>;
+  /** Pre-resolved executable path from OS (e.g., proc_pidpath on macOS) */
+  resolvedExePath?: string;
 }
 
 /** Max file size for SHA256 hashing (200MB) */
@@ -54,6 +100,14 @@ const MAX_HASH_FILE_SIZE = 200 * 1024 * 1024;
 
 /** Max directory depth to walk up looking for package.json */
 const MAX_PACKAGE_WALK_DEPTH = 10;
+
+/** Max bytes to read for script content inspection */
+const SCRIPT_INSPECT_BYTES = 4096;
+
+/** Generic basenames that should not be used as candidate names */
+const GENERIC_BASENAMES = new Set([
+  'cli', 'index', 'main', 'run', 'app', 'bin', 'start', 'server', 'entry',
+]);
 
 // ─── Public API ─────────────────────────────────────────────
 
@@ -65,9 +119,10 @@ const MAX_PACKAGE_WALK_DEPTH = 10;
  *   2. Find binary file: full path or search BIN_SEARCH_DIRS
  *   3. realpathSync — resolve symlink chain to actual file
  *   4. resolveNpmPackage — walk up to find package.json name
- *   5. Build candidateNames from npm package name + path segments
- *   6. If no candidates yet: SHA256 hash → lookup in DB
- *   7. Return fingerprint
+ *   5. inspectScriptContent — scan shebang scripts for package references
+ *   6. Build candidateNames from npm package name + path segments
+ *   7. If no candidates yet: SHA256 hash → lookup in DB
+ *   8. Return fingerprint
  */
 export function fingerprintProcess(
   command: string,
@@ -84,12 +139,14 @@ export function fingerprintProcess(
     return cache.get(binaryToken)!;
   }
 
-  const searchDirs = opts?.searchDirs ?? DEFAULT_BIN_SEARCH_DIRS;
+  const searchDirs = opts?.searchDirs ?? getDefaultBinSearchDirs();
 
   // Find the binary file on disk
   let binaryPath: string | null = null;
   if (path.isAbsolute(binaryToken)) {
     binaryPath = binaryToken;
+  } else if (opts?.resolvedExePath) {
+    binaryPath = opts.resolvedExePath;
   } else {
     binaryPath = findBinaryPath(binaryToken, searchDirs);
   }
@@ -119,6 +176,20 @@ export function fingerprintProcess(
       candidateNames.push(...symCandidates);
       resolvedVia = 'symlink';
     }
+    // Also add the resolved basename as a candidate, but only if it's meaningfully
+    // different from the original binary token (not just a realpath canonicalization
+    // like /tmp → /private/tmp that keeps the same filename).
+    const resolvedBasename = path.basename(resolvedPath, path.extname(resolvedPath));
+    const originalBasename = path.basename(binaryPath, path.extname(binaryPath));
+    if (
+      resolvedBasename &&
+      resolvedBasename !== originalBasename &&
+      !GENERIC_BASENAMES.has(resolvedBasename) &&
+      !candidateNames.includes(resolvedBasename)
+    ) {
+      candidateNames.push(resolvedBasename);
+      if (!resolvedVia) resolvedVia = 'symlink';
+    }
   }
 
   // Layer B: package.json lookup (on the resolved path)
@@ -132,6 +203,19 @@ export function fingerprintProcess(
       // If we didn't already have candidates from symlink, mark resolution source
       if (!resolvedVia) {
         resolvedVia = 'package-json';
+      }
+    }
+  }
+
+  // Layer B.5: Script content inspection
+  // If we still don't have candidates, check if the binary is a script that
+  // references a known package (e.g., a shebang script that require()s @anthropic-ai/claude-code)
+  if (candidateNames.length === 0 && resolvedPath) {
+    const scriptCandidates = inspectScriptContent(resolvedPath);
+    if (scriptCandidates.length > 0) {
+      candidateNames.push(...scriptCandidates);
+      if (!resolvedVia) {
+        resolvedVia = 'script-content';
       }
     }
   }
@@ -197,6 +281,55 @@ export function resolveNpmPackage(filePath: string): { name: string; dir: string
 }
 
 /**
+ * Inspect the content of a script file for package references.
+ * Reads the first 4KB and looks for require()/import statements
+ * referencing known scoped npm packages.
+ *
+ * Returns candidate names extracted from package references (scope stripped).
+ */
+export function inspectScriptContent(filePath: string): string[] {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(SCRIPT_INSPECT_BYTES);
+    const bytesRead = fs.readSync(fd, buf, 0, SCRIPT_INSPECT_BYTES, 0);
+    fs.closeSync(fd);
+
+    if (bytesRead === 0) return [];
+
+    const content = buf.subarray(0, bytesRead).toString('utf-8');
+
+    // Only inspect scripts (files starting with #!)
+    if (!content.startsWith('#!')) return [];
+
+    const candidates: string[] = [];
+
+    // Match require('@scope/package') and from '@scope/package'
+    const patterns = [
+      /require\s*\(\s*['"](@[^/'"]+\/[^/'"]+)['"]\s*\)/g,
+      /from\s+['"](@[^/'"]+\/[^/'"]+)['"]/g,
+    ];
+
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(content)) !== null) {
+        const fullPkg = match[1];
+        // Strip scope prefix: @anthropic-ai/claude-code → claude-code
+        const stripped = fullPkg.includes('/')
+          ? fullPkg.split('/')[1]
+          : fullPkg;
+        if (stripped && !candidates.includes(stripped)) {
+          candidates.push(stripped);
+        }
+      }
+    }
+
+    return candidates;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Compute SHA256 hash of a file.
  * Returns null on read error or if file exceeds MAX_HASH_FILE_SIZE.
  */
@@ -235,6 +368,52 @@ export function findBinaryPath(binaryName: string, searchDirs: string[]): string
   return null;
 }
 
+/**
+ * Register a local binary fingerprint in the binary_signatures table.
+ * Hashes the binary (and its symlink target if different) and stores
+ * with source: 'local'. This makes Layer C work without cloud connectivity.
+ */
+export function registerLocalBinaryFingerprint(
+  binaryPath: string,
+  packageName: string,
+  storage: { binarySignatures: { upsertBatch(entries: Array<{ sha256: string; packageName: string; platform?: string; source?: 'local' | 'cloud' }>): number } },
+): boolean {
+  try {
+    const entries: Array<{ sha256: string; packageName: string; platform: string; source: 'local' }> = [];
+
+    const hash = computeFileHash(binaryPath);
+    if (!hash) return false;
+
+    entries.push({
+      sha256: hash,
+      packageName,
+      platform: process.platform,
+      source: 'local',
+    });
+
+    // Also hash the symlink target if different
+    try {
+      const resolved = fs.realpathSync(binaryPath);
+      if (resolved !== binaryPath) {
+        const resolvedHash = computeFileHash(resolved);
+        if (resolvedHash && resolvedHash !== hash) {
+          entries.push({
+            sha256: resolvedHash,
+            packageName,
+            platform: process.platform,
+            source: 'local',
+          });
+        }
+      }
+    } catch { /* symlink resolution failed — skip */ }
+
+    storage.binarySignatures.upsertBatch(entries);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Internal helpers ──────────────────────────────────────
 
 /**
@@ -259,7 +438,7 @@ function extractBinaryToken(command: string): string | null {
  * Extract candidate package names from a resolved file path.
  * Looks for patterns like node_modules/<package>/... or meaningful directory names.
  */
-function extractCandidatesFromPath(filePath: string): string[] {
+export function extractCandidatesFromPath(filePath: string): string[] {
   const candidates: string[] = [];
   const segments = filePath.split(path.sep);
 

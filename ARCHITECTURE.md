@@ -10,6 +10,7 @@ This document describes the architecture of AgenShield, a security sandbox for A
 - [Policy Update Mechanism](#policy-update-mechanism)
 - [Broker Request Flow](#broker-request-flow)
 - [Interceptor Architecture](#interceptor-architecture)
+- [Enforcement Modes](#enforcement-modes)
 - [AgenCo Skill Flow](#agenco-skill-flow)
 - [Sandbox Architecture](#sandbox-architecture)
 - [LaunchDaemon Configuration](#launchdaemon-configuration)
@@ -598,6 +599,49 @@ The `ProfileManager` dynamically generates macOS Seatbelt profiles for individua
 - `/libs/shield-interceptor/src/interceptors/fetch.ts`
 - `/libs/shield-interceptor/src/seatbelt/profile-manager.ts`
 - `/libs/shield-interceptor/src/register.ts`
+
+---
+
+## Enforcement Modes
+
+AgenShield always uses the **"both"** enforcement mode, combining proxy and interceptor for defense-in-depth. This is not user-configurable because each layer covers a different class of target process.
+
+### Why "Both" Is Always Used
+
+Modern AI coding agents (e.g., Claude Code) ship as compiled binaries, not Node.js scripts. The `NODE_OPTIONS --require` interceptor cannot hook into a binary directly. However, these binaries spawn child processes — some are Node.js (MCP servers, JS tools) and some are other binaries (curl, python, etc.). Neither enforcement layer alone provides full coverage:
+
+| Layer | Covers | Mechanism |
+|-------|--------|-----------|
+| **Proxy** | The binary parent + all non-Node children | `HTTPS_PROXY` environment variable + seatbelt kernel sandbox blocking direct network access |
+| **Interceptor** | Any Node.js children | `node` wrapper injects `NODE_OPTIONS --require` into spawned Node.js processes |
+
+### Layered Enforcement Diagram
+
+```
+┌─────────────────────────────────────────────────┐
+│  Binary Target (e.g. Claude Code)               │
+│  ► Proxy: HTTPS_PROXY → broker                  │
+│  ► Seatbelt: kernel sandbox blocks direct net   │
+│                                                 │
+│  ┌──────────────────┐  ┌──────────────────────┐ │
+│  │ Node.js child    │  │ Non-Node child       │ │
+│  │ (MCP server)     │  │ (curl, python, etc.) │ │
+│  │                  │  │                      │ │
+│  │ ► Interceptor:   │  │ ► Proxy: HTTPS_PROXY │ │
+│  │   NODE_OPTIONS   │  │ ► Seatbelt: kernel   │ │
+│  │   --require hook │  │   sandbox            │ │
+│  │ ► Proxy: inherit │  │ ► Wrapper: routes    │ │
+│  │   HTTPS_PROXY    │  │   through broker     │ │
+│  └──────────────────┘  └──────────────────────┘ │
+└─────────────────────────────────────────────────┘
+```
+
+### Implementation
+
+- The UI always sends `enforcementMode: 'both'` when shielding a target
+- The daemon API still accepts the `enforcementMode` parameter for backward compatibility but defaults to `'both'`
+- Auto-shield (headless mode) hardcodes `'both'` directly
+- The `EnforcementMode` type and DB column are preserved for the daemon and profile storage
 
 ---
 

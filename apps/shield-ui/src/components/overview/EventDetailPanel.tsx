@@ -301,14 +301,19 @@ function IntegrityViolationDetail({ data }: { data: Record<string, unknown> }) {
 
 function EnforcementProcessDetail({ data }: { data: Record<string, unknown> }) {
   const [showFullCommand, setShowFullCommand] = useState(false);
+  const [showAncestry, setShowAncestry] = useState(false);
 
   const command = String(data.command ?? '');
   const commandPreview = data.commandPreview ? String(data.commandPreview) : undefined;
   const displayCommand = showFullCommand ? command : (commandPreview ?? command);
   const isLong = command.length > 80;
+  const processAncestry = Array.isArray(data.processAncestry)
+    ? (data.processAncestry as Array<{ pid: number; command: string }>)
+    : [];
 
   const fields: Array<{ label: string; value: string }> = [
     { label: 'PID', value: String(data.pid ?? '') },
+    { label: 'PPID', value: data.ppid != null ? String(data.ppid) : '' },
     { label: 'User', value: String(data.user ?? '') },
     { label: 'Policy', value: data.policyName ? String(data.policyName) : String(data.policyId ?? '') },
     { label: 'Enforcement', value: String(data.enforcement ?? '') },
@@ -358,6 +363,49 @@ function EnforcementProcessDetail({ data }: { data: Record<string, unknown> }) {
           </Box>
         ))}
       </Box>
+
+      {/* Process Ancestry */}
+      {processAncestry.length > 0 && (
+        <Box>
+          <Box
+            onClick={() => setShowAncestry(!showAncestry)}
+            sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', userSelect: 'none' }}
+          >
+            {showAncestry ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              Process Ancestry ({processAncestry.length})
+            </Typography>
+          </Box>
+          <Collapse in={showAncestry}>
+            <Box
+              sx={{
+                mt: 1,
+                p: 1,
+                bgcolor: 'action.hover',
+                borderRadius: 1,
+                borderLeft: '3px solid',
+                borderColor: 'text.secondary',
+              }}
+            >
+              {processAncestry.map((ancestor, i) => (
+                <Typography
+                  key={ancestor.pid}
+                  variant="caption"
+                  sx={{
+                    ...monoSx,
+                    display: 'block',
+                    wordBreak: 'break-all',
+                    pl: i * 1.5,
+                    py: 0.25,
+                  }}
+                >
+                  {'<- '}PID {ancestor.pid}: {ancestor.command}
+                </Typography>
+              ))}
+            </Box>
+          </Collapse>
+        </Box>
+      )}
 
       {/* Collapsible raw JSON */}
       <RawPayloadToggle data={data} />

@@ -296,7 +296,7 @@ describe('HttpInterceptor', () => {
       interceptor.uninstall();
     });
 
-    it('routes through proxy when proxy is enabled', () => {
+    it('routes HTTP through proxy using path-based forwarding', () => {
       mockGetProxyConfig.mockReturnValue({
         enabled: true,
         hostname: '127.0.0.1',
@@ -310,6 +310,31 @@ describe('HttpInterceptor', () => {
       interceptor.install();
 
       const req = httpModule.request('http://example.com/proxied');
+      req.on('error', () => {});
+      req.destroy();
+
+      // Policy check should NOT be called (proxy mode skips it)
+      expect(mockSyncRequest).not.toHaveBeenCalled();
+
+      interceptor.uninstall();
+    });
+
+    it('routes HTTPS through proxy using CONNECT tunnel (not path-based)', () => {
+      mockGetProxyConfig.mockReturnValue({
+        enabled: true,
+        hostname: '127.0.0.1',
+        port: 8888,
+        url: 'http://127.0.0.1:8888',
+        noProxy: [],
+      });
+      mockShouldBypassProxy.mockReturnValue(false);
+
+      const interceptor = createInterceptor();
+      interceptor.install();
+
+      // HTTPS request should use CONNECT tunnel (via custom Agent),
+      // NOT path-based forwarding
+      const req = httpsModule.request('https://example.com/secure');
       req.on('error', () => {});
       req.destroy();
 

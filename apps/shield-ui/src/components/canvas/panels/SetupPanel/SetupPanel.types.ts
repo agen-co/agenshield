@@ -46,7 +46,7 @@ export interface DetectionStepProps {
 export interface ConfigureStepProps {
   target: DetectedTarget | null;
   onBack: () => void;
-  onShield: (baseName?: string, version?: string, configCopyCategories?: string[], enforcementMode?: 'proxy' | 'interceptor' | 'both') => void;
+  onShield: (baseName?: string, version?: string, configCopyCategories?: string[]) => void;
   error?: string | null;
 }
 

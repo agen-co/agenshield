@@ -5,13 +5,16 @@
  */
 
 import * as http from 'node:http';
+import * as https from 'node:https';
 import { BaseInterceptor, type BaseInterceptorOptions } from './base.js';
 import { debugLog } from '../debug-log.js';
 import { getProxyConfig, shouldBypassProxy, type ProxyConfig } from '../proxy-env.js';
+import { establishConnectTunnel } from '../proxy/connect-tunnel.js';
 import type { PolicyExecutionContext } from '@agenshield/ipc';
 
 // Capture the raw http.request before any interception can modify it
 const _rawHttpRequest = http.request;
+const _rawHttpsRequest = https.request;
 
 export class FetchInterceptor extends BaseInterceptor {
   private originalFetch: typeof fetch | null = null;
@@ -54,11 +57,97 @@ export class FetchInterceptor extends BaseInterceptor {
   }
 
   /**
-   * Route a fetch request through the proxy via raw http.request.
-   * This avoids the need for undici.ProxyAgent — it sends the full URL
-   * as the request path, mirroring how HttpInterceptor handles proxy routing.
+   * Route a fetch request through the proxy.
+   * - HTTP URLs: path-based forwarding via raw http.request (works fine)
+   * - HTTPS URLs: CONNECT tunnel to let the proxy negotiate the TCP pipe,
+   *   then make the HTTPS request over the tunneled socket
    */
   private proxyViaHttp(url: string, init?: RequestInit): Promise<Response> {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      // Invalid URL — fall back to HTTP path-based forwarding
+      return this.proxyViaHttpPathBased(url, init);
+    }
+
+    if (parsedUrl.protocol === 'https:') {
+      return this.proxyViaConnect(url, parsedUrl, init);
+    }
+
+    return this.proxyViaHttpPathBased(url, init);
+  }
+
+  /**
+   * HTTPS proxy routing via CONNECT tunnel.
+   * Establishes a tunnel through the proxy, then sends the HTTPS request
+   * over the tunneled TLS socket.
+   */
+  private async proxyViaConnect(url: string, parsedUrl: URL, init?: RequestInit): Promise<Response> {
+    const targetHostname = parsedUrl.hostname;
+    const targetPort = parseInt(parsedUrl.port) || 443;
+
+    const { tlsSocket } = await establishConnectTunnel({
+      proxyHostname: this.proxyConfig.hostname,
+      proxyPort: this.proxyConfig.port,
+      targetHostname,
+      targetPort,
+    });
+
+    return new Promise<Response>((resolve, reject) => {
+      const method = init?.method || 'GET';
+      const headers: Record<string, string> = { host: parsedUrl.host };
+      if (init?.headers) {
+        const h = init.headers;
+        if (h instanceof Headers) {
+          h.forEach((v, k) => { headers[k] = v; });
+        } else if (Array.isArray(h)) {
+          for (const [k, v] of h) { headers[k] = v; }
+        } else {
+          Object.assign(headers, h);
+        }
+      }
+
+      // Cast needed: socket/createConnection aren't in the RequestOptions typedef
+      // but are valid runtime options for making requests over pre-established sockets.
+      const req = _rawHttpsRequest({
+        hostname: targetHostname,
+        port: targetPort,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method,
+        headers,
+        socket: tlsSocket,
+        createConnection: () => tlsSocket,
+      } as any, (res: http.IncomingMessage) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const body = Buffer.concat(chunks);
+          const responseHeaders: Record<string, string> = {};
+          for (const [key, val] of Object.entries(res.headers)) {
+            if (val !== undefined) {
+              responseHeaders[key] = Array.isArray(val) ? val.join(', ') : val;
+            }
+          }
+          resolve(new Response(body, {
+            status: res.statusCode ?? 502,
+            statusText: res.statusMessage ?? '',
+            headers: responseHeaders,
+          }));
+        });
+        res.on('error', reject);
+      });
+
+      req.on('error', reject);
+      this.writeRequestBody(req, init);
+    });
+  }
+
+  /**
+   * HTTP proxy routing via path-based forwarding.
+   * Sends the full URL as the request path to the proxy's HTTP handler.
+   */
+  private proxyViaHttpPathBased(url: string, init?: RequestInit): Promise<Response> {
     return new Promise<Response>((resolve, reject) => {
       let parsedHost: string;
       try {
@@ -109,24 +198,29 @@ export class FetchInterceptor extends BaseInterceptor {
       });
 
       req.on('error', reject);
+      this.writeRequestBody(req, init);
+    });
+  }
 
-      // Forward request body
-      if (init?.body != null) {
-        const body = init.body;
-        if (typeof body === 'string') {
-          req.end(body);
-        } else if (body instanceof ArrayBuffer) {
-          req.end(Buffer.from(body));
-        } else if (Buffer.isBuffer(body)) {
-          req.end(body);
-        } else {
-          // ReadableStream or other — pipe not easily supported, end without body
-          req.end();
-        }
+  /**
+   * Write the request body from RequestInit to an http.ClientRequest.
+   */
+  private writeRequestBody(req: http.ClientRequest, init?: RequestInit): void {
+    if (init?.body != null) {
+      const body = init.body;
+      if (typeof body === 'string') {
+        req.end(body);
+      } else if (body instanceof ArrayBuffer) {
+        req.end(Buffer.from(body));
+      } else if (Buffer.isBuffer(body)) {
+        req.end(body);
       } else {
+        // ReadableStream or other — pipe not easily supported, end without body
         req.end();
       }
-    });
+    } else {
+      req.end();
+    }
   }
 
   install(): void {

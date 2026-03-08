@@ -1,9 +1,10 @@
 /**
  * Process Fingerprint — unit tests
  *
- * Tests the three-layer binary fingerprinting pipeline:
+ * Tests the four-layer binary fingerprinting pipeline:
  *   Layer A: Symlink resolution
  *   Layer B: package.json lookup
+ *   Layer B.5: Script content inspection
  *   Layer C: SHA256 hash DB lookup
  */
 
@@ -16,6 +17,11 @@ import {
   resolveNpmPackage,
   computeFileHash,
   findBinaryPath,
+  inspectScriptContent,
+  extractCandidatesFromPath,
+  getDefaultBinSearchDirs,
+  resetDefaultBinSearchDirs,
+  registerLocalBinaryFingerprint,
 } from '../services/process-fingerprint';
 
 // ── Test helpers ─────────────────────────────────────────────
@@ -28,6 +34,7 @@ beforeEach(() => {
 
 afterEach(() => {
   try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* */ }
+  resetDefaultBinSearchDirs();
 });
 
 function writeExecutable(filePath: string, content = '#!/bin/bash\necho hello'): void {
@@ -149,6 +156,175 @@ describe('findBinaryPath', () => {
   });
 });
 
+// ─── getDefaultBinSearchDirs ────────────────────────────────
+
+describe('getDefaultBinSearchDirs', () => {
+  it('should include ~/.local/bin', () => {
+    const dirs = getDefaultBinSearchDirs();
+    const home = os.homedir();
+    expect(dirs).toContain(path.join(home, '.local', 'bin'));
+  });
+
+  it('should include ~/.claude/local/bin', () => {
+    const dirs = getDefaultBinSearchDirs();
+    const home = os.homedir();
+    expect(dirs).toContain(path.join(home, '.claude', 'local', 'bin'));
+  });
+
+  it('should include standard system directories', () => {
+    const dirs = getDefaultBinSearchDirs();
+    expect(dirs).toContain('/usr/bin');
+    expect(dirs).toContain('/usr/local/bin');
+    expect(dirs).toContain('/opt/homebrew/bin');
+  });
+
+  it('should memoize results', () => {
+    const dirs1 = getDefaultBinSearchDirs();
+    const dirs2 = getDefaultBinSearchDirs();
+    expect(dirs1).toBe(dirs2); // Same reference
+  });
+});
+
+// ─── inspectScriptContent ───────────────────────────────────
+
+describe('inspectScriptContent', () => {
+  it('should extract package name from require() in shebang script', () => {
+    const scriptPath = path.join(tmpDir, 'myscript');
+    writeExecutable(scriptPath, `#!/usr/bin/env node\nconst claude = require('@anthropic-ai/claude-code');\nclaude.run();`);
+
+    const candidates = inspectScriptContent(scriptPath);
+    expect(candidates).toContain('claude-code');
+  });
+
+  it('should extract package name from import in shebang script', () => {
+    const scriptPath = path.join(tmpDir, 'myscript');
+    writeExecutable(scriptPath, `#!/usr/bin/env node\nimport { run } from '@anthropic-ai/claude-code';\nrun();`);
+
+    const candidates = inspectScriptContent(scriptPath);
+    expect(candidates).toContain('claude-code');
+  });
+
+  it('should return empty for non-shebang files', () => {
+    const filePath = path.join(tmpDir, 'binary');
+    writeExecutable(filePath, Buffer.from([0x7f, 0x45, 0x4c, 0x46]).toString()); // ELF header
+
+    const candidates = inspectScriptContent(filePath);
+    expect(candidates).toEqual([]);
+  });
+
+  it('should return empty for non-existent files', () => {
+    const candidates = inspectScriptContent(path.join(tmpDir, 'nope'));
+    expect(candidates).toEqual([]);
+  });
+
+  it('should return empty for scripts without package references', () => {
+    const scriptPath = path.join(tmpDir, 'simple');
+    writeExecutable(scriptPath, '#!/bin/bash\necho hello');
+
+    const candidates = inspectScriptContent(scriptPath);
+    expect(candidates).toEqual([]);
+  });
+
+  it('should handle multiple package references', () => {
+    const scriptPath = path.join(tmpDir, 'multi');
+    writeExecutable(scriptPath,
+      `#!/usr/bin/env node\n` +
+      `const a = require('@anthropic-ai/claude-code');\n` +
+      `const b = require('@openai/codex-cli');\n`
+    );
+
+    const candidates = inspectScriptContent(scriptPath);
+    expect(candidates).toContain('claude-code');
+    expect(candidates).toContain('codex-cli');
+  });
+});
+
+// ─── extractCandidatesFromPath ──────────────────────────────
+
+describe('extractCandidatesFromPath', () => {
+  it('should extract from node_modules pattern', () => {
+    const candidates = extractCandidatesFromPath('/home/user/node_modules/openclaw/bin/cli.js');
+    expect(candidates).toContain('openclaw');
+  });
+
+  it('should extract from scoped node_modules pattern', () => {
+    const candidates = extractCandidatesFromPath('/home/user/node_modules/@anthropic-ai/claude-code/bin/cli.js');
+    expect(candidates).toContain('claude-code');
+  });
+
+  it('should extract from site-packages pattern', () => {
+    const candidates = extractCandidatesFromPath('/usr/lib/python3/site-packages/mypackage/cli.py');
+    expect(candidates).toContain('mypackage');
+  });
+
+  it('should return empty for paths without package patterns', () => {
+    const candidates = extractCandidatesFromPath('/usr/local/bin/some-tool');
+    expect(candidates).toEqual([]);
+  });
+});
+
+// ─── registerLocalBinaryFingerprint ─────────────────────────
+
+describe('registerLocalBinaryFingerprint', () => {
+  it('should register binary hash in storage', () => {
+    const binaryPath = path.join(tmpDir, 'my-binary');
+    writeExecutable(binaryPath, 'binary-content');
+
+    const mockStorage = {
+      binarySignatures: {
+        upsertBatch: jest.fn().mockReturnValue(1),
+      },
+    };
+
+    const result = registerLocalBinaryFingerprint(binaryPath, 'my-package', mockStorage);
+    expect(result).toBe(true);
+    expect(mockStorage.binarySignatures.upsertBatch).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          packageName: 'my-package',
+          source: 'local',
+          platform: process.platform,
+        }),
+      ]),
+    );
+  });
+
+  it('should return false for non-existent file', () => {
+    const mockStorage = {
+      binarySignatures: {
+        upsertBatch: jest.fn(),
+      },
+    };
+
+    const result = registerLocalBinaryFingerprint(
+      path.join(tmpDir, 'nonexistent'),
+      'pkg',
+      mockStorage,
+    );
+    expect(result).toBe(false);
+    expect(mockStorage.binarySignatures.upsertBatch).not.toHaveBeenCalled();
+  });
+
+  it('should register both symlink and target hashes', () => {
+    const targetPath = path.join(tmpDir, 'target-binary');
+    const symlinkPath = path.join(tmpDir, 'symlink-binary');
+    writeExecutable(targetPath, 'target-content');
+    fs.symlinkSync(targetPath, symlinkPath);
+
+    const mockStorage = {
+      binarySignatures: {
+        upsertBatch: jest.fn().mockReturnValue(1),
+      },
+    };
+
+    const result = registerLocalBinaryFingerprint(symlinkPath, 'my-pkg', mockStorage);
+    expect(result).toBe(true);
+    // On macOS, /tmp → /private/tmp, so realpath resolves differently
+    // The function should still call upsertBatch with at least one entry
+    expect(mockStorage.binarySignatures.upsertBatch).toHaveBeenCalled();
+  });
+});
+
 // ─── fingerprintProcess ─────────────────────────────────────
 
 describe('fingerprintProcess', () => {
@@ -186,6 +362,24 @@ describe('fingerprintProcess', () => {
       expect(result.npmPackageName).toBe('openclaw');
       // resolvedVia could be 'symlink' if realpath differs, or 'package-json'
       expect(['package-json', 'symlink']).toContain(result.resolvedVia);
+    });
+  });
+
+  describe('Layer B.5 — script content inspection', () => {
+    it('should identify a renamed script that references a known package', () => {
+      const binDir = path.join(tmpDir, 'bin');
+      // Create a script that references @anthropic-ai/claude-code
+      writeExecutable(
+        path.join(binDir, 'ttcc'),
+        `#!/usr/bin/env node\nconst m = require('@anthropic-ai/claude-code');\nm.run();`,
+      );
+
+      const result = fingerprintProcess('ttcc', {
+        searchDirs: [binDir],
+      });
+
+      expect(result.candidateNames).toContain('claude-code');
+      expect(result.resolvedVia).toBe('script-content');
     });
   });
 
@@ -271,6 +465,83 @@ describe('fingerprintProcess', () => {
       // On macOS, realpathSync resolves /var → /private/var
       expect(result.resolvedPath).toBe(fs.realpathSync(binaryPath));
       expect(result.candidateNames).toContain('known-pkg');
+    });
+  });
+
+  describe('resolvedExePath — OS-level PID resolution', () => {
+    it('should use resolvedExePath when binary token is a basename and dir search would fail', () => {
+      // Simulate: "ttcc --serve" where ttcc doesn't exist in any search dir,
+      // but OS resolved PID to /Users/foo/.local/bin/ttcc
+      const pkgDir = path.join(tmpDir, 'pkg');
+      const binDir = path.join(pkgDir, 'bin');
+      writePackageJson(pkgDir, '@anthropic-ai/claude-code');
+      writeExecutable(path.join(binDir, 'ttcc'), '#!/usr/bin/env node\nmodule.exports = {}');
+
+      const result = fingerprintProcess('ttcc --serve', {
+        searchDirs: [],  // empty — dir search would fail
+        resolvedExePath: path.join(binDir, 'ttcc'),
+      });
+
+      // Should find package.json via resolvedExePath
+      expect(result.candidateNames).toContain('claude-code');
+      expect(result.resolvedPath).toBeTruthy();
+    });
+
+    it('should skip resolvedExePath when binary token is already absolute', () => {
+      // When command has an absolute path, it takes priority over resolvedExePath
+      const binDir = path.join(tmpDir, 'bin');
+      const absoluteBinary = path.join(binDir, 'my-tool');
+      writeExecutable(absoluteBinary, 'binary-data');
+
+      const otherPath = path.join(tmpDir, 'other', 'different-tool');
+      writeExecutable(otherPath, 'other-data');
+
+      const hashLookup = (): string | null => 'my-tool-pkg';
+
+      const result = fingerprintProcess(`${absoluteBinary} --serve`, {
+        searchDirs: [],
+        resolvedExePath: otherPath,  // should be ignored
+        hashLookup,
+      });
+
+      // Should use the absolute path from the command, not resolvedExePath
+      expect(result.resolvedPath).toBe(fs.realpathSync(absoluteBinary));
+    });
+
+    it('should fall back to dir search when resolvedExePath is not provided', () => {
+      const binDir = path.join(tmpDir, 'bin');
+      const pkgDir = path.join(tmpDir, 'pkg');
+      writePackageJson(pkgDir, 'fallback-tool');
+      const targetPath = path.join(pkgDir, 'bin', 'mytool');
+      writeExecutable(targetPath);
+
+      // Create a symlink in binDir pointing to pkgDir
+      fs.mkdirSync(binDir, { recursive: true });
+      fs.symlinkSync(targetPath, path.join(binDir, 'mytool'));
+
+      const result = fingerprintProcess('mytool --serve', {
+        searchDirs: [binDir],
+        // no resolvedExePath — should fall back to dir search
+      });
+
+      expect(result.resolvedPath).toBeTruthy();
+    });
+
+    it('full pipeline with resolvedExePath: symlink → package.json → script content', () => {
+      // Setup: resolvedExePath points to a script that references @anthropic-ai/claude-code
+      const binDir = path.join(tmpDir, 'bin');
+      writeExecutable(
+        path.join(binDir, 'renamed-claude'),
+        `#!/usr/bin/env node\nconst m = require('@anthropic-ai/claude-code');\nm.run();`,
+      );
+
+      const result = fingerprintProcess('renamed-claude --serve', {
+        searchDirs: [],
+        resolvedExePath: path.join(binDir, 'renamed-claude'),
+      });
+
+      expect(result.candidateNames).toContain('claude-code');
+      expect(result.resolvedVia).toBe('script-content');
     });
   });
 
