@@ -19,6 +19,10 @@ import type { PolicyExecutionContext, SandboxConfig, ResourceLimits } from '@age
 import type { PolicyCheckResult } from '../policy/evaluator.js';
 import { ResourceMonitor } from '../resource/resource-monitor.js';
 
+// Capture original fs.existsSync at module load time (before any interceptor patches)
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const _existsSync = require('node:fs').existsSync as (p: string) => boolean;
+
 // Use require() for modules we need to monkey-patch (ESM imports are immutable)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const childProcessModule = require('node:child_process') as typeof childProcess;
@@ -164,6 +168,50 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       return rest.startsWith('-c ') ? rest.slice(3).trim() : rest;
     }
     return command;
+  }
+
+  /** System binary directories whose paths should be rewritten to wrappers */
+  private static readonly SYSTEM_BIN_DIRS = ['/usr/bin/', '/usr/sbin/', '/bin/', '/sbin/', '/usr/local/bin/', '/opt/homebrew/bin/'];
+
+  /** Binaries exempt from rewriting (shell necessities) */
+  private static readonly REWRITE_EXEMPT = new Set(['/bin/sh', '/bin/bash', '/bin/zsh', '/usr/bin/env']);
+
+  /**
+   * Rewrite a system binary absolute path to the wrapper equivalent.
+   * /usr/bin/cat → ~/bin/cat (if wrapper exists)
+   */
+  private rewriteSystemBinaryPath(command: string): string {
+    if (ChildProcessInterceptor.REWRITE_EXEMPT.has(command)) return command;
+
+    const isSystemBin = ChildProcessInterceptor.SYSTEM_BIN_DIRS.some(d => command.startsWith(d));
+    if (!isSystemBin) return command;
+
+    const basename = command.split('/').pop();
+    if (!basename) return command;
+
+    const home = process.env['HOME'] || '';
+    if (!home) return command;
+
+    const wrapperPath = `${home}/bin/${basename}`;
+    if (_existsSync(wrapperPath)) {
+      debugLog(`cp.rewriteSystemBinary: ${command} → ${wrapperPath}`);
+      return wrapperPath;
+    }
+
+    return command; // No wrapper — let policy check handle denial
+  }
+
+  /**
+   * Rewrite first token of a shell command string if it's a system binary path.
+   */
+  private rewriteCommandString(command: string): string {
+    const trimmed = command.trimStart();
+    const spaceIdx = trimmed.indexOf(' ');
+    const cmdPath = spaceIdx === -1 ? trimmed : trimmed.substring(0, spaceIdx);
+    const rest = spaceIdx === -1 ? '' : trimmed.substring(spaceIdx);
+    const rewritten = this.rewriteSystemBinaryPath(cmdPath);
+    if (rewritten === cmdPath) return command;
+    return rewritten + rest;
   }
 
   /**
@@ -364,6 +412,9 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         return original(command, ...args, callback) as childProcess.ChildProcess;
       }
 
+      // Rewrite system binary paths to wrapper equivalents
+      command = self.rewriteCommandString(command);
+
       const policyTarget = self.unwrapGuardedShell(command);
       self.eventReporter.intercept('exec', policyTarget);
 
@@ -420,6 +471,9 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         return original(command, options);
       }
 
+      // Rewrite system binary paths to wrapper equivalents
+      command = self.rewriteCommandString(command);
+
       const policyTarget = self.unwrapGuardedShell(command);
       self.eventReporter.intercept('exec', policyTarget);
 
@@ -454,15 +508,19 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       args?: readonly string[],
       options?: childProcess.SpawnOptions
     ): childProcess.ChildProcess {
-      const fullCmd = args ? `${command} ${args.join(' ')}` : command;
-      debugLog(`cp.spawn ENTER command=${fullCmd} _checking=${self._checking} _executing=${self._executing}`);
+      debugLog(`cp.spawn ENTER command=${command} _checking=${self._checking} _executing=${self._executing}`);
 
       // Re-entrancy guard
       if (self._checking || self._executing) {
+        const fullCmd = args ? `${command} ${args.join(' ')}` : command;
         debugLog(`cp.spawn SKIP (re-entrancy) command=${fullCmd}`);
         return original(command, args as string[], options || {});
       }
 
+      // Rewrite system binary paths to wrapper equivalents
+      command = self.rewriteSystemBinaryPath(command);
+
+      const fullCmd = args ? `${command} ${args.join(' ')}` : command;
       const policyTarget = self.unwrapGuardedShell(fullCmd);
       self.eventReporter.intercept('exec', policyTarget);
 
@@ -510,15 +568,19 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       args?: readonly string[],
       options?: childProcess.SpawnSyncOptions
     ): childProcess.SpawnSyncReturns<Buffer | string> {
-      const fullCommand = args ? `${command} ${args.join(' ')}` : command;
-      debugLog(`cp.spawnSync ENTER command=${fullCommand} _checking=${self._checking} _executing=${self._executing}`);
+      debugLog(`cp.spawnSync ENTER command=${command} _checking=${self._checking} _executing=${self._executing}`);
 
       // Re-entrancy guard
       if (self._checking || self._executing) {
+        const fullCommand = args ? `${command} ${args.join(' ')}` : command;
         debugLog(`cp.spawnSync SKIP (re-entrancy) command=${fullCommand}`);
         return original(command, args as string[], options);
       }
 
+      // Rewrite system binary paths to wrapper equivalents
+      command = self.rewriteSystemBinaryPath(command);
+
+      const fullCommand = args ? `${command} ${args.join(' ')}` : command;
       const policyTarget = self.unwrapGuardedShell(fullCommand);
       self.eventReporter.intercept('exec', policyTarget);
 
@@ -572,6 +634,9 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       if (self._checking || self._executing) {
         return original(file, ...rest) as childProcess.ChildProcess;
       }
+
+      // Rewrite system binary paths to wrapper equivalents
+      file = self.rewriteSystemBinaryPath(file);
 
       // Parse arguments: execFile(file, args?, options?, callback?)
       let args: string[] = [];
@@ -649,6 +714,11 @@ export class ChildProcessInterceptor extends BaseInterceptor {
       // Re-entrancy guard
       if (self._checking || self._executing) {
         return original(modulePath, args as string[], options);
+      }
+
+      // Rewrite system binary paths to wrapper equivalents
+      if (typeof modulePath === 'string') {
+        modulePath = self.rewriteSystemBinaryPath(modulePath);
       }
 
       const pathStr = modulePath.toString();

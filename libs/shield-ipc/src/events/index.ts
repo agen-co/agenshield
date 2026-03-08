@@ -166,3 +166,11 @@ export {
   type AutoShieldCompletePayload,
   AUTO_SHIELD_EVENT_TYPES,
 } from './auto-shield.events';
+
+export {
+  type ExecutableDetectedPayload,
+  type ExecutableWrappedPayload,
+  type ExecutableSkippedPayload,
+  type ExecutableScanCompletePayload,
+  EXECUTABLE_EVENT_TYPES,
+} from './executable.events';

@@ -57,6 +57,7 @@ import { startEventLoopMonitor, stopEventLoopMonitor } from './services/event-lo
 import { initSystemExecutor, shutdownSystemExecutor } from './workers/system-command';
 import { startFallbackNotifications, stopFallbackNotifications } from './services/notifications';
 import { startAutoUpdateWatcher, stopAutoUpdateWatcher } from './watchers/auto-update';
+import { startExecutableWatcher, stopExecutableWatcher } from './watchers/executables';
 import { WorkspaceSkillScanner } from './services/workspace-skill-scanner';
 import { getActivationService } from './services/activation';
 import { getAutoShieldService } from './services/auto-shield';
@@ -606,6 +607,7 @@ export async function startEssentialServices(app: FastifyInstance, config: Daemo
     // Stop monitoring services (no-op if never started)
     stopFallbackNotifications();
     stopAutoUpdateWatcher();
+    stopExecutableWatcher();
     stopProcessEnforcer();
     stopSecurityWatcher();
     stopTargetWatcher();
@@ -674,6 +676,16 @@ export async function startMonitoringServices(app: FastifyInstance, config: Daem
 
   // Start auto-update watcher (checks GitHub Releases every 6 hours, notifies via SSE)
   startAutoUpdateWatcher();
+
+  // Start executable watcher for package-manager directories
+  const execCtx = resolveTargetContext();
+  if (execCtx) {
+    startExecutableWatcher({
+      agentHome: execCtx.agentHome,
+      agentUsername: execCtx.agentUsername,
+      hostHome: process.env['HOME'] || '',
+    });
+  }
 
   // Start SkillManager file watcher (was deferred from essential phase)
   if (app.skillManager) {

@@ -389,6 +389,37 @@ describe('buildSandboxConfig', () => {
     });
   });
 
+  describe('system binary path resolution', () => {
+    it('resolves system binary paths for command basename into allowedBinaries', async () => {
+      // "cat" exists at /usr/bin/cat (and possibly /bin/cat) on macOS
+      const result = await buildSandboxConfig(createDeps(), { target: 'cat /etc/hostname' });
+      // At least /usr/bin/cat should be present (exists on all macOS systems)
+      const hasCatPath = result.allowedBinaries.some(b => b.endsWith('/cat'));
+      expect(hasCatPath).toBe(true);
+    });
+
+    it('does not add denied binaries via system path resolution', async () => {
+      // curl is in WRAPPER_REQUIRED_BINARIES (denied)
+      const result = await buildSandboxConfig(createDeps(), { target: 'curl https://example.com' });
+      // /usr/bin/curl should NOT be in allowedBinaries (it's denied)
+      expect(result.allowedBinaries).not.toContain('/usr/bin/curl');
+      expect(result.deniedBinaries).toContain('/usr/bin/curl');
+    });
+
+    it('does not add denied binaries via system path resolution for git', async () => {
+      const result = await buildSandboxConfig(createDeps(), { target: 'git status' });
+      // /usr/bin/git should NOT be in allowedBinaries (it's denied)
+      expect(result.allowedBinaries).not.toContain('/usr/bin/git');
+    });
+
+    it('adds system paths for non-denied commands like ls', async () => {
+      const result = await buildSandboxConfig(createDeps(), { target: 'ls -la' });
+      // /bin/ls or /usr/bin/ls should be present
+      const hasLsPath = result.allowedBinaries.some(b => b.endsWith('/ls'));
+      expect(hasLsPath).toBe(true);
+    });
+  });
+
   describe('denied binaries (wrapper-required)', () => {
     it('deniedBinaries contains wrapper-required system paths', async () => {
       const result = await buildSandboxConfig(createDeps(), { target: 'echo hi' });

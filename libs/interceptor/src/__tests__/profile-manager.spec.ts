@@ -170,24 +170,28 @@ describe('ProfileManager.generateProfile', () => {
     expect(profile).toContain('(literal "/dev/urandom")');
   });
 
-  it('includes system binary directories', () => {
+  it('includes only shell necessity literals, not system dir subpaths', () => {
     const profile = pm.generateProfile(makeConfig());
-    expect(profile).toContain('(subpath "/bin")');
-    expect(profile).toContain('(subpath "/sbin")');
-    expect(profile).toContain('(subpath "/usr/bin")');
-    expect(profile).toContain('(subpath "/usr/sbin")');
-    expect(profile).toContain('(subpath "/usr/local/bin")');
-    expect(profile).toContain('(subpath "/opt/agenshield/bin")');
+    // Shell necessities as literals
+    expect(profile).toContain('(literal "/bin/sh")');
+    expect(profile).toContain('(literal "/bin/bash")');
+    expect(profile).toContain('(literal "/usr/bin/env")');
+    // System dirs must NOT be subpath-allowed
+    expect(profile).not.toContain('(subpath "/bin")');
+    expect(profile).not.toContain('(subpath "/sbin")');
+    expect(profile).not.toContain('(subpath "/usr/bin")');
+    expect(profile).not.toContain('(subpath "/usr/sbin")');
+    expect(profile).not.toContain('(subpath "/usr/local/bin")');
+    expect(profile).not.toContain('(subpath "/opt/agenshield/bin")');
   });
 
-  it('skips binaries already covered by system subpaths', () => {
+  it('includes allowedBinaries as literals (no system dir subpath dedup)', () => {
     const profile = pm.generateProfile(makeConfig({
-      allowedBinaries: ['/usr/bin/node', '/bin/bash'],
+      allowedBinaries: ['/usr/bin/node', '/bin/cat'],
     }));
-    // These should NOT appear as separate entries since /usr/bin and /bin are already subpaths
-    const lines = profile.split('\n');
-    const literalLines = lines.filter(l => l.includes('(literal "/usr/bin/node")') || l.includes('(literal "/bin/bash")'));
-    expect(literalLines).toHaveLength(0);
+    // System dirs are no longer subpath-allowed, so these appear as literals
+    expect(profile).toContain('(literal "/usr/bin/node")');
+    expect(profile).toContain('(literal "/bin/cat")');
   });
 
   it('deduplicates allowed binaries', () => {

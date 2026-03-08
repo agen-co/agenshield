@@ -4,6 +4,10 @@
  * Communicates with the Swift KeychainHelper binary via JSON stdin/stdout.
  * Falls back to NoopKeyProvider if the helper binary is not found.
  *
+ * When running as root, all keychain operations are delegated to the host
+ * user's keychain via `sudo -u <hostUsername>`. This ensures a single
+ * keychain (the host user's) is used for all credential storage.
+ *
  * Protocol:
  *   stdin  → { "command": "set"|"get"|"delete"|"has", "account": "...", ... }
  *   stdout → { "success": true|false, "data": "base64...", "error": "..." }
@@ -15,15 +19,17 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { KeyProvider, KeychainAccessibility } from './types';
 import { KeychainError, KeychainAccessDeniedError } from './errors';
+import { resolveHostUser } from './host-user';
 
 /** Default service name for Keychain items */
 const DEFAULT_SERVICE = 'com.frontegg.AgenShield';
 
 /** Known locations to find the KeychainHelper binary */
-function findHelperBinary(): string | null {
+function findHelperBinary(hostHome?: string): string | null {
+  const home = hostHome ?? os.homedir();
   const searchPaths = [
     // Built from Xcode project
-    path.join(os.homedir(), '.agenshield', 'bin', 'agenshield-keychain'),
+    path.join(home, '.agenshield', 'bin', 'agenshield-keychain'),
     // Alongside the CLI binary
     path.join(path.dirname(process.execPath), '..', 'libexec', 'agenshield-keychain'),
     path.join(path.dirname(process.execPath), 'agenshield-keychain'),
@@ -53,10 +59,12 @@ export class MacOSKeyProvider implements KeyProvider {
   readonly isKeychainBacked = true;
   private readonly helperPath: string;
   private readonly service: string;
+  private readonly hostUsername: string | null;
 
-  constructor(helperPath: string, service = DEFAULT_SERVICE) {
+  constructor(helperPath: string, service = DEFAULT_SERVICE, hostUsername?: string) {
     this.helperPath = helperPath;
     this.service = service;
+    this.hostUsername = hostUsername ?? null;
   }
 
   async set(
@@ -122,12 +130,25 @@ export class MacOSKeyProvider implements KeyProvider {
   private callHelper(request: Record<string, unknown>): HelperResponse {
     try {
       const input = JSON.stringify(request);
-      const output = execFileSync(this.helperPath, [], {
-        input,
-        encoding: 'utf-8',
-        timeout: 10_000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      let output: string;
+
+      // When running as root, delegate to host user's keychain
+      const needsSudo = process.getuid?.() === 0 && this.hostUsername;
+      if (needsSudo) {
+        output = execFileSync('sudo', ['-u', this.hostUsername!, this.helperPath], {
+          input,
+          encoding: 'utf-8',
+          timeout: 10_000,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+      } else {
+        output = execFileSync(this.helperPath, [], {
+          input,
+          encoding: 'utf-8',
+          timeout: 10_000,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+      }
 
       return JSON.parse(output.trim()) as HelperResponse;
     } catch (err) {
@@ -141,10 +162,14 @@ export class MacOSKeyProvider implements KeyProvider {
 
   /**
    * Try to create a MacOSKeyProvider, returning null if the helper binary is not found.
+   *
+   * Resolves the host user automatically so that keychain operations always
+   * target the host user's keychain, even when running as root.
    */
   static tryCreate(service?: string): MacOSKeyProvider | null {
-    const helperPath = findHelperBinary();
+    const { username, home } = resolveHostUser();
+    const helperPath = findHelperBinary(home);
     if (!helperPath) return null;
-    return new MacOSKeyProvider(helperPath, service);
+    return new MacOSKeyProvider(helperPath, service, username);
   }
 }

@@ -12,6 +12,8 @@ import { getStorage } from '@agenshield/storage';
 import { addUserAcl, getAncestorsNeedingTraversal, removeOrphanedAcls, removeUserAcl } from '../acl';
 import { scanForSensitiveFiles } from '../services/sensitive-file-scanner';
 import { emitEvent } from '../events/emitter';
+import { getSystemExecutor } from '../workers/system-command';
+import { getLogger } from '../logger';
 
 export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -297,8 +299,14 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
   });
 }
 
-/** Full read+write permissions for workspace directories */
-const WORKSPACE_PERMS = 'read,readattr,readextattr,list,search,execute,write,append,writeattr,writeextattr';
+/** Full read+write permissions for workspace directories (with inheritance for new children) */
+const WORKSPACE_PERMS = 'read,readattr,readextattr,list,search,execute,write,append,writeattr,writeextattr,delete,delete_child,file_inherit,directory_inherit';
+
+/** Permissions for existing children (no inherit flags — applied recursively) */
+const WORKSPACE_EXISTING_PERMS = 'read,readattr,readextattr,list,search,execute,write,append,writeattr,writeextattr,delete,delete_child';
+
+/** Directories to skip during recursive ACL application (heavy/unneeded) */
+const SKIP_DIRS = ['.git', 'node_modules', 'vendor', '.hg', '__pycache__', 'dist', 'build', '.next', '.cache'];
 
 /**
  * Apply macOS ACLs for a workspace path: traversal on ancestors, full read+write on target.
@@ -327,6 +335,42 @@ function applyWorkspacePathAcls(
     addUserAcl(ancestor, userName, 'search', log);
   }
 
-  // Grant full read+write access on the target directory
+  // Grant full read+write access on the target directory (with inheritance for new files)
   addUserAcl(targetPath, userName, WORKSPACE_PERMS, log);
+
+  // Apply permissions to existing children in background (skip heavy dirs)
+  applyWorkspaceAclsAsync(targetPath, userName, log);
+}
+
+/**
+ * Asynchronously apply ACLs to existing files/directories within a workspace path.
+ * Uses `find` with exclusions for heavy directories, pipes to `xargs chmod +a`.
+ * Runs in background via SystemCommandExecutor to avoid blocking the request.
+ */
+function applyWorkspaceAclsAsync(
+  targetPath: string,
+  userName: string,
+  log: { warn(msg: string, ...args: unknown[]): void },
+): void {
+  const excludes = SKIP_DIRS.map(d => `-not -path ${JSON.stringify(`*/${d}/*`)}`).join(' ');
+  const aclSpec = `user:${userName} allow ${WORKSPACE_EXISTING_PERMS}`;
+  const cmd = `find ${JSON.stringify(targetPath)} -mindepth 1 ${excludes} -print0 | xargs -0 chmod +a ${JSON.stringify(aclSpec)} 2>/dev/null || true`;
+
+  try {
+    const executor = getSystemExecutor();
+    executor.exec(cmd, { timeout: 60_000 })
+      .then(() => {
+        const logger = getLogger();
+        logger.info(`[workspace-paths] Recursive ACLs applied for ${targetPath}`);
+        emitEvent('workspace:acls_applied', {
+          workspacePath: targetPath,
+          agentUser: userName,
+        });
+      })
+      .catch((err: Error) => {
+        log.warn(`[workspace-paths] Async ACL application failed for ${targetPath}: ${err.message}`);
+      });
+  } catch (err) {
+    log.warn(`[workspace-paths] Failed to start async ACL application for ${targetPath}: ${(err as Error).message}`);
+  }
 }

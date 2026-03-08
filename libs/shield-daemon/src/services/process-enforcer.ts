@@ -24,7 +24,8 @@ import { emitProcessViolation, emitProcessKilled } from '../events/emitter';
 import { getSystemExecutor } from '../workers/system-command';
 import { getActiveShieldOperations } from './shield-registry';
 import { getStorage } from '@agenshield/storage';
-import { isShieldedProcess } from '@agenshield/policies';
+import { isShieldedProcess, getPresetById } from '@agenshield/policies';
+import type { PolicyPreset } from '@agenshield/policies';
 import { fingerprintProcess, computeFileHash, getDefaultBinSearchDirs } from './process-fingerprint';
 import type { ProcessFingerprint } from './process-fingerprint';
 
@@ -224,6 +225,7 @@ export function stopProcessEnforcer(): void {
   cachedDaemonDescendantsAt = 0;
   currentIntervalMs = 0;
   verifiedBinaryCache.clear();
+  _shieldedTargetCache = null;
 }
 
 /**
@@ -292,6 +294,132 @@ print(json.dumps(r))
   } catch {
     return new Map();
   }
+}
+
+// ─── Target-based enforcement ────────────────────────────────
+
+/** Cached per-scan data for target-based enforcement */
+interface ShieldedTargetData {
+  profiles: Array<{
+    id: string;
+    presetId?: string;
+    agentUsername?: string;
+    agentHomeDir?: string;
+  }>;
+  /** Maps lowercase pattern → preset name for log messages */
+  patternToPreset: Map<string, string>;
+  /** All lowercase process patterns across all presets */
+  allPatterns: Set<string>;
+}
+
+let _shieldedTargetCache: { data: ShieldedTargetData; expiresAt: number } | null = null;
+const SHIELDED_TARGET_CACHE_TTL_MS = 10_000;
+
+/**
+ * Build or return cached target matching data (profiles + preset patterns).
+ */
+function getShieldedTargetData(): ShieldedTargetData {
+  const now = Date.now();
+  if (_shieldedTargetCache && now < _shieldedTargetCache.expiresAt) {
+    return _shieldedTargetCache.data;
+  }
+
+  const profiles: ShieldedTargetData['profiles'] = [];
+  const patternToPreset = new Map<string, string>();
+  const allPatterns = new Set<string>();
+
+  try {
+    const allProfiles = getStorage().profiles.getByType('target');
+    for (const p of allProfiles) {
+      profiles.push({
+        id: p.id,
+        presetId: p.presetId,
+        agentUsername: p.agentUsername,
+        agentHomeDir: p.agentHomeDir,
+      });
+
+      if (p.presetId) {
+        const preset: PolicyPreset | undefined = getPresetById(p.presetId);
+        if (preset?.processPatterns) {
+          for (const pattern of preset.processPatterns) {
+            const lower = pattern.toLowerCase();
+            allPatterns.add(lower);
+            patternToPreset.set(lower, preset.name);
+          }
+        }
+      }
+    }
+  } catch { /* storage not ready */ }
+
+  const data: ShieldedTargetData = { profiles, patternToPreset, allPatterns };
+  _shieldedTargetCache = { data, expiresAt: now + SHIELDED_TARGET_CACHE_TTL_MS };
+  return data;
+}
+
+/**
+ * Check if a process is an unshielded instance of a known target.
+ *
+ * Matches by process name or fingerprint candidates against preset processPatterns,
+ * then verifies it's NOT running under a shielded agent user or from an agent home dir.
+ */
+function evaluateAgainstShieldedTargets(
+  proc: HostProcess,
+  fp: ProcessFingerprint,
+  resolvedExePath?: string,
+): { policyId: string; policyName: string; enforcement: 'kill'; reason: string } | null {
+  const targetData = getShieldedTargetData();
+  if (targetData.allPatterns.size === 0) return null;
+
+  // Extract the command basename for matching
+  const cmdTokens = proc.command.trim().split(/\s+/);
+  const firstToken = cmdTokens[0] ?? '';
+  const basename = firstToken.includes('/') ? firstToken.split('/').pop()! : firstToken;
+  const basenameLower = basename.toLowerCase();
+
+  // Check if process name or any fingerprint candidate matches a known pattern
+  let matchedPattern: string | null = null;
+
+  if (targetData.allPatterns.has(basenameLower)) {
+    matchedPattern = basenameLower;
+  }
+
+  if (!matchedPattern) {
+    for (const candidate of fp.candidateNames) {
+      const candidateLower = candidate.toLowerCase();
+      if (targetData.allPatterns.has(candidateLower)) {
+        matchedPattern = candidateLower;
+        break;
+      }
+    }
+  }
+
+  if (!matchedPattern) return null;
+
+  // Verify it's NOT a shielded instance
+  for (const profile of targetData.profiles) {
+    if (!profile.presetId) continue;
+    const preset = getPresetById(profile.presetId);
+    if (!preset?.processPatterns) continue;
+
+    const presetPatterns = new Set(preset.processPatterns.map(p => p.toLowerCase()));
+    if (!presetPatterns.has(matchedPattern!)) continue;
+
+    // Process belongs to this preset — check if it's running under the shielded user
+    if (profile.agentUsername && proc.user === profile.agentUsername) return null;
+
+    // Check if command path starts with the agent's home directory
+    if (profile.agentHomeDir && firstToken.startsWith(profile.agentHomeDir)) return null;
+    if (resolvedExePath && profile.agentHomeDir && resolvedExePath.startsWith(profile.agentHomeDir)) return null;
+  }
+
+  const presetName = targetData.patternToPreset.get(matchedPattern) ?? 'Unknown Target';
+
+  return {
+    policyId: `target-enforcement:${matchedPattern}`,
+    policyName: `Unshielded ${presetName}`,
+    enforcement: 'kill',
+    reason: `Unshielded instance of ${presetName}`,
+  };
 }
 
 // ─── Internal ────────────────────────────────────────────────
@@ -452,9 +580,10 @@ async function runEnforcementScan(): Promise<void> {
 
     // Fingerprint-based detection: if standard matching missed,
     // resolve the binary's true identity and re-evaluate
+    const resolvedExePath = exePathsByPid.get(proc.pid);
+    let fp: ProcessFingerprint | undefined;
     if (!result) {
-      const resolvedExePath = exePathsByPid.get(proc.pid);
-      const fp = fingerprintProcess(proc.command, { searchDirs: getDefaultBinSearchDirs(), cache: fpCache, hashLookup, resolvedExePath });
+      fp = fingerprintProcess(proc.command, { searchDirs: getDefaultBinSearchDirs(), cache: fpCache, hashLookup, resolvedExePath });
       for (const candidate of fp.candidateNames) {
         result = policyManager.evaluateProcess(candidate);
         if (result) {
@@ -464,6 +593,20 @@ async function runEnforcementScan(): Promise<void> {
           );
           break;
         }
+      }
+    }
+
+    // Target-based enforcement: detect unshielded instances of known targets
+    if (!result) {
+      if (!fp) {
+        fp = fingerprintProcess(proc.command, { searchDirs: getDefaultBinSearchDirs(), cache: fpCache, hashLookup, resolvedExePath });
+      }
+      result = evaluateAgainstShieldedTargets(proc, fp, resolvedExePath);
+      if (result) {
+        log.warn(
+          `[enforcer] PID ${proc.pid} detected as unshielded target: ${result.reason} ` +
+          `(command: ${proc.command.slice(0, 80)})`,
+        );
       }
     }
 

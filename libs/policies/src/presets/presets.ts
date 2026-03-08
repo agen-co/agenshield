@@ -14,12 +14,15 @@ export interface PolicyPreset {
   name: string;
   description: string;
   policies: PolicyConfig[];
+  /** Process name patterns this target is known by (for unshielded instance detection) */
+  processPatterns?: string[];
 }
 
 export const OPENCLAW_PRESET: PolicyPreset = {
   id: 'openclaw',
   name: 'OpenClaw',
   description: 'Default policies for OpenClaw AI coding agent',
+  processPatterns: ['openclaw', 'claw'],
   policies: [
     {
       id: 'preset-openclaw-ai-apis',
@@ -148,6 +151,7 @@ export const AGENCO_PRESET: PolicyPreset = {
   id: 'agenco',
   name: 'AgenCo Integrations',
   description: 'Policies for AgenCo secure integration skill',
+  processPatterns: ['agenco'],
   policies: [
     {
       id: 'preset-agenco-commands',
@@ -178,6 +182,7 @@ export const CLAUDECODE_PRESET: PolicyPreset = {
   id: 'claudecode',
   name: 'Claude Code',
   description: 'Default policies for Anthropic Claude Code agent',
+  processPatterns: ['claude', 'claude-code'],
   policies: [
     {
       id: 'preset-cc-ai-apis',

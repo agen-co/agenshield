@@ -123,20 +123,19 @@ export class ProfileManager {
       lines.push('');
     }
 
-    // Binary execution — allow standard system binary directories.
-    lines.push(';; Binary execution (system directories allowed as subpaths)');
+    // Binary execution — only shell necessities + agent-local paths.
+    // System binary dirs (/usr/bin, /bin, etc.) are NOT allowed as subpaths.
+    // Specific system binaries are added as literals via allowedBinaries.
+    lines.push(';; Binary execution (restricted to shell necessities + agent paths)');
     lines.push('(allow process-exec');
 
-    // macOS system binary directories (always present on macOS)
-    lines.push('  (subpath "/bin")');
-    lines.push('  (subpath "/sbin")');
-    lines.push('  (subpath "/usr/bin")');
-    lines.push('  (subpath "/usr/sbin")');
-    lines.push('  (subpath "/usr/local/bin")');
-    lines.push('  (subpath "/opt/agenshield/bin")');
+    // Shell necessities (literal — only these specific binaries, not all of /bin/)
+    lines.push('  (literal "/bin/sh")');
+    lines.push('  (literal "/bin/bash")');
+    lines.push('  (literal "/usr/bin/env")');
 
     // Resolve agent-specific paths from environment
-    const coveredSubpaths = ['/bin/', '/sbin/', '/usr/bin/', '/usr/sbin/', '/usr/local/bin/', '/opt/agenshield/bin/'];
+    const coveredSubpaths: string[] = [];
     const home = process.env['HOME'];
     if (home) {
       lines.push(`  (subpath "${this.escapeSbpl(home)}/bin")`);
@@ -147,14 +146,6 @@ export class ProfileManager {
     if (nvmDir) {
       lines.push(`  (subpath "${this.escapeSbpl(nvmDir)}")`);
       coveredSubpaths.push(`${nvmDir}/`);
-    }
-
-    // Resolve HOMEBREW_PREFIX if set (covers non-standard locations)
-    const brewPrefix = process.env['HOMEBREW_PREFIX'];
-    if (brewPrefix && (!home || !brewPrefix.startsWith(home))) {
-      lines.push(`  (subpath "${this.escapeSbpl(brewPrefix)}/bin")`);
-      lines.push(`  (subpath "${this.escapeSbpl(brewPrefix)}/lib")`);
-      coveredSubpaths.push(`${brewPrefix}/bin/`, `${brewPrefix}/lib/`);
     }
 
     // Additional paths from policy (e.g. node_modules, custom binaries)

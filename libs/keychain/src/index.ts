@@ -15,7 +15,11 @@ export type {
   KeychainAccessibility,
 } from './types';
 
+export type { HostUser } from './host-user';
+
 export { DEFAULT_KEYCHAIN_CONFIG } from './types';
+
+export { resolveHostUser, resolveHostHome, clearHostUserCache } from './host-user';
 
 export {
   KeychainError,

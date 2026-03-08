@@ -30,3 +30,11 @@ export {
   type ApprovedSkillEntry,
   type UntrustedSkillInfo,
 } from './watchers/skills';
+
+// Executable watcher
+export {
+  startExecutableWatcher,
+  stopExecutableWatcher,
+  triggerExecutableScan,
+  type ExecutableWatcherConfig,
+} from './watchers/executables';

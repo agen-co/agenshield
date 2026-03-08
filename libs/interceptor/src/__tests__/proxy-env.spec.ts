@@ -1,5 +1,9 @@
 import { getProxyConfig, shouldBypassProxy } from '../proxy-env';
 
+jest.mock('../debug-log', () => ({
+  debugLog: jest.fn(),
+}));
+
 describe('getProxyConfig', () => {
   const originalEnv = process.env;
 

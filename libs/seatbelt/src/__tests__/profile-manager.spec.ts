@@ -209,13 +209,19 @@ describe('ProfileManager', () => {
   describe('generateProfile — binary execution', () => {
     const pm = new ProfileManager('/tmp/test-profiles');
 
-    it('includes system dirs (/bin, /sbin, /usr/bin, etc.)', () => {
+    it('includes only shell necessity literals, not system dir subpaths', () => {
       const profile = pm.generateProfile(createSandbox());
-      expect(profile).toContain('(subpath "/bin")');
-      expect(profile).toContain('(subpath "/sbin")');
-      expect(profile).toContain('(subpath "/usr/bin")');
-      expect(profile).toContain('(subpath "/usr/sbin")');
-      expect(profile).toContain('(subpath "/usr/local/bin")');
+      // Shell necessities as literals
+      expect(profile).toContain('(literal "/bin/sh")');
+      expect(profile).toContain('(literal "/bin/bash")');
+      expect(profile).toContain('(literal "/usr/bin/env")');
+      // System dirs must NOT be subpath-allowed
+      expect(profile).not.toContain('(subpath "/bin")');
+      expect(profile).not.toContain('(subpath "/sbin")');
+      expect(profile).not.toContain('(subpath "/usr/bin")');
+      expect(profile).not.toContain('(subpath "/usr/sbin")');
+      expect(profile).not.toContain('(subpath "/usr/local/bin")');
+      expect(profile).not.toContain('(subpath "/opt/agenshield/bin")');
     });
 
     it('includes HOME-based paths when HOME env is set', () => {
@@ -244,48 +250,32 @@ describe('ProfileManager', () => {
       }
     });
 
-    it('includes HOMEBREW_PREFIX when set and not under HOME', () => {
+    it('does not include system HOMEBREW_PREFIX (homebrew is agent-local)', () => {
       const origBrew = process.env['HOMEBREW_PREFIX'];
       const origHome = process.env['HOME'];
       process.env['HOME'] = '/Users/testuser';
       process.env['HOMEBREW_PREFIX'] = '/opt/homebrew';
       try {
         const profile = pm.generateProfile(createSandbox());
-        expect(profile).toContain('(subpath "/opt/homebrew/bin")');
-        expect(profile).toContain('(subpath "/opt/homebrew/lib")');
+        // System homebrew paths should NOT appear — homebrew is at ~/homebrew/
+        expect(profile).not.toContain('(subpath "/opt/homebrew/bin")');
+        expect(profile).not.toContain('(subpath "/opt/homebrew/lib")');
+        // Agent-local homebrew should still be present
+        expect(profile).toContain('(subpath "/Users/testuser/homebrew")');
       } finally {
         process.env['HOMEBREW_PREFIX'] = origBrew;
         process.env['HOME'] = origHome;
       }
     });
 
-    it('skips HOMEBREW_PREFIX when it is under HOME (already covered)', () => {
-      const origBrew = process.env['HOMEBREW_PREFIX'];
-      const origHome = process.env['HOME'];
-      process.env['HOME'] = '/Users/testuser';
-      process.env['HOMEBREW_PREFIX'] = '/Users/testuser/homebrew';
-      try {
-        const profile = pm.generateProfile(createSandbox());
-        // Should NOT contain homebrew/bin as separate entry since HOME covers it
-        expect(profile).not.toContain('(subpath "/Users/testuser/homebrew/bin")');
-      } finally {
-        process.env['HOMEBREW_PREFIX'] = origBrew;
-        process.env['HOME'] = origHome;
-      }
-    });
-
-    it('deduplicates binaries already covered by system dirs', () => {
+    it('includes allowedBinaries as literals (no system dir subpath dedup)', () => {
       const sandbox = createSandbox({
         allowedBinaries: ['/usr/bin/git', '/usr/local/bin/node'],
       });
       const profile = pm.generateProfile(sandbox);
-      // These should be skipped since /usr/bin and /usr/local/bin are already subpaths
-      // The profile should NOT contain literal entries for these
-      const lines = profile.split('\n');
-      const literalGit = lines.filter(l => l.includes('(literal "/usr/bin/git")'));
-      const literalNode = lines.filter(l => l.includes('(literal "/usr/local/bin/node")'));
-      expect(literalGit.length).toBe(0);
-      expect(literalNode.length).toBe(0);
+      // System dirs are no longer subpath-allowed, so these appear as literals
+      expect(profile).toContain('(literal "/usr/bin/git")');
+      expect(profile).toContain('(literal "/usr/local/bin/node")');
     });
 
     it('trailing-slash binary → subpath rule', () => {
@@ -470,18 +460,12 @@ describe('ProfileManager', () => {
       delete process.env['HOMEBREW_PREFIX'];
       try {
         const profile = pm.generateProfile(createSandbox());
-        // Should still have system paths
-        expect(profile).toContain('(subpath "/usr/bin")');
-        // No HOME-derived ~/bin or ~/homebrew paths (only system /bin is present)
-        const lines = profile.split('\n');
-        const homeBinLines = lines.filter(l =>
-          l.includes('/bin")') &&
-          !l.includes('/usr/') &&
-          !l.includes('/sbin') &&
-          !l.includes('/opt/') &&
-          !l.includes('"/bin"'),  // system /bin
-        );
-        expect(homeBinLines.length).toBe(0);
+        // Should have shell necessities as literals
+        expect(profile).toContain('(literal "/bin/sh")');
+        expect(profile).toContain('(literal "/bin/bash")');
+        expect(profile).toContain('(literal "/usr/bin/env")');
+        // No HOME-derived ~/bin or ~/homebrew paths
+        expect(profile).not.toContain('/homebrew"');
         // NVM_DIR fallback requires HOME — with both unset, no .nvm subpath
         expect(profile).not.toContain('.nvm');
       } finally {
@@ -505,16 +489,16 @@ describe('ProfileManager', () => {
       }
     });
 
-    it('HOMEBREW_PREFIX skipped when HOME is not set', () => {
+    it('HOMEBREW_PREFIX ignored regardless of HOME (homebrew is agent-local)', () => {
       const origHome = process.env['HOME'];
       const origBrew = process.env['HOMEBREW_PREFIX'];
       delete process.env['HOME'];
       process.env['HOMEBREW_PREFIX'] = '/opt/homebrew';
       try {
         const profile = pm.generateProfile(createSandbox());
-        // With no HOME, the condition `!home || !brewPrefix.startsWith(home)` → true
-        expect(profile).toContain('(subpath "/opt/homebrew/bin")');
-        expect(profile).toContain('(subpath "/opt/homebrew/lib")');
+        // HOMEBREW_PREFIX is no longer used — system homebrew paths must not appear
+        expect(profile).not.toContain('(subpath "/opt/homebrew/bin")');
+        expect(profile).not.toContain('(subpath "/opt/homebrew/lib")');
       } finally {
         process.env['HOME'] = origHome;
         if (origBrew !== undefined) {

@@ -76,6 +76,27 @@ const WRAPPER_REQUIRED_BINARIES = [
   '/usr/local/bin/npx',
 ] as const;
 
+/**
+ * System binary directories to resolve per-command literals for seatbelt allowlists.
+ * When ~/bin/cat wrapper execs /usr/bin/cat, the seatbelt needs (literal "/usr/bin/cat").
+ */
+const SYSTEM_BIN_RESOLVE_DIRS = ['/usr/bin', '/bin', '/usr/sbin', '/sbin', '/usr/local/bin', '/opt/homebrew/bin'];
+
+/**
+ * Resolve all existing system binary paths for a given basename.
+ * Returns absolute paths like ['/usr/bin/cat', '/bin/cat'] for basename 'cat'.
+ */
+function resolveSystemBinaryPaths(basename: string): string[] {
+  const paths: string[] = [];
+  for (const dir of SYSTEM_BIN_RESOLVE_DIRS) {
+    const candidate = `${dir}/${basename}`;
+    try {
+      if (nodefs.existsSync(candidate)) paths.push(candidate);
+    } catch { /* skip */ }
+  }
+  return paths;
+}
+
 // Known commands that typically need network access
 const NETWORK_COMMANDS = new Set([
   'curl', 'wget', 'git', 'npm', 'npx', 'yarn', 'pnpm',
@@ -183,6 +204,17 @@ export async function buildSandboxConfig(
           const realCmd = await nodefs.promises.realpath(cmd);
           if (realCmd !== cmd) sandbox.allowedBinaries.push(realCmd);
         } catch { /* command may not exist yet */ }
+      }
+    }
+  }
+
+  // Resolve system binary paths for seatbelt allowlist.
+  // When ~/bin/cat wrapper execs /usr/bin/cat, the seatbelt needs (literal "/usr/bin/cat").
+  if (commandBasename) {
+    const systemPaths = resolveSystemBinaryPaths(commandBasename);
+    for (const sysPath of systemPaths) {
+      if (!sandbox.deniedBinaries.includes(sysPath)) {
+        sandbox.allowedBinaries.push(sysPath);
       }
     }
   }

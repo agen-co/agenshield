@@ -6,11 +6,45 @@
  * so the client just needs to initiate the tunnel handshake.
  */
 
+import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as tls from 'node:tls';
 import * as net from 'node:net';
 import { debugLog } from '../debug-log.js';
 import { PolicyDeniedError } from '../errors.js';
+
+// ── System CA certificate loading (defense-in-depth) ──────────────
+
+const CA_BUNDLE_PATHS = ['/etc/ssl/cert.pem', '/etc/ssl/certs/ca-certificates.crt'];
+let _systemCaCerts: string[] | null = null;
+
+/**
+ * Lazy-load system CA certificates from the PEM bundle.
+ * Only activates when NODE_EXTRA_CA_CERTS is NOT already set.
+ * Caches the result for the process lifetime.
+ */
+function getSystemCaCerts(): string[] | undefined {
+  if (process.env['NODE_EXTRA_CA_CERTS']) return undefined;
+
+  if (_systemCaCerts !== null) return _systemCaCerts.length > 0 ? _systemCaCerts : undefined;
+
+  for (const bundlePath of CA_BUNDLE_PATHS) {
+    try {
+      const content = fs.readFileSync(bundlePath, 'utf-8');
+      const certs = content.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g);
+      if (certs && certs.length > 0) {
+        _systemCaCerts = certs;
+        debugLog(`connect-tunnel: loaded ${certs.length} CA certs from ${bundlePath}`);
+        return _systemCaCerts;
+      }
+    } catch {
+      // Not found or unreadable — try next
+    }
+  }
+
+  _systemCaCerts = [];
+  return undefined;
+}
 
 // Capture raw http.request before any interception can modify it
 const _rawHttpRequest = http.request;
@@ -94,6 +128,7 @@ export function establishConnectTunnel(options: ConnectTunnelOptions): Promise<T
       const tlsSocket = tls.connect({
         socket,
         servername: targetHostname,
+        ca: getSystemCaCerts(),
       });
 
       // Push any buffered head data into the TLS socket

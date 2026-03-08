@@ -101,13 +101,37 @@ const MAX_HASH_FILE_SIZE = 200 * 1024 * 1024;
 /** Max directory depth to walk up looking for package.json */
 const MAX_PACKAGE_WALK_DEPTH = 10;
 
-/** Max bytes to read for script content inspection */
-const SCRIPT_INSPECT_BYTES = 4096;
+/** Max bytes to read for script content inspection (increased for SEA binaries) */
+const SCRIPT_INSPECT_BYTES = 16384;
 
 /** Generic basenames that should not be used as candidate names */
 const GENERIC_BASENAMES = new Set([
   'cli', 'index', 'main', 'run', 'app', 'bin', 'start', 'server', 'entry',
 ]);
+
+/** CLI suffixes to strip for candidate name generation */
+const CLI_SUFFIXES = ['-code', '-cli', '-server', '-agent', '-app', '-desktop', '-bin'];
+
+/** Node.js SEA fuse marker */
+const SEA_FUSE_MARKER = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
+
+/**
+ * Strip common CLI suffixes from a name to generate additional candidate names.
+ * e.g., 'claude-code' → ['claude'], 'openclaw-cli' → ['openclaw']
+ */
+function stripCliSuffixes(name: string): string[] {
+  const results: string[] = [];
+  const lower = name.toLowerCase();
+  for (const suffix of CLI_SUFFIXES) {
+    if (lower.endsWith(suffix)) {
+      const stripped = name.slice(0, -suffix.length);
+      if (stripped && !GENERIC_BASENAMES.has(stripped.toLowerCase())) {
+        results.push(stripped);
+      }
+    }
+  }
+  return results;
+}
 
 // ─── Public API ─────────────────────────────────────────────
 
@@ -233,6 +257,18 @@ export function fingerprintProcess(
     }
   }
 
+  // Generate suffix-stripped variants for all candidates
+  // (e.g., 'claude-code' → 'claude', 'openclaw-cli' → 'openclaw')
+  const suffixVariants: string[] = [];
+  for (const name of candidateNames) {
+    for (const variant of stripCliSuffixes(name)) {
+      if (!candidateNames.includes(variant) && !suffixVariants.includes(variant)) {
+        suffixVariants.push(variant);
+      }
+    }
+  }
+  candidateNames.push(...suffixVariants);
+
   const result: ProcessFingerprint = {
     candidateNames,
     resolvedPath,
@@ -281,11 +317,13 @@ export function resolveNpmPackage(filePath: string): { name: string; dir: string
 }
 
 /**
- * Inspect the content of a script file for package references.
- * Reads the first 4KB and looks for require()/import statements
- * referencing known scoped npm packages.
+ * Inspect the content of a script or SEA binary for package references.
+ * Reads the first bytes and looks for:
+ * - Shebang scripts: require()/import statements referencing scoped npm packages
+ * - SEA binaries: Node.js SEA fuse marker + embedded JS with @scope/package references
  *
- * Returns candidate names extracted from package references (scope stripped).
+ * Returns candidate names extracted from package references (scope stripped),
+ * plus suffix-stripped variants (e.g., 'claude-code' → 'claude').
  */
 export function inspectScriptContent(filePath: string): string[] {
   try {
@@ -297,9 +335,11 @@ export function inspectScriptContent(filePath: string): string[] {
     if (bytesRead === 0) return [];
 
     const content = buf.subarray(0, bytesRead).toString('utf-8');
+    const isScript = content.startsWith('#!');
+    const isSEA = !isScript && content.includes(SEA_FUSE_MARKER);
 
-    // Only inspect scripts (files starting with #!)
-    if (!content.startsWith('#!')) return [];
+    // Only inspect scripts and SEA binaries
+    if (!isScript && !isSEA) return [];
 
     const candidates: string[] = [];
 
@@ -319,6 +359,12 @@ export function inspectScriptContent(filePath: string): string[] {
           : fullPkg;
         if (stripped && !candidates.includes(stripped)) {
           candidates.push(stripped);
+          // Also add suffix-stripped variants
+          for (const variant of stripCliSuffixes(stripped)) {
+            if (!candidates.includes(variant)) {
+              candidates.push(variant);
+            }
+          }
         }
       }
     }
