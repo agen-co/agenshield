@@ -145,15 +145,15 @@ export function injectBlob(opts: InjectOptions): void {
     }
   }
 
-  // Linux: strip debug symbols and note sections to avoid duplicate sentinel fuse
+  // Linux: strip symbols and remove .note sections to avoid duplicate sentinel fuse
   if (platform === 'linux') {
     try {
       run(
-        `strip "${binaryPath}"`,
-        'Strip debug symbols from ELF binary (Linux)',
+        `objcopy --strip-all -w --remove-section='.note*' "${binaryPath}"`,
+        'Strip symbols and .note sections from ELF binary (Linux)',
       );
     } catch {
-      console.log('[WARN] strip failed — postject may fail if sentinel appears in multiple sections');
+      console.log('[WARN] objcopy failed — postject may fail if sentinel appears in multiple sections');
     }
   }
 
