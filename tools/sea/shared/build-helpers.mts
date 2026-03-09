@@ -145,6 +145,18 @@ export function injectBlob(opts: InjectOptions): void {
     }
   }
 
+  // Linux: strip debug symbols and note sections to avoid duplicate sentinel fuse
+  if (platform === 'linux') {
+    try {
+      run(
+        `strip "${binaryPath}"`,
+        'Strip debug symbols from ELF binary (Linux)',
+      );
+    } catch {
+      console.log('[WARN] strip failed — postject may fail if sentinel appears in multiple sections');
+    }
+  }
+
   // Inject the blob using postject
   const machoFlag = platform === 'darwin' ? '--macho-segment-name NODE_SEA' : '';
 
