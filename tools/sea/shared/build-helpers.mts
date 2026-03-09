@@ -276,6 +276,18 @@ function addMachOSection(
   const LC_SEGMENT_64  = 0x19;
   const VM_PROT_READ   = 0x01;
 
+  // Load command types that reference offsets into __LINKEDIT
+  const LC_SYMTAB              = 0x02;
+  const LC_DYSYMTAB            = 0x0B;
+  const LC_CODE_SIGNATURE      = 0x1D;
+  const LC_SEGMENT_SPLIT_INFO  = 0x1E;
+  const LC_DYLD_INFO           = 0x22;
+  const LC_FUNCTION_STARTS     = 0x26;
+  const LC_DATA_IN_CODE        = 0x29;
+  const LC_DYLD_INFO_ONLY      = 0x80000022;
+  const LC_DYLD_EXPORTS_TRIE   = 0x80000033;
+  const LC_DYLD_CHAINED_FIXUPS = 0x80000034;
+
   // arm64 page size = 16KB (macOS on Apple Silicon)
   const PAGE_SIZE      = 16384;
 
@@ -283,6 +295,12 @@ function addMachOSection(
   const SEGMENT_CMD_SIZE = 72;
   const SECTION_SIZE     = 80;
   const NEW_CMD_SIZE     = SEGMENT_CMD_SIZE + SECTION_SIZE; // 152
+
+  /** Shift a uint32 field by delta if it is non-zero. */
+  function shiftU32(buf: Buffer, off: number, delta: number): void {
+    const v = buf.readUInt32LE(off);
+    if (v !== 0) buf.writeUInt32LE(v + delta, off);
+  }
 
   // ── 1. Validate header ────────────────────────────────────────────────────
   const magic = bin.readUInt32LE(0);
@@ -298,8 +316,18 @@ function addMachOSection(
   const headerSize = 32; // mach_header_64 size
 
   // ── 2. Parse load commands ────────────────────────────────────────────────
+  //    Find __LINKEDIT, track max VM end, earliest data offset, and record
+  //    all load commands whose offset fields point into __LINKEDIT.
   let minDataOffset = Infinity; // earliest fileoff with data
   let maxVmEnd      = 0n;      // highest vmaddr + vmsize
+
+  // __LINKEDIT tracking
+  let linkeditCmdOffset = -1;
+  let linkeditFileoff   = 0n;
+  let linkeditFilesize  = 0n;
+
+  // Commands with offset fields that reference __LINKEDIT data
+  const linkeditRefCmds: { cmdOffset: number; cmd: number }[] = [];
 
   let cmdOffset = headerSize;
   for (let i = 0; i < ncmds; i++) {
@@ -307,14 +335,8 @@ function addMachOSection(
     const cmdsize = bin.readUInt32LE(cmdOffset + 4);
 
     if (cmd === LC_SEGMENT_64) {
-      // LC_SEGMENT_64 layout (after cmd + cmdsize):
-      //   offset  8: segname[16]
-      //   offset 24: vmaddr (uint64)
-      //   offset 32: vmsize (uint64)
-      //   offset 40: fileoff (uint64)
-      //   offset 48: filesize (uint64)
+      const segname = bin.toString('ascii', cmdOffset + 8, cmdOffset + 24).replace(/\0+$/, '');
       const fileoff  = bin.readBigUInt64LE(cmdOffset + 40);
-      const filesize = bin.readBigUInt64LE(cmdOffset + 48);
       const vmaddr   = bin.readBigUInt64LE(cmdOffset + 24);
       const vmsize   = bin.readBigUInt64LE(cmdOffset + 32);
 
@@ -324,9 +346,30 @@ function addMachOSection(
 
       const vmEnd = vmaddr + vmsize;
       if (vmEnd > maxVmEnd) maxVmEnd = vmEnd;
+
+      if (segname === '__LINKEDIT') {
+        linkeditCmdOffset = cmdOffset;
+        linkeditFileoff   = fileoff;
+        linkeditFilesize  = bin.readBigUInt64LE(cmdOffset + 48);
+      }
+    }
+
+    // Record commands that contain file offset fields pointing into __LINKEDIT
+    if (
+      cmd === LC_SYMTAB || cmd === LC_DYSYMTAB ||
+      cmd === LC_DYLD_INFO || cmd === LC_DYLD_INFO_ONLY ||
+      cmd === LC_CODE_SIGNATURE || cmd === LC_SEGMENT_SPLIT_INFO ||
+      cmd === LC_FUNCTION_STARTS || cmd === LC_DATA_IN_CODE ||
+      cmd === LC_DYLD_EXPORTS_TRIE || cmd === LC_DYLD_CHAINED_FIXUPS
+    ) {
+      linkeditRefCmds.push({ cmdOffset, cmd });
     }
 
     cmdOffset += cmdsize;
+  }
+
+  if (linkeditCmdOffset === -1) {
+    throw new Error('[MACHO] __LINKEDIT segment not found — cannot inject blob');
   }
 
   // ── 3. Verify space for new load command ──────────────────────────────────
@@ -340,18 +383,76 @@ function addMachOSection(
     );
   }
 
-  // ── 4. Compute blob placement ─────────────────────────────────────────────
-  const originalSize  = bin.length;
-  const alignedOffset = Math.ceil(originalSize / PAGE_SIZE) * PAGE_SIZE;
-  const blobSize      = data.length;
-  const newVmAddr     = (maxVmEnd + BigInt(PAGE_SIZE) - 1n) / BigInt(PAGE_SIZE) * BigInt(PAGE_SIZE);
+  // ── 4. Compute blob placement — INSERT BEFORE __LINKEDIT ──────────────────
+  //
+  // macOS codesign strict validation requires __LINKEDIT to be the last
+  // segment by file offset (the code signature lives inside __LINKEDIT).
+  // We insert the blob at __LINKEDIT's current fileoff and shift __LINKEDIT
+  // forward by the page-aligned blob size.
+  //
+  // Before: [header] [__TEXT] [__DATA_CONST] [__DATA] [__LINKEDIT]
+  // After:  [header] [__TEXT] [__DATA_CONST] [__DATA] [NODE_SEA blob] [__LINKEDIT]
+
+  const insertOffset   = Number(linkeditFileoff);  // already page-aligned
+  const alignedBlobSize = Math.ceil(data.length / PAGE_SIZE) * PAGE_SIZE;
+  const linkeditSize   = Number(linkeditFilesize);
+  const blobSize       = data.length;
+  const totalSize      = insertOffset + alignedBlobSize + linkeditSize;
+  const newVmAddr      = (maxVmEnd + BigInt(PAGE_SIZE) - 1n) / BigInt(PAGE_SIZE) * BigInt(PAGE_SIZE);
 
   // ── 5. Build output buffer ────────────────────────────────────────────────
-  const result = Buffer.alloc(alignedOffset + blobSize);
-  bin.copy(result, 0);
-  data.copy(result, alignedOffset);
+  const result = Buffer.alloc(totalSize);
+  // Everything before __LINKEDIT (unchanged)
+  bin.copy(result, 0, 0, insertOffset);
+  // Blob data at insertOffset
+  data.copy(result, insertOffset);
+  // __LINKEDIT data shifted forward by alignedBlobSize
+  bin.copy(result, insertOffset + alignedBlobSize, insertOffset, insertOffset + linkeditSize);
 
-  // ── 6. Write LC_SEGMENT_64 at end of existing commands ────────────────────
+  // ── 6. Update __LINKEDIT fileoff ──────────────────────────────────────────
+  result.writeBigUInt64LE(BigInt(insertOffset + alignedBlobSize), linkeditCmdOffset + 40);
+
+  // ── 7. Shift all __LINKEDIT-referencing offset fields ─────────────────────
+  for (const { cmdOffset: off, cmd } of linkeditRefCmds) {
+    switch (cmd) {
+      case LC_SYMTAB:
+        // +8: symoff, +16: stroff
+        shiftU32(result, off + 8, alignedBlobSize);
+        shiftU32(result, off + 16, alignedBlobSize);
+        break;
+      case LC_DYSYMTAB:
+        // +32: tocoff, +40: modtaboff, +48: extrefsymoff,
+        // +56: indirectsymoff, +64: extreloff, +72: locreloff
+        shiftU32(result, off + 32, alignedBlobSize);
+        shiftU32(result, off + 40, alignedBlobSize);
+        shiftU32(result, off + 48, alignedBlobSize);
+        shiftU32(result, off + 56, alignedBlobSize);
+        shiftU32(result, off + 64, alignedBlobSize);
+        shiftU32(result, off + 72, alignedBlobSize);
+        break;
+      case LC_DYLD_INFO:
+      case LC_DYLD_INFO_ONLY:
+        // +8: rebase_off, +16: bind_off, +24: weak_bind_off,
+        // +32: lazy_bind_off, +40: export_off
+        shiftU32(result, off + 8, alignedBlobSize);
+        shiftU32(result, off + 16, alignedBlobSize);
+        shiftU32(result, off + 24, alignedBlobSize);
+        shiftU32(result, off + 32, alignedBlobSize);
+        shiftU32(result, off + 40, alignedBlobSize);
+        break;
+      case LC_CODE_SIGNATURE:
+      case LC_SEGMENT_SPLIT_INFO:
+      case LC_FUNCTION_STARTS:
+      case LC_DATA_IN_CODE:
+      case LC_DYLD_EXPORTS_TRIE:
+      case LC_DYLD_CHAINED_FIXUPS:
+        // +8: dataoff
+        shiftU32(result, off + 8, alignedBlobSize);
+        break;
+    }
+  }
+
+  // ── 8. Write LC_SEGMENT_64 at end of existing commands ────────────────────
   const newCmdOffset = cmdsEnd;
   const w = result;
 
@@ -361,7 +462,7 @@ function addMachOSection(
   w.write(segmentName.padEnd(16, '\0'), newCmdOffset + 8, 16, 'ascii');  // segname
   w.writeBigUInt64LE(newVmAddr, newCmdOffset + 24);        // vmaddr
   w.writeBigUInt64LE(BigInt(blobSize), newCmdOffset + 32); // vmsize
-  w.writeBigUInt64LE(BigInt(alignedOffset), newCmdOffset + 40); // fileoff
+  w.writeBigUInt64LE(BigInt(insertOffset), newCmdOffset + 40); // fileoff — at insertion point
   w.writeBigUInt64LE(BigInt(blobSize), newCmdOffset + 48); // filesize
   w.writeInt32LE(VM_PROT_READ, newCmdOffset + 56);         // maxprot
   w.writeInt32LE(VM_PROT_READ, newCmdOffset + 60);         // initprot
@@ -374,7 +475,7 @@ function addMachOSection(
   w.write(segmentName.padEnd(16, '\0'), secOffset + 16, 16, 'ascii');  // segname
   w.writeBigUInt64LE(newVmAddr, secOffset + 32);           // addr
   w.writeBigUInt64LE(BigInt(blobSize), secOffset + 40);    // size
-  w.writeUInt32LE(alignedOffset, secOffset + 48);          // offset
+  w.writeUInt32LE(insertOffset, secOffset + 48);           // offset — at insertion point
   w.writeUInt32LE(0, secOffset + 52);                      // align
   w.writeUInt32LE(0, secOffset + 56);                      // reloff
   w.writeUInt32LE(0, secOffset + 60);                      // nreloc
@@ -383,12 +484,13 @@ function addMachOSection(
   w.writeUInt32LE(0, secOffset + 72);                      // reserved2
   w.writeUInt32LE(0, secOffset + 76);                      // reserved3 (padding to 80)
 
-  // ── 7. Update header ──────────────────────────────────────────────────────
+  // ── 9. Update header ──────────────────────────────────────────────────────
   w.writeUInt32LE(ncmds + 1, 16);                          // ncmds
   w.writeUInt32LE(sizeofcmds + NEW_CMD_SIZE, 20);          // sizeofcmds
 
   console.log(`[MACHO] Added segment "${segmentName}" section "${sectionName}": ` +
-    `fileoff=0x${alignedOffset.toString(16)}, size=${blobSize}, vmaddr=0x${newVmAddr.toString(16)}`);
+    `fileoff=0x${insertOffset.toString(16)}, size=${blobSize}, vmaddr=0x${newVmAddr.toString(16)}, ` +
+    `__LINKEDIT shifted by 0x${alignedBlobSize.toString(16)} to fileoff=0x${(insertOffset + alignedBlobSize).toString(16)}`);
 
   return result;
 }
