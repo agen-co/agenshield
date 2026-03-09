@@ -13,7 +13,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { isSEA } from '@agenshield/ipc';
 import { isSecretEnvVar } from '@agenshield/sandbox';
-import { isOpenClawInstalled, stopOpenClawServices } from '@agenshield/integrations';
+import { isOpenClawInstalled, stopOpenClawServices } from '@agenshield/seatbelt';
 import { captureCallingUserEnv } from './sudo-env.js';
 import { resolveHostHome } from './host-user.js';
 

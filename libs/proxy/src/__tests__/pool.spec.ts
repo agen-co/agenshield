@@ -6,6 +6,8 @@ import {
   ProxyBindError,
   ProxyPoolExhaustedError,
   PolicyBlockedError,
+  UpstreamTimeoutError,
+  SslTerminationError,
   classifyNetworkError,
 } from '../errors';
 import type { PolicyConfig } from '@agenshield/ipc';
@@ -281,6 +283,117 @@ describe('ProxyPool', () => {
     }
   });
 
+  describe('socket tracking', () => {
+    it('tracks active sockets on proxy instances', async () => {
+      pool = new ProxyPool({}, { logger: jest.fn() });
+
+      const { port } = await pool.acquire(
+        'exec-sock',
+        'cmd',
+        allowAllPolicies,
+        () => 'allow',
+      );
+
+      // Connect to the proxy
+      const socket = net.connect(port, '127.0.0.1');
+      await new Promise<void>((resolve) => socket.on('connect', resolve));
+
+      // Give the server a moment to register the connection
+      await new Promise((r) => setTimeout(r, 50));
+
+      socket.destroy();
+    });
+  });
+
+  describe('releaseGracefully', () => {
+    it('drains active connections before closing', async () => {
+      pool = new ProxyPool({}, { logger: jest.fn() });
+
+      const { port } = await pool.acquire(
+        'exec-grace',
+        'cmd',
+        allowAllPolicies,
+        () => 'allow',
+      );
+
+      // Connect a client socket
+      const client = net.connect(port, '127.0.0.1');
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Start graceful release — client is still connected
+      const releasePromise = pool.releaseGracefully('exec-grace', 2000);
+
+      // Close the client after a brief delay
+      setTimeout(() => client.destroy(), 100);
+
+      await releasePromise;
+
+      expect(pool.size).toBe(0);
+    });
+
+    it('force-destroys sockets after drain timeout', async () => {
+      pool = new ProxyPool({}, { logger: jest.fn() });
+
+      const { port } = await pool.acquire(
+        'exec-force',
+        'cmd',
+        allowAllPolicies,
+        () => 'allow',
+      );
+
+      // Connect a client socket that never closes
+      const client = net.connect(port, '127.0.0.1');
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+      client.on('error', () => {}); // Suppress error from force-destroy
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Graceful release with a very short timeout
+      await pool.releaseGracefully('exec-force', 100);
+
+      expect(pool.size).toBe(0);
+    });
+
+    it('completes immediately when no active sockets', async () => {
+      const onRelease = jest.fn();
+      pool = new ProxyPool({}, { onRelease, logger: jest.fn() });
+
+      await pool.acquire('exec-empty', 'cmd', allowAllPolicies, () => 'allow');
+
+      await pool.releaseGracefully('exec-empty');
+
+      expect(pool.size).toBe(0);
+      expect(onRelease).toHaveBeenCalledWith('exec-empty');
+    });
+
+    it('is a no-op for unknown execId', async () => {
+      pool = new ProxyPool({}, { logger: jest.fn() });
+      await pool.releaseGracefully('non-existent');
+      expect(pool.size).toBe(0);
+    });
+
+    it('uses drainTimeoutMs from pool options', async () => {
+      pool = new ProxyPool({ drainTimeoutMs: 100 }, { logger: jest.fn() });
+
+      const { port } = await pool.acquire(
+        'exec-drain-opt',
+        'cmd',
+        allowAllPolicies,
+        () => 'allow',
+      );
+
+      const client = net.connect(port, '127.0.0.1');
+      await new Promise<void>((resolve) => client.on('connect', resolve));
+      client.on('error', () => {});
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Use default drain timeout from pool options (100ms)
+      await pool.releaseGracefully('exec-drain-opt');
+
+      expect(pool.size).toBe(0);
+    });
+  });
+
   it('per-acquire callbacks fire alongside pool hooks', async () => {
     const poolOnBlock = jest.fn();
     const acquireOnBlock = jest.fn();
@@ -382,6 +495,29 @@ describe('Error classes', () => {
     expect(err.method).toBe('GET');
     expect(err.protocol).toBe('https');
     expect(err.message).toContain('blocked.com');
+  });
+
+  it('UpstreamTimeoutError sets target and timeoutMs', () => {
+    const err = new UpstreamTimeoutError('https://slow.com/api', 30000);
+    expect(err).toBeInstanceOf(ProxyError);
+    expect(err.name).toBe('UpstreamTimeoutError');
+    expect(err.code).toBe('UPSTREAM_TIMEOUT');
+    expect(err.target).toBe('https://slow.com/api');
+    expect(err.timeoutMs).toBe(30000);
+    expect(err.message).toContain('30000ms');
+    expect(err.message).toContain('slow.com');
+  });
+
+  it('SslTerminationError sets hostname and optional cause', () => {
+    const err1 = new SslTerminationError('secure.example.com');
+    expect(err1).toBeInstanceOf(ProxyError);
+    expect(err1.name).toBe('SslTerminationError');
+    expect(err1.code).toBe('SSL_TERMINATION_FAILED');
+    expect(err1.hostname).toBe('secure.example.com');
+    expect(err1.message).toBe('SSL termination failed for secure.example.com');
+
+    const err2 = new SslTerminationError('secure.example.com', 'cert expired');
+    expect(err2.message).toBe('SSL termination failed for secure.example.com: cert expired');
   });
 });
 

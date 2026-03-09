@@ -17,6 +17,7 @@ export default {
     '^@agenshield/policies$': '<rootDir>/../policies/src/index.ts',
     '^@agenshield/ipc$': '<rootDir>/../shield-ipc/src/index.ts',
     '^@agenshield/ipc/(.*)$': '<rootDir>/../shield-ipc/src/$1',
+    '^@agenshield/seatbelt$': '<rootDir>/../seatbelt/src/index.ts',
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
   coverageDirectory: '../../test-output/coverage/libs/sandbox',

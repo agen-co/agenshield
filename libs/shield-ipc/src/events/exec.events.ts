@@ -28,7 +28,7 @@ export interface InterceptorEventPayload {
   error?: string;
 }
 
-export interface ESExecPayload {
+export interface NativeExecPayload {
   binary: string;
   args: string;
   pid: number;
@@ -38,7 +38,7 @@ export interface ESExecPayload {
   allowed: boolean;
   policyId?: string;
   reason?: string;
-  sourceLayer: 'es-extension';
+  sourceLayer: 'native';
 }
 
 declare module '@agenshield/ipc' {
@@ -46,7 +46,7 @@ declare module '@agenshield/ipc' {
     'exec:monitored': ExecMonitoredPayload;
     'exec:denied': ExecDeniedPayload;
     'interceptor:event': InterceptorEventPayload;
-    'es:exec': ESExecPayload;
+    'native:exec': NativeExecPayload;
   }
 }
 
@@ -54,7 +54,7 @@ export const EXEC_EVENT_TYPES = [
   'exec:monitored',
   'exec:denied',
   'interceptor:event',
-  'es:exec',
+  'native:exec',
 ] as const;
 
 registerEventTypes(EXEC_EVENT_TYPES);

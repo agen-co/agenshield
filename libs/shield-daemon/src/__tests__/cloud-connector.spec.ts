@@ -37,6 +37,7 @@ jest.mock('../services/process-enforcer', () => ({
   triggerProcessEnforcement: jest.fn().mockResolvedValue(undefined),
   scanHostProcesses: (...args: unknown[]) => mockScanHostProcesses(...args),
   killProcessTree: (...args: unknown[]) => mockKillProcessTree(...args),
+  resolveExePathsByPid: jest.fn().mockResolvedValue(new Map()),
 }));
 
 // Mock policy-manager

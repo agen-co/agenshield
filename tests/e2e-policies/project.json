@@ -3,7 +3,7 @@
   "root": "tests/e2e-policies",
   "sourceRoot": "tests/e2e-policies/src",
   "targets": {
-    "e2e": {
+    "test": {
       "executor": "@nx/jest:jest",
       "options": {
         "jestConfig": "tests/e2e-policies/jest.config.ts",

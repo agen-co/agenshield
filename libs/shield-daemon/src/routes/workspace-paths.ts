@@ -12,6 +12,8 @@ import { getStorage } from '@agenshield/storage';
 import { addUserAcl, getAncestorsNeedingTraversal, removeOrphanedAcls, removeUserAcl } from '../acl';
 import { scanForSensitiveFiles } from '../services/sensitive-file-scanner';
 import { emitEvent } from '../events/emitter';
+import { getSystemExecutor } from '../workers/system-command';
+import { getLogger } from '../logger';
 
 export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> {
   /**
@@ -99,7 +101,7 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
       // Verify ACLs actually took effect
       try {
         execSync(
-          `sudo -n -u ${JSON.stringify(userName)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)}`,
+          `sudo -n -u ${JSON.stringify(userName)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)} -a -w ${JSON.stringify(resolved)}`,
           { timeout: 5_000, stdio: 'pipe' },
         );
       } catch {
@@ -120,7 +122,7 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
     // Scan for sensitive files and apply deny ACLs
     if (userName) {
       const sensitiveFiles = scanForSensitiveFiles(resolved);
-      const SENSITIVE_DENY_PERMS = 'read,readattr,readextattr,list,search,execute';
+      const SENSITIVE_DENY_PERMS = 'read,readattr,readextattr,list,search,execute,write,append,writeattr,writeextattr';
       for (const file of sensitiveFiles) {
         addUserAcl(file.path, userName, SENSITIVE_DENY_PERMS, app.log, 'deny');
       }
@@ -245,7 +247,7 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
     // Verify the fix actually worked
     try {
       execSync(
-        `sudo -n -u ${JSON.stringify(agentUsername)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)}`,
+        `sudo -n -u ${JSON.stringify(agentUsername)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)} -a -w ${JSON.stringify(resolved)}`,
         { timeout: 5_000, stdio: 'pipe' },
       );
       return { success: true };
@@ -273,7 +275,7 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
     try {
       // Check target directory is readable + executable
       execSync(
-        `sudo -n -u ${JSON.stringify(agentUser)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)}`,
+        `sudo -n -u ${JSON.stringify(agentUser)} test -r ${JSON.stringify(resolved)} -a -x ${JSON.stringify(resolved)} -a -w ${JSON.stringify(resolved)}`,
         { timeout: 5_000, stdio: 'pipe' },
       );
 
@@ -297,10 +299,20 @@ export async function workspacePathsRoutes(app: FastifyInstance): Promise<void> 
   });
 }
 
-const READ_PERMS = 'read,readattr,readextattr,list,search,execute';
+/** Full read+write permissions for workspace directories (with inheritance for new children) */
+const WORKSPACE_PERMS = 'read,readattr,readextattr,list,search,execute,write,append,writeattr,writeextattr,delete,delete_child,file_inherit,directory_inherit';
+
+/** Permissions for existing children (no inherit flags — applied recursively) */
+const WORKSPACE_EXISTING_PERMS = 'read,readattr,readextattr,list,search,execute,write,append,writeattr,writeextattr,delete,delete_child';
+
+/** Directories to skip during recursive ACL application (heavy/unneeded) */
+const SKIP_DIRS = ['.git', 'node_modules', 'vendor', '.hg', '__pycache__', 'dist', 'build', '.next', '.cache'];
 
 /**
- * Apply macOS ACLs for a workspace path: traversal on ancestors, full read on target.
+ * Apply macOS ACLs for a workspace path: traversal on ancestors, full read+write on target.
+ *
+ * The seatbelt sandbox allows `file-read* file-write*` for workspace paths.
+ * The ACL layer must also grant write permissions so the agent can create/edit files.
  */
 function applyWorkspacePathAcls(
   targetPath: string,
@@ -314,11 +326,51 @@ function applyWorkspacePathAcls(
   }
   removeOrphanedAcls(targetPath, log);
 
+  // Remove existing user ACLs before reapplying — prevents stale read-only entries
+  // from blocking the new read+write permissions.
+  removeUserAcl(targetPath, userName, log);
+
   // Grant search (traversal) on non-world-traversable ancestors
   for (const ancestor of getAncestorsNeedingTraversal(targetPath)) {
     addUserAcl(ancestor, userName, 'search', log);
   }
 
-  // Grant full read access on the target directory
-  addUserAcl(targetPath, userName, READ_PERMS, log);
+  // Grant full read+write access on the target directory (with inheritance for new files)
+  addUserAcl(targetPath, userName, WORKSPACE_PERMS, log);
+
+  // Apply permissions to existing children in background (skip heavy dirs)
+  applyWorkspaceAclsAsync(targetPath, userName, log);
+}
+
+/**
+ * Asynchronously apply ACLs to existing files/directories within a workspace path.
+ * Uses `find` with exclusions for heavy directories, pipes to `xargs chmod +a`.
+ * Runs in background via SystemCommandExecutor to avoid blocking the request.
+ */
+function applyWorkspaceAclsAsync(
+  targetPath: string,
+  userName: string,
+  log: { warn(msg: string, ...args: unknown[]): void },
+): void {
+  const excludes = SKIP_DIRS.map(d => `-not -path ${JSON.stringify(`*/${d}/*`)}`).join(' ');
+  const aclSpec = `user:${userName} allow ${WORKSPACE_EXISTING_PERMS}`;
+  const cmd = `find ${JSON.stringify(targetPath)} -mindepth 1 ${excludes} -print0 | xargs -0 chmod +a ${JSON.stringify(aclSpec)} 2>/dev/null || true`;
+
+  try {
+    const executor = getSystemExecutor();
+    executor.exec(cmd, { timeout: 60_000 })
+      .then(() => {
+        const logger = getLogger();
+        logger.info(`[workspace-paths] Recursive ACLs applied for ${targetPath}`);
+        emitEvent('workspace:acls_applied', {
+          workspacePath: targetPath,
+          agentUser: userName,
+        });
+      })
+      .catch((err: Error) => {
+        log.warn(`[workspace-paths] Async ACL application failed for ${targetPath}: ${err.message}`);
+      });
+  } catch (err) {
+    log.warn(`[workspace-paths] Failed to start async ACL application for ${targetPath}: ${(err as Error).message}`);
+  }
 }

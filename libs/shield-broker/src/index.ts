@@ -24,10 +24,6 @@ export { BrokerError, WorkspaceAccessDeniedError } from './errors.js';
 // Handler exports
 export * from './handlers/index.js';
 
-// Seatbelt exports
-export { SeatbeltGenerator } from './seatbelt/generator.js';
-export { SeatbeltTemplates } from './seatbelt/templates.js';
-
 // Secrets exports
 export { SecretVault } from './secrets/vault.js';
 

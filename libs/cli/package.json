@@ -45,8 +45,9 @@
   "dependencies": {
     "@agenshield/auth": "0.7.3",
     "@agenshield/daemon": "0.7.3",
-    "@agenshield/integrations": "0.7.3",
     "@agenshield/ipc": "0.7.3",
+    "@agenshield/keychain": "0.7.3",
+    "@agenshield/seatbelt": "0.7.3",
     "@agenshield/sandbox": "0.7.3",
     "@agenshield/storage": "0.7.3",
     "@agentshield/skills": "0.7.3",

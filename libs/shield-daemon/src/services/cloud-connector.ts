@@ -19,7 +19,7 @@ import { getLogger } from '../logger';
 import { clearConfigCache } from '../config/index';
 import { emitPoliciesUpdated, emitProcessViolation, emitProcessKilled } from '../events/emitter';
 import { getPolicyManager } from './policy-manager';
-import { triggerProcessEnforcement, scanHostProcesses, killProcessTree } from './process-enforcer';
+import { triggerProcessEnforcement, scanHostProcesses, killProcessTree, resolveExePathsByPid } from './process-enforcer';
 import { matchProcessPattern } from '@agenshield/policies';
 import { fingerprintProcess } from './process-fingerprint';
 import type { ProcessFingerprint } from './process-fingerprint';
@@ -57,6 +57,7 @@ export class CloudConnector {
   private connected = false;
   private stopped = false;
   private lastCommandFetch: string | undefined;
+  private _autoShieldFromCloud: boolean | undefined;
 
   /**
    * Try to connect to AgenShield Cloud.
@@ -121,6 +122,13 @@ export class CloudConnector {
    */
   getCompanyName(): string | undefined {
     return this.credentials?.companyName;
+  }
+
+  /**
+   * Get the cloud-driven auto-shield flag (undefined if not received from cloud).
+   */
+  getAutoShieldFlag(): boolean | undefined {
+    return this._autoShieldFromCloud;
   }
 
   // ─── WebSocket connection ──────────────────────────────────
@@ -498,13 +506,16 @@ export class CloudConnector {
       } catch { return null; }
     };
 
+    // Batch-resolve executable paths from OS (macOS proc_pidpath)
+    const exePathsByPid = await resolveExePathsByPid(processes.map(p => p.pid));
+
     for (const proc of processes) {
       // Layer 1: Name-based pattern matching
       let matched = patterns.some(pattern => matchProcessPattern(pattern, proc.command));
 
       // Layer 2: Fingerprint-based identification (catches renamed binaries via SHA256)
       if (!matched) {
-        const fp = fingerprintProcess(proc.command, { cache: fpCache, hashLookup });
+        const fp = fingerprintProcess(proc.command, { cache: fpCache, hashLookup, resolvedExePath: exePathsByPid.get(proc.pid) });
         if (fp.candidateNames.length > 0) {
           matched = fp.candidateNames.some(candidate =>
             patterns.some(pattern => matchProcessPattern(pattern, candidate)),
@@ -531,6 +542,7 @@ export class CloudConnector {
 
       if (action === 'kill') {
         log.warn(`[cloud] Killing process PID ${proc.pid}: ${proc.command.slice(0, 120)}`);
+        emitProcessViolation(payload);
         await killProcessTree(proc.pid);
         emitProcessKilled(payload);
       } else {
@@ -568,13 +580,16 @@ export class CloudConnector {
         throw new Error(`HTTP ${res.status} pulling policies`);
       }
 
-      const body = await res.json() as { source?: string; policies?: PolicyConfig[] };
+      const body = await res.json() as { source?: string; policies?: PolicyConfig[]; autoShield?: boolean };
       if (body.policies && Array.isArray(body.policies)) {
         await this.applyPolicyPush({
           source: body.source ?? 'cloud',
           policies: body.policies,
         });
         log.info(`[cloud] Pulled ${body.policies.length} policies from cloud`);
+      }
+      if (body.autoShield !== undefined) {
+        this._autoShieldFromCloud = body.autoShield;
       }
     } catch (err) {
       log.warn({ err }, '[cloud] Failed to pull policies');

@@ -8,6 +8,7 @@
  */
 
 import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import type { SandboxConfig } from '@agenshield/ipc';
@@ -21,6 +22,15 @@ const _readdirSync = fs.readdirSync.bind(fs);
 const _statSync = fs.statSync.bind(fs);
 const _unlinkSync = fs.unlinkSync.bind(fs);
 const _chmodSync = fs.chmodSync.bind(fs);
+
+// Capture async fs functions at module load time (before any interceptor patches).
+const _access = fsp.access.bind(fsp);
+const _writeFileAsync = fsp.writeFile.bind(fsp);
+const _mkdirAsync = fsp.mkdir.bind(fsp);
+const _readdirAsync = fsp.readdir.bind(fsp);
+const _statAsync = fsp.stat.bind(fsp);
+const _unlinkAsync = fsp.unlink.bind(fsp);
+const _chmodAsync = fsp.chmod.bind(fsp);
 
 export class ProfileManager {
   private profileDir: string;
@@ -113,19 +123,19 @@ export class ProfileManager {
       lines.push('');
     }
 
-    // Binary execution — allow standard system binary directories.
-    lines.push(';; Binary execution (system directories allowed as subpaths)');
+    // Binary execution — only shell necessities + agent-local paths.
+    // System binary dirs (/usr/bin, /bin, etc.) are NOT allowed as subpaths.
+    // Specific system binaries are added as literals via allowedBinaries.
+    lines.push(';; Binary execution (restricted to shell necessities + agent paths)');
     lines.push('(allow process-exec');
 
-    // macOS system binary directories (always present on macOS)
-    lines.push('  (subpath "/bin")');
-    lines.push('  (subpath "/sbin")');
-    lines.push('  (subpath "/usr/bin")');
-    lines.push('  (subpath "/usr/sbin")');
-    lines.push('  (subpath "/usr/local/bin")');
+    // Shell necessities (literal — only these specific binaries, not all of /bin/)
+    lines.push('  (literal "/bin/sh")');
+    lines.push('  (literal "/bin/bash")');
+    lines.push('  (literal "/usr/bin/env")');
 
     // Resolve agent-specific paths from environment
-    const coveredSubpaths = ['/bin/', '/sbin/', '/usr/bin/', '/usr/sbin/', '/usr/local/bin/'];
+    const coveredSubpaths: string[] = [];
     const home = process.env['HOME'];
     if (home) {
       lines.push(`  (subpath "${this.escapeSbpl(home)}/bin")`);
@@ -136,14 +146,6 @@ export class ProfileManager {
     if (nvmDir) {
       lines.push(`  (subpath "${this.escapeSbpl(nvmDir)}")`);
       coveredSubpaths.push(`${nvmDir}/`);
-    }
-
-    // Resolve HOMEBREW_PREFIX if set (covers non-standard locations)
-    const brewPrefix = process.env['HOMEBREW_PREFIX'];
-    if (brewPrefix && (!home || !brewPrefix.startsWith(home))) {
-      lines.push(`  (subpath "${this.escapeSbpl(brewPrefix)}/bin")`);
-      lines.push(`  (subpath "${this.escapeSbpl(brewPrefix)}/lib")`);
-      coveredSubpaths.push(`${brewPrefix}/bin/`, `${brewPrefix}/lib/`);
     }
 
     // Additional paths from policy (e.g. node_modules, custom binaries)
@@ -229,6 +231,24 @@ export class ProfileManager {
   }
 
   /**
+   * Async version of getOrCreateProfile.
+   * Returns the absolute path to the profile file.
+   */
+  async getOrCreateProfileAsync(content: string): Promise<string> {
+    await this.ensureDirAsync();
+
+    const hash = crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+    const profilePath = path.join(this.profileDir, `sb-${hash}.sb`);
+
+    const exists = await _access(profilePath).then(() => true, () => false);
+    if (!exists) {
+      await _writeFileAsync(profilePath, content, { mode: 0o644 });
+    }
+
+    return profilePath;
+  }
+
+  /**
    * Remove stale profile files older than maxAgeMs.
    */
   cleanup(maxAgeMs: number): void {
@@ -244,6 +264,33 @@ export class ProfileManager {
           const stat = _statSync(filePath);
           if (now - stat.mtimeMs > maxAgeMs) {
             _unlinkSync(filePath);
+          }
+        } catch {
+          // Skip files we can't stat
+        }
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+
+  /**
+   * Async version of cleanup. Remove stale profile files older than maxAgeMs.
+   */
+  async cleanupAsync(maxAgeMs: number): Promise<void> {
+    const exists = await _access(this.profileDir).then(() => true, () => false);
+    if (!exists) return;
+
+    try {
+      const now = Date.now();
+      const entries = await _readdirAsync(this.profileDir);
+      for (const entry of entries) {
+        if (!(entry as string).endsWith('.sb')) continue;
+        const filePath = path.join(this.profileDir, entry as string);
+        try {
+          const stat = await _statAsync(filePath);
+          if (now - stat.mtimeMs > maxAgeMs) {
+            await _unlinkAsync(filePath);
           }
         } catch {
           // Skip files we can't stat
@@ -273,6 +320,25 @@ export class ProfileManager {
         const stat = _statSync(this.profileDir);
         if ((stat.mode & 0o777) !== 0o777) {
           _chmodSync(this.profileDir, 0o1777);
+        }
+      } catch { /* may not own the dir */ }
+    }
+    this.ensuredDir = true;
+  }
+
+  /**
+   * Async version of ensureDir.
+   */
+  private async ensureDirAsync(): Promise<void> {
+    if (this.ensuredDir) return;
+    const exists = await _access(this.profileDir).then(() => true, () => false);
+    if (!exists) {
+      await _mkdirAsync(this.profileDir, { recursive: true, mode: 0o1777 });
+    } else {
+      try {
+        const stat = await _statAsync(this.profileDir);
+        if ((stat.mode & 0o777) !== 0o777) {
+          await _chmodAsync(this.profileDir, 0o1777);
         }
       } catch { /* may not own the dir */ }
     }

@@ -214,6 +214,14 @@ export class EnrollmentService {
         log.warn({ err }, '[enrollment] Post-enrollment cloud connect/policy-pull failed');
       }
 
+      // 8. Trigger auto-shield if configured
+      try {
+        const { getAutoShieldService } = await import('./auto-shield');
+        getAutoShieldService().run().catch((autoShieldErr) => {
+          log.warn({ err: autoShieldErr }, '[enrollment] Auto-shield failed');
+        });
+      } catch { /* module not available */ }
+
     } catch (err) {
       if (this.stopped) return;
 

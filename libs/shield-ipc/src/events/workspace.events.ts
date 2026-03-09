@@ -17,11 +17,17 @@ export interface WorkspaceSensitiveFilesProtectedPayload {
   files: string[];
 }
 
+export interface WorkspaceAclsAppliedPayload {
+  workspacePath: string;
+  agentUser: string;
+}
+
 declare module '@agenshield/ipc' {
   interface EventRegistry {
     'workspace:path_granted': WorkspacePathGrantedPayload;
     'workspace:path_revoked': WorkspacePathRevokedPayload;
     'workspace:sensitive_files_protected': WorkspaceSensitiveFilesProtectedPayload;
+    'workspace:acls_applied': WorkspaceAclsAppliedPayload;
   }
 }
 
@@ -29,6 +35,7 @@ export const WORKSPACE_EVENT_TYPES = [
   'workspace:path_granted',
   'workspace:path_revoked',
   'workspace:sensitive_files_protected',
+  'workspace:acls_applied',
 ] as const;
 
 registerEventTypes(WORKSPACE_EVENT_TYPES);

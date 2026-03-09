@@ -1,7 +1,7 @@
 /**
  * Typed CLI error classes
  *
- * Follows the project error convention (see libs/shield-interceptor/src/errors.ts).
+ * Follows the project error convention (see libs/interceptor/src/errors.ts).
  * All production code should throw one of these instead of bare `new Error()`.
  */
 

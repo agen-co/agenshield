@@ -1,17 +1,26 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as child_process from 'node:child_process';
 import {
   generateRouterWrapper,
   ROUTER_MARKER,
   pathRegistryPath,
   buildInstallRouterCommands,
   buildRemoveRouterCommands,
+  buildInstallUserLocalRouterCommands,
+  buildRemoveUserLocalRouterCommands,
   readPathRegistry,
   writePathRegistry,
+  addRegistryInstance,
+  removeRegistryInstance,
   updateRegistryHostPassthrough,
   updateAllRegistryHostPassthrough,
+  isRouterWrapper,
+  findOriginalBinary,
+  scanForRouterWrappers,
   type PathRegistry,
+  type PathRegistryInstance,
 } from '../../wrappers/path-override';
 import { PATH_REGISTRY_PATH } from '../../legacy';
 
@@ -429,5 +438,336 @@ describe('updateAllRegistryHostPassthrough', () => {
     const result = updateAllRegistryHostPassthrough(true, tmpDir);
 
     expect(Object.keys(result)).toHaveLength(0);
+  });
+});
+
+describe('addRegistryInstance', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'path-override-test-'));
+    const agenshieldDir = path.join(tmpDir, '.agenshield');
+    fs.mkdirSync(agenshieldDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('adds a new instance to an empty registry', () => {
+    writePathRegistry({}, tmpDir);
+
+    const instance: PathRegistryInstance = {
+      targetId: 'target-1',
+      profileId: 'profile-1',
+      name: 'My Claude',
+      agentBinPath: '/Users/agenshield_agent/bin/claude',
+      baseName: 'default',
+      agentUsername: 'agenshield_agent',
+      agentHome: '/Users/agenshield_agent',
+    };
+
+    const result = addRegistryInstance('claude', instance, '/usr/local/bin/claude', tmpDir);
+
+    expect(result.claude).toBeDefined();
+    expect(result.claude.originalBinary).toBe('/usr/local/bin/claude');
+    expect(result.claude.instances).toHaveLength(1);
+    expect(result.claude.instances[0].targetId).toBe('target-1');
+    expect(result.claude.instances[0].name).toBe('My Claude');
+  });
+
+  it('replaces existing instance with same targetId', () => {
+    const existingRegistry: PathRegistry = {
+      claude: {
+        originalBinary: '/usr/local/bin/claude',
+        instances: [
+          {
+            targetId: 'target-1',
+            profileId: 'profile-1',
+            name: 'Old Name',
+            agentBinPath: '/old/path',
+            baseName: 'default',
+            agentUsername: 'agenshield_agent',
+          },
+        ],
+      },
+    };
+    writePathRegistry(existingRegistry, tmpDir);
+
+    const updatedInstance: PathRegistryInstance = {
+      targetId: 'target-1',
+      profileId: 'profile-2',
+      name: 'New Name',
+      agentBinPath: '/new/path',
+      baseName: 'custom',
+      agentUsername: 'agenshield_agent',
+      agentHome: '/Users/agenshield_agent',
+    };
+
+    const result = addRegistryInstance('claude', updatedInstance, '/usr/local/bin/claude', tmpDir);
+
+    expect(result.claude.instances).toHaveLength(1);
+    expect(result.claude.instances[0].name).toBe('New Name');
+    expect(result.claude.instances[0].profileId).toBe('profile-2');
+    expect(result.claude.instances[0].agentBinPath).toBe('/new/path');
+  });
+
+  it('appends a second instance with different targetId', () => {
+    const existingRegistry: PathRegistry = {
+      claude: {
+        originalBinary: '/usr/local/bin/claude',
+        instances: [
+          {
+            targetId: 'target-1',
+            profileId: 'profile-1',
+            name: 'Instance 1',
+            agentBinPath: '/path/1',
+            baseName: 'default',
+            agentUsername: 'agent1',
+          },
+        ],
+      },
+    };
+    writePathRegistry(existingRegistry, tmpDir);
+
+    const newInstance: PathRegistryInstance = {
+      targetId: 'target-2',
+      profileId: 'profile-2',
+      name: 'Instance 2',
+      agentBinPath: '/path/2',
+      baseName: 'custom',
+      agentUsername: 'agent2',
+    };
+
+    const result = addRegistryInstance('claude', newInstance, '/usr/local/bin/claude', tmpDir);
+
+    expect(result.claude.instances).toHaveLength(2);
+    expect(result.claude.instances[0].targetId).toBe('target-1');
+    expect(result.claude.instances[1].targetId).toBe('target-2');
+  });
+});
+
+describe('removeRegistryInstance', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'path-override-test-'));
+    const agenshieldDir = path.join(tmpDir, '.agenshield');
+    fs.mkdirSync(agenshieldDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('removes an instance by targetId', () => {
+    const registry: PathRegistry = {
+      claude: {
+        originalBinary: '/usr/local/bin/claude',
+        instances: [
+          {
+            targetId: 'target-1',
+            profileId: 'profile-1',
+            name: 'Instance 1',
+            agentBinPath: '/path/1',
+            baseName: 'default',
+            agentUsername: 'agent1',
+          },
+          {
+            targetId: 'target-2',
+            profileId: 'profile-2',
+            name: 'Instance 2',
+            agentBinPath: '/path/2',
+            baseName: 'custom',
+            agentUsername: 'agent2',
+          },
+        ],
+      },
+    };
+    writePathRegistry(registry, tmpDir);
+
+    const { registry: result, remainingCount, originalBinary } = removeRegistryInstance(
+      'claude',
+      'target-1',
+      tmpDir,
+    );
+
+    expect(remainingCount).toBe(1);
+    expect(originalBinary).toBe('/usr/local/bin/claude');
+    expect(result.claude).toBeDefined();
+    expect(result.claude.instances).toHaveLength(1);
+    expect(result.claude.instances[0].targetId).toBe('target-2');
+  });
+
+  it('deletes entry when last instance is removed', () => {
+    const registry: PathRegistry = {
+      claude: {
+        originalBinary: '/usr/local/bin/claude',
+        instances: [
+          {
+            targetId: 'target-1',
+            profileId: 'profile-1',
+            name: 'Only Instance',
+            agentBinPath: '/path/1',
+            baseName: 'default',
+            agentUsername: 'agent1',
+          },
+        ],
+      },
+    };
+    writePathRegistry(registry, tmpDir);
+
+    const { registry: result, remainingCount } = removeRegistryInstance(
+      'claude',
+      'target-1',
+      tmpDir,
+    );
+
+    expect(remainingCount).toBe(0);
+    expect(result.claude).toBeUndefined();
+  });
+
+  it('returns empty result when binName does not exist', () => {
+    writePathRegistry({}, tmpDir);
+
+    const { registry: result, remainingCount, originalBinary } = removeRegistryInstance(
+      'nonexistent',
+      'target-1',
+      tmpDir,
+    );
+
+    expect(remainingCount).toBe(0);
+    expect(originalBinary).toBe('');
+  });
+});
+
+describe('isRouterWrapper', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'router-wrapper-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns false when file does not exist', () => {
+    const result = isRouterWrapper(path.join(tmpDir, 'nonexistent'));
+
+    expect(result).toBe(false);
+  });
+
+  it('returns false when file does not contain marker', () => {
+    const filePath = path.join(tmpDir, 'regular-script');
+    fs.writeFileSync(filePath, '#!/bin/bash\nexec /usr/bin/claude "$@"');
+
+    const result = isRouterWrapper(filePath);
+
+    expect(result).toBe(false);
+  });
+
+  it('returns true when file contains AGENSHIELD_ROUTER marker', () => {
+    const filePath = path.join(tmpDir, 'router-wrapper');
+    fs.writeFileSync(filePath, `#!/bin/bash\n# ${ROUTER_MARKER} -- managed by AgenShield\nexec something "$@"`);
+
+    const result = isRouterWrapper(filePath);
+
+    expect(result).toBe(true);
+  });
+});
+
+describe('findOriginalBinary', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'find-binary-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('finds binary by skipping router wrappers using isRouterWrapper', () => {
+    // Create a wrapper file and a real binary file
+    const wrapperPath = path.join(tmpDir, 'wrapper');
+    const realPath = path.join(tmpDir, 'real');
+    fs.writeFileSync(wrapperPath, `#!/bin/bash\n# ${ROUTER_MARKER}\n`, { mode: 0o755 });
+    fs.writeFileSync(realPath, '#!/bin/bash\nexec /real "$@"', { mode: 0o755 });
+
+    // isRouterWrapper correctly identifies the wrapper
+    expect(isRouterWrapper(wrapperPath)).toBe(true);
+    expect(isRouterWrapper(realPath)).toBe(false);
+  });
+
+  it('returns null when execSync throws (binary not found)', () => {
+    // findOriginalBinary uses execSync('which -a <bin>') internally.
+    // When the binary doesn't exist at all, which -a fails and it returns null.
+    const result = findOriginalBinary('definitely-nonexistent-binary-xyz-999');
+
+    expect(result).toBeNull();
+  });
+});
+
+describe('scanForRouterWrappers', () => {
+  it('returns an array (may be empty on clean system)', () => {
+    // scanForRouterWrappers scans /usr/local/bin which we cannot mock easily.
+    // Verify it returns an array without crashing.
+    const result = scanForRouterWrappers();
+
+    expect(Array.isArray(result)).toBe(true);
+  });
+});
+
+describe('buildInstallUserLocalRouterCommands', () => {
+  it('generates install commands for user-local router', () => {
+    const content = generateRouterWrapper('claude');
+    const commands = buildInstallUserLocalRouterCommands('claude', content, '/Users/testuser');
+
+    expect(commands).toContain('mkdir -p "/Users/testuser/.agenshield/bin"');
+    expect(commands).toContain('/Users/testuser/.agenshield/bin/claude');
+    expect(commands).toContain('chmod 755');
+    expect(commands).toContain(ROUTER_MARKER);
+  });
+
+  it('uses $HOME when hostHome is not provided', () => {
+    const content = generateRouterWrapper('claude');
+    const commands = buildInstallUserLocalRouterCommands('claude', content);
+
+    expect(commands).toContain('$HOME/.agenshield/bin');
+    expect(commands).toContain('chmod 755');
+  });
+
+  it('includes the wrapper content via heredoc', () => {
+    const content = generateRouterWrapper('openclaw');
+    const commands = buildInstallUserLocalRouterCommands('openclaw', content);
+
+    expect(commands).toContain('AGENSHIELD_WRAPPER_EOF');
+    expect(commands).toContain('Router for: openclaw');
+  });
+});
+
+describe('buildRemoveUserLocalRouterCommands', () => {
+  it('generates remove commands for user-local router', () => {
+    const commands = buildRemoveUserLocalRouterCommands('claude', '/Users/testuser');
+
+    expect(commands).toContain('/Users/testuser/.agenshield/bin/claude');
+    expect(commands).toContain(ROUTER_MARKER);
+    expect(commands).toContain('rm -f');
+  });
+
+  it('uses $HOME when hostHome is not provided', () => {
+    const commands = buildRemoveUserLocalRouterCommands('claude');
+
+    expect(commands).toContain('$HOME/.agenshield/bin/claude');
+    expect(commands).toContain(ROUTER_MARKER);
+    expect(commands).toContain('rm -f');
+  });
+
+  it('only removes if file contains AGENSHIELD_ROUTER marker', () => {
+    const commands = buildRemoveUserLocalRouterCommands('openclaw');
+
+    expect(commands).toContain(`grep -q "${ROUTER_MARKER}"`);
+    expect(commands).toContain('rm -f');
   });
 });

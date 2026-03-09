@@ -126,11 +126,13 @@ fi
 export HTTP_PROXY="http://127.0.0.1:5201"
 export HTTPS_PROXY="http://127.0.0.1:5201"
 export NO_PROXY="localhost,127.0.0.1"
+export NODE_EXTRA_CA_CERTS="/etc/ssl/cert.pem"
 ` : '';
 
   // Readonly vars: always lock PATH, HOME, SHELL, HISTFILE; add NVM_DIR if nvm enabled
   const readonlyVars = ['PATH', 'HOME', 'SHELL', 'HISTFILE'];
   if (nvm) readonlyVars.push('NVM_DIR');
+  if (proxy) readonlyVars.push('NODE_EXTRA_CA_CERTS');
   const readonlyLine = `typeset -r ${readonlyVars.join(' ')}`;
 
   // is_allowed_cmd: additional path checks based on features
@@ -245,7 +247,7 @@ setopt NO_GLOBAL_RCS
  * When features.nvm is false, omits NVM PATH re-assertion.
  */
 export function zdotZshrcContent(features: ShellFeatures = {}): string {
-  const { homebrew = false, nvm = false } = features;
+  const { homebrew = false, nvm = false, proxy = false } = features;
 
   const pathParts = ['$HOME/bin', '$HOME/.local/bin'];
   if (homebrew) pathParts.push('$HOME/homebrew/bin');
@@ -280,6 +282,7 @@ fi
   // Re-assert readonly for defense-in-depth (already set in .zshenv)
   const readonlyVars = ['PATH', 'HOME', 'SHELL', 'HISTFILE'];
   if (nvm) readonlyVars.push('NVM_DIR');
+  if (proxy) readonlyVars.push('NODE_EXTRA_CA_CERTS');
   const readonlyLine = `typeset -r ${readonlyVars.join(' ')} 2>/dev/null || true`;
 
   return `# AgenShield restricted .zshrc

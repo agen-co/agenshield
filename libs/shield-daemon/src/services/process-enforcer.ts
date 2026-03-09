@@ -24,8 +24,9 @@ import { emitProcessViolation, emitProcessKilled } from '../events/emitter';
 import { getSystemExecutor } from '../workers/system-command';
 import { getActiveShieldOperations } from './shield-registry';
 import { getStorage } from '@agenshield/storage';
-import { isShieldedProcess } from '@agenshield/policies';
-import { fingerprintProcess, computeFileHash } from './process-fingerprint';
+import { isShieldedProcess, getPresetById } from '@agenshield/policies';
+import type { PolicyPreset } from '@agenshield/policies';
+import { fingerprintProcess, computeFileHash, getDefaultBinSearchDirs } from './process-fingerprint';
 import type { ProcessFingerprint } from './process-fingerprint';
 
 // macOS system daemons — never enforce against these
@@ -56,6 +57,7 @@ const GRACE_PERIOD_MS = 5_000;
 
 export interface HostProcess {
   pid: number;
+  ppid: number;
   user: string;
   command: string;
 }
@@ -223,6 +225,7 @@ export function stopProcessEnforcer(): void {
   cachedDaemonDescendantsAt = 0;
   currentIntervalMs = 0;
   verifiedBinaryCache.clear();
+  _shieldedTargetCache = null;
 }
 
 /**
@@ -254,7 +257,222 @@ export function invalidateKnownPids(): void {
   knownPids.clear();
 }
 
+// ─── PID-based exe path resolution ───────────────────────────
+
+/**
+ * Batch-resolve executable paths for a list of PIDs using macOS `proc_pidpath`.
+ * Returns a Map of PID → absolute executable path.
+ * Non-darwin platforms return an empty map. Errors are swallowed (fallback to dir search).
+ */
+export async function resolveExePathsByPid(pids: number[]): Promise<Map<number, string>> {
+  if (process.platform !== 'darwin' || pids.length === 0) return new Map();
+
+  try {
+    const executor = getSystemExecutor();
+    const pidList = pids.join(',');
+    const raw = await executor.exec(
+      `python3 -c "
+import ctypes,ctypes.util,sys,json
+l=ctypes.CDLL(ctypes.util.find_library('proc'))
+b=ctypes.create_string_buffer(4096)
+r={}
+for p in sys.argv[1].split(','):
+ pid=int(p)
+ if l.proc_pidpath(pid,b,4096)>0:
+  r[p]=b.value.decode()
+print(json.dumps(r))
+" "${pidList}"`,
+      { timeout: 5_000 },
+    );
+
+    const parsed = JSON.parse(raw.trim()) as Record<string, string>;
+    const result = new Map<number, string>();
+    for (const [pidStr, exePath] of Object.entries(parsed)) {
+      result.set(parseInt(pidStr, 10), exePath);
+    }
+    return result;
+  } catch {
+    return new Map();
+  }
+}
+
+// ─── Target-based enforcement ────────────────────────────────
+
+/** Cached per-scan data for target-based enforcement */
+interface ShieldedTargetData {
+  profiles: Array<{
+    id: string;
+    presetId?: string;
+    agentUsername?: string;
+    agentHomeDir?: string;
+  }>;
+  /** Maps lowercase pattern → preset name for log messages */
+  patternToPreset: Map<string, string>;
+  /** All lowercase process patterns across all presets */
+  allPatterns: Set<string>;
+}
+
+let _shieldedTargetCache: { data: ShieldedTargetData; expiresAt: number } | null = null;
+const SHIELDED_TARGET_CACHE_TTL_MS = 10_000;
+
+/**
+ * Build or return cached target matching data (profiles + preset patterns).
+ */
+function getShieldedTargetData(): ShieldedTargetData {
+  const now = Date.now();
+  if (_shieldedTargetCache && now < _shieldedTargetCache.expiresAt) {
+    return _shieldedTargetCache.data;
+  }
+
+  const profiles: ShieldedTargetData['profiles'] = [];
+  const patternToPreset = new Map<string, string>();
+  const allPatterns = new Set<string>();
+
+  try {
+    const allProfiles = getStorage().profiles.getByType('target');
+    for (const p of allProfiles) {
+      profiles.push({
+        id: p.id,
+        presetId: p.presetId,
+        agentUsername: p.agentUsername,
+        agentHomeDir: p.agentHomeDir,
+      });
+
+      if (p.presetId) {
+        const preset: PolicyPreset | undefined = getPresetById(p.presetId);
+        if (preset?.processPatterns) {
+          for (const pattern of preset.processPatterns) {
+            const lower = pattern.toLowerCase();
+            allPatterns.add(lower);
+            patternToPreset.set(lower, preset.name);
+          }
+        }
+      }
+    }
+  } catch { /* storage not ready */ }
+
+  const data: ShieldedTargetData = { profiles, patternToPreset, allPatterns };
+  _shieldedTargetCache = { data, expiresAt: now + SHIELDED_TARGET_CACHE_TTL_MS };
+  return data;
+}
+
+/**
+ * Check if a process is an unshielded instance of a known target.
+ *
+ * Matches by process name or fingerprint candidates against preset processPatterns,
+ * then verifies it's NOT running under a shielded agent user or from an agent home dir.
+ */
+function evaluateAgainstShieldedTargets(
+  proc: HostProcess,
+  fp: ProcessFingerprint,
+  resolvedExePath?: string,
+): { policyId: string; policyName: string; enforcement: 'kill'; reason: string } | null {
+  const targetData = getShieldedTargetData();
+  if (targetData.allPatterns.size === 0) return null;
+
+  // Extract the command basename for matching
+  const cmdTokens = proc.command.trim().split(/\s+/);
+  const firstToken = cmdTokens[0] ?? '';
+  const basename = firstToken.includes('/') ? firstToken.split('/').pop()! : firstToken;
+  const basenameLower = basename.toLowerCase();
+
+  // Check if process name or any fingerprint candidate matches a known pattern
+  let matchedPattern: string | null = null;
+
+  if (targetData.allPatterns.has(basenameLower)) {
+    matchedPattern = basenameLower;
+  }
+
+  if (!matchedPattern) {
+    for (const candidate of fp.candidateNames) {
+      const candidateLower = candidate.toLowerCase();
+      if (targetData.allPatterns.has(candidateLower)) {
+        matchedPattern = candidateLower;
+        break;
+      }
+    }
+  }
+
+  if (!matchedPattern) return null;
+
+  // Verify it's NOT a shielded instance
+  for (const profile of targetData.profiles) {
+    if (!profile.presetId) continue;
+    const preset = getPresetById(profile.presetId);
+    if (!preset?.processPatterns) continue;
+
+    const presetPatterns = new Set(preset.processPatterns.map(p => p.toLowerCase()));
+    if (!presetPatterns.has(matchedPattern!)) continue;
+
+    // Process belongs to this preset — check if it's running under the shielded user
+    if (profile.agentUsername && proc.user === profile.agentUsername) return null;
+
+    // Check if command path starts with the agent's home directory
+    if (profile.agentHomeDir && firstToken.startsWith(profile.agentHomeDir)) return null;
+    if (resolvedExePath && profile.agentHomeDir && resolvedExePath.startsWith(profile.agentHomeDir)) return null;
+  }
+
+  const presetName = targetData.patternToPreset.get(matchedPattern) ?? 'Unknown Target';
+
+  return {
+    policyId: `target-enforcement:${matchedPattern}`,
+    policyName: `Unshielded ${presetName}`,
+    enforcement: 'kill',
+    reason: `Unshielded instance of ${presetName}`,
+  };
+}
+
 // ─── Internal ────────────────────────────────────────────────
+
+/**
+ * Walk up the ppid chain to build a process ancestry list.
+ * Uses the already-scanned process list, with a fallback `ps` lookup
+ * for processes outside the scan. Capped at 10 levels.
+ */
+async function resolveProcessAncestry(
+  ppid: number,
+  processMap: Map<number, HostProcess>,
+): Promise<Array<{ pid: number; command: string }>> {
+  const ancestry: Array<{ pid: number; command: string }> = [];
+  let currentPpid = ppid;
+  const MAX_DEPTH = 10;
+  const visited = new Set<number>();
+
+  for (let i = 0; i < MAX_DEPTH; i++) {
+    if (currentPpid <= 1 || visited.has(currentPpid)) {
+      // Include PID 1 (launchd/init) as the final entry
+      if (currentPpid === 1) {
+        ancestry.push({ pid: 1, command: '/sbin/launchd' });
+      }
+      break;
+    }
+    visited.add(currentPpid);
+
+    const known = processMap.get(currentPpid);
+    if (known) {
+      ancestry.push({ pid: known.pid, command: known.command });
+      currentPpid = known.ppid;
+      continue;
+    }
+
+    // Fallback: look up the process via ps
+    try {
+      const executor = getSystemExecutor();
+      const raw = await executor.exec(
+        `ps -p ${currentPpid} -o pid=,ppid=,command= 2>/dev/null`,
+        { timeout: 3_000 },
+      );
+      const m = raw.trim().match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+      if (!m) break;
+      ancestry.push({ pid: parseInt(m[1], 10), command: m[3].trim() });
+      currentPpid = parseInt(m[2], 10);
+    } catch {
+      break;
+    }
+  }
+
+  return ancestry;
+}
 
 async function runEnforcementScan(): Promise<void> {
   const log = getLogger();
@@ -290,6 +508,12 @@ async function runEnforcementScan(): Promise<void> {
   }
 
   if (processes.length === 0) return;
+
+  // Build pid→process map for ancestry resolution
+  const processMap = new Map<number, HostProcess>();
+  for (const p of processes) {
+    processMap.set(p.pid, p);
+  }
 
   // Build policyId→profileId map for enforcement event attribution
   const policyToProfileId = new Map<string, string>();
@@ -328,6 +552,16 @@ async function runEnforcementScan(): Promise<void> {
     } catch { return null; }
   };
 
+  // Collect new PIDs for batch exe path resolution
+  const newPids: number[] = [];
+  for (const proc of processes) {
+    if (recentlyKilledPids.has(proc.pid) || daemonDescendants.has(proc.pid) || knownPids.has(proc.pid)) continue;
+    newPids.push(proc.pid);
+  }
+
+  // Batch-resolve executable paths from OS (macOS proc_pidpath)
+  const exePathsByPid = await resolveExePathsByPid(newPids);
+
   let newPidsEvaluated = 0;
 
   for (const proc of processes) {
@@ -346,8 +580,10 @@ async function runEnforcementScan(): Promise<void> {
 
     // Fingerprint-based detection: if standard matching missed,
     // resolve the binary's true identity and re-evaluate
+    const resolvedExePath = exePathsByPid.get(proc.pid);
+    let fp: ProcessFingerprint | undefined;
     if (!result) {
-      const fp = fingerprintProcess(proc.command, { cache: fpCache, hashLookup });
+      fp = fingerprintProcess(proc.command, { searchDirs: getDefaultBinSearchDirs(), cache: fpCache, hashLookup, resolvedExePath });
       for (const candidate of fp.candidateNames) {
         result = policyManager.evaluateProcess(candidate);
         if (result) {
@@ -357,6 +593,20 @@ async function runEnforcementScan(): Promise<void> {
           );
           break;
         }
+      }
+    }
+
+    // Target-based enforcement: detect unshielded instances of known targets
+    if (!result) {
+      if (!fp) {
+        fp = fingerprintProcess(proc.command, { searchDirs: getDefaultBinSearchDirs(), cache: fpCache, hashLookup, resolvedExePath });
+      }
+      result = evaluateAgainstShieldedTargets(proc, fp, resolvedExePath);
+      if (result) {
+        log.warn(
+          `[enforcer] PID ${proc.pid} detected as unshielded target: ${result.reason} ` +
+          `(command: ${proc.command.slice(0, 80)})`,
+        );
       }
     }
 
@@ -371,8 +621,19 @@ async function runEnforcementScan(): Promise<void> {
 
     const MAX_COMMAND_LEN = 200;
     const fullCommand = proc.command;
+
+    // Resolve process ancestry (async but non-blocking for scan)
+    let processAncestry: Array<{ pid: number; command: string }> | undefined;
+    try {
+      processAncestry = await resolveProcessAncestry(proc.ppid, processMap);
+      if (processAncestry.length === 0) processAncestry = undefined;
+    } catch {
+      // ancestry resolution is best-effort
+    }
+
     const payload = {
       pid: proc.pid,
+      ppid: proc.ppid,
       user: proc.user,
       command: fullCommand.length > MAX_COMMAND_LEN
         ? fullCommand.slice(0, MAX_COMMAND_LEN)
@@ -384,6 +645,7 @@ async function runEnforcementScan(): Promise<void> {
       policyName: result.policyName,
       enforcement: result.enforcement,
       reason: result.reason ?? 'Denied by process policy',
+      processAncestry,
     };
 
     // Resolve profileId from policy → profile mapping
@@ -440,7 +702,7 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
 
   const executor = getSystemExecutor();
   const raw = await executor.exec(
-    `ps -U ${currentUser} -ax -o user=,pid=,command= 2>/dev/null`,
+    `ps -U ${currentUser} -ax -o user=,pid=,ppid=,command= 2>/dev/null`,
     { timeout: 10_000 },
   );
 
@@ -458,13 +720,14 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
   for (const line of raw.trim().split('\n')) {
     if (!line.trim()) continue;
 
-    // Parse: leading whitespace, user, PID, then command
-    const match = line.match(/^\s*(\S+)\s+(\d+)\s+(.+)$/);
+    // Parse: leading whitespace, user, PID, PPID, then command
+    const match = line.match(/^\s*(\S+)\s+(\d+)\s+(\d+)\s+(.+)$/);
     if (!match) continue;
 
     const processUser = match[1].trim();
     const pid = parseInt(match[2], 10);
-    const command = match[3].trim();
+    const ppid = parseInt(match[3], 10);
+    const command = match[4].trim();
 
     // Self-protection: skip daemon's own PID and parent
     if (pid === daemonPid || pid === parentPid) continue;
@@ -491,7 +754,7 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
     // Skip verified .agenshield/ binaries (hash-checked against install manifests)
     if (AGENSHIELD_PATH_RE.test(command) && isVerifiedAgenshieldBinary(command)) continue;
 
-    processes.push({ pid, user: currentUser, command });
+    processes.push({ pid, ppid, user: currentUser, command });
   }
 
   return processes;

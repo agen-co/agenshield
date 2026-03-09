@@ -13,7 +13,7 @@ import { resolveTargetContext } from '../services/target-context';
 let _sandbox: Record<string, unknown> | undefined;
 async function getSandbox(): Promise<Record<string, unknown>> {
   if (!_sandbox) {
-    _sandbox = await import('@agenshield/integrations') as Record<string, unknown>;
+    _sandbox = await import('@agenshield/seatbelt') as Record<string, unknown>;
   }
   return _sandbox;
 }

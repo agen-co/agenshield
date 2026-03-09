@@ -280,10 +280,9 @@ export async function downloadAndExtract(
 const WORKSPACE_PKG_MAP: Record<string, string> = {
   '@agenshield/broker': 'libs/shield-broker',
   '@agenshield/daemon': 'libs/shield-daemon',
-  '@agenshield/integrations': 'libs/shield-integrations',
-  '@agenshield/interceptor': 'libs/shield-interceptor',
+  '@agenshield/interceptor': 'libs/interceptor',
   '@agenshield/ipc': 'libs/shield-ipc',
-  '@agenshield/patcher': 'libs/shield-patcher',
+  '@agenshield/patcher': 'libs/interceptor',
   '@agenshield/sandbox': 'libs/sandbox',
   '@agenshield/storage': 'libs/storage',
   '@agenshield/auth': 'libs/auth',
@@ -775,6 +774,24 @@ export function isRootOwned(p: string): boolean {
   }
 }
 
+/** Try to find our Developer ID in the keychain. Returns the full identity string or null. */
+function resolveKeychainIdentity(): string | null {
+  if (process.platform !== 'darwin') return null;
+  const teamId = process.env['APPLE_TEAM_ID'];
+  const orgName = process.env['APPLE_CODESIGN_ORG'];
+  if (!teamId || !orgName) return null;
+  const identity = `Developer ID Application: ${orgName} (${teamId})`;
+  try {
+    const result = execSync('security find-identity -v -p codesigning', {
+      encoding: 'utf-8',
+      timeout: 10_000,
+    });
+    return result.includes(identity) ? identity : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Sign a binary with hardened runtime on macOS.
  *
@@ -782,7 +799,7 @@ export function isRootOwned(p: string): boolean {
  * - identity provided → `codesign --sign "$identity" --timestamp --options runtime --entitlements`
  * - no identity (ad-hoc) → `codesign --sign - --options runtime --entitlements`
  *
- * Identity resolution: explicit parameter → AGENSHIELD_CODESIGN_IDENTITY env → ad-hoc.
+ * Identity resolution: explicit parameter → AGENSHIELD_CODESIGN_IDENTITY env → keychain → ad-hoc.
  */
 async function signBinaryHardened(
   binaryPath: string,
@@ -795,7 +812,7 @@ async function signBinaryHardened(
   // Resolve signing identity: explicit param → env var → ad-hoc (null)
   const identity = options?.identity
     ?? process.env['AGENSHIELD_CODESIGN_IDENTITY']
-    ?? null;
+    ?? resolveKeychainIdentity();
 
   // Resolve bundle identifier: explicit param → auto-resolve from binary name
   const resolvedId = options?.identifier ?? resolveCodesignIdentifier(binaryPath);
@@ -1022,7 +1039,7 @@ export async function downloadAndInstallSEARemote(
  * `~/.agenshield/apps/AgenShield.app`.
  *
  * This bridges the gap between the npm-pack install path (where the .app
- * lives inside `node_modules/@agenshield/sandbox/es-extension/`) and the
+ * lives inside `node_modules/@agenshield/sandbox/macos-app/`) and the
  * menu bar installer which expects it at `~/.agenshield/apps/`.
  *
  * @param distDir - The installation dist directory (e.g. `~/.agenshield/dist/`)
@@ -1032,7 +1049,7 @@ export function extractMacAppFromSandbox(distDir: string): boolean {
   if (process.platform !== 'darwin') return false;
 
   const sandboxAppPath = path.join(
-    distDir, 'node_modules', '@agenshield', 'sandbox', 'es-extension', 'AgenShield.app',
+    distDir, 'node_modules', '@agenshield', 'sandbox', 'macos-app', 'AgenShield.app',
   );
 
   if (!fs.existsSync(sandboxAppPath)) return false;

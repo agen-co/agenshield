@@ -28,8 +28,8 @@ import {
   installMenuBarAgent,
   uninstallMenuBarAgent,
   getMenuBarAgentStatus,
-} from '@agenshield/integrations';
-import { getESExtensionAppPath } from '@agenshield/sandbox';
+} from '@agenshield/seatbelt';
+import { getMacAppBundlePath } from '@agenshield/sandbox';
 
 export function registerServiceCommand(program: Command): void {
   const service = program
@@ -61,7 +61,7 @@ export function registerServiceCommand(program: Command): void {
       output.info(`Installing daemon service (${daemonPath})...`);
 
       const hostHome = resolveHostHome();
-      const result = installDaemonService({
+      const result = await installDaemonService({
         daemonPath,
         port: Number(opts['port']) || DAEMON_CONFIG.PORT,
         host: (opts['host'] as string) || DAEMON_CONFIG.HOST,
@@ -72,7 +72,7 @@ export function registerServiceCommand(program: Command): void {
         output.success(result.message);
 
         // Also install privilege helper LaunchDaemon
-        const helperResult = installPrivilegeHelperService({
+        const helperResult = await installPrivilegeHelperService({
           daemonPath,
           port: Number(opts['port']) || DAEMON_CONFIG.PORT,
           host: (opts['host'] as string) || DAEMON_CONFIG.HOST,
@@ -108,7 +108,7 @@ export function registerServiceCommand(program: Command): void {
 
       output.info('Uninstalling services...');
 
-      const result = uninstallDaemonService();
+      const result = await uninstallDaemonService();
       if (result.success) {
         output.success(result.message);
       } else {
@@ -116,7 +116,7 @@ export function registerServiceCommand(program: Command): void {
       }
 
       // Also uninstall privilege helper
-      const helperResult = uninstallPrivilegeHelperService();
+      const helperResult = await uninstallPrivilegeHelperService();
       if (helperResult.success) {
         output.success(helperResult.message);
       } else {
@@ -133,8 +133,8 @@ export function registerServiceCommand(program: Command): void {
         throw new ServiceError('LaunchDaemon service management is only supported on macOS.', 'status');
       }
 
-      const status = getDaemonServiceStatus();
-      const helperStatus = getPrivilegeHelperServiceStatus();
+      const status = await getDaemonServiceStatus();
+      const helperStatus = await getPrivilegeHelperServiceStatus();
 
       if (opts['json']) {
         output.data({ daemon: status, privilegeHelper: helperStatus });
@@ -172,15 +172,15 @@ export function registerServiceCommand(program: Command): void {
 
       output.info('Restarting services...');
 
-      const stopResult = stopDaemonService();
+      const stopResult = await stopDaemonService();
       if (!stopResult.success) {
         output.warn(`Daemon stop: ${stopResult.message}`);
       }
 
       // Also restart privilege helper if installed
-      const helperStatus = getPrivilegeHelperServiceStatus();
+      const helperStatus = await getPrivilegeHelperServiceStatus();
       if (helperStatus.installed) {
-        const helperStopResult = stopPrivilegeHelperService();
+        const helperStopResult = await stopPrivilegeHelperService();
         if (!helperStopResult.success) {
           output.warn(`Privilege helper stop: ${helperStopResult.message}`);
         }
@@ -189,7 +189,7 @@ export function registerServiceCommand(program: Command): void {
       // Brief pause before restart
       await new Promise(r => setTimeout(r, 1000));
 
-      const startResult = startDaemonService();
+      const startResult = await startDaemonService();
       if (startResult.success) {
         output.success('Daemon service restarted');
       } else {
@@ -197,7 +197,7 @@ export function registerServiceCommand(program: Command): void {
       }
 
       if (helperStatus.installed) {
-        const helperStartResult = startPrivilegeHelperService();
+        const helperStartResult = await startPrivilegeHelperService();
         if (helperStartResult.success) {
           output.success('Privilege helper service restarted');
         } else {
@@ -220,7 +220,7 @@ export function registerServiceCommand(program: Command): void {
       }
 
       // Find the AgenShield.app bundle
-      const embeddedApp = getESExtensionAppPath();
+      const embeddedApp = getMacAppBundlePath();
       const systemApp = '/Applications/AgenShield.app';
       const sourceApp = embeddedApp
         ? embeddedApp
@@ -236,7 +236,7 @@ export function registerServiceCommand(program: Command): void {
       }
 
       output.info(`Installing menu bar app from ${sourceApp}...`);
-      const result = installMenuBarAgent(sourceApp);
+      const result = await installMenuBarAgent(sourceApp);
 
       if (result.success) {
         output.success(result.message);
@@ -255,7 +255,7 @@ export function registerServiceCommand(program: Command): void {
       }
 
       output.info('Uninstalling menu bar agent...');
-      const result = uninstallMenuBarAgent();
+      const result = await uninstallMenuBarAgent();
 
       if (result.success) {
         output.success(result.message);
@@ -272,7 +272,7 @@ export function registerServiceCommand(program: Command): void {
         throw new ServiceError('Menu bar app is only supported on macOS.', 'menubar status');
       }
 
-      const status = getMenuBarAgentStatus();
+      const status = await getMenuBarAgentStatus();
 
       if (opts['json']) {
         output.data(status);

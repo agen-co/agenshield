@@ -98,8 +98,8 @@ export class CompiledPolicyEngine {
             allowed,
             policyId: rule.policyId,
             reason: allowed
-              ? `Allowed by policy: ${rule.policyId}`
-              : `Denied by policy: ${rule.policyId}`,
+              ? `Allowed by policy: ${rule.policyName ?? rule.policyId}`
+              : `Denied by policy: ${rule.policyName ?? rule.policyId}`,
             effects,
             executionContext: context,
           };

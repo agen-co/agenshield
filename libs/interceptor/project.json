@@ -1,0 +1,67 @@
+{
+  "name": "interceptor",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/interceptor/src",
+  "projectType": "library",
+  "tags": ["versioning:synchronized"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/test-output/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/interceptor/jest.config.ts",
+        "passWithNoTests": true
+      }
+    },
+    "perf": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/test-output/performance/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/interceptor/jest.perf.config.ts",
+        "passWithNoTests": true,
+        "coverageDirectory": "../../test-output/performance/libs/interceptor",
+        "codeCoverage": true,
+        "coverageReporters": ["json-summary", "json"]
+      }
+    },
+    "build-cjs": {
+      "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["^build"],
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "libs/interceptor/dist",
+        "main": "libs/interceptor/src/index.ts",
+        "additionalEntryPoints": [
+          "libs/interceptor/src/register.ts",
+          "libs/interceptor/src/require.ts"
+        ],
+        "tsConfig": "libs/interceptor/tsconfig.lib.json",
+        "format": ["esm", "cjs"],
+        "declaration": true,
+        "declarationRootDir": "libs/interceptor/src",
+        "bundle": true,
+        "thirdParty": true,
+        "platform": "node",
+        "assets": ["libs/interceptor/README.md", "LICENSE", "libs/interceptor/package.json"],
+        "esbuildOptions": {
+          "outExtension": { ".js": ".js" },
+          "external": ["@agenshield/ipc"]
+        }
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build-cjs"],
+      "options": {
+        "command": "node scripts/strip-dist-from-pkg.js libs/interceptor/dist/package.json"
+      }
+    },
+    "publish": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "command": "npm publish libs/interceptor/dist --access public --registry=https://registry.npmjs.org/"
+      }
+    }
+  }
+}

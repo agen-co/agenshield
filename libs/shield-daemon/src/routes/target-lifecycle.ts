@@ -19,6 +19,7 @@ import { registerShieldOperation, unregisterShieldOperation, getActiveShieldOper
 import { signBrokerToken } from '@agenshield/auth';
 import { writeTokenFile, invalidateTokenCache } from '../services/profile-token';
 import { removeAllUserAcls } from '../acl';
+import { registerLocalBinaryFingerprint } from '../services/process-fingerprint';
 
 // ── Gateway port allocation helper ────────────────────────────────
 
@@ -108,6 +109,14 @@ export async function detectTargets(): Promise<DetectedTarget[]> {
         // Detection failed for this preset — skip
       }
       if (!detection) continue;
+
+      // Proactively register binary fingerprint during detection (not just shielding)
+      // so Layer C hash-based detection works even before the target is shielded.
+      if (detection.binaryPath) {
+        try {
+          registerLocalBinaryFingerprint(detection.binaryPath, preset.id, getStorage());
+        } catch { /* best-effort */ }
+      }
 
       // Find ALL profiles that belong to this preset
       const matchingProfiles = profiles.filter(
@@ -703,57 +712,9 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
 
         tracker.completeStep('create_marker');
 
-        // 3b2. Create default macOS Keychain for the agent user
+        // 3b2. Agent keychain — delegated to host user's keychain (no per-agent keychain)
         tracker.startStep('create_agent_keychain');
-        log('Creating agent keychain...', 'creating_keychain');
-        shieldLog.step('create_agent_keychain', 'Creating default macOS Keychain for agent user...');
-        try {
-          const keychainDir = `${agentHome}/Library/Keychains`;
-          const keychainPath = `${keychainDir}/login.keychain-db`;
-
-          await executor.execAsRoot([
-            `mkdir -p "${keychainDir}"`,
-            `chown ${agentUser}:${groupName} "${agentHome}/Library" "${keychainDir}"`,
-            `chmod 700 "${keychainDir}"`,
-          ].join(' && '), { timeout: 15_000 });
-
-          // Check if keychain already exists (idempotency)
-          const keychainCheck = await executor.execAsRoot(
-            `test -f "${keychainPath}" && echo "EXISTS" || echo "MISSING"`,
-            { timeout: 5_000 },
-          );
-
-          if (keychainCheck.output?.includes('MISSING')) {
-            await executor.execAsRoot(
-              `security create-keychain -p "" "${keychainPath}"`,
-              { timeout: 15_000 },
-            );
-            await executor.execAsRoot(
-              `sudo -u "${agentUser}" security default-keychain -s "${keychainPath}"`,
-              { timeout: 10_000 },
-            );
-            await executor.execAsRoot(
-              `security unlock-keychain -p "" "${keychainPath}"`,
-              { timeout: 10_000 },
-            );
-            // Disable auto-lock (no -t = no timeout)
-            await executor.execAsRoot(
-              `security set-keychain-settings "${keychainPath}"`,
-              { timeout: 10_000 },
-            );
-            await executor.execAsRoot(
-              `chown ${agentUser}:${groupName} "${keychainPath}"`,
-              { timeout: 5_000 },
-            );
-            shieldLog.info(`Created keychain at ${keychainPath}`);
-          } else {
-            shieldLog.info(`Keychain already exists at ${keychainPath}`);
-          }
-        } catch (err) {
-          // Best-effort: keychain creation failure should not block the pipeline.
-          // Claude Code will fall back to browser-based OAuth re-auth.
-          shieldLog.warn(`Keychain creation failed: ${(err as Error).message}`);
-        }
+        shieldLog.info('Keychain access delegated to host user — no per-agent keychain needed');
         tracker.completeStep('create_agent_keychain');
         manifestBuilder.recordInfra('create_agent_keychain', 3, { agentUsername: agentUser });
 
@@ -1372,8 +1333,8 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           } else {
             // Try to install from embedded bundle (best-effort)
             try {
-              const { getESExtensionAppPath } = await import('@agenshield/sandbox');
-              const embeddedApp = getESExtensionAppPath();
+              const { getMacAppBundlePath } = await import('@agenshield/sandbox');
+              const embeddedApp = getMacAppBundlePath();
               if (embeddedApp) {
                 const cpResult = await executor.execAsRoot(
                   `cp -r "${embeddedApp}" "${hostAppPath}" && chown -R root:wheel "${hostAppPath}"`,
@@ -1917,6 +1878,23 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         tracker.finalize();
         request.log.info({ targetId, logPath: shieldLog.logPath }, 'Shield log saved');
 
+        // Register local binary fingerprint for Layer C hash-based detection.
+        // This enables renamed-binary detection without cloud connectivity.
+        if (detection?.binaryPath && preset) {
+          try {
+            const registered = registerLocalBinaryFingerprint(
+              detection.binaryPath,
+              preset.id,
+              storage,
+            );
+            if (registered) {
+              request.log.info({ targetId, binaryPath: detection.binaryPath }, 'Registered local binary fingerprint');
+            }
+          } catch {
+            // Fingerprint registration is best-effort
+          }
+        }
+
         invalidateDetectionCache();
         triggerTargetCheck();
         unregisterShieldOperation(targetId);
@@ -2248,14 +2226,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             ).catch(() => {});
           }
 
-          // 5b. Delete agent keychain (deregister from macOS security subsystem)
-          if (agentHomeDir) {
-            const keychainPath = `${agentHomeDir}/Library/Keychains/login.keychain-db`;
-            await executor.execAsRoot(
-              `security delete-keychain "${keychainPath}" 2>/dev/null; true`,
-              { timeout: 10_000 },
-            ).catch(() => {});
-          }
+          // 5b. Agent keychain cleanup — skipped (no per-agent keychains, delegated to host user)
 
           // 6. Delete agent home directory
           emitEvent('setup:shield_progress', { targetId, step: 'removing_home', progress: 55, message: 'Removing agent home directory...' }, profile.id);

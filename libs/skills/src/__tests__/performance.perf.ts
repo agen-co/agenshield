@@ -23,6 +23,7 @@ import { SkillWatcherService } from '../watcher/watcher.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { LocalSearchAdapter } from '../catalog/adapters/local.adapter';
 import { TestDeployAdapter } from './helpers/test-deploy-adapter';
+import { perf } from '../../../../tools/perf-metric';
 
 jest.setTimeout(60_000);
 
@@ -187,9 +188,7 @@ describe('Performance', () => {
       }
 
       const elapsed = performance.now() - start;
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] 200 skills + versions + 2000 files: ${elapsed.toFixed(0)}ms`);
-      expect(elapsed).toBeLessThan(2_000);
+      perf('skills', 'db.create200Skills', elapsed, '<', 2_000, 'ms');
     });
 
     it('getInstallations() with 50 installations', () => {
@@ -216,9 +215,7 @@ describe('Performance', () => {
       const elapsed = performance.now() - start;
       const avg = elapsed / iterations;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] getInstallations() avg: ${avg.toFixed(2)}ms (${iterations} calls)`);
-      expect(avg).toBeLessThan(2);
+      perf('skills', 'db.getInstallationsAvg', avg, '<', 2, 'ms');
     });
 
     it('search("perf") across 200 skills', () => {
@@ -226,9 +223,7 @@ describe('Performance', () => {
       const results = repo.search('perf');
       const elapsed = performance.now() - start;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] search('perf') across 200 skills: ${elapsed.toFixed(1)}ms, ${results.length} results`);
-      expect(elapsed).toBeLessThan(50);
+      perf('skills', 'db.search200', elapsed, '<', 50, 'ms');
       expect(results.length).toBeGreaterThan(0);
     });
 
@@ -239,9 +234,7 @@ describe('Performance', () => {
       const installed = catalog.listInstalled();
       const elapsed = performance.now() - start;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] listInstalled (50 installed): ${elapsed.toFixed(1)}ms, ${installed.length} results`);
-      expect(elapsed).toBeLessThan(50);
+      perf('skills', 'db.listInstalled50', elapsed, '<', 50, 'ms');
     });
 
     it('recomputeContentHash with 50 files', () => {
@@ -258,9 +251,7 @@ describe('Performance', () => {
       repo.recomputeContentHash(v.id);
       const elapsed = performance.now() - start;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] recomputeContentHash (50 files): ${elapsed.toFixed(2)}ms`);
-      expect(elapsed).toBeLessThan(50);
+      perf('skills', 'db.recomputeContentHash', elapsed, '<', 50, 'ms');
     });
   });
 
@@ -329,9 +320,7 @@ describe('Performance', () => {
       }
 
       const elapsed = performance.now() - start;
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] install to 30 profiles: ${elapsed.toFixed(0)}ms`);
-      expect(elapsed).toBeLessThan(1_000);
+      perf('skills', 'install.30profiles', elapsed, '<', 1_000, 'ms');
       expect(installationIds).toHaveLength(30);
     });
 
@@ -349,9 +338,7 @@ describe('Performance', () => {
         }
       });
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] install 30 profiles — maxLag: ${lag.maxLagMs.toFixed(1)}ms, p99: ${lag.p99LagMs.toFixed(1)}ms, elapsed: ${lag.elapsed.toFixed(0)}ms`);
-      expect(lag.maxLagMs).toBeLessThan(50);
+      perf('skills', 'install.30profilesLag', lag.maxLagMs, '<', 50, 'ms');
     });
 
     it('uninstalls from 30 profiles', async () => {
@@ -362,9 +349,7 @@ describe('Performance', () => {
       }
 
       const elapsed = performance.now() - start;
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] uninstall 30 profiles: ${elapsed.toFixed(0)}ms`);
-      expect(elapsed).toBeLessThan(500);
+      perf('skills', 'uninstall.30profiles', elapsed, '<', 500, 'ms');
     });
   });
 
@@ -408,9 +393,7 @@ describe('Performance', () => {
       watcher.scanForNewSkills();
       const elapsed = performance.now() - start;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] scanForNewSkills (20 dirs, 5 files each): ${elapsed.toFixed(0)}ms`);
-      expect(elapsed).toBeLessThan(1_000);
+      perf('skills', 'watcher.scan20dirs', elapsed, '<', 1_000, 'ms');
 
       // Verify all 20 skills were detected and quarantined
       for (let i = 0; i < 20; i++) {
@@ -429,9 +412,7 @@ describe('Performance', () => {
         watcher.scanForNewSkills();
       });
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] scanForNewSkills sync block: elapsed=${result.elapsed.toFixed(0)}ms, probeDelay=${result.probeDelayMs.toFixed(0)}ms`);
-      expect(result.elapsed).toBeLessThan(1_000);
+      perf('skills', 'watcher.scanSyncBlock', result.elapsed, '<', 1_000, 'ms');
     });
   });
 
@@ -498,9 +479,7 @@ describe('Performance', () => {
       const results = await deployer.checkAllIntegrity();
       const elapsed = performance.now() - start;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] checkAllIntegrity (50 installations, 5 files each): ${elapsed.toFixed(0)}ms, ${results.length} checks`);
-      expect(elapsed).toBeLessThan(2_000);
+      perf('skills', 'integrity.checkAll50', elapsed, '<', 2_000, 'ms');
       expect(results).toHaveLength(50);
       // All should be intact since files haven't been tampered with
       for (const r of results) {
@@ -513,9 +492,7 @@ describe('Performance', () => {
         await deployer.checkAllIntegrity();
       });
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] checkAllIntegrity lag — max: ${lag.maxLagMs.toFixed(1)}ms, p99: ${lag.p99LagMs.toFixed(1)}ms, elapsed: ${lag.elapsed.toFixed(0)}ms`);
-      expect(lag.maxLagMs).toBeLessThan(100);
+      perf('skills', 'integrity.checkAllLag', lag.maxLagMs, '<', 100, 'ms');
     });
   });
 
@@ -558,9 +535,7 @@ describe('Performance', () => {
       });
       const elapsed = performance.now() - start;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] uploadFromFiles (50 files): ${elapsed.toFixed(0)}ms`);
-      expect(elapsed).toBeLessThan(500);
+      perf('skills', 'upload.50files', elapsed, '<', 500, 'ms');
     });
 
     it('upload event loop lag', async () => {
@@ -578,9 +553,7 @@ describe('Performance', () => {
         });
       });
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] uploadFromFiles sync block: elapsed=${result.elapsed.toFixed(0)}ms, probeDelay=${result.probeDelayMs.toFixed(0)}ms`);
-      expect(result.elapsed).toBeLessThan(500);
+      perf('skills', 'upload.syncBlock', result.elapsed, '<', 500, 'ms');
     });
   });
 
@@ -610,9 +583,7 @@ describe('Performance', () => {
       const verified = backup.verifyIntegrity(versionId, savedHash);
       const elapsed = performance.now() - start;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] saveFiles + verifyIntegrity (50 files): ${elapsed.toFixed(0)}ms`);
-      expect(elapsed).toBeLessThan(500);
+      perf('skills', 'backup.saveAndVerify', elapsed, '<', 500, 'ms');
       expect(verified).toBe(true);
     });
 
@@ -621,9 +592,7 @@ describe('Performance', () => {
       const loaded = backup.loadFiles(versionId);
       const elapsed = performance.now() - start;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] loadFiles (50 files): ${elapsed.toFixed(0)}ms, ${loaded.size} files`);
-      expect(elapsed).toBeLessThan(200);
+      perf('skills', 'backup.loadFiles', elapsed, '<', 200, 'ms');
       expect(loaded.size).toBe(50);
     });
   });
@@ -666,9 +635,7 @@ describe('Performance', () => {
       const results = await catalog.search('catalog');
       const elapsed = performance.now() - start;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] catalog.search('catalog') across 200 skills: ${elapsed.toFixed(1)}ms, ${results.length} results`);
-      expect(elapsed).toBeLessThan(100);
+      perf('skills', 'catalog.search200', elapsed, '<', 100, 'ms');
       expect(results.length).toBeGreaterThan(0);
     });
 
@@ -677,9 +644,7 @@ describe('Performance', () => {
       const installed = catalog.listInstalled();
       const elapsed = performance.now() - start;
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] listInstalled (100 installed): ${elapsed.toFixed(1)}ms, ${installed.length} results`);
-      expect(elapsed).toBeLessThan(50);
+      perf('skills', 'catalog.listInstalled100', elapsed, '<', 50, 'ms');
     });
   });
 
@@ -752,9 +717,7 @@ describe('Performance', () => {
         await watcher.poll();
       });
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] poll() — maxLag: ${lag.maxLagMs.toFixed(1)}ms, p99: ${lag.p99LagMs.toFixed(1)}ms, elapsed: ${lag.elapsed.toFixed(0)}ms`);
-      expect(lag.maxLagMs).toBeLessThan(200);
+      perf('skills', 'evloop.poll', lag.maxLagMs, '<', 200, 'ms');
     });
 
     it('event loop block during scanForNewSkills()', async () => {
@@ -767,9 +730,7 @@ describe('Performance', () => {
         watcher.scanForNewSkills();
       });
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] scanForNewSkills() sync block: elapsed=${result.elapsed.toFixed(0)}ms, probeDelay=${result.probeDelayMs.toFixed(0)}ms`);
-      expect(result.elapsed).toBeLessThan(1_000);
+      perf('skills', 'evloop.scanSyncBlock', result.elapsed, '<', 1_000, 'ms');
     });
 
     it('event loop block during uploadFromFiles()', async () => {
@@ -787,9 +748,7 @@ describe('Performance', () => {
         });
       });
 
-      // eslint-disable-next-line no-console
-      console.log(`  [perf] uploadFromFiles() sync block: elapsed=${result.elapsed.toFixed(0)}ms, probeDelay=${result.probeDelayMs.toFixed(0)}ms`);
-      expect(result.elapsed).toBeLessThan(500);
+      perf('skills', 'evloop.uploadSyncBlock', result.elapsed, '<', 500, 'ms');
     });
   });
 });

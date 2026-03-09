@@ -9,6 +9,7 @@ import { loadState } from '../state/index';
 import { getCloudConnector } from '../services/cloud-connector';
 import { getEnrollmentService } from '../services/enrollment';
 import { getActivationService } from '../services/activation';
+import { getAutoShieldService } from '../services/auto-shield';
 import { getStorage } from '@agenshield/storage';
 
 // Lazy-loaded integrations — avoids top-level await (TLA) which breaks CJS bundles
@@ -21,11 +22,11 @@ function ensureIntegrations(): void {
   _integrationsLoaded = true;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const integrations = require('@agenshield/integrations') as Record<string, unknown>;
+    const integrations = require('@agenshield/seatbelt') as Record<string, unknown>;
     getOpenClawStatusSync = integrations['getOpenClawStatusSync'] as typeof getOpenClawStatusSync;
     detectHostOpenClawVersion = integrations['detectHostOpenClawVersion'] as typeof detectHostOpenClawVersion;
   } catch {
-    // @agenshield/integrations may not be available
+    // @agenshield/seatbelt may not be available
   }
 }
 
@@ -79,6 +80,10 @@ export function buildDaemonStatus(): DaemonStatus {
   // Activation state
   const servicesActive = getActivationService().isActive();
 
+  // Auto-shield state
+  const autoShieldState = getAutoShieldService().getState();
+  const includeAutoShield = autoShieldState.state !== 'idle';
+
   // Aggregate stats for menu bar
   let stats: DaemonStatus['stats'] | undefined;
   try {
@@ -114,6 +119,14 @@ export function buildDaemonStatus(): DaemonStatus {
         ...('userCode' in enrollmentState ? { userCode: enrollmentState.userCode } : {}),
         ...('expiresAt' in enrollmentState ? { expiresAt: enrollmentState.expiresAt } : {}),
         ...('error' in enrollmentState ? { error: enrollmentState.error } : {}),
+      },
+    } : {}),
+    ...(includeAutoShield ? {
+      autoShield: {
+        state: autoShieldState.state as 'pending' | 'in_progress' | 'complete' | 'failed',
+        ...('progress' in autoShieldState ? { progress: autoShieldState.progress } : {}),
+        ...('result' in autoShieldState ? { result: autoShieldState.result } : {}),
+        ...('error' in autoShieldState ? { error: autoShieldState.error } : {}),
       },
     } : {}),
   };

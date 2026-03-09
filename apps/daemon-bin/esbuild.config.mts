@@ -99,7 +99,7 @@ async function buildInterceptorBundles(): Promise<void> {
 
   // CJS register (--require)
   await esbuild.build({
-    entryPoints: [path.join(ROOT, 'libs/shield-interceptor/src/register.ts')],
+    entryPoints: [path.join(ROOT, 'libs/interceptor/src/register.ts')],
     bundle: true,
     platform: 'node',
     target: 'node24',
@@ -114,7 +114,7 @@ async function buildInterceptorBundles(): Promise<void> {
 
   // ESM register (--import)
   await esbuild.build({
-    entryPoints: [path.join(ROOT, 'libs/shield-interceptor/src/register.ts')],
+    entryPoints: [path.join(ROOT, 'libs/interceptor/src/register.ts')],
     bundle: true,
     platform: 'node',
     target: 'node24',

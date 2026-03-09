@@ -17,8 +17,7 @@
       "executor": "@nx/jest:jest",
       "outputs": ["{workspaceRoot}/test-output/performance/{projectRoot}"],
       "options": {
-        "jestConfig": "libs/auth/jest.config.ts",
-        "testPathPatterns": ["performance"],
+        "jestConfig": "libs/auth/jest.perf.config.ts",
         "passWithNoTests": true,
         "coverageDirectory": "../../test-output/performance/libs/auth",
         "codeCoverage": true,

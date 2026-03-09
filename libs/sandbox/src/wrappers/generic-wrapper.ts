@@ -43,7 +43,14 @@ if [ $SC_EXIT -ne 0 ]; then
 fi
 
 # Resolve and exec real binary (first match wins)
-for _dir in /usr/local/bin /usr/bin /usr/sbin /bin /sbin; do
+# Resolve NVM node bin dir (npm global installs live here)
+_nvm_bin=""
+if [ -d "$HOME/.nvm/versions/node" ]; then
+  _nvm_bin="$(ls -d "$HOME/.nvm/versions/node"/v*/bin 2>/dev/null | tail -1)"
+fi
+
+for _dir in "$HOME/.local/bin" "$HOME/homebrew/bin" $_nvm_bin /opt/homebrew/bin /usr/local/bin /usr/bin /usr/sbin /bin /sbin; do
+  [ -z "$_dir" ] && continue
   [ -x "$_dir/$CMD" ] && exec "$_dir/$CMD" "$@"
 done
 echo "AgenShield: '$CMD' real binary not found" >&2

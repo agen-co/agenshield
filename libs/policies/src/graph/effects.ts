@@ -191,8 +191,8 @@ function applyEdgeEffect(
         };
 
         // Scope activation by lifetime
-        if (edge.lifetime === 'process' && context?.esPid) {
-          activateParams.processId = context.esPid;
+        if (edge.lifetime === 'process' && context?.nativePid) {
+          activateParams.processId = context.nativePid;
         }
 
         // Persistent edges don't need activation records — they're always active

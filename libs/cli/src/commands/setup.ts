@@ -43,7 +43,7 @@ import type {
   ApiResponse,
 } from '@agenshield/ipc';
 import { saveMdmConfig } from '@agenshield/auth';
-import { installDaemonService, installPrivilegeHelperService } from '@agenshield/integrations';
+import { installDaemonService, installPrivilegeHelperService } from '@agenshield/seatbelt';
 import { inkSelect, inkInput, inkBrowserLink } from '../prompts/index.js';
 import { resolveHostHome } from '../utils/host-user.js';
 
@@ -320,7 +320,7 @@ async function runTokenSetup(options: { cloudUrl: string; token: string }): Prom
     const daemonPath = findDaemonExecutable();
 
     if (daemonPath) {
-      const serviceResult = installDaemonService({
+      const serviceResult = await installDaemonService({
         daemonPath,
         port: DAEMON_CONFIG.PORT,
         host: DAEMON_CONFIG.HOST,
@@ -329,7 +329,7 @@ async function runTokenSetup(options: { cloudUrl: string; token: string }): Prom
 
       if (serviceResult.success) {
         // Also install privilege helper
-        const helperResult = installPrivilegeHelperService({
+        const helperResult = await installPrivilegeHelperService({
           daemonPath,
           userHome: hostHome,
         });
@@ -419,7 +419,7 @@ async function runOrgSetup(options: { cloudUrl: string; orgClientId: string }): 
     const daemonPath = findDaemonExecutable();
 
     if (daemonPath) {
-      const serviceResult = installDaemonService({
+      const serviceResult = await installDaemonService({
         daemonPath,
         port: DAEMON_CONFIG.PORT,
         host: DAEMON_CONFIG.HOST,
@@ -428,7 +428,7 @@ async function runOrgSetup(options: { cloudUrl: string; orgClientId: string }): 
 
       if (serviceResult.success) {
         // Also install privilege helper
-        const helperResult = installPrivilegeHelperService({
+        const helperResult = await installPrivilegeHelperService({
           daemonPath,
           userHome: orgHostHome,
         });

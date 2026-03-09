@@ -64,7 +64,7 @@ export {
   type ExecMonitoredPayload,
   type ExecDeniedPayload,
   type InterceptorEventPayload,
-  type ESExecPayload,
+  type NativeExecPayload,
   EXEC_EVENT_TYPES,
 } from './exec.events';
 
@@ -157,3 +157,20 @@ export {
   type WorkspaceSensitiveFilesProtectedPayload,
   WORKSPACE_EVENT_TYPES,
 } from './workspace.events';
+
+export {
+  type AutoShieldStartedPayload,
+  type AutoShieldTargetStartedPayload,
+  type AutoShieldTargetCompletePayload,
+  type AutoShieldTargetFailedPayload,
+  type AutoShieldCompletePayload,
+  AUTO_SHIELD_EVENT_TYPES,
+} from './auto-shield.events';
+
+export {
+  type ExecutableDetectedPayload,
+  type ExecutableWrappedPayload,
+  type ExecutableSkippedPayload,
+  type ExecutableScanCompletePayload,
+  EXECUTABLE_EVENT_TYPES,
+} from './executable.events';

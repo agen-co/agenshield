@@ -1,4 +1,69 @@
-import { sanitizeOpenClawConfig } from '../backup/migration';
+jest.mock('node:fs', () => ({
+  existsSync: jest.fn().mockReturnValue(false),
+  readFileSync: jest.fn(),
+  readdirSync: jest.fn().mockReturnValue([]),
+  writeFileSync: jest.fn(),
+}));
+jest.mock('node:child_process', () => ({
+  execSync: jest.fn(),
+}));
+jest.mock('../exec/sudo', () => ({
+  sudoExec: jest.fn().mockReturnValue({ success: true, output: '' }),
+}));
+
+import * as fs from 'node:fs';
+import { execSync } from 'node:child_process';
+import { sudoExec } from '../exec/sudo';
+import {
+  sanitizeOpenClawConfig,
+  migrateNpmInstall,
+  migrateGitInstall,
+  migrateOpenClaw,
+  createNodeWrapper,
+} from '../backup/migration';
+import type { SandboxUser, DirectoryStructure } from '../types';
+import type { MigrationSource } from '../backup/migration';
+
+const mockFs = fs as jest.Mocked<typeof fs>;
+const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
+const mockSudoExec = sudoExec as jest.MockedFunction<typeof sudoExec>;
+
+function makeSandboxUser(overrides?: Partial<SandboxUser>): SandboxUser {
+  return {
+    username: 'agenshield_agent',
+    uid: 5200,
+    gid: 5100,
+    homeDir: '/Users/agenshield_agent',
+    shell: '/bin/bash',
+    ...overrides,
+  };
+}
+
+function makeDirs(overrides?: Partial<DirectoryStructure>): DirectoryStructure {
+  return {
+    binDir: '/Users/agenshield_agent/bin',
+    wrappersDir: '/Users/agenshield_agent/bin',
+    configDir: '/Users/agenshield_agent/.openclaw',
+    packageDir: '/Users/agenshield_agent/openclaw',
+    npmDir: '/Users/agenshield_agent/.npm',
+    ...overrides,
+  };
+}
+
+function makeSource(overrides?: Partial<MigrationSource>): MigrationSource {
+  return {
+    method: 'npm',
+    packagePath: '/Users/host/.openclaw/packages/openclaw',
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockSudoExec.mockReturnValue({ success: true, output: '' });
+  mockFs.existsSync.mockReturnValue(false);
+  mockFs.writeFileSync.mockImplementation(() => undefined);
+});
 
 describe('sanitizeOpenClawConfig', () => {
   it('strips env and apiKey from skill entries', () => {
@@ -240,5 +305,752 @@ describe('sanitizeOpenClawConfig', () => {
       theme: 'dark',
       notifications: true,
     });
+  });
+});
+
+describe('migrateNpmInstall', () => {
+  it('succeeds when all steps complete', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    // existsSync returns false for configDir check (skip chown on configDir)
+    mockFs.existsSync.mockReturnValue(false);
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(true);
+    expect(result.newPaths).toBeDefined();
+    expect(result.newPaths!.packagePath).toBe(dirs.packageDir);
+    expect(result.newPaths!.binaryPath).toBe('/Users/agenshield_agent/bin/openclaw');
+    expect(result.newPaths!.configPath).toBe(dirs.configDir);
+  });
+
+  it('fails when packageDir is not configured', () => {
+    const user = makeSandboxUser();
+    const dirs = makeDirs({ packageDir: undefined });
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('packageDir');
+  });
+
+  it('fails when copy fails', () => {
+    mockSudoExec.mockReturnValueOnce({ success: false, error: 'Permission denied' });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to copy package');
+  });
+
+  it('fails when ownership chown fails', () => {
+    // Trace through migrateNpmInstall sudoExec calls:
+    // 1: cp -R (sudoCopyDir for package)
+    // 2: mkdir -p (copyConfigAndSanitize creates configDir)
+    // 3: mkdir -p (copyConfigAndSanitize creates skills subdir, since no configPath)
+    // 4: chown -R on packageDir -- THIS should fail
+    let callCount = 0;
+    mockSudoExec.mockImplementation(() => {
+      callCount++;
+      if (callCount === 4) {
+        return { success: false, error: 'chown failed' };
+      }
+      return { success: true, output: '' };
+    });
+    mockFs.existsSync.mockReturnValue(false);
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('ownership');
+  });
+
+  it('fails when wrapper creation fails', () => {
+    // All sudoExec calls succeed except the wrapper mv step
+    let callCount = 0;
+    mockSudoExec.mockImplementation(() => {
+      callCount++;
+      // Calls: 1=cp package, 2=mkdir config, 3=chown package, 4=mv wrapper
+      if (callCount === 4) {
+        return { success: false, error: 'mv failed' };
+      }
+      return { success: true, output: '' };
+    });
+    mockFs.existsSync.mockReturnValue(false);
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+  });
+
+  it('chowns configDir when it exists after copyConfigAndSanitize', () => {
+    let callCount = 0;
+    mockSudoExec.mockImplementation(() => {
+      callCount++;
+      return { success: true, output: '' };
+    });
+    // existsSync: configDir exists so chown path is taken
+    mockFs.existsSync.mockImplementation((p) => {
+      if (p === '/Users/agenshield_agent/.openclaw') return true;
+      return false;
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(true);
+    // Verify chown was called on configDir
+    expect(mockSudoExec).toHaveBeenCalledWith(
+      expect.stringContaining('chown -R agenshield_agent:5100 "/Users/agenshield_agent/.openclaw"'),
+    );
+  });
+
+  it('fails when configDir chown fails', () => {
+    let callCount = 0;
+    mockSudoExec.mockImplementation(() => {
+      callCount++;
+      // Calls: 1=cp package, 2=mkdir config, 3=mkdir skills subdir, 4=chown packageDir, 5=chown configDir
+      if (callCount === 5) {
+        return { success: false, error: 'chown config failed' };
+      }
+      return { success: true, output: '' };
+    });
+    mockFs.existsSync.mockImplementation((p) => {
+      if (p === '/Users/agenshield_agent/.openclaw') return true;
+      return false;
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to set config ownership');
+  });
+
+  it('fails when wrapper returns error (propagates wrapper error message)', () => {
+    // Make wrapper writeFileSync throw to trigger the wrapper failure path
+    let callCount = 0;
+    mockSudoExec.mockImplementation(() => {
+      callCount++;
+      return { success: true, output: '' };
+    });
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.writeFileSync.mockImplementation(() => {
+      throw new Error('disk full');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to write wrapper');
+  });
+
+  it('copies and sanitizes config when configPath is provided', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockImplementation((p) => {
+      // The source config file exists
+      if (p === '/Users/host/.openclaw/openclaw.json') return true;
+      // configDir exists for chown
+      if (p === '/Users/agenshield_agent/.openclaw') return true;
+      return false;
+    });
+    mockFs.readFileSync.mockImplementation((p) => {
+      if (typeof p === 'string' && p.includes('openclaw.json')) {
+        return JSON.stringify({
+          skills: {
+            entries: {
+              search: { enabled: true, env: { KEY: 'secret' }, apiKey: 'ak' },
+            },
+          },
+        });
+      }
+      throw new Error('not found');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({
+      method: 'npm',
+      configPath: '/Users/host/.openclaw',
+    });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(true);
+    // Verify sanitized config was written (no env or apiKey)
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      '/tmp/openclaw-clean-config.json',
+      expect.not.stringContaining('secret'),
+    );
+  });
+
+  it('handles unreadable config file in copyConfigAndSanitize', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockImplementation((p) => {
+      if (p === '/Users/host/.openclaw/openclaw.json') return true;
+      return false;
+    });
+    mockFs.readFileSync.mockImplementation(() => {
+      throw new Error('permission denied');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({
+      method: 'npm',
+      configPath: '/Users/host/.openclaw',
+    });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    // Should still succeed (config sanitize is best-effort)
+    expect(result.success).toBe(true);
+  });
+
+  it('handles missing openclaw.json in copyConfigAndSanitize', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockReturnValue(false);
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({
+      method: 'npm',
+      configPath: '/Users/host/.openclaw',
+    });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('migrateGitInstall', () => {
+  it('succeeds when all steps complete', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockReturnValue(false);
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({
+      method: 'git',
+      gitRepoPath: '/Users/host/git/openclaw',
+    });
+
+    const result = migrateGitInstall(source, user, dirs);
+
+    expect(result.success).toBe(true);
+    expect(result.newPaths).toBeDefined();
+    expect(result.newPaths!.packagePath).toBe(dirs.packageDir);
+    expect(result.newPaths!.binaryPath).toBe('/Users/agenshield_agent/bin/openclaw');
+  });
+
+  it('fails when packageDir is not configured', () => {
+    const user = makeSandboxUser();
+    const dirs = makeDirs({ packageDir: undefined });
+    const source = makeSource({ method: 'git' });
+
+    const result = migrateGitInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('packageDir');
+  });
+
+  it('fails when repo copy fails', () => {
+    mockSudoExec.mockReturnValueOnce({ success: false, error: 'copy error' });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'git' });
+
+    const result = migrateGitInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to copy repo');
+  });
+
+  it('uses packagePath when gitRepoPath is not set', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockReturnValue(false);
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({
+      method: 'git',
+      packagePath: '/Users/host/projects/openclaw',
+    });
+
+    const result = migrateGitInstall(source, user, dirs);
+
+    expect(result.success).toBe(true);
+    // The first sudoExec call should use packagePath as source
+    expect(mockSudoExec).toHaveBeenCalledWith(
+      expect.stringContaining('/Users/host/projects/openclaw'),
+    );
+  });
+
+  it('fails when package ownership chown fails', () => {
+    let callCount = 0;
+    mockSudoExec.mockImplementation(() => {
+      callCount++;
+      // Calls for git: 1=cp repo, 2=mkdir config, 3=mkdir skills subdir, 4=chown packageDir
+      if (callCount === 4) {
+        return { success: false, error: 'chown failed' };
+      }
+      return { success: true, output: '' };
+    });
+    mockFs.existsSync.mockReturnValue(false);
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'git' });
+
+    const result = migrateGitInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to set package ownership');
+  });
+
+  it('fails when configDir chown fails', () => {
+    let callCount = 0;
+    mockSudoExec.mockImplementation(() => {
+      callCount++;
+      // Calls: 1=cp repo, 2=mkdir config, 3=mkdir skills subdir, 4=chown packageDir, 5=chown configDir
+      if (callCount === 5) {
+        return { success: false, error: 'chown config failed' };
+      }
+      return { success: true, output: '' };
+    });
+    mockFs.existsSync.mockImplementation((p) => {
+      if (p === '/Users/agenshield_agent/.openclaw') return true;
+      return false;
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'git' });
+
+    const result = migrateGitInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to set config ownership');
+  });
+
+  it('fails when wrapper creation fails', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.writeFileSync.mockImplementation(() => {
+      throw new Error('disk full');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'git' });
+
+    const result = migrateGitInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to write wrapper');
+  });
+});
+
+describe('migrateOpenClaw', () => {
+  it('routes npm method to migrateNpmInstall', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockReturnValue(false);
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateOpenClaw(source, user, dirs);
+
+    expect(result.success).toBe(true);
+    expect(result.newPaths).toBeDefined();
+  });
+
+  it('routes git method to migrateGitInstall', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockReturnValue(false);
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({
+      method: 'git',
+      gitRepoPath: '/Users/host/git/openclaw',
+    });
+
+    const result = migrateOpenClaw(source, user, dirs);
+
+    expect(result.success).toBe(true);
+    expect(result.newPaths).toBeDefined();
+  });
+
+  it('propagates npm install failure', () => {
+    mockSudoExec.mockReturnValueOnce({ success: false, error: 'denied' });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateOpenClaw(source, user, dirs);
+
+    expect(result.success).toBe(false);
+  });
+
+  it('propagates git install failure', () => {
+    mockSudoExec.mockReturnValueOnce({ success: false, error: 'denied' });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'git' });
+
+    const result = migrateOpenClaw(source, user, dirs);
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('createNodeWrapper', () => {
+  it('finds node at /opt/agenshield/bin/node-bin', () => {
+    mockFs.existsSync.mockImplementation((p) => {
+      return p === '/opt/agenshield/bin/node-bin';
+    });
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+
+    const result = createNodeWrapper(user, dirs);
+
+    expect(result.success).toBe(true);
+    // The wrapper content should reference the sandboxNodeBin path
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      '/tmp/node-wrapper',
+      expect.stringContaining('/opt/agenshield/bin/node-bin'),
+      expect.anything(),
+    );
+  });
+
+  it('finds node via NVM when sandbox binary not available', () => {
+    mockFs.existsSync.mockImplementation((p) => {
+      if (p === '/opt/agenshield/bin/node-bin') return false;
+      if (typeof p === 'string' && p.includes('.nvm/versions/node/v20.0.0/bin/node')) return true;
+      return false;
+    });
+    mockFs.readdirSync.mockReturnValue(['v18.0.0', 'v20.0.0'] as unknown as fs.Dirent[]);
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+
+    const result = createNodeWrapper(user, dirs);
+
+    expect(result.success).toBe(true);
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      '/tmp/node-wrapper',
+      expect.stringContaining('v20.0.0'),
+      expect.anything(),
+    );
+  });
+
+  it('finds node via system which when NVM not available', () => {
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.readdirSync.mockImplementation(() => {
+      throw new Error('no such directory');
+    });
+    mockExecSync.mockReturnValue('/usr/local/bin/node\n');
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+
+    const result = createNodeWrapper(user, dirs);
+
+    expect(result.success).toBe(true);
+    expect(mockExecSync).toHaveBeenCalledWith('which node', { encoding: 'utf-8' });
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      '/tmp/node-wrapper',
+      expect.stringContaining('/usr/local/bin/node'),
+      expect.anything(),
+    );
+  });
+
+  it('fails when node is not found anywhere', () => {
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.readdirSync.mockImplementation(() => {
+      throw new Error('no such directory');
+    });
+    mockExecSync.mockImplementation(() => {
+      throw new Error('not found');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+
+    const result = createNodeWrapper(user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Node.js not found');
+  });
+
+  it('fails when writeFileSync throws', () => {
+    mockFs.existsSync.mockImplementation((p) => {
+      return p === '/opt/agenshield/bin/node-bin';
+    });
+    mockFs.writeFileSync.mockImplementation(() => {
+      throw new Error('write error');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+
+    const result = createNodeWrapper(user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to write node wrapper');
+  });
+
+  it('fails when mv wrapper fails', () => {
+    mockFs.existsSync.mockImplementation((p) => {
+      return p === '/opt/agenshield/bin/node-bin';
+    });
+    mockSudoExec.mockReturnValueOnce({ success: false, error: 'mv failed' });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+
+    const result = createNodeWrapper(user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to install node wrapper');
+  });
+
+  it('fails when chown wrapper fails', () => {
+    mockFs.existsSync.mockImplementation((p) => {
+      return p === '/opt/agenshield/bin/node-bin';
+    });
+    mockSudoExec
+      .mockReturnValueOnce({ success: true, output: '' }) // mv succeeds
+      .mockReturnValueOnce({ success: false, error: 'chown failed' }); // chown fails
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+
+    const result = createNodeWrapper(user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to set node wrapper ownership');
+  });
+});
+
+describe('createOpenClawWrapper (via migrateNpmInstall)', () => {
+  it('reads package.json bin field as string', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.readFileSync.mockImplementation((p) => {
+      if (typeof p === 'string' && p.includes('package.json')) {
+        return JSON.stringify({ bin: './cli.js' });
+      }
+      throw new Error('not found');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(true);
+    // The wrapper should reference the resolved bin entry
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      '/tmp/openclaw-wrapper',
+      expect.stringContaining('cli.js'),
+      expect.anything(),
+    );
+  });
+
+  it('reads package.json bin field as object with openclaw key', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.readFileSync.mockImplementation((p) => {
+      if (typeof p === 'string' && p.includes('package.json')) {
+        return JSON.stringify({ bin: { openclaw: './build/main.js' } });
+      }
+      throw new Error('not found');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(true);
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      '/tmp/openclaw-wrapper',
+      expect.stringContaining('build/main.js'),
+      expect.anything(),
+    );
+  });
+
+  it('uses fallback entry path when package.json is unreadable', () => {
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.readFileSync.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(true);
+    // Fallback is dist/entry.js
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      '/tmp/openclaw-wrapper',
+      expect.stringContaining('dist/entry.js'),
+      expect.anything(),
+    );
+  });
+
+  it('fails when wrapper writeFileSync throws', () => {
+    let writeCallCount = 0;
+    mockSudoExec.mockReturnValue({ success: true, output: '' });
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.readFileSync.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+    mockFs.writeFileSync.mockImplementation(() => {
+      writeCallCount++;
+      if (writeCallCount === 1) {
+        throw new Error('disk full');
+      }
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to write wrapper');
+  });
+
+  it('fails when wrapper mv fails', () => {
+    let callCount = 0;
+    mockSudoExec.mockImplementation(() => {
+      callCount++;
+      // Calls: 1=cp package, 2=mkdir config, 3=mkdir skills, 4=chown package, 5=mv wrapper
+      if (callCount === 5) {
+        return { success: false, error: 'mv failed' };
+      }
+      return { success: true, output: '' };
+    });
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.readFileSync.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to install wrapper');
+  });
+
+  it('fails when wrapper chown fails', () => {
+    let callCount = 0;
+    mockSudoExec.mockImplementation(() => {
+      callCount++;
+      // Calls: 1=cp package, 2=mkdir config, 3=mkdir skills, 4=chown package, 5=mv wrapper, 6=chown wrapper
+      if (callCount === 6) {
+        return { success: false, error: 'chown failed' };
+      }
+      return { success: true, output: '' };
+    });
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.readFileSync.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to set wrapper ownership');
+  });
+
+  it('fails when wrapper chmod fails', () => {
+    let callCount = 0;
+    mockSudoExec.mockImplementation(() => {
+      callCount++;
+      // Calls: 1=cp package, 2=mkdir config, 3=mkdir skills, 4=chown package, 5=mv wrapper, 6=chown wrapper, 7=chmod wrapper
+      if (callCount === 7) {
+        return { success: false, error: 'chmod failed' };
+      }
+      return { success: true, output: '' };
+    });
+    mockFs.existsSync.mockReturnValue(false);
+    mockFs.readFileSync.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+
+    const user = makeSandboxUser();
+    const dirs = makeDirs();
+    const source = makeSource({ method: 'npm' });
+
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to set wrapper permissions');
+  });
+
+  it('fails when packageDir is not configured', () => {
+    const user = makeSandboxUser();
+    const dirs = makeDirs({ packageDir: undefined });
+    const source = makeSource({ method: 'npm' });
+
+    // This exercises createOpenClawWrapper's packageDir check
+    // But migrateNpmInstall checks packageDir first, so we test via migrateNpmInstall
+    const result = migrateNpmInstall(source, user, dirs);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('packageDir');
   });
 });

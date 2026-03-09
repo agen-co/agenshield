@@ -52,9 +52,25 @@ export function getVersion(): string {
  * Resolution priority:
  * 1. Explicit parameter (from --codesign-identity flag)
  * 2. AGENSHIELD_CODESIGN_IDENTITY env var
- * 3. APPLE_TEAM_ID env var → constructs "Developer ID Application: Frontegg ($APPLE_TEAM_ID)"
- * 4. null → ad-hoc signing
+ * 3. APPLE_TEAM_ID + APPLE_CODESIGN_ORG env vars → constructs "Developer ID Application: $ORG ($TEAM_ID)"
+ * 4. null (ad-hoc signing)
  */
+
+/**
+ * Check whether a signing identity exists in the keychain.
+ */
+function hasIdentity(identity: string): boolean {
+  try {
+    const result = execSync(
+      `security find-identity -v -p codesigning`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    );
+    return result.includes(identity);
+  } catch {
+    return false;
+  }
+}
+
 export function resolveCodesignIdentity(explicit?: string): string | null {
   if (explicit) return explicit;
 
@@ -62,8 +78,13 @@ export function resolveCodesignIdentity(explicit?: string): string | null {
   if (envIdentity) return envIdentity;
 
   const teamId = process.env['APPLE_TEAM_ID'];
-  if (teamId) return `Developer ID Application: Frontegg (${teamId})`;
+  const orgName = process.env['APPLE_CODESIGN_ORG'];
+  if (!teamId || !orgName) return null;
 
+  const identity = `Developer ID Application: ${orgName} (${teamId})`;
+  if (hasIdentity(identity)) return identity;
+
+  console.log(`[WARN] Codesign identity "${identity}" not found in keychain — will ad-hoc sign`);
   return null;
 }
 
@@ -156,14 +177,19 @@ export function codesignBinary(
   entitlementsPath?: string,
   identifier?: string,
 ): void {
+  const resolvedIdentity = identity ?? resolveCodesignIdentity();
   const resolvedId = identifier ?? resolveCodesignId(binaryPath);
   const idFlag = resolvedId ? ` --identifier "${resolvedId}"` : '';
 
-  if (identity) {
-    const entitlementFlag = entitlementsPath ? ` --entitlements "${entitlementsPath}"` : '';
+  if (resolvedIdentity) {
+    const defaultEntitlements = path.join(ROOT, 'tools', 'sea', 'entitlements.plist');
+    const resolvedEntitlements = entitlementsPath ?? defaultEntitlements;
+    const entitlementFlag = fs.existsSync(resolvedEntitlements)
+      ? ` --entitlements "${resolvedEntitlements}"`
+      : '';
     run(
-      `codesign --force --sign "${identity}"${idFlag} --timestamp --options runtime${entitlementFlag} "${binaryPath}"`,
-      `Code signing with identity: ${identity.slice(0, 40)}...`,
+      `codesign --force --sign "${resolvedIdentity}"${idFlag} --timestamp --options runtime${entitlementFlag} "${binaryPath}"`,
+      `Code signing with identity: ${resolvedIdentity.slice(0, 40)}...`,
     );
   } else {
     const defaultEntitlements = path.join(ROOT, 'tools', 'sea', 'entitlements.plist');

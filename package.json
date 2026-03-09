@@ -9,6 +9,7 @@
   "scripts": {
     "build": "nx run-many -t build --exclude='tag:native' --outputStyle stream",
     "build:native": "nx run-many -t build --projects='tag:native' --outputStyle stream",
+    "build:prod": "export APPLE_TEAM_ID=3R2X6557U2;export APPLE_CODESIGN_ORG=\"Frontegg LTD\"; yarn build:native && yarn build",
     "test": "nx run-many -t test --outputStyle stream --skip-nx-cache",
     "test:cached": "nx run-many -t test --outputStyle stream",
     "lint": "nx run-many -t lint --outputStyle stream",
@@ -27,7 +28,8 @@
     "registry:publish": "node scripts/registry/publish.mjs",
     "registry:stop": "node scripts/registry/stop.mjs",
     "test:seatbelt": "npx nx build shield-daemon && npx tsx tools/test-seatbelt.ts",
-    "generate:macos-icons": "node --experimental-strip-types tools/generate-macos-icons.mts"
+    "generate:macos-icons": "node --experimental-strip-types tools/generate-macos-icons.mts",
+    "test:report": "tsx scripts/coverage-report.ts"
   },
   "private": true,
   "devDependencies": {

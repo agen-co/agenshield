@@ -16,19 +16,6 @@ import { computeConfigHmac, verifyConfigHmac } from './integrity';
 import { getVault } from '../vault';
 import { ConfigTamperError } from './errors';
 
-/**
- * Merge updated policies into current policies by id.
- * Updates override existing policies with the same id; new policies are added.
- * Existing policies not present in `updates` are preserved.
- */
-function mergePolicies(current: PolicyConfig[], updates: PolicyConfig[]): PolicyConfig[] {
-  const map = new Map(current.map(p => [p.id, p]));
-  for (const p of updates) {
-    map.set(p.id, p);
-  }
-  return [...map.values()];
-}
-
 /** In-memory config cache — eliminates repeated DB reads. */
 let cachedConfig: ShieldConfig | null = null;
 
@@ -198,9 +185,7 @@ export function updateConfig(updates: Partial<ShieldConfig>): ShieldConfig {
       ...current.daemon,
       ...(updates.daemon || {}),
     },
-    policies: updates.policies
-      ? mergePolicies(current.policies, updates.policies)
-      : current.policies,
+    policies: updates.policies ?? current.policies,
     vault: updates.vault ?? current.vault,
   };
   saveConfig(updated);
@@ -270,9 +255,7 @@ export function updateScopedConfig(updates: Partial<ShieldConfig>, profileId: st
     ...current,
     ...updates,
     daemon: { ...current.daemon, ...(updates.daemon || {}) },
-    policies: updates.policies
-      ? mergePolicies(current.policies, updates.policies)
-      : current.policies,
+    policies: updates.policies ?? current.policies,
     vault: updates.vault ?? current.vault,
   };
   saveScopedConfig(updated, profileId);
