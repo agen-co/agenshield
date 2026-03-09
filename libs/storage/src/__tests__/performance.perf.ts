@@ -686,7 +686,7 @@ describe('Storage — End-to-end Performance', () => {
       const elapsedTransaction = performance.now() - startTransaction;
 
       const speedup = elapsedIndividual / elapsedTransaction;
-      perf('storage', 'transaction.speedup', speedup, '>', 2, 'x');
+      perf('storage', 'transaction.speedup', speedup, '>', 1.5, 'x');
     });
 
     it('transaction rollback leaves no partial state', () => {

@@ -151,8 +151,8 @@ export function injectBlob(opts: InjectOptions): void {
     // Node.js v24. Use objcopy to add the section + binary-patch the fuse.
     injectBlobLinux(binaryPath, blobPath);
   } else if (platform === 'darwin') {
-    // macOS: deduplicate sentinel fuse string (Node.js v24 has duplicates),
-    // then use postject (LIEF) to inject the blob + verify fuse is flipped.
+    // macOS: direct Mach-O patching — bypasses postject/LIEF to avoid
+    // sentinel duplication issues in Node.js v24.
     injectBlobDarwin(binaryPath, blobPath);
   } else {
     // Windows or other: use postject
@@ -255,112 +255,174 @@ function injectBlobLinux(binaryPath: string, blobPath: string): void {
 }
 
 /**
- * Deduplicate sentinel fuse occurrences in a binary.
+ * Add a segment + section to a Mach-O 64-bit binary.
  *
- * Node.js v24 binaries contain duplicate copies of the sentinel string in
- * string tables / debug info. postject's uniqueness check fails when it finds
- * more than one occurrence. This function zeroes out all NON-fuse occurrences
- * (i.e. those NOT followed by `:0` or `:1`) so only the real fuse remains.
+ * Performs direct binary surgery: appends blob data at a page-aligned offset,
+ * then writes an LC_SEGMENT_64 load command (with one section_64) into the
+ * padding between the header and the first segment's file data.
+ *
+ * This bypasses postject/LIEF entirely — LIEF deserializes and re-serializes
+ * the binary, creating NEW sentinel duplicates that break postject's uniqueness
+ * check. Direct patching avoids this problem.
  */
-function deduplicateSentinel(binaryPath: string, sentinel: string): void {
-  const buf = fs.readFileSync(binaryPath);
-  const needle = Buffer.from(sentinel);
-  const indices: number[] = [];
+function addMachOSection(
+  bin: Buffer,
+  segmentName: string,
+  sectionName: string,
+  data: Buffer,
+): Buffer {
+  // ── Mach-O constants ──────────────────────────────────────────────────────
+  const MH_MAGIC_64   = 0xFEEDFACF;
+  const LC_SEGMENT_64  = 0x19;
+  const VM_PROT_READ   = 0x01;
 
-  let searchStart = 0;
-  while (true) {
-    const idx = buf.indexOf(needle, searchStart);
-    if (idx === -1) break;
-    indices.push(idx);
-    searchStart = idx + 1;
+  // arm64 page size = 16KB (macOS on Apple Silicon)
+  const PAGE_SIZE      = 16384;
+
+  // LC_SEGMENT_64 = 72 bytes, section_64 = 80 bytes
+  const SEGMENT_CMD_SIZE = 72;
+  const SECTION_SIZE     = 80;
+  const NEW_CMD_SIZE     = SEGMENT_CMD_SIZE + SECTION_SIZE; // 152
+
+  // ── 1. Validate header ────────────────────────────────────────────────────
+  const magic = bin.readUInt32LE(0);
+  if (magic !== MH_MAGIC_64) {
+    throw new Error(
+      `[MACHO] Not a 64-bit Mach-O binary (magic=0x${magic.toString(16)}). ` +
+      `Fat/universal binaries are not supported — use lipo to extract a single arch first.`
+    );
   }
 
-  if (indices.length === 0) {
-    throw new Error(`[DEDUP] No occurrences of sentinel found in ${binaryPath}`);
-  }
+  const ncmds      = bin.readUInt32LE(16);
+  const sizeofcmds = bin.readUInt32LE(20);
+  const headerSize = 32; // mach_header_64 size
 
-  if (indices.length === 1) {
-    console.log('[DEDUP] Single sentinel occurrence — no deduplication needed');
-    return;
-  }
+  // ── 2. Parse load commands ────────────────────────────────────────────────
+  let minDataOffset = Infinity; // earliest fileoff with data
+  let maxVmEnd      = 0n;      // highest vmaddr + vmsize
 
-  const colonZero = ':'.charCodeAt(0);
-  const colonOne = ':'.charCodeAt(0);
-  let zeroed = 0;
+  let cmdOffset = headerSize;
+  for (let i = 0; i < ncmds; i++) {
+    const cmd     = bin.readUInt32LE(cmdOffset);
+    const cmdsize = bin.readUInt32LE(cmdOffset + 4);
 
-  for (const idx of indices) {
-    const afterSentinel = idx + needle.length;
-    // Keep the fuse occurrence: sentinel followed by `:0` or `:1`
-    if (afterSentinel + 1 < buf.length) {
-      const nextByte = buf[afterSentinel];
-      const byteAfter = buf[afterSentinel + 1];
-      if (nextByte === colonZero && (byteAfter === '0'.charCodeAt(0) || byteAfter === '1'.charCodeAt(0))) {
-        continue; // This is the real fuse — keep it
+    if (cmd === LC_SEGMENT_64) {
+      // LC_SEGMENT_64 layout (after cmd + cmdsize):
+      //   offset  8: segname[16]
+      //   offset 24: vmaddr (uint64)
+      //   offset 32: vmsize (uint64)
+      //   offset 40: fileoff (uint64)
+      //   offset 48: filesize (uint64)
+      const fileoff  = bin.readBigUInt64LE(cmdOffset + 40);
+      const filesize = bin.readBigUInt64LE(cmdOffset + 48);
+      const vmaddr   = bin.readBigUInt64LE(cmdOffset + 24);
+      const vmsize   = bin.readBigUInt64LE(cmdOffset + 32);
+
+      if (fileoff > 0n && Number(fileoff) < minDataOffset) {
+        minDataOffset = Number(fileoff);
       }
+
+      const vmEnd = vmaddr + vmsize;
+      if (vmEnd > maxVmEnd) maxVmEnd = vmEnd;
     }
-    // Zero out this non-fuse occurrence
-    buf.fill(0, idx, idx + needle.length);
-    zeroed++;
+
+    cmdOffset += cmdsize;
   }
 
-  if (zeroed > 0) {
-    fs.writeFileSync(binaryPath, buf);
-    console.log(`[DEDUP] Zeroed ${zeroed} non-fuse sentinel occurrence(s) out of ${indices.length} total`);
+  // ── 3. Verify space for new load command ──────────────────────────────────
+  const cmdsEnd = headerSize + sizeofcmds;
+  const available = minDataOffset - cmdsEnd;
+  if (available < NEW_CMD_SIZE) {
+    throw new Error(
+      `[MACHO] Not enough padding for new load command: need ${NEW_CMD_SIZE} bytes, ` +
+      `only ${available} available between load commands end (0x${cmdsEnd.toString(16)}) ` +
+      `and first segment data (0x${minDataOffset.toString(16)})`
+    );
   }
+
+  // ── 4. Compute blob placement ─────────────────────────────────────────────
+  const originalSize  = bin.length;
+  const alignedOffset = Math.ceil(originalSize / PAGE_SIZE) * PAGE_SIZE;
+  const blobSize      = data.length;
+  const newVmAddr     = (maxVmEnd + BigInt(PAGE_SIZE) - 1n) / BigInt(PAGE_SIZE) * BigInt(PAGE_SIZE);
+
+  // ── 5. Build output buffer ────────────────────────────────────────────────
+  const result = Buffer.alloc(alignedOffset + blobSize);
+  bin.copy(result, 0);
+  data.copy(result, alignedOffset);
+
+  // ── 6. Write LC_SEGMENT_64 at end of existing commands ────────────────────
+  const newCmdOffset = cmdsEnd;
+  const w = result;
+
+  // segment_command_64 (72 bytes)
+  w.writeUInt32LE(LC_SEGMENT_64, newCmdOffset);           // cmd
+  w.writeUInt32LE(NEW_CMD_SIZE, newCmdOffset + 4);         // cmdsize
+  w.write(segmentName.padEnd(16, '\0'), newCmdOffset + 8, 16, 'ascii');  // segname
+  w.writeBigUInt64LE(newVmAddr, newCmdOffset + 24);        // vmaddr
+  w.writeBigUInt64LE(BigInt(blobSize), newCmdOffset + 32); // vmsize
+  w.writeBigUInt64LE(BigInt(alignedOffset), newCmdOffset + 40); // fileoff
+  w.writeBigUInt64LE(BigInt(blobSize), newCmdOffset + 48); // filesize
+  w.writeInt32LE(VM_PROT_READ, newCmdOffset + 56);         // maxprot
+  w.writeInt32LE(VM_PROT_READ, newCmdOffset + 60);         // initprot
+  w.writeUInt32LE(1, newCmdOffset + 64);                   // nsects
+  w.writeUInt32LE(0, newCmdOffset + 68);                   // flags
+
+  // section_64 (80 bytes) — immediately after segment command
+  const secOffset = newCmdOffset + SEGMENT_CMD_SIZE;
+  w.write(sectionName.padEnd(16, '\0'), secOffset, 16, 'ascii');       // sectname
+  w.write(segmentName.padEnd(16, '\0'), secOffset + 16, 16, 'ascii');  // segname
+  w.writeBigUInt64LE(newVmAddr, secOffset + 32);           // addr
+  w.writeBigUInt64LE(BigInt(blobSize), secOffset + 40);    // size
+  w.writeUInt32LE(alignedOffset, secOffset + 48);          // offset
+  w.writeUInt32LE(0, secOffset + 52);                      // align
+  w.writeUInt32LE(0, secOffset + 56);                      // reloff
+  w.writeUInt32LE(0, secOffset + 60);                      // nreloc
+  w.writeUInt32LE(0, secOffset + 64);                      // flags
+  w.writeUInt32LE(0, secOffset + 68);                      // reserved1
+  w.writeUInt32LE(0, secOffset + 72);                      // reserved2
+  w.writeUInt32LE(0, secOffset + 76);                      // reserved3 (padding to 80)
+
+  // ── 7. Update header ──────────────────────────────────────────────────────
+  w.writeUInt32LE(ncmds + 1, 16);                          // ncmds
+  w.writeUInt32LE(sizeofcmds + NEW_CMD_SIZE, 20);          // sizeofcmds
+
+  console.log(`[MACHO] Added segment "${segmentName}" section "${sectionName}": ` +
+    `fileoff=0x${alignedOffset.toString(16)}, size=${blobSize}, vmaddr=0x${newVmAddr.toString(16)}`);
+
+  return result;
 }
 
 /**
- * Ensure the SEA fuse is flipped to `:1` in the binary.
+ * Inject SEA blob on macOS via direct Mach-O binary patching.
  *
- * postject should flip it, but if LIEF re-introduced duplicates during
- * Mach-O reconstruction, we do it ourselves as a safety net.
- */
-function ensureFuseFlipped(binaryPath: string, sentinel: string): void {
-  const buf = fs.readFileSync(binaryPath);
-  const fuseOn = Buffer.from(`${sentinel}:1`);
-  const fuseOff = Buffer.from(`${sentinel}:0`);
-
-  if (buf.indexOf(fuseOn) !== -1) {
-    console.log('[FUSE] Fuse already flipped to :1');
-    return;
-  }
-
-  const idx = buf.indexOf(fuseOff);
-  if (idx === -1) {
-    throw new Error(`[FUSE] Could not find "${sentinel}:0" or "${sentinel}:1" in ${binaryPath}`);
-  }
-
-  fuseOn.copy(buf, idx);
-  fs.writeFileSync(binaryPath, buf);
-  console.log(`[FUSE] Flipped fuse at offset 0x${idx.toString(16)}`);
-}
-
-/**
- * Inject SEA blob on macOS using sentinel deduplication + postject.
+ * Bypasses postject/LIEF entirely to avoid sentinel duplication issues:
+ *   1. addMachOSection() writes an LC_SEGMENT_64 + section_64 with the blob
+ *   2. Binary-patch the fuse: find `SENTINEL:0` → change to `SENTINEL:1`
  *
- * Node.js v24 binaries contain duplicate sentinel fuse strings that cause
- * postject's uniqueness check to fail. We pre-deduplicate, then let postject
- * (which uses LIEF) correctly create the Mach-O segment/section.
- *
- * Unlike ELF (Linux), LIEF's Mach-O reconstruction does not re-introduce
- * sentinel duplicates, so postject works correctly after deduplication.
+ * Node.js SEA runtime uses getsectiondata("NODE_SEA", "NODE_SEA_BLOB", &size)
+ * which only needs a valid LC_SEGMENT_64 with matching names and correct offsets.
  */
 function injectBlobDarwin(binaryPath: string, blobPath: string): void {
   const SENTINEL = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
+  const bin = fs.readFileSync(binaryPath);
+  const blob = fs.readFileSync(blobPath);
 
-  // Step 1: Deduplicate sentinel (Node.js v24 has duplicates that fail postject)
-  deduplicateSentinel(binaryPath, SENTINEL);
+  // Step 1: Inject blob as Mach-O section (no LIEF, no postject)
+  const patched = addMachOSection(bin, 'NODE_SEA', 'NODE_SEA_BLOB', blob);
 
-  // Step 2: Inject blob via postject (LIEF handles Mach-O section creation correctly)
-  run(
-    `npx postject "${binaryPath}" NODE_SEA_BLOB "${blobPath}" ` +
-    `--sentinel-fuse ${SENTINEL} --macho-segment-name NODE_SEA`,
-    'Inject SEA blob via postject (macOS)',
-  );
+  // Step 2: Flip fuse :0 → :1
+  const fuseBefore = Buffer.from(`${SENTINEL}:0`);
+  const fuseAfter  = Buffer.from(`${SENTINEL}:1`);
+  const idx = patched.indexOf(fuseBefore);
+  if (idx === -1) {
+    throw new Error(`[FUSE] Could not find "${SENTINEL}:0" in ${binaryPath}`);
+  }
+  fuseAfter.copy(patched, idx);
 
-  // Step 3: Verify fuse is flipped; postject should do this, but if LIEF
-  // re-introduced duplicates, do it ourselves
-  ensureFuseFlipped(binaryPath, SENTINEL);
+  fs.writeFileSync(binaryPath, patched);
+  fs.chmodSync(binaryPath, 0o755);
+  console.log(`[FUSE] Flipped fuse at offset 0x${idx.toString(16)}`);
 }
 
 /**
