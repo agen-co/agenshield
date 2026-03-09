@@ -22,6 +22,8 @@ export interface WorkspaceSkill {
   cloudSkillId?: string;
   removedAt?: string;
   aclApplied: boolean;
+  managed: boolean;
+  managedSource?: string;
   createdAt: string;
   updatedAt: string;
 }

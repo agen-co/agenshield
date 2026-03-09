@@ -139,6 +139,9 @@ export * from './policy-graph/index';
 // Workspace skills governance
 export * from './workspace-skills/index';
 
+// MCP servers
+export * from './mcps/index';
+
 // Request context (multi-tenancy)
 export * from './context/index';
 

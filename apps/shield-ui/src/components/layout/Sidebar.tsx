@@ -38,6 +38,7 @@ import {
   ExternalLink,
   Monitor,
   Plus,
+  Server,
 } from 'lucide-react';
 import { useSnapshot } from 'valtio';
 import { tokens } from '../../styles/tokens';
@@ -70,6 +71,7 @@ const SYSTEM_ITEMS = [
   { path: '/secrets', label: 'Secrets', icon: <KeyRound size={20} /> },
   { path: '/activity', label: 'Activity', icon: <Activity size={20} /> },
   { path: '/integrations', label: 'Integrations', icon: <Plug size={20} /> },
+  { path: '/mcps', label: 'MCP Servers', icon: <Server size={20} /> },
   { path: '/settings', label: 'Settings', icon: <Settings size={20} /> },
 ];
 

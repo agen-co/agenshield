@@ -51,6 +51,7 @@ export const PAGE_ZOOM_TARGETS: Record<string, string> = {
   overview: 'monitoring',
   settings: 'agenshield',
   metrics: 'metrics-cluster',
+  mcps: 'agenshield',
   target: 'agenshield', // fallback — overridden per-target in Canvas.tsx
 };
 

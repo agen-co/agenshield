@@ -34,6 +34,8 @@ export const queryKeys = {
   fsBrowse: (dirPath: string) => ['fs', 'browse', dirPath] as const,
   workspaceSkills: ['workspace-skills'] as const,
   workspaceSkillsPendingCount: ['workspace-skills', 'pending-count'] as const,
+  mcpServers: ['mcp-servers'] as const,
+  mcpServerCapabilities: (id: string) => ['mcp-servers', id, 'capabilities'] as const,
 };
 
 /**
@@ -747,6 +749,117 @@ export function useScanWorkspaceSkills() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkills });
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkillsPendingCount });
+    },
+  });
+}
+
+// ===== MCP Servers =====
+
+export function useMcpServers(filter?: { profileId?: string; source?: string; status?: string }) {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: [...queryKeys.mcpServers, filter] as const,
+    queryFn: () => api.mcps.getAll(filter),
+    enabled: healthy,
+  });
+}
+
+export function useMcpServer(id: string) {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: [...queryKeys.mcpServers, id] as const,
+    queryFn: () => api.mcps.getById(id),
+    enabled: healthy && !!id,
+  });
+}
+
+export function useCreateMcpServer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof api.mcps.create>[0]) => api.mcps.create(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcpServers });
+    },
+  });
+}
+
+export function useUpdateMcpServer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: Parameters<typeof api.mcps.update>[1] }) =>
+      api.mcps.update(id, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcpServers });
+    },
+  });
+}
+
+export function useDeleteMcpServer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.mcps.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcpServers });
+    },
+  });
+}
+
+export function useEnableMcpServer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.mcps.enable(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcpServers });
+    },
+  });
+}
+
+export function useDisableMcpServer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.mcps.disable(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcpServers });
+    },
+  });
+}
+
+export function useApproveMcpServer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.mcps.approve(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcpServers });
+    },
+  });
+}
+
+export function useScanMcpServers() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.mcps.scan(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcpServers });
+    },
+  });
+}
+
+export function useMcpServerCapabilities(id: string, enabled = true) {
+  const healthy = useHealthGate();
+  return useQuery({
+    queryKey: queryKeys.mcpServerCapabilities(id),
+    queryFn: () => api.mcpCapabilities.get(id),
+    enabled: healthy && enabled && !!id,
+    staleTime: 30_000,
+  });
+}
+
+export function useRefreshMcpCapabilities() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.mcpCapabilities.get(id, true),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.mcpServerCapabilities(id) });
     },
   });
 }

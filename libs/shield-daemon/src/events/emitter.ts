@@ -132,6 +132,7 @@ function deriveSource(type: string, data: unknown, profileId?: string): string {
   if (type.startsWith('enforcement:')) return profile ?? 'daemon';
   if (type.startsWith('resource:')) return profile ?? 'system';
   if (type.startsWith('metrics:')) return 'system';
+  if (type.startsWith('mcp:')) return 'daemon';
   if (type.startsWith('targets:') || type.startsWith('target:')) return 'daemon';
   if (type.startsWith('executables:')) return 'daemon';
   if (type.startsWith('auto-shield:')) return 'daemon';

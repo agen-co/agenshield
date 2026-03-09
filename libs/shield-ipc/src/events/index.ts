@@ -174,3 +174,13 @@ export {
   type ExecutableScanCompletePayload,
   EXECUTABLE_EVENT_TYPES,
 } from './executable.events';
+
+export {
+  type McpServerAddedPayload,
+  type McpServerRemovedPayload,
+  type McpServerStatusChangedPayload,
+  type McpUnauthorizedDetectedPayload,
+  type McpConfigTamperedPayload,
+  type McpCloudSyncPayload,
+  MCP_EVENT_TYPES,
+} from './mcp.events';

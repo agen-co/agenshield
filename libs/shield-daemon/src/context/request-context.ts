@@ -12,6 +12,7 @@ import type { ProfileSocketManager } from '../services/profile-sockets';
 import type { PrivilegeExecutor } from '../services/privilege-executor';
 import type { ProcessManager } from '../services/process-manager';
 import type { WorkspaceSkillScanner } from '../services/workspace-skill-scanner';
+import type { McpManager } from '../services/mcp-manager';
 import {
   type ShieldContext,
   type ShieldRequestSource,
@@ -30,6 +31,7 @@ declare module 'fastify' {
     privilegeExecutor?: PrivilegeExecutor;
     processManager?: ProcessManager;
     workspaceSkillScanner?: WorkspaceSkillScanner;
+    mcpManager?: McpManager;
   }
 }
 

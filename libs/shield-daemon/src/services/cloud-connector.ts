@@ -164,10 +164,14 @@ export class CloudConnector {
         log.info('[cloud] WebSocket connected');
         resolve();
 
-        // Pull policies after connecting
+        // Pull policies and MCP servers after connecting
         this.pullPoliciesWithRetry().catch((err) => {
           const rlog = getLogger();
           rlog.warn({ err }, '[cloud] Initial policy pull failed after all retries');
+        });
+        this.pullMcpServers().catch((err) => {
+          const rlog = getLogger();
+          rlog.warn({ err }, '[cloud] Initial MCP servers pull failed');
         });
       });
 
@@ -247,6 +251,11 @@ export class CloudConnector {
         await this.handlePushForcedSkills(command.params);
         break;
 
+      case 'push_mcp_servers':
+        log.info(`[cloud] Received MCP servers push: ${JSON.stringify(command.params).slice(0, 200)}`);
+        await this.handlePushMcpServers(command.params);
+        break;
+
       case 'ping':
         // Respond to server ping
         if (this.ws?.readyState === 1) { // WebSocket.OPEN
@@ -315,11 +324,15 @@ export class CloudConnector {
       await this.pollCommands();
     }, POLL_INTERVAL);
 
-    // Initial poll + pull policies
+    // Initial poll + pull policies + MCP servers
     this.pollCommands();
     this.pullPoliciesWithRetry().catch((err) => {
       const rlog = getLogger();
       rlog.warn({ err }, '[cloud] Initial policy pull failed after all retries (polling)');
+    });
+    this.pullMcpServers().catch((err) => {
+      const rlog = getLogger();
+      rlog.warn({ err }, '[cloud] Initial MCP servers pull failed (polling)');
     });
   }
 
@@ -692,6 +705,87 @@ export class CloudConnector {
       } catch (err) {
         log.warn(`[cloud] Failed to push forced skill ${skill.name}: ${(err as Error).message}`);
       }
+    }
+  }
+
+  /**
+   * Handle cloud-pushed MCP servers.
+   * Replaces all managed MCP servers from the given source with the new set.
+   */
+  private async handlePushMcpServers(params: Record<string, unknown>): Promise<void> {
+    const log = getLogger();
+    const servers = params.servers as Array<Record<string, unknown>> | undefined;
+    const source = (params.source as string) ?? 'cloud';
+
+    if (!Array.isArray(servers)) {
+      log.warn('[cloud] push_mcp_servers: missing or invalid servers array');
+      return;
+    }
+
+    try {
+      const { getMcpManager } = await import('./mcp-manager');
+      const manager = getMcpManager();
+      const result = manager.applyManagedPush(
+        servers.map((s) => ({
+          name: (s.name as string) ?? '',
+          slug: (s.slug as string) ?? '',
+          transport: ((s.transport as string) ?? 'stdio') as 'stdio' | 'sse' | 'streamable-http',
+          description: (s.description as string) ?? '',
+          url: (s.url as string) ?? null,
+          command: (s.command as string) ?? null,
+          args: (s.args as string[]) ?? [],
+          env: (s.env as Record<string, string>) ?? {},
+          headers: (s.headers as Record<string, string>) ?? {},
+          authType: ((s.authType as string) ?? 'none') as 'none' | 'oauth' | 'apikey' | 'bearer',
+          authConfig: (s.authConfig as Record<string, unknown>) ?? null,
+          source: 'cloud' as const,
+          supportedTargets: (s.supportedTargets as string[]) ?? [],
+        })),
+        source,
+      );
+      log.info(`[cloud] MCP servers push: added=${result.added}, removed=${result.removed}`);
+    } catch (err) {
+      log.warn(`[cloud] Failed to apply MCP servers push: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Pull MCP servers from the cloud policy server.
+   */
+  async pullMcpServers(): Promise<void> {
+    if (!this.credentials) return;
+
+    const log = getLogger();
+    try {
+      const url = new URL(
+        `/api/agents/${this.credentials.agentId}/mcp-servers`,
+        this.credentials.cloudUrl,
+      );
+
+      const authHeader = this.makeAuthHeader();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: authHeader },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} pulling MCP servers`);
+      }
+
+      const body = await res.json() as { source?: string; servers?: Array<Record<string, unknown>> };
+      if (body.servers && Array.isArray(body.servers)) {
+        await this.handlePushMcpServers({
+          source: body.source ?? 'cloud',
+          servers: body.servers,
+        });
+        log.info(`[cloud] Pulled ${body.servers.length} MCP servers from cloud`);
+      }
+    } catch (err) {
+      log.warn({ err }, '[cloud] Failed to pull MCP servers');
     }
   }
 }

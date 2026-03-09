@@ -30,6 +30,7 @@ import { PolicySetRepository } from './repositories/policy-set';
 import { MetricsRepository } from './repositories/metrics';
 import { BinarySignatureRepository } from './repositories/binary-signature';
 import { WorkspaceSkillsRepository } from './repositories/workspace-skills';
+import { McpServerRepository } from './repositories/mcps';
 
 export interface ScopedStorage {
   readonly config: ConfigRepository;
@@ -64,6 +65,7 @@ export class Storage {
   readonly metrics: MetricsRepository;
   readonly binarySignatures: BinarySignatureRepository;
   readonly workspaceSkills: WorkspaceSkillsRepository;
+  readonly mcpServers: McpServerRepository;
 
   private constructor(db: Database.Database, activityDb: Database.Database) {
     this.db = db;
@@ -86,6 +88,7 @@ export class Storage {
     this.metrics = new MetricsRepository(db);
     this.binarySignatures = new BinarySignatureRepository(db, getKey);
     this.workspaceSkills = new WorkspaceSkillsRepository(db, getKey);
+    this.mcpServers = new McpServerRepository(db, getKey);
   }
 
   /**

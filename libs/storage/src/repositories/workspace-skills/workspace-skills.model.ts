@@ -19,6 +19,8 @@ export function mapWorkspaceSkill(row: DbWorkspaceSkillRow): WorkspaceSkill {
     cloudSkillId: row.cloud_skill_id ?? undefined,
     removedAt: row.removed_at ?? undefined,
     aclApplied: row.acl_applied === 1,
+    managed: row.managed === 1,
+    managedSource: row.managed_source ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

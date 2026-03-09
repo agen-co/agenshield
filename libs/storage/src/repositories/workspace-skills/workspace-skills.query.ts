@@ -30,4 +30,6 @@ export const Q = {
   countByStatusAndProfile: `SELECT COUNT(*) as count FROM ${TABLE} WHERE status = @status AND profile_id = @profileId`,
 
   deleteById: `DELETE FROM ${TABLE} WHERE id = ?`,
+
+  deleteManagedBySource: `DELETE FROM ${TABLE} WHERE managed = 1 AND managed_source = @source`,
 } as const;

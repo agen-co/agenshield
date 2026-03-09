@@ -12,6 +12,7 @@
  */
 
 import type { Profile, InstallManifest, ManifestEntry } from '@agenshield/ipc';
+import { getStorage } from '@agenshield/storage';
 import { computeFileHash } from '../services/process-fingerprint';
 import { getSystemExecutor } from '../workers/system-command';
 import { emitBinaryDrifted, emitRePatched } from '../events/emitter';
@@ -233,7 +234,6 @@ echo "RE_PATCHED"
 
     // Persist updated manifest via storage
     try {
-      const { getStorage } = await import('@agenshield/storage');
       const storage = getStorage();
       storage.profiles.updateManifest(profile.id, updatedManifest);
     } catch (err) {

@@ -6,8 +6,46 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import type { ApiResponse, DetectedTarget, TargetType } from '@agenshield/ipc';
+import type { ApiResponse, DetectedTarget, TargetType, OldInstallation, AgentProcessInfo, ProcessEventPayload, Profile } from '@agenshield/ipc';
+import type { PresetDetectionResult, ClaudeConfigCategory } from '@agenshield/sandbox';
 import { migrationStatePath, MIGRATION_STATE_PATH } from '@agenshield/ipc';
+import {
+  listPresets,
+  getPreset,
+  resolvePresetId,
+  createUserConfig,
+  createPathsConfig,
+  generateAgentProfile,
+  generateBrokerPlist,
+  generateBrokerLauncherScript,
+  guardedShellPath,
+  GUARDED_SHELL_CONTENT,
+  zdotDir,
+  zdotZshenvContent,
+  zdotZshrcContent,
+  deployInterceptor,
+  installSpecificWrappers,
+  installBasicCommands,
+  getDefaultWrapperConfig,
+  WRAPPER_DEFINITIONS,
+  copyBrokerBinary,
+  copyShieldClient,
+  installSeatbeltProfiles,
+  findOriginalBinary,
+  addRegistryInstance,
+  generateRouterWrapper,
+  buildInstallRouterCommands,
+  buildInstallUserLocalRouterCommands,
+  generatePromptHelper,
+  getMacAppBundlePath,
+  getRollbackHandler,
+  removeRegistryInstance,
+  buildRemoveRouterCommands,
+  buildRemoveUserLocalRouterCommands,
+  pathRegistryPath,
+  scanForRouterWrappers,
+} from '@agenshield/sandbox';
+import { expandSensitiveHomePaths } from '@agenshield/broker';
 import { getStorage } from '@agenshield/storage';
 import { emitEvent } from '../events/emitter';
 import { triggerTargetCheck, checkProcessesRunning, checkOpenClawRunning, listClaudeProcesses, listOpenClawProcesses, resolveAgentUid, clearUidCaches, getProcessSnapshot } from '../watchers/targets';
@@ -89,7 +127,6 @@ export async function detectTargets(): Promise<DetectedTarget[]> {
   const representedProfileIds = new Set<string>();
 
   try {
-    const { listPresets } = await import('@agenshield/sandbox');
     const presets = listPresets();
     let profiles: Array<{ id: string; name?: string; presetId?: string; type?: string }> = [];
 
@@ -153,7 +190,7 @@ export async function detectTargets(): Promise<DetectedTarget[]> {
 
     // Phase 2: Append profiles whose preset was NOT detected (e.g. binary
     // was uninstalled but profile still exists in storage).
-    const { getPreset: getPresetFn } = await import('@agenshield/sandbox');
+    const getPresetFn = getPreset;
     for (const profile of profiles) {
       if ((profile as { type?: string }).type !== 'target' || !profile.presetId) continue;
       if (representedProfileIds.has(profile.id)) continue;
@@ -178,8 +215,8 @@ export async function detectTargets(): Promise<DetectedTarget[]> {
   return targets;
 }
 
-export async function detectOldInstallations(): Promise<import('@agenshield/ipc').OldInstallation[]> {
-  const installations: import('@agenshield/ipc').OldInstallation[] = [];
+export async function detectOldInstallations(): Promise<OldInstallation[]> {
+  const installations: OldInstallation[] = [];
 
   try {
     const { execSync } = await import('node:child_process');
@@ -258,7 +295,7 @@ interface TargetInfo {
   binaryPath?: string;
   gatewayPort?: number;
   pid?: number;
-  processes?: import('@agenshield/ipc').AgentProcessInfo[];
+  processes?: AgentProcessInfo[];
 }
 
 // ── Route registration ──────────────────────────────────────────
@@ -507,15 +544,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         currentStep = 'initializing';
         log('Resolving target preset...', 'initializing');
         shieldLog.step('resolve_preset', `Resolving target preset for ${targetId}...`);
-        const {
-          getPreset,
-          resolvePresetId,
-          createUserConfig,
-          createPathsConfig,
-          generateAgentProfile,
-          generateBrokerPlist,
-          generateBrokerLauncherScript,
-        } = await import('@agenshield/sandbox');
         const basePresetId = resolvePresetId(targetId);
         const preset = getPreset(basePresetId);
         if (!preset) {
@@ -526,7 +554,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         }
 
         // Run detection for install context
-        let detection: import('@agenshield/sandbox').PresetDetectionResult | undefined;
+        let detection: PresetDetectionResult | undefined;
         try {
           const result = await preset.detect();
           if (result) detection = result;
@@ -724,14 +752,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         log('Installing guarded shell...', 'installing_guarded_shell');
         shieldLog.step('installing_guarded_shell', 'Installing guarded shell launcher and ZDOTDIR...');
         try {
-          const {
-            guardedShellPath,
-            GUARDED_SHELL_CONTENT,
-            zdotDir,
-            zdotZshenvContent,
-            zdotZshrcContent,
-          } = await import('@agenshield/sandbox');
-
           // Per-target guarded-shell binary path
           const shellPath = guardedShellPath(agentHome);
           // Per-target ZDOTDIR under agent home
@@ -812,13 +832,11 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         shieldLog.step('installing_wrappers', `Installing command wrappers (${preset.requiredBins.join(', ')})...`);
         const binDir = `${agentHome}/bin`;
 
-        const {
-          deployInterceptor: deployInterceptorFn,
-          installSpecificWrappers: installSpecificWrappersFn,
-          installBasicCommands: installBasicCommandsFn,
-          getDefaultWrapperConfig: getDefaultWrapperConfigFn,
-          WRAPPER_DEFINITIONS: wrapperDefs,
-        } = await import('@agenshield/sandbox');
+        const deployInterceptorFn = deployInterceptor;
+        const installSpecificWrappersFn = installSpecificWrappers;
+        const installBasicCommandsFn = installBasicCommands;
+        const getDefaultWrapperConfigFn = getDefaultWrapperConfig;
+        const wrapperDefs = WRAPPER_DEFINITIONS;
 
         // 4a. Deploy interceptor (conditional — skip if no wrapper uses it)
         tracker.startStep('deploy_interceptor');
@@ -849,7 +867,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         log('Deploying broker binary...', 'installing_wrappers');
         shieldLog.info('Deploying broker binary to shared bin dir');
         try {
-          const { copyBrokerBinary } = await import('@agenshield/sandbox');
           const brokerResult = await copyBrokerBinary(userConfig, hostHome);
           if (!brokerResult.success) {
             request.log.warn({ targetId }, `Broker binary deploy failed: ${brokerResult.message}`);
@@ -889,7 +906,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         log('Deploying shield-client...', 'installing_wrappers');
         shieldLog.info('Deploying shield-client binary for wrapper scripts');
         try {
-          const { copyShieldClient: copyShieldClientFn } = await import('@agenshield/sandbox');
+          const copyShieldClientFn = copyShieldClient;
           const clientResult = await copyShieldClientFn(userConfig, hostHome);
           if (!clientResult.success) {
             request.log.warn({ targetId }, `Shield-client deploy partial: ${clientResult.message}`);
@@ -938,8 +955,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           log('Installing seatbelt profiles...', 'installing_wrappers');
           shieldLog.info('Generating and installing seatbelt profiles');
           try {
-            const { installSeatbeltProfiles } = await import('@agenshield/sandbox');
-            const { expandSensitiveHomePaths } = await import('@agenshield/broker');
             const agentProfile = generateAgentProfile({
               workspacePath: `${agentHome}/workspace`,
               socketPath: `${agentHome}/.agenshield/run/agenshield.sock`,
@@ -999,15 +1014,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         log('Installing PATH router override...', 'path_override');
         shieldLog.step('path_override', 'Installing PATH router override...');
         try {
-          const {
-            findOriginalBinary,
-            addRegistryInstance,
-            generateRouterWrapper,
-            buildInstallRouterCommands,
-            buildInstallUserLocalRouterCommands,
-            generatePromptHelper,
-          } = await import('@agenshield/sandbox');
-
           // Determine the binary name from base preset ID (e.g. 'claude-code' → 'claude')
           const binName = basePresetId.split('-')[0];
 
@@ -1217,7 +1223,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             },
             profileBaseName: resolvedBaseName,
             freshInstall: body.freshInstall,
-            configCopyCategories: body.configCopyCategories as import('@agenshield/sandbox').ClaudeConfigCategory[] | undefined,
+            configCopyCategories: body.configCopyCategories as ClaudeConfigCategory[] | undefined,
             enforcementMode,
           });
 
@@ -1250,7 +1256,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         currentStep = 'generating_seatbelt';
         log('Generating seatbelt security profile...', 'generating_seatbelt');
         shieldLog.step('generating_seatbelt', 'Generating seatbelt security profile...');
-        const { expandSensitiveHomePaths: expandPaths } = await import('@agenshield/broker');
+        const expandPaths = expandSensitiveHomePaths;
         const seatbeltProfile = generateAgentProfile({
           workspacePath: `${agentHome}/workspace`,
           socketPath: pathsConfig.socketPath,
@@ -1333,7 +1339,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           } else {
             // Try to install from embedded bundle (best-effort)
             try {
-              const { getMacAppBundlePath } = await import('@agenshield/sandbox');
               const embeddedApp = getMacAppBundlePath();
               if (embeddedApp) {
                 const cpResult = await executor.execAsRoot(
@@ -1377,7 +1382,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         const plistPath = `/Library/LaunchDaemons/${brokerLabel}.plist`;
         shieldLog.fileContent('Broker plist', plistPath, plistContent);
         shieldLog.launchdEvent('load', brokerLabel, plistPath);
-        emitEvent('process:started', { process: 'broker', action: 'spawning', pid: undefined } as import('@agenshield/ipc').ProcessEventPayload);
+        emitEvent('process:started', { process: 'broker', action: 'spawning', pid: undefined } as ProcessEventPayload);
         shieldLog.processEvent('spawning', brokerLabel, { user: brokerUser, plistPath });
 
         // Fix log directory permissions BEFORE bootstrap so broker can write logs immediately
@@ -1760,7 +1765,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             const gatewayLabel = `com.agenshield.${resolvedBaseName}.gateway`;
             shieldLog.launchdEvent('load', gatewayLabel, gatewayPlistPath);
             shieldLog.processEvent('spawning', gatewayLabel, { user: agentUser, plistPath: gatewayPlistPath });
-            emitEvent('process:started', { process: 'gateway', action: 'spawning', pid: undefined } as import('@agenshield/ipc').ProcessEventPayload);
+            emitEvent('process:started', { process: 'gateway', action: 'spawning', pid: undefined } as ProcessEventPayload);
 
             await executor.execAsRoot(
               `sudo launchctl bootout system/${gatewayLabel} 2>/dev/null; true\nsudo launchctl bootstrap system "${gatewayPlistPath}"\nsudo launchctl kickstart system/${gatewayLabel}`,
@@ -1925,7 +1930,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         // ── Rollback completed steps so the target can be re-shielded ──
         if (manifestBuilder) {
           try {
-            const { getRollbackHandler } = await import('@agenshield/sandbox');
             const manifest = manifestBuilder.build();
             const entries = manifest.entries
               .filter(e => e.status === 'completed' && e.changed)
@@ -2033,9 +2037,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           log('Using manifest-driven rollback...', 'rollback');
           emitEvent('setup:shield_progress', { targetId, step: 'rollback', progress: 5, message: 'Rolling back via manifest...' }, profile.id);
 
-          // Import rollback registry (side-effect: registers all handlers)
-          const { getRollbackHandler } = await import('@agenshield/sandbox');
-
           // Resolve host home for rollback context
           let hostHome = '';
           let hostUsername = '';
@@ -2126,14 +2127,6 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           emitEvent('setup:shield_progress', { targetId, step: 'removing_path', progress: 15, message: 'Removing PATH override...' }, profile.id);
           log('Removing PATH router override...', 'removing_path');
           try {
-            const {
-              resolvePresetId,
-              removeRegistryInstance,
-              buildRemoveRouterCommands,
-              buildRemoveUserLocalRouterCommands,
-              pathRegistryPath,
-            } = await import('@agenshield/sandbox');
-
             const basePresetId = resolvePresetId(profile.presetId ?? targetId);
             const binName = basePresetId.split('-')[0];
 
@@ -2604,24 +2597,10 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
 
     try {
       const storage = getStorage();
-      const allProfiles = storage.profiles.getAll() as import('@agenshield/ipc').Profile[];
+      const allProfiles = storage.profiles.getAll() as Profile[];
       const targetProfiles = allProfiles.filter(
         (p) => p.type === 'target' && p.agentHomeDir && p.presetId,
       );
-
-      const {
-        guardedShellPath,
-        GUARDED_SHELL_CONTENT,
-        zdotDir,
-        zdotZshenvContent,
-        zdotZshrcContent,
-        getPreset,
-        scanForRouterWrappers,
-        generateRouterWrapper,
-        buildInstallRouterCommands,
-        buildInstallUserLocalRouterCommands,
-        generatePromptHelper,
-      } = await import('@agenshield/sandbox');
 
       // Resolve host username (daemon may run as root / LaunchDaemon)
       let hostUsername = '';
