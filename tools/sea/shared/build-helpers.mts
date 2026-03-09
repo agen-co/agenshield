@@ -145,22 +145,21 @@ export function injectBlob(opts: InjectOptions): void {
     }
   }
 
-  // Linux: deduplicate sentinel fuse occurrences in ELF binary.
-  // Node.js v24 embeds the sentinel in multiple ELF sections (.rodata, .note*, string tables).
-  // postject requires exactly one occurrence. Zero out duplicates, keeping the real fuse.
   if (platform === 'linux') {
-    deduplicateSentinel(binaryPath, 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2');
+    // Linux: bypass postject. LIEF's ELF reconstruction duplicates the sentinel
+    // in rebuilt string tables, causing postject's uniqueness check to fail on
+    // Node.js v24. Use objcopy to add the section + binary-patch the fuse.
+    injectBlobLinux(binaryPath, blobPath);
+  } else {
+    // macOS / Windows: use postject (works correctly with Mach-O / PE)
+    const machoFlag = platform === 'darwin' ? '--macho-segment-name NODE_SEA' : '';
+    run(
+      `npx postject "${binaryPath}" NODE_SEA_BLOB "${blobPath}" ` +
+      `--sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 ` +
+      machoFlag,
+      'Inject SEA blob into binary',
+    );
   }
-
-  // Inject the blob using postject
-  const machoFlag = platform === 'darwin' ? '--macho-segment-name NODE_SEA' : '';
-
-  run(
-    `npx postject "${binaryPath}" NODE_SEA_BLOB "${blobPath}" ` +
-    `--sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 ` +
-    machoFlag,
-    'Inject SEA blob into binary',
-  );
 
   // macOS: code signing
   if (platform === 'darwin') {
@@ -217,49 +216,40 @@ export function codesignBinary(
 }
 
 /**
- * Zero out duplicate occurrences of the SEA sentinel fuse in an ELF binary.
+ * Inject SEA blob on Linux without postject.
  *
- * Node.js v24 embeds the sentinel string in multiple ELF sections (.rodata,
- * .note*, .dynstr, string tables). `postject` requires exactly one occurrence.
- * `strip`/`objcopy` cannot remove these without breaking the binary because
- * the sentinel lives in essential sections. This function patches the raw bytes
- * directly — zeroing out every copy except the real fuse (the one followed by
- * `:` which is the fuse state delimiter, e.g. `...b2:0`).
+ * postject uses LIEF internally, which reconstructs the ELF binary in memory
+ * and re-introduces copies of the sentinel string in rebuilt string tables.
+ * postject's uniqueness check then fails. This function bypasses postject/LIEF
+ * entirely:
+ *   1. `objcopy --add-section` adds the blob as a named ELF section
+ *   2. Binary-patch the fuse: find `SENTINEL:0` → change to `SENTINEL:1`
+ *
+ * Node.js SEA runtime reads `/proc/self/exe`, walks ELF section headers,
+ * and looks up sections by name — section type doesn't matter.
  */
-function deduplicateSentinel(binaryPath: string, sentinel: string): void {
+function injectBlobLinux(binaryPath: string, blobPath: string): void {
+  const SENTINEL = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
+
+  // Step 1: Add the blob as an ELF section
+  run(
+    `objcopy --add-section NODE_SEA_BLOB="${blobPath}" --set-section-flags NODE_SEA_BLOB=noload,readonly "${binaryPath}"`,
+    'Inject SEA blob via objcopy (Linux)',
+  );
+
+  // Step 2: Flip the fuse from :0 to :1
+  const fuseBefore = Buffer.from(`${SENTINEL}:0`);
+  const fuseAfter  = Buffer.from(`${SENTINEL}:1`);
   const buf = fs.readFileSync(binaryPath);
-  const sentinelBuf = Buffer.from(sentinel);
+  const idx = buf.indexOf(fuseBefore);
 
-  // Find all occurrences
-  const occurrences: number[] = [];
-  let offset = 0;
-  while (true) {
-    const idx = buf.indexOf(sentinelBuf, offset);
-    if (idx === -1) break;
-    occurrences.push(idx);
-    offset = idx + sentinelBuf.length;
+  if (idx === -1) {
+    throw new Error(`[FUSE] Could not find "${SENTINEL}:0" in ${binaryPath}`);
   }
 
-  if (occurrences.length <= 1) {
-    console.log(`[SENTINEL] Found ${occurrences.length} occurrence(s) — no deduplication needed`);
-    return;
-  }
-
-  // Find the real fuse — followed by ':' (0x3A) for the fuse state
-  let fuseIdx = occurrences.find(idx => buf[idx + sentinelBuf.length] === 0x3A);
-  if (fuseIdx === undefined) fuseIdx = occurrences[0];
-
-  // Zero out duplicates
-  let removed = 0;
-  for (const idx of occurrences) {
-    if (idx !== fuseIdx) {
-      buf.fill(0, idx, idx + sentinelBuf.length);
-      removed++;
-    }
-  }
-
+  fuseAfter.copy(buf, idx);
   fs.writeFileSync(binaryPath, buf);
-  console.log(`[SENTINEL] Removed ${removed} duplicate(s), kept fuse at offset 0x${fuseIdx.toString(16)}`);
+  console.log(`[FUSE] Flipped fuse at offset 0x${idx.toString(16)}`);
 }
 
 /**
