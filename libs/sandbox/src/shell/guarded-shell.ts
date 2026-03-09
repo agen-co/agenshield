@@ -69,15 +69,15 @@ unset PYTHONPATH NODE_PATH RUBYLIB PERL5LIB
 unset SSH_ASKPASS LD_PRELOAD
 
 # Dynamically resolve the calling user's home for per-target ZDOTDIR
-_ASH_HOME="\$(/usr/bin/dscl . -read /Users/\$(/usr/bin/id -un) NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print \$2}')"
-[ -z "\$_ASH_HOME" ] && _ASH_HOME="/Users/\$(/usr/bin/id -un)"
+_ASH_HOME="$(/usr/bin/dscl . -read /Users/$(/usr/bin/id -un) NFSHomeDirectory 2>/dev/null | /usr/bin/awk '{print $2}')"
+[ -z "$_ASH_HOME" ] && _ASH_HOME="/Users/$(/usr/bin/id -un)"
 export HOME="\${_ASH_HOME}"
 
 # Per-target ZDOTDIR under agent home
 export ZDOTDIR="\${_ASH_HOME}/.zdot"
 
 # Start zsh — it will read ZDOTDIR/.zshenv then ZDOTDIR/.zshrc
-exec /bin/zsh "\$@"
+exec /bin/zsh "$@"
 `;
 
 /**
@@ -140,8 +140,8 @@ export NODE_EXTRA_CA_CERTS="/etc/ssl/cert.pem"
   const nvmCheck = nvm ? `
   # NVM: check via whence (nvm commands are real binaries, not symlinks)
   local resolved
-  resolved="\$(whence -p -- "\$cmd" 2>/dev/null)" || return 1
-  [[ "\$resolved" == "$HOME/.nvm/"* ]] && return 0` : '';
+  resolved="$(whence -p -- "$cmd" 2>/dev/null)" || return 1
+  [[ "$resolved" == "$HOME/.nvm/"* ]] && return 0` : '';
 
   return `# AgenShield restricted .zshenv
 # Runs AFTER /etc/zshenv — overrides path_helper's full system PATH.
@@ -149,8 +149,8 @@ export NODE_EXTRA_CA_CERTS="/etc/ssl/cert.pem"
 # interactive shells and non-interactive \`zsh -c '...'\` are restricted.
 
 # ALWAYS set HOME based on actual user, never inherit
-export HOME="/Users/\$(/usr/bin/id -un)"
-export HISTFILE="\$HOME/.zsh_history"
+export HOME="/Users/$(/usr/bin/id -un)"
+export HISTFILE="$HOME/.zsh_history"
 
 # Suppress locale to prevent /etc/zshrc from calling locale command
 export LC_ALL=C LANG=C
@@ -176,10 +176,10 @@ is_allowed_cmd() {
   local cmd="$1"
 
   # Allow zsh reserved words (if, for, while, [[, case, etc.)
-  [[ "\$(whence -w "\$cmd" 2>/dev/null)" == *": reserved" ]] && return 0
+  [[ "$(whence -w "$cmd" 2>/dev/null)" == *": reserved" ]] && return 0
 
   # Allow shell builtins we explicitly permit
-  case "\$cmd" in
+  case "$cmd" in
     cd|pwd|echo|printf|test|true|false|exit|return|break|continue|shift|set|unset|export|typeset|local|declare|readonly|let|read|print|pushd|popd|dirs|jobs|fg|bg|kill|wait|times|ulimit|umask|history|fc|type|whence|which|where|rehash|setopt|unsetopt)
       return 0
       ;;
@@ -214,17 +214,17 @@ TRAPDEBUG() {
 
   local line="${'$'}{ZSH_DEBUG_CMD:-$1}"
   local cmd="${'$'}{line%%[[:space:]]*}"
-  [[ -z "\$cmd" ]] && return 0
+  [[ -z "$cmd" ]] && return 0
 
   # Skip variable assignments (e.g. resolved="$(whence ...)")
-  [[ "\$cmd" == *=* ]] && return 0
+  [[ "$cmd" == *=* ]] && return 0
 
   # Skip zsh reserved words ([[, if, for, while, case, etc.)
   __ash_guard=1
-  [[ "\$(whence -w "\$cmd" 2>/dev/null)" == *": reserved" ]] && { __ash_guard=0; return 0; }
+  [[ "$(whence -w "$cmd" 2>/dev/null)" == *": reserved" ]] && { __ash_guard=0; return 0; }
 
-  [[ "\$cmd" == */* ]] && { __ash_guard=0; print -r -- "Denied: direct path execution"; return 126; }
-  is_allowed_cmd "\$cmd" || { __ash_guard=0; print -r -- "Denied: \$cmd"; return 126; }
+  [[ "$cmd" == */* ]] && { __ash_guard=0; print -r -- "Denied: direct path execution"; return 126; }
+  is_allowed_cmd "$cmd" || { __ash_guard=0; print -r -- "Denied: $cmd"; return 126; }
   __ash_guard=0
   return 0
 }

@@ -27,7 +27,7 @@ export abstract class BaseInterceptor {
   protected policyEvaluator: PolicyEvaluator;
   protected eventReporter: EventReporter;
   protected failOpen: boolean;
-  protected installed: boolean = false;
+  protected installed = false;
   protected interceptorConfig?: InterceptorConfig;
   private brokerHttpPort: number;
 

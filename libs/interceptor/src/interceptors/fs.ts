@@ -13,9 +13,9 @@ import { PolicyDeniedError } from '../errors.js';
 import { debugLog } from '../debug-log.js';
 
 // Use require() for modules we need to monkey-patch (ESM imports are immutable)
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+ 
 const fsModule = require('node:fs') as typeof fs;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+ 
 const fsPromisesModule = require('node:fs/promises') as typeof fsPromises;
 
 /**
@@ -133,6 +133,7 @@ export class FsInterceptor extends BaseInterceptor {
     const key = `fs:${methodName}`;
     this.originals.set(key, original);
 
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
 
     safeOverride(module, methodName, function intercepted(
@@ -183,6 +184,7 @@ export class FsInterceptor extends BaseInterceptor {
     const key = `fs:${methodName}`;
     this.originals.set(key, original);
 
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
 
     safeOverride(module, methodName, function interceptedSync(
@@ -246,6 +248,7 @@ export class FsInterceptor extends BaseInterceptor {
     const key = `fsPromises:${methodName}`;
     this.originals.set(key, original);
 
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
 
     safeOverride(module, methodName, async function interceptedPromise(

@@ -46,7 +46,7 @@ export class PolicyDeniedError extends AgenShieldError {
  * Error thrown when broker is unavailable
  */
 export class BrokerUnavailableError extends AgenShieldError {
-  constructor(message: string = 'AgenShield broker is unavailable') {
+  constructor(message = 'AgenShield broker is unavailable') {
     super(message, 'BROKER_UNAVAILABLE');
     this.name = 'BrokerUnavailableError';
   }
@@ -56,7 +56,7 @@ export class BrokerUnavailableError extends AgenShieldError {
  * Error thrown when request times out
  */
 export class TimeoutError extends AgenShieldError {
-  constructor(message: string = 'Request timed out') {
+  constructor(message = 'Request timed out') {
     super(message, 'TIMEOUT');
     this.name = 'TimeoutError';
   }

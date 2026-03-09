@@ -11,7 +11,7 @@
  */
 export function parseVersion(version: string): number[] {
   // Split on '.' and '-' to get all numeric segments
-  const parts = version.split(/[.\-]/).map(Number);
+  const parts = version.split(/[.-]/).map(Number);
   // Pad to at least 4 segments (major.minor.patch.build)
   while (parts.length < 4) {
     parts.push(0);

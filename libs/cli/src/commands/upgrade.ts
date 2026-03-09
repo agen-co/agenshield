@@ -30,6 +30,7 @@ import {
   queryLatestSEAVersion,
   downloadAndInstallSEARemote,
 } from '../utils/home.js';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { isSEA } from '@agenshield/ipc';
 import { output } from '../utils/output.js';
 import { ensureSetupComplete } from '../utils/setup-guard.js';

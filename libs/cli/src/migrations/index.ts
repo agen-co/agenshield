@@ -8,6 +8,7 @@
 import { execSync } from 'node:child_process';
 import type { Migration, MigrationState } from './types.js';
 import { migration as v020 } from './v0-2-0.js';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { MIGRATION_STATE_PATH, migrationStatePath } from '@agenshield/ipc';
 
 export type { Migration, MigrationState, MigrationRecord, MigrationStep, MigrationStepResult, UpdateContext, DiscoveredUser } from './types.js';

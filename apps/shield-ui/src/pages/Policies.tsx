@@ -327,11 +327,11 @@ function PolicyDrilldown({ tab, target, embedded }: PolicyDrilldownProps) {
   );
 
   // Noop handlers for read-only sections
-  const noop = () => {};
-  const noopToggle = () => {};
-  const noopEdit = () => {};
-  const noopDelete = () => {};
-  const noopAddSkill = () => {};
+  const noop = () => { /* noop */ };
+  const noopToggle = () => { /* noop */ };
+  const noopEdit = () => { /* noop */ };
+  const noopDelete = () => { /* noop */ };
+  const noopAddSkill = () => { /* noop */ };
 
   /** Render a tier's policies for the current target */
   function renderTierPolicies(tierPolicies: PolicyConfig[], readOnly: boolean) {

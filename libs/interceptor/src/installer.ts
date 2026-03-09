@@ -47,7 +47,7 @@ export function installInterceptors(
       try {
         const safeConfig = { ...config };
         console.error('[AgenShield:config]', JSON.stringify(safeConfig, null, 2));
-      } catch {}
+      } catch { /* noop */ }
     }
 
     // Initialize shared components

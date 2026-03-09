@@ -27,6 +27,7 @@ export class WebSocketInterceptor extends BaseInterceptor {
     this.originalWebSocket = globalThis.WebSocket;
 
     // Create intercepted WebSocket class
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     const OriginalWebSocket = this.originalWebSocket;
 

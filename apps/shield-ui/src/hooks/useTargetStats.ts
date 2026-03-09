@@ -139,6 +139,5 @@ export function useTargetStats(targetId: string): TargetStats {
     };
     cachedRef.current = result;
     return result;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetId, eventsLength]);
 }

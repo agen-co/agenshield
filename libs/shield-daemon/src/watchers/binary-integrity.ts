@@ -192,7 +192,7 @@ cat > "${nodePath}" << 'PATCH_EOF'
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NODE_REAL="$SCRIPT_DIR/$(basename "$0").real"
 if [ -f "${interceptorPath}" ]; then
-  export NODE_OPTIONS="\${NODE_OPTIONS:+\$NODE_OPTIONS }--require ${interceptorPath}"
+  export NODE_OPTIONS="\${NODE_OPTIONS:+$NODE_OPTIONS }--require ${interceptorPath}"
 fi
 exec "$NODE_REAL" "$@"
 PATCH_EOF

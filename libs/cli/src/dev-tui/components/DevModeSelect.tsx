@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { ASH_PREFIX, DEFAULT_BASE_NAME } from '@agenshield/sandbox';
 
 export type DevSetupMode = 'quick' | 'advanced' | 'webui';

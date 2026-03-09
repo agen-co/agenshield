@@ -109,7 +109,7 @@ export function runAsAgentUser(
 
 export async function waitForDaemon(
   port: number = DEFAULT_DAEMON_PORT,
-  timeoutMs: number = 15_000
+  timeoutMs = 15_000
 ): Promise<boolean> {
   const start = Date.now();
   const url = `http://localhost:${port}/api/health`;
@@ -127,7 +127,7 @@ export async function waitForDaemon(
   return false;
 }
 
-export async function waitForDaemonStop(timeoutMs: number = 15_000): Promise<boolean> {
+export async function waitForDaemonStop(timeoutMs = 15_000): Promise<boolean> {
   const start = Date.now();
   const url = `${DAEMON_BASE_URL}/api/health`;
 

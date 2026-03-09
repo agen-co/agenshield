@@ -38,27 +38,27 @@ SOCKET_PATH="\${AGENSHIELD_SOCKET:-${socketPath}}"
 NVM_SH="${ctx.agentHome}/.nvm/nvm.sh"
 
 # ── Crash tracking ────────────────────────────────────────────
-now=\$(date +%s)
-touch "\$CRASH_FILE"
+now=$(date +%s)
+touch "$CRASH_FILE"
 # Append current timestamp
-echo "\$now" >> "\$CRASH_FILE"
+echo "$now" >> "$CRASH_FILE"
 # Keep only timestamps within the window
-cutoff=\$(( now - CRASH_WINDOW ))
-awk -v c="\$cutoff" '\$1 >= c' "\$CRASH_FILE" > "\$CRASH_FILE.tmp" && mv "\$CRASH_FILE.tmp" "\$CRASH_FILE"
-crash_count=\$(wc -l < "\$CRASH_FILE" | tr -d ' ')
-if [ "\$crash_count" -ge "\$MAX_CRASHES" ]; then
-  echo "FATAL: \$crash_count crashes in \${CRASH_WINDOW}s — halting restart loop" >&2
+cutoff=$(( now - CRASH_WINDOW ))
+awk -v c="$cutoff" '$1 >= c' "$CRASH_FILE" > "$CRASH_FILE.tmp" && mv "$CRASH_FILE.tmp" "$CRASH_FILE"
+crash_count=$(wc -l < "$CRASH_FILE" | tr -d ' ')
+if [ "$crash_count" -ge "$MAX_CRASHES" ]; then
+  echo "FATAL: $crash_count crashes in \${CRASH_WINDOW}s — halting restart loop" >&2
   launchctl disable system/com.agenshield.${ctx.profileBaseName}.gateway 2>/dev/null || true
   exit 78
 fi
 
 # ── Pre-flight checks ────────────────────────────────────────
 # Source NVM
-if [ ! -s "\$NVM_SH" ]; then
-  echo "FATAL: nvm.sh not found at \$NVM_SH" >&2
+if [ ! -s "$NVM_SH" ]; then
+  echo "FATAL: nvm.sh not found at $NVM_SH" >&2
   exit 78
 fi
-source "\$NVM_SH"
+source "$NVM_SH"
 
 if ! command -v node >/dev/null 2>&1; then
   echo "FATAL: node not found in PATH after sourcing NVM" >&2
@@ -73,18 +73,18 @@ fi
 # ── Wait for broker socket ────────────────────────────────────
 SOCKET_WAIT=90
 elapsed=0
-while [ ! -S "\$SOCKET_PATH" ] && [ "\$elapsed" -lt "\$SOCKET_WAIT" ]; do
+while [ ! -S "$SOCKET_PATH" ] && [ "$elapsed" -lt "$SOCKET_WAIT" ]; do
   sleep 0.5
-  elapsed=\$(( elapsed + 1 ))
+  elapsed=$(( elapsed + 1 ))
 done
 
-if [ ! -S "\$SOCKET_PATH" ]; then
-  echo "FATAL: broker socket not found at \$SOCKET_PATH after \${SOCKET_WAIT}s" >&2
+if [ ! -S "$SOCKET_PATH" ]; then
+  echo "FATAL: broker socket not found at $SOCKET_PATH after \${SOCKET_WAIT}s" >&2
   exit 78
 fi
 
 # ── All checks passed — clear crash log and start gateway ─────
-rm -f "\$CRASH_FILE"
+rm -f "$CRASH_FILE"
 exec openclaw gateway start
 `;
 

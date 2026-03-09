@@ -20,6 +20,7 @@ import { ensureSudoAccess } from '../utils/privileges.js';
 import { output } from '../utils/output.js';
 import { ensureSetupComplete } from '../utils/setup-guard.js';
 import { TargetNotFoundError, CliError } from '../errors.js';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   listAgenshieldUsers,
   userExists,

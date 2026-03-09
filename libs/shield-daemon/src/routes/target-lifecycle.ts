@@ -524,7 +524,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           }
           // Clean up stale groups
           for (const staleGroup of ['ash_default', 'ash_default_workspace']) {
-            await executor.execAsRoot(`dscl . -delete /Groups/${staleGroup} 2>/dev/null; true`, { timeout: 5_000 }).catch(() => {});
+            await executor.execAsRoot(`dscl . -delete /Groups/${staleGroup} 2>/dev/null; true`, { timeout: 5_000 }).catch(() => { /* noop */ });
           }
           // Clean up stale home directory, LaunchDaemon, sudoers
           await executor.execAsRoot([
@@ -532,7 +532,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             'launchctl bootout system/com.agenshield.broker.default 2>/dev/null',
             'rm -f /Library/LaunchDaemons/com.agenshield.broker.default.plist 2>/dev/null',
             'rm -f /etc/sudoers.d/agenshield-default 2>/dev/null',
-          ].join('; ') + '; true', { timeout: 15_000 }).catch(() => {});
+          ].join('; ') + '; true', { timeout: 15_000 }).catch(() => { /* noop */ });
         } catch {
           // Stale cleanup is best-effort
         }
@@ -649,7 +649,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             `dscl . -create /Users/${agentUser} RealName "${userConfig.agentUser.realname}"`,
             `dscl . -create /Users/${agentUser} Password "*"`,
             `dseditgroup -o edit -a ${agentUser} -t user ${groupName}`,
-          ].join(' && '), { timeout: 30_000 }).catch(() => {}),
+          ].join(' && '), { timeout: 30_000 }).catch(() => { /* noop */ }),
           executor.execAsRoot([
             `dscl . -create /Users/${brokerUser}`,
             `dscl . -create /Users/${brokerUser} UniqueID ${userConfig.brokerUser.uid}`,
@@ -659,7 +659,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             `dscl . -create /Users/${brokerUser} RealName "${userConfig.brokerUser.realname}"`,
             `dscl . -create /Users/${brokerUser} Password "*"`,
             `dseditgroup -o edit -a ${brokerUser} -t user ${groupName}`,
-          ].join(' && '), { timeout: 30_000 }).catch(() => {}),
+          ].join(' && '), { timeout: 30_000 }).catch(() => { /* noop */ }),
         ]);
         tracker.completeStep('create_agent_user');
         tracker.completeStep('create_broker_user');
@@ -2120,7 +2120,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             await executor.execAsRoot(
               `ps -u $(id -u ${agentUsername} 2>/dev/null) -o pid= 2>/dev/null | xargs kill 2>/dev/null; sleep 1; ps -u $(id -u ${agentUsername} 2>/dev/null) -o pid= 2>/dev/null | xargs kill -9 2>/dev/null; true`,
               { timeout: 15_000 },
-            ).catch(() => {});
+            ).catch(() => { /* noop */ });
           }
 
           // 2. Remove PATH override (restore original binary from backup)
@@ -2144,15 +2144,15 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
 
             if (remainingCount === 0) {
               const removeCmd = buildRemoveRouterCommands(binName);
-              await executor.execAsRoot(removeCmd, { timeout: 15_000 }).catch(() => {});
+              await executor.execAsRoot(removeCmd, { timeout: 15_000 }).catch(() => { /* noop */ });
 
               // Also remove user-local router at ~/.agenshield/bin/<binName>
               const removeUserLocalCmd = buildRemoveUserLocalRouterCommands(binName, hostHome);
-              await executor.execAsRoot(removeUserLocalCmd, { timeout: 5_000 }).catch(() => {});
+              await executor.execAsRoot(removeUserLocalCmd, { timeout: 5_000 }).catch(() => { /* noop */ });
             }
 
             if (Object.keys(registry).length === 0) {
-              await executor.execAsRoot(`rm -f "${resolvedRegistryPath}"`, { timeout: 5_000 }).catch(() => {});
+              await executor.execAsRoot(`rm -f "${resolvedRegistryPath}"`, { timeout: 5_000 }).catch(() => { /* noop */ });
 
               // Remove shell rc PATH override block when no targets remain
               const startMarker = '# >>> AgenShield PATH override >>>';
@@ -2166,23 +2166,23 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
               await executor.execAsRoot(
                 `sed -i '' '/${startMarker.replace(/[/]/g, '\\/')}/,/${endMarker.replace(/[/]/g, '\\/')}/d' "${rcFile}" 2>/dev/null; true`,
                 { timeout: 10_000 },
-              ).catch(() => {});
+              ).catch(() => { /* noop */ });
               // Restore ownership
               try {
                 const { execSync } = await import('node:child_process');
                 const consoleUser = execSync('stat -f "%Su" /dev/console', { encoding: 'utf-8', timeout: 3_000 }).trim();
-                await executor.execAsRoot(`chown ${consoleUser}:staff "${rcFile}"`, { timeout: 5_000 }).catch(() => {});
+                await executor.execAsRoot(`chown ${consoleUser}:staff "${rcFile}"`, { timeout: 5_000 }).catch(() => { /* noop */ });
               } catch { /* best effort */ }
             } else {
               const registryJson = JSON.stringify(registry, null, 2);
               await executor.execAsRoot(
                 `cat > "${resolvedRegistryPath}" << 'REGISTRY_EOF'\n${registryJson}\nREGISTRY_EOF`,
                 { timeout: 15_000 },
-              ).catch(() => {});
+              ).catch(() => { /* noop */ });
               await executor.execAsRoot(
                 `chmod 644 "${resolvedRegistryPath}"`,
                 { timeout: 10_000 },
-              ).catch(() => {});
+              ).catch(() => { /* noop */ });
             }
           } catch {
             // PATH override cleanup is non-fatal
@@ -2199,7 +2199,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             await executor.execAsRoot(
               `launchctl bootout system/${label} 2>/dev/null; rm -f "/Library/LaunchDaemons/${label}.plist" 2>/dev/null; true`,
               { timeout: 15_000 },
-            ).catch(() => {});
+            ).catch(() => { /* noop */ });
           }
 
           // 4. Remove sudoers rules
@@ -2208,7 +2208,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           await executor.execAsRoot(
             `rm -f "/etc/sudoers.d/agenshield-${profileBaseName}" 2>/dev/null; true`,
             { timeout: 5_000 },
-          ).catch(() => {});
+          ).catch(() => { /* noop */ });
 
           // 5. Remove seatbelt and guarded shell from /etc/shells
           emitEvent('setup:shield_progress', { targetId, step: 'removing_seatbelt', progress: 45, message: 'Removing security profile...' }, profile.id);
@@ -2216,7 +2216,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             await executor.execAsRoot(
               `sed -i '' '\\|${agentHomeDir}/.agenshield/bin/guarded-shell|d' /etc/shells 2>/dev/null; true`,
               { timeout: 5_000 },
-            ).catch(() => {});
+            ).catch(() => { /* noop */ });
           }
 
           // 5b. Agent keychain cleanup — skipped (no per-agent keychains, delegated to host user)
@@ -2228,7 +2228,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             await executor.execAsRoot(
               `rm -rf "${agentHomeDir}"`,
               { timeout: 60_000 },
-            ).catch(() => {});
+            ).catch(() => { /* noop */ });
           }
 
           // 6b. Clean up filesystem ACLs (must happen while user still exists)
@@ -2254,7 +2254,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             await executor.execAsRoot(
               deleteUserCmds.join('; ') + '; true',
               { timeout: 15_000 },
-            ).catch(() => {});
+            ).catch(() => { /* noop */ });
           }
 
           // 8. Delete sandbox group (socket)
@@ -2264,7 +2264,7 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           await executor.execAsRoot(
             `dscl . -delete /Groups/${socketGroupName} 2>/dev/null; true`,
             { timeout: 15_000 },
-          ).catch(() => {});
+          ).catch(() => { /* noop */ });
 
           // 9. Delete seeded policies
           emitEvent('setup:shield_progress', { targetId, step: 'removing_policies', progress: 82, message: 'Removing policies...' }, profile.id);

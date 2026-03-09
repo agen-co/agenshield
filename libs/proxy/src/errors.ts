@@ -20,7 +20,7 @@ export class ProxyError extends Error {
  * Error thrown when the proxy server fails to bind to a port
  */
 export class ProxyBindError extends ProxyError {
-  constructor(message: string = 'Failed to bind proxy server') {
+  constructor(message = 'Failed to bind proxy server') {
     super(message, 'PROXY_BIND_FAILED');
     this.name = 'ProxyBindError';
   }

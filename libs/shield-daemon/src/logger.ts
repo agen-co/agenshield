@@ -25,7 +25,7 @@ export function getLogger(): FastifyBaseLogger {
     fatal: (...args: unknown[]) => console.error('[daemon:fatal]', ...args),
     trace: (...args: unknown[]) => console.debug('[daemon:trace]', ...args),
     child: () => getLogger(),
-    silent: () => {},
+    silent: () => { /* noop */ },
     level: 'info',
   } as unknown as FastifyBaseLogger;
 }

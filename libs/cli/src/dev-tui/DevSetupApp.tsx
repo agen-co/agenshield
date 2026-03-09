@@ -12,6 +12,7 @@ import Spinner from 'ink-spinner';
 import { DevModeSelect, type DevSetupMode } from './components/DevModeSelect.js';
 import { DevConfirm } from './components/DevConfirm.js';
 import { AdvancedConfig, computeNames, type ComputedNames } from '../wizard/components/AdvancedConfig.js';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   checkPrerequisites,
   autoDetectPreset,

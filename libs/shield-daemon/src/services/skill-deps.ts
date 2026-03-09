@@ -16,7 +16,7 @@ import { isDevMode } from '../config/paths';
 const SUPPORTED_KINDS = new Set(['brew', 'npm', 'pip']);
 
 /** Characters allowed in formula/package names (prevent shell injection) */
-const SAFE_PACKAGE_RE = /^[a-zA-Z0-9@/_.\-]+$/;
+const SAFE_PACKAGE_RE = /^[a-zA-Z0-9@/_.-]+$/;
 
 /** Standard system paths — ensures brew/npm/pip/binaries are reachable even when the daemon's inherited PATH is restricted */
 const SYSTEM_PATH = '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
@@ -182,7 +182,7 @@ export async function executeSkillInstallSteps(options: {
             const mkdirExec = isDevMode()
               ? `/bin/mkdir -p "${npmGlobalDir}"`
               : `sudo -H -u ${agentUsername} /bin/mkdir -p "${npmGlobalDir}"`;
-            await execWithProgress(mkdirExec, () => {}, { timeout: 5_000, cwd: '/' });
+            await execWithProgress(mkdirExec, () => { /* noop */ }, { timeout: 5_000, cwd: '/' });
           } catch { /* best-effort — dir may already exist */ }
 
           const npmCmd = [
@@ -248,7 +248,7 @@ export async function executeSkillInstallSteps(options: {
         const checkExec = isDevMode()
           ? `/bin/bash --norc --noprofile -c '${checkCmd}'`
           : `sudo -H -u ${agentUsername} /bin/bash --norc --noprofile -c '${checkCmd}'`;
-        await execWithProgress(checkExec, () => {}, { timeout: 5_000, cwd: '/' });
+        await execWithProgress(checkExec, () => { /* noop */ }, { timeout: 5_000, cwd: '/' });
       } catch {
         errors.push(`Required binary "${bin}" not found in agent PATH after install`);
       }

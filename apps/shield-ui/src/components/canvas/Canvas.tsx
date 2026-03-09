@@ -329,7 +329,7 @@ function CanvasInner({
     }
 
     fitViewContent({ padding: OVERVIEW_PADDING, maxZoom: 1.5 });
-  }, [nodesReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nodesReady]);
 
   // Effect 1b — Re-fit when node count changes (e.g. async broker cards arriving)
   useEffect(() => {

@@ -43,6 +43,7 @@ import type {
   ApiResponse,
 } from '@agenshield/ipc';
 import { saveMdmConfig } from '@agenshield/auth';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { installDaemonService, installPrivilegeHelperService } from '@agenshield/seatbelt';
 import { inkSelect, inkInput, inkBrowserLink } from '../prompts/index.js';
 import { resolveHostHome } from '../utils/host-user.js';

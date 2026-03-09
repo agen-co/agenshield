@@ -20,11 +20,11 @@ import type { PolicyCheckResult } from '../policy/evaluator.js';
 import { ResourceMonitor } from '../resource/resource-monitor.js';
 
 // Capture original fs.existsSync at module load time (before any interceptor patches)
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+ 
 const _existsSync = require('node:fs').existsSync as (p: string) => boolean;
 
 // Use require() for modules we need to monkey-patch (ESM imports are immutable)
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+ 
 const childProcessModule = require('node:child_process') as typeof childProcess;
 
 export class ChildProcessInterceptor extends BaseInterceptor {
@@ -391,6 +391,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   }
 
   private createInterceptedExec(): typeof childProcess.exec {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     const original = this.originalExec!;
 
@@ -427,7 +428,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         // Use originalSpawn to avoid re-interception through exec→execFile chain.
         debugLog(`cp.exec DENIED command=${command}`);
         const denied = self.originalSpawn!('false', [], { stdio: 'pipe' }) as childProcess.ChildProcess;
-        denied.once('error', () => {});
+        denied.once('error', () => { /* noop */ });
         if (callback) {
           process.nextTick(() => callback(error as Error, '', ''));
         }
@@ -456,6 +457,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   }
 
   private createInterceptedExecSync(): typeof childProcess.execSync {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     const original = this.originalExecSync!;
 
@@ -500,6 +502,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   }
 
   private createInterceptedSpawn(): typeof childProcess.spawn {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     const original = this.originalSpawn!;
 
@@ -535,7 +538,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         // Callers that DO listen will still receive the event.
         debugLog(`cp.spawn DENIED command=${fullCmd}`);
         const denied = original('false', [], { stdio: 'pipe' });
-        denied.once('error', () => {});
+        denied.once('error', () => { /* noop */ });
         process.nextTick(() => {
           denied.emit('error', error);
         });
@@ -560,6 +563,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   }
 
   private createInterceptedSpawnSync(): typeof childProcess.spawnSync {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     const original = this.originalSpawnSync!;
 
@@ -623,6 +627,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   }
 
   private createInterceptedExecFile(): typeof childProcess.execFile {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     const original = this.originalExecFile!;
 
@@ -668,7 +673,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         // Safety no-op handler prevents uncaught exception.
         debugLog(`cp.execFile DENIED command=${fullCommand}`);
         const denied = self.originalSpawn!('false', [], { stdio: 'pipe' }) as childProcess.ChildProcess;
-        denied.once('error', () => {});
+        denied.once('error', () => { /* noop */ });
         if (callback) {
           process.nextTick(() => callback!(error as Error, '', ''));
         }
@@ -703,6 +708,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
   }
 
   private createInterceptedFork(): typeof childProcess.fork {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     const original = this.originalFork!;
 
@@ -737,7 +743,7 @@ export class ChildProcessInterceptor extends BaseInterceptor {
         // Safety no-op handler prevents uncaught exception if caller
         // hasn't attached an 'error' listener before nextTick fires.
         const denied = self.originalSpawn!('false', [], { stdio: 'pipe' });
-        denied.once('error', () => {});
+        denied.once('error', () => { /* noop */ });
         process.nextTick(() => {
           denied.emit('error', error);
         });

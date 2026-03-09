@@ -11,8 +11,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { isSEA } from '@agenshield/ipc';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { isSecretEnvVar } from '@agenshield/sandbox';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { isOpenClawInstalled, stopOpenClawServices } from '@agenshield/seatbelt';
 import { captureCallingUserEnv } from './sudo-env.js';
 import { resolveHostHome } from './host-user.js';

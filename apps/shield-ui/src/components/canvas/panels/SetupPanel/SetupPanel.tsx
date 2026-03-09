@@ -162,7 +162,7 @@ export function SetupPanel({ open, onClose, mode }: SetupPanelProps) {
     if (open && panelState.detectedTargets.length === 0 && !panelState.isDetecting) {
       handleRefresh();
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // --- Render ---
   const stepIndex = STEPS.findIndex((s) => s.id === currentStep);

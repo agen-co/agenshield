@@ -19,9 +19,9 @@ import type { PolicyExecutionContext } from '@agenshield/ipc';
 import type { PolicyCheckResult } from '../policy/evaluator.js';
 
 // Use require() for modules we need to monkey-patch (ESM imports are immutable)
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+ 
 const httpModule = require('node:http') as typeof http;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+ 
 const httpsModule = require('node:https') as typeof http;
 
 export class HttpInterceptor extends BaseInterceptor {
@@ -140,6 +140,7 @@ export class HttpInterceptor extends BaseInterceptor {
     protocol: 'http' | 'https',
     original: typeof http.request
   ): typeof http.request {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
 
     return function interceptedRequest(
@@ -247,7 +248,7 @@ export class HttpInterceptor extends BaseInterceptor {
         debugLog(`http.request DENIED url=${url}`);
         const mod = protocol === 'http' ? httpModule : httpsModule;
         const denied = original.call(mod, 'http://0.0.0.0:1', { method: 'GET' });
-        denied.once('error', () => {});
+        denied.once('error', () => { /* noop */ });
         process.nextTick(() => denied.destroy(error as Error));
         return denied;
       }

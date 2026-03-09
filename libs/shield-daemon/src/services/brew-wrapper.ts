@@ -65,7 +65,7 @@ const PROTECTED_COMMANDS = new Set([
 ]);
 
 /** Characters allowed in binary/formula names (prevent shell injection) */
-const SAFE_NAME_RE = /^[a-zA-Z0-9_.\-]+$/;
+const SAFE_NAME_RE = /^[a-zA-Z0-9_.-]+$/;
 
 // ─── Manifest I/O ───────────────────────────────────────────────────────────
 
