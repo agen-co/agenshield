@@ -20,6 +20,7 @@ import type {
   ToolQuery,
   SkillsManagerEvent,
 } from '@agenshield/ipc';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { resolveSourceOrigin } from '@agenshield/ipc';
 import type { SkillManager } from '../manager';
 

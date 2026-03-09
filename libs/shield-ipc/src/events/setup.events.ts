@@ -22,6 +22,7 @@ export interface SetupShieldCompletePayload {
   profileId: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type
 export interface SetupCompletePayload {
   /* empty — signals mode transition */
 }

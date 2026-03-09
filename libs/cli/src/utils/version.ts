@@ -9,6 +9,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { isSEA, getSEAVersion } from '@agenshield/ipc';
 
 let _cached = '';

@@ -12,16 +12,14 @@
 import type { PolicyConfig } from '@agenshield/ipc';
 import { commandScopeMatches } from '../matcher/scope';
 
-/**
- * Filter patterns to only those expressible as SBPL rules.
- *
- * - Skip patterns starting with `**​/` or `*​/` (relative globs)
- * - Must start with `/` (absolute)
- * - Strip trailing `/*` or `/**` (e.g. `/etc/ssh/*` → `/etc/ssh`)
- * - Skip if wildcards remain after stripping
- * - Skip empty or root-only paths
- * - Deduplicate
- */
+// Filter patterns to only those expressible as SBPL rules.
+//
+// - Skip patterns starting with `**/` or `*/` (relative globs)
+// - Must start with `/` (absolute)
+// - Strip trailing `/*` or `/**` (e.g. `/etc/ssh/*` → `/etc/ssh`)
+// - Skip if wildcards remain after stripping
+// - Skip empty or root-only paths
+// - Deduplicate
 export function extractConcreteDenyPaths(patterns: string[]): string[] {
   const result = new Set<string>();
 

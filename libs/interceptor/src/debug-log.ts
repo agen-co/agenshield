@@ -30,9 +30,9 @@ function getLogPath(): string {
 
 export function debugLog(msg: string): void {
   const line = `[${new Date().toISOString()}] [pid:${process.pid}] ${msg}\n`;
-  try { _appendFileSync(getLogPath(), line); } catch {}
+  try { _appendFileSync(getLogPath(), line); } catch { /* noop */ }
   // Mirror to stderr when debug is enabled
   if (process.env['AGENSHIELD_LOG_LEVEL'] === 'debug') {
-    try { _writeSync(2, `[AgenShield:debug] ${msg}\n`); } catch {}
+    try { _writeSync(2, `[AgenShield:debug] ${msg}\n`); } catch { /* noop */ }
   }
 }

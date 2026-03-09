@@ -707,7 +707,7 @@ export async function scanHostProcesses(): Promise<HostProcess[]> {
   );
 
   // Load agent usernames from storage to exclude sudo delegations
-  let agentUsernames = new Set<string>();
+  const agentUsernames = new Set<string>();
   try {
     const profiles = getStorage().profiles.getAll();
     for (const p of profiles) {

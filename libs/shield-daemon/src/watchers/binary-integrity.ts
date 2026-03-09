@@ -12,6 +12,7 @@
  */
 
 import type { Profile, InstallManifest, ManifestEntry } from '@agenshield/ipc';
+import { getStorage } from '@agenshield/storage';
 import { computeFileHash } from '../services/process-fingerprint';
 import { getSystemExecutor } from '../workers/system-command';
 import { emitBinaryDrifted, emitRePatched } from '../events/emitter';
@@ -191,7 +192,7 @@ cat > "${nodePath}" << 'PATCH_EOF'
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NODE_REAL="$SCRIPT_DIR/$(basename "$0").real"
 if [ -f "${interceptorPath}" ]; then
-  export NODE_OPTIONS="\${NODE_OPTIONS:+\$NODE_OPTIONS }--require ${interceptorPath}"
+  export NODE_OPTIONS="\${NODE_OPTIONS:+$NODE_OPTIONS }--require ${interceptorPath}"
 fi
 exec "$NODE_REAL" "$@"
 PATCH_EOF
@@ -233,7 +234,6 @@ echo "RE_PATCHED"
 
     // Persist updated manifest via storage
     try {
-      const { getStorage } = await import('@agenshield/storage');
       const storage = getStorage();
       storage.profiles.updateManifest(profile.id, updatedManifest);
     } catch (err) {

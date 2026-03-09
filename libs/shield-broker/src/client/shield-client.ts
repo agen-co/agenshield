@@ -340,7 +340,7 @@ async function handleSkillRun(args: string[]): Promise<void> {
   });
 
   // Keep the process alive while the child runs
-  await new Promise<void>(() => {});
+  await new Promise<void>(() => { /* keep alive */ });
 }
 
 /**

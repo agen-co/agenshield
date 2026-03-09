@@ -28,6 +28,14 @@
         "command": "npx tsx libs/cli/src/cli.ts"
       }
     },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/test-output/coverage/libs/cli"],
+      "options": {
+        "jestConfig": "libs/cli/jest.config.ts",
+        "passWithNoTests": true
+      }
+    },
     "publish": {
       "executor": "nx:run-commands",
       "dependsOn": ["build"],

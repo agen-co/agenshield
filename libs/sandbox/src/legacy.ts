@@ -33,8 +33,8 @@ export const ZDOT_ZSHENV_CONTENT = `# AgenShield restricted .zshenv
 # Runs AFTER /etc/zshenv — overrides path_helper's full system PATH.
 
 # ALWAYS set HOME based on actual user, never inherit
-export HOME="/Users/\$(id -un)"
-export HISTFILE="\$HOME/.zsh_history"
+export HOME="/Users/$(id -un)"
+export HISTFILE="$HOME/.zsh_history"
 
 # Suppress locale to prevent /etc/zshrc from calling locale command
 export LC_ALL=C LANG=C

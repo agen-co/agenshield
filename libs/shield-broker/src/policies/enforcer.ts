@@ -59,8 +59,8 @@ export class PolicyEnforcer {
   private policies: PolicyConfig;
   private policiesPath: string;
   private failOpen: boolean;
-  private lastLoad: number = 0;
-  private reloadInterval: number = 60000; // 1 minute
+  private lastLoad = 0;
+  private reloadInterval = 60000; // 1 minute
   private verbose = process.env['AGENSHIELD_BROKER_VERBOSE'] === 'true';
 
   constructor(options: PolicyEnforcerOptions) {

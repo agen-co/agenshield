@@ -47,14 +47,14 @@ const PROTECTED_COMMANDS = new Set([
 ]);
 
 /** Characters allowed in binary names (prevent injection) */
-const SAFE_NAME_RE = /^[a-zA-Z0-9_.\-]+$/;
+const SAFE_NAME_RE = /^[a-zA-Z0-9_.-]+$/;
 
 // ─── Module state ───────────────────────────────────────────────────────────
 
 let config: ExecutableWatcherConfig | null = null;
 let watchers: fs.FSWatcher[] = [];
 let pollingInterval: NodeJS.Timeout | null = null;
-let debounceTimers: Map<string, NodeJS.Timeout> = new Map();
+const debounceTimers: Map<string, NodeJS.Timeout> = new Map();
 
 // ─── Manifest I/O ───────────────────────────────────────────────────────────
 

@@ -278,3 +278,116 @@ jobs:
       - name: Fail if perf tests failed
         if: steps.perf.outcome == 'failure'
         run: exit 1
+
+  # macOS platform validation (tests + native builds)
+  macos-validation:
+    name: "macOS Validation"
+    needs: [setup, build]
+    runs-on: macos-14
+    env:
+      NX_DAEMON: "false"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+          cache: "yarn"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+
+      - name: Restore Nx cache
+        uses: ./.github/actions/nx-cache-restore
+        with:
+          cache-prefix: "nx-cache-macos"
+
+      - name: Run unit tests
+        id: tests
+        continue-on-error: true
+        run: npx nx run-many -t test --passWithNoTests --codeCoverage
+
+      - name: Build macOS menu bar app
+        id: macos-app
+        continue-on-error: true
+        run: npx nx build shield-macos
+
+      - name: Build SEA binaries (darwin/arm64)
+        id: sea-build
+        run: >-
+          node --experimental-strip-types tools/sea/build-all.mts
+          --skip-nx
+          --platform darwin --arch arm64
+
+      - name: Save Nx cache
+        if: always()
+        uses: ./.github/actions/nx-cache-save
+        with:
+          cache-prefix: "nx-cache-macos"
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## macOS Validation (arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Unit Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.tests.outcome }}" == "success" ]; then
+            echo "> ✅ All tests passed on macOS" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "> ❌ Some tests failed on macOS" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          has_coverage=false
+          for f in test-output/coverage/libs/*/coverage-summary.json; do
+            [ -f "$f" ] || continue
+            if [ "$has_coverage" = false ]; then
+              echo "#### Coverage" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "| Library | Statements | Branches | Functions | Lines |" >> $GITHUB_STEP_SUMMARY
+              echo "|---------|-----------|----------|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+              has_coverage=true
+            fi
+            lib=$(echo "$f" | sed 's|.*/libs/||;s|/coverage.*||')
+            stmts=$(jq -r '.total.statements.pct' "$f")
+            branches=$(jq -r '.total.branches.pct' "$f")
+            funcs=$(jq -r '.total.functions.pct' "$f")
+            lines=$(jq -r '.total.lines.pct' "$f")
+            echo "| $lib | ${stmts}% | ${branches}% | ${funcs}% | ${lines}% |" >> $GITHUB_STEP_SUMMARY
+          done
+          if [ "$has_coverage" = false ]; then
+            echo "_No coverage data produced._" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### macOS App (Xcode)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.macos-app.outcome }}" == "success" ]; then
+            echo "> ✅ AgenShield.app built successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "> ⚠️ AgenShield.app build failed (non-blocking)" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### SEA Binaries (darwin/arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.sea-build.outcome }}" == "success" ]; then
+            echo "> ✅ CLI, Daemon, and Broker binaries built successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "> ❌ SEA binary build failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail if tests failed
+        if: steps.tests.outcome == 'failure'
+        run: exit 1

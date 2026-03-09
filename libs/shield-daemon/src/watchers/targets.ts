@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto';
 import { emitTargetStatus, registerProfilePreset } from '../events/emitter';
 import type { AgentProcessInfo, TargetStatusInfo, Profile } from '@agenshield/ipc';
+import { getStorage } from '@agenshield/storage';
 import { getLogger } from '../logger';
 import type { ProcessManager } from '../services/process-manager';
 import { getSystemExecutor } from '../workers/system-command';
@@ -323,7 +324,6 @@ export function getLastTargetStatuses(): TargetStatusInfo[] {
 async function getTargetStatuses(): Promise<TargetStatusInfo[]> {
   try {
     const { detectTargets } = await import('../routes/target-lifecycle.js');
-    const { getStorage } = await import('@agenshield/storage');
     const detected = await detectTargets();
     const storage = getStorage();
     const profiles = storage.profiles.getAll();

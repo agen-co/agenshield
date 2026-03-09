@@ -33,6 +33,7 @@ import { icloudRoutes } from './icloud';
 import { enrollmentRoutes } from './enrollment';
 import { workspacePathsRoutes } from './workspace-paths';
 import { workspaceSkillsRoutes } from './workspace-skills';
+import { mcpsRoutes } from './mcps';
 import { setupRoutes } from './setup';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
@@ -164,6 +165,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(enrollmentRoutes);
       await api.register(workspacePathsRoutes);
       await api.register(workspaceSkillsRoutes);
+      await api.register(mcpsRoutes);
       await api.register(setupRoutes);
     },
     { prefix: API_PREFIX }

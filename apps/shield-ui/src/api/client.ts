@@ -186,6 +186,45 @@ export interface SkillEnvRequirement {
 
 export type SecurityStatus = SecurityStatusData;
 
+export interface McpServerSummary {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  transport: 'stdio' | 'sse' | 'streamable-http';
+  url: string | null;
+  command: string | null;
+  args: string[];
+  env: Record<string, string>;
+  headers: Record<string, string>;
+  authType: 'none' | 'oauth' | 'apikey' | 'bearer';
+  source: 'manual' | 'cloud' | 'agenco' | 'workspace';
+  managed: boolean;
+  managedSource: string | null;
+  status: 'active' | 'disabled' | 'pending' | 'blocked';
+  profileId: string | null;
+  supportedTargets: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMcpServerRequest {
+  name: string;
+  slug: string;
+  transport: 'stdio' | 'sse' | 'streamable-http';
+  description?: string;
+  url?: string | null;
+  command?: string | null;
+  args?: string[];
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  authType?: 'none' | 'oauth' | 'apikey' | 'bearer';
+  source?: 'manual' | 'cloud' | 'agenco' | 'workspace';
+  status?: 'active' | 'disabled' | 'pending' | 'blocked';
+  profileId?: string | null;
+  supportedTargets?: string[];
+}
+
 // --- API methods ---
 
 export const api = {
@@ -497,5 +536,49 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ path, profileId }),
       }),
+  },
+
+  // MCP servers
+  mcpCapabilities: {
+    get: (id: string, refresh?: boolean) =>
+      request<{ data: {
+        tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown>; annotations?: { title?: string; readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean } }>;
+        resources: Array<{ uri: string; name: string; description?: string; mimeType?: string }>;
+        prompts: Array<{ name: string; description?: string; arguments?: Array<{ name: string; description?: string; required?: boolean }> }>;
+        probedAt: string;
+        error?: string;
+      } }>(`/mcps/${id}/capabilities${refresh ? '?refresh=true' : ''}`),
+  },
+  mcps: {
+    getAll: (filter?: { profileId?: string; source?: string; status?: string }) => {
+      const params = new URLSearchParams();
+      if (filter?.profileId) params.set('profileId', filter.profileId);
+      if (filter?.source) params.set('source', filter.source);
+      if (filter?.status) params.set('status', filter.status);
+      const qs = params.toString();
+      return request<{ data: McpServerSummary[] }>(`/mcps${qs ? `?${qs}` : ''}`);
+    },
+    getById: (id: string) =>
+      request<{ data: McpServerSummary }>(`/mcps/${id}`),
+    create: (input: CreateMcpServerRequest) =>
+      request<{ data: McpServerSummary }>('/mcps', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    update: (id: string, input: Partial<CreateMcpServerRequest>) =>
+      request<{ data: McpServerSummary }>(`/mcps/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      }),
+    delete: (id: string) =>
+      request<{ success: boolean }>(`/mcps/${id}`, { method: 'DELETE' }),
+    enable: (id: string) =>
+      request<{ data: McpServerSummary }>(`/mcps/${id}/enable`, { method: 'POST' }),
+    disable: (id: string) =>
+      request<{ data: McpServerSummary }>(`/mcps/${id}/disable`, { method: 'POST' }),
+    approve: (id: string) =>
+      request<{ data: McpServerSummary }>(`/mcps/${id}/approve`, { method: 'POST' }),
+    scan: () =>
+      request<{ data: McpServerSummary[] }>('/mcps/scan', { method: 'POST' }),
   },
 };

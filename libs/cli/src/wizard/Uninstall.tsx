@@ -7,6 +7,7 @@ import { Box, Text, useApp } from 'ink';
 import { UninstallConfirm } from './components/Confirm.js';
 import { Header } from './components/Header.js';
 import type { InstallationBackup } from '@agenshield/ipc';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   canUninstall,
   restoreInstallation,

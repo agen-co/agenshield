@@ -50,6 +50,7 @@ export class WorkspaceSkillsRepository extends BaseRepository {
       status: data.status ?? 'pending',
       contentHash: data.contentHash,
       aclApplied: data.aclApplied ?? false,
+      managed: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -166,5 +167,28 @@ export class WorkspaceSkillsRepository extends BaseRepository {
   delete(id: string): boolean {
     const result = this.db.prepare(Q.deleteById).run(id);
     return result.changes > 0;
+  }
+
+  /**
+   * Create a managed (cloud-pushed) workspace skill.
+   */
+  createManaged(input: CreateWorkspaceSkillInput, source: string): WorkspaceSkill {
+    const skill = this.create(input);
+    this.update(skill.id, { status: input.status ?? 'cloud_forced' } as UpdateWorkspaceSkillInput);
+    this.buildDynamicUpdate(
+      { managed: 1, managed_source: source },
+      'workspace_skills',
+      'id = @id',
+      { id: skill.id },
+    );
+    return this.getById(skill.id)!;
+  }
+
+  /**
+   * Delete all managed workspace skills from a specific source.
+   */
+  deleteManagedBySource(source: string): number {
+    const result = this.db.prepare(Q.deleteManagedBySource).run({ source });
+    return result.changes;
   }
 }

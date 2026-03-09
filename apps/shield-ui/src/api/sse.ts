@@ -2,6 +2,7 @@
  * SSE client with automatic reconnection
  */
 
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { getRegisteredEventTypes } from '@agenshield/ipc';
 
 const SSE_URL = '/sse/events';

@@ -255,7 +255,7 @@ function getVersionViaCli(): string | null {
   const firstLine = output.split('\n')[0]?.trim();
   if (!firstLine) return null;
   // Validate it looks like a version: digits separated by dots, optional dash suffix
-  if (!/^\d+\.\d+[\d.\-]*$/.test(firstLine)) return null;
+  if (!/^\d+\.\d+[\d.-]*$/.test(firstLine)) return null;
   return firstLine;
 }
 

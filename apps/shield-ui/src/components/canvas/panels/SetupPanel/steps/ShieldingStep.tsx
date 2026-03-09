@@ -17,6 +17,7 @@ import {
   Circle,
   MinusCircle,
 } from 'lucide-react';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { SHIELD_PHASE_LABELS, OPENCLAW_SHIELD_STEPS, CLAUDE_CODE_SHIELD_STEPS } from '@agenshield/ipc';
 import type { ShieldingStepProps } from '../SetupPanel.types';
 import type { ShieldStepEntry } from '../../../../../state/setup-panel';

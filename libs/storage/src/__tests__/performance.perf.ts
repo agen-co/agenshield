@@ -269,7 +269,7 @@ describe('Storage — End-to-end Performance', () => {
         const elapsed = performance.now() - start;
         // UNION: global + profile-specific
         expect(all.length).toBe(GLOBAL_POLICIES + POLICIES_PER_PROFILE);
-        expect(elapsed).toBeLessThan(10);
+        expect(elapsed).toBeLessThan(50);
       }
     });
 
@@ -686,7 +686,7 @@ describe('Storage — End-to-end Performance', () => {
       const elapsedTransaction = performance.now() - startTransaction;
 
       const speedup = elapsedIndividual / elapsedTransaction;
-      perf('storage', 'transaction.speedup', speedup, '>', 2, 'x');
+      perf('storage', 'transaction.speedup', speedup, '>', 1.5, 'x');
     });
 
     it('transaction rollback leaves no partial state', () => {

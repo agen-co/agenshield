@@ -97,7 +97,7 @@ exec "\${AGENT_BIN}/node" "${newEntryPath}" "$@"
     }
 
     // Move to final location
-    let moveResult = sudoExec(`mv "${tempPath}" "${wrapperPath}"`);
+    const moveResult = sudoExec(`mv "${tempPath}" "${wrapperPath}"`);
     if (!moveResult.success) {
       return { success: false, error: `Failed to install wrapper: ${moveResult.error}` };
     }

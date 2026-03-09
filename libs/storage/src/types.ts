@@ -270,6 +270,8 @@ export interface DbWorkspaceSkillRow {
   cloud_skill_id: string | null;
   removed_at: string | null;
   acl_applied: number;
+  managed: number;
+  managed_source: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -282,6 +284,30 @@ export interface DbBinarySignatureRow {
   platform: string | null;
   source: string;
   metadata: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbMcpServerRow {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  transport: string;
+  url: string | null;
+  command: string | null;
+  args: string;
+  env: string;
+  headers: string;
+  auth_type: string;
+  auth_config: string | null;
+  source: string;
+  managed: number;
+  managed_source: string | null;
+  status: string;
+  profile_id: string | null;
+  config_json: string | null;
+  supported_targets: string;
   created_at: string;
   updated_at: string;
 }

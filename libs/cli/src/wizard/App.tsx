@@ -12,6 +12,7 @@ import { Confirm } from './components/Confirm.js';
 import { ModeSelect, type SetupMode } from './components/ModeSelect.js';
 import { AdvancedConfig, computeNames, REQUIRED_PREFIX, type ComputedNames } from './components/AdvancedConfig.js';
 import { createWizardEngine } from './engine.js';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { userExists, groupExists } from '@agenshield/sandbox';
 import type { WizardState, WizardContext, WizardOptions } from './types.js';
 

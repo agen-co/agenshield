@@ -128,7 +128,6 @@ export function TrafficChart() {
     return Array.from(buckets.entries())
       .sort(([a], [b]) => a - b)
       .map(([ts, data]) => ({ time: format(new Date(ts), displayFmt), ...data }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events, range, tick]);
 
   const isEmpty = !healthy || chartData.length === 0;

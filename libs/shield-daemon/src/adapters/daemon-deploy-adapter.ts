@@ -143,7 +143,7 @@ export class DaemonDeployAdapter implements DeployAdapter {
             // May fail if not root — acceptable in development
           }
 
-          await createSkillWrapper(skill.slug, resolvedPaths.binDir).catch(() => {});
+          await createSkillWrapper(skill.slug, resolvedPaths.binDir).catch(() => { /* noop */ });
         } catch {
           // sudo not available or failed
         }

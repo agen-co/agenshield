@@ -333,34 +333,34 @@ _agenshield_select() {
   # Try Node.js prompt helper (installed at ~/.agenshield/bin/agenshield-prompt)
   local PROMPT_HELPER="$HOME/.agenshield/bin/agenshield-prompt"
   if [ -x "$PROMPT_HELPER" ] && [ -t 0 ] && [ -t 2 ]; then
-    local HELPER_ARGS=("--title" "\$TITLE")
+    local HELPER_ARGS=("--title" "$TITLE")
     local i
-    for i in \$(seq 0 \$((COUNT - 1))); do
-      HELPER_ARGS+=("--option" "\${OPTS[\$i]}")
+    for i in $(seq 0 $((COUNT - 1))); do
+      HELPER_ARGS+=("--option" "\${OPTS[$i]}")
     done
-    [[ \$ALLOW_CANCEL -eq 1 ]] && HELPER_ARGS+=("--cancel")
+    [[ $ALLOW_CANCEL -eq 1 ]] && HELPER_ARGS+=("--cancel")
 
     local RESULT
-    RESULT=\$("$PROMPT_HELPER" "\${HELPER_ARGS[@]}" 2>&2)
-    if [[ $? -eq 0 ]] && [[ -n "\$RESULT" ]]; then
-      _AGENSHIELD_SELECTION="\$RESULT"
+    RESULT=$("$PROMPT_HELPER" "\${HELPER_ARGS[@]}" 2>&2)
+    if [[ $? -eq 0 ]] && [[ -n "$RESULT" ]]; then
+      _AGENSHIELD_SELECTION="$RESULT"
       return
     fi
   fi
 
   # Fallback: simple numbered prompt (works in any terminal)
   echo "" >&2
-  echo "  \$TITLE" >&2
+  echo "  $TITLE" >&2
   echo "" >&2
   local i
-  for i in \$(seq 1 \$COUNT); do
-    echo "  \$i) \${OPTS[\$((i-1))]}" >&2
+  for i in $(seq 1 $COUNT); do
+    echo "  $i) \${OPTS[$((i-1))]}" >&2
   done
-  printf "Select [1-\$COUNT]: " >&2
+  printf "Select [1-$COUNT]: " >&2
   read -r _AGENSHIELD_SELECTION
-  if ! [[ "\$_AGENSHIELD_SELECTION" =~ ^[0-9]+$ ]] || \
-     [[ \$_AGENSHIELD_SELECTION -lt 1 ]] || \
-     [[ \$_AGENSHIELD_SELECTION -gt \$COUNT ]]; then
+  if ! [[ "$_AGENSHIELD_SELECTION" =~ ^[0-9]+$ ]] || \
+     [[ $_AGENSHIELD_SELECTION -lt 1 ]] || \
+     [[ $_AGENSHIELD_SELECTION -gt $COUNT ]]; then
     _AGENSHIELD_SELECTION=0
   fi
 }
@@ -395,12 +395,12 @@ _check_cwd_access() {
     "Start in agent home ($AGENT_HOME) instead" \\
     "Cancel" --cancel
 
-  case "\$_AGENSHIELD_SELECTION" in
+  case "$_AGENSHIELD_SELECTION" in
     1) local GRANT_RESP
-       GRANT_RESP=\$(curl -sf -X POST "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/grant" \\
+       GRANT_RESP=$(curl -sf -X POST "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/grant" \\
          -H "Content-Type: application/json" \\
          -d "{\\"path\\":\\"$CWD\\"}" 2>/dev/null)
-       if echo "\$GRANT_RESP" | grep -q '"warning"'; then
+       if echo "$GRANT_RESP" | grep -q '"warning"'; then
          echo "Access registered but permissions could not be verified. Starting in agent home." >&2
          export AGENSHIELD_HOST_CWD="$AGENT_HOME"
          return 0
@@ -442,7 +442,7 @@ _check_cwd_perms() {
     "Start in agent home ($AGENT_HOME) instead" \\
     "Cancel" --cancel
 
-  case "\$_AGENSHIELD_SELECTION" in
+  case "$_AGENSHIELD_SELECTION" in
     1) # Call daemon to apply ACLs
        local RESP
        RESP=$(curl -sf -X POST "http://\${DAEMON_HOST}:\${DAEMON_PORT}/api/workspace-paths/fix-permissions" \\
@@ -528,7 +528,7 @@ elif [[ $TOTAL_OPTIONS -eq 1 ]]; then
       _check_cwd_access "\${INST_HOMES[1]}"
       _CWD_RC=$?
       # Skip perm check if access was just granted (return 2 = ACLs applied)
-      if [[ \$_CWD_RC -eq 0 ]]; then
+      if [[ $_CWD_RC -eq 0 ]]; then
         _check_cwd_perms "\${INST_USERS[1]}" "\${INST_HOMES[1]}"
       fi
     fi
@@ -539,27 +539,27 @@ elif [[ $TOTAL_OPTIONS -eq 1 ]]; then
 else
   # Multiple options — build options and prompt with interactive selector
   SELECT_OPTS=()
-  for i in \$(seq 1 \$INST_COUNT); do
-    SELECT_OPTS+=("\${INST_NAMES[\$i]} [\${INST_BASES[\$i]}] (shielded)")
+  for i in $(seq 1 $INST_COUNT); do
+    SELECT_OPTS+=("\${INST_NAMES[$i]} [\${INST_BASES[$i]}] (shielded)")
   done
-  if [[ \$HOST_AVAILABLE -eq 1 ]]; then
+  if [[ $HOST_AVAILABLE -eq 1 ]]; then
     SELECT_OPTS+=("Host User (unshielded)")
   fi
 
   _agenshield_select "Select an instance" "\${SELECT_OPTS[@]}"
 
-  if [[ \$_AGENSHIELD_SELECTION -ge 1 ]] && [[ \$_AGENSHIELD_SELECTION -le \$TOTAL_OPTIONS ]]; then
-    if [[ \$_AGENSHIELD_SELECTION -le \$INST_COUNT ]]; then
+  if [[ $_AGENSHIELD_SELECTION -ge 1 ]] && [[ $_AGENSHIELD_SELECTION -le $TOTAL_OPTIONS ]]; then
+    if [[ $_AGENSHIELD_SELECTION -le $INST_COUNT ]]; then
       # Validate CWD is in allowed workspace paths before launching
-      if [[ -n "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}" ]]; then
-        _check_cwd_access "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}"
+      if [[ -n "\${INST_HOMES[$_AGENSHIELD_SELECTION]}" ]]; then
+        _check_cwd_access "\${INST_HOMES[$_AGENSHIELD_SELECTION]}"
         _CWD_RC=$?
         # Skip perm check if access was just granted (return 2 = ACLs applied)
-        if [[ \$_CWD_RC -eq 0 ]]; then
-          _check_cwd_perms "\${INST_USERS[\$_AGENSHIELD_SELECTION]}" "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}"
+        if [[ $_CWD_RC -eq 0 ]]; then
+          _check_cwd_perms "\${INST_USERS[$_AGENSHIELD_SELECTION]}" "\${INST_HOMES[$_AGENSHIELD_SELECTION]}"
         fi
       fi
-      _agenshield_exec "\${INST_USERS[\$_AGENSHIELD_SELECTION]}" "\${INST_BINS[\$_AGENSHIELD_SELECTION]}" "\${INST_HOMES[\$_AGENSHIELD_SELECTION]}" "$@"
+      _agenshield_exec "\${INST_USERS[$_AGENSHIELD_SELECTION]}" "\${INST_BINS[$_AGENSHIELD_SELECTION]}" "\${INST_HOMES[$_AGENSHIELD_SELECTION]}" "$@"
     else
       _agenshield_exec_host "$ORIG_BIN" "$@"
     fi

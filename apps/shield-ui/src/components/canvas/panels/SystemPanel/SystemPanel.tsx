@@ -160,7 +160,7 @@ export function SystemPanel({ open, onShieldComplete }: SystemPanelProps) {
     if (mode === 'setup' && (panelState.detectedTargets as DetectedTarget[]).length === 0 && !panelState.isDetecting) {
       handleRefresh();
     }
-  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   const handleEnterSetup = useCallback(() => {
     setMode('setup');

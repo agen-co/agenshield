@@ -16,7 +16,7 @@ import { styled as muiStyled } from '@mui/material/styles';
 export function styled$(
   component: React.ElementType,
   componentName: string,
-  slot: string = 'Root',
+  slot = 'Root',
 ) {
   return muiStyled(component as 'div', {
     name: componentName,

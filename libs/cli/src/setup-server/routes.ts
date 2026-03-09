@@ -6,6 +6,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   createUserConfig,
   createPathsConfig,
@@ -75,7 +76,7 @@ export async function registerRoutes(app: FastifyInstance, engine: WizardEngine)
   // --- Setup state ---
   app.get('/api/setup/state', async () => {
     // Determine phase
-    let phase: string = 'detection';
+    let phase = 'detection';
     const hasConfirm = engine.state.steps.find(s => s.id === 'confirm');
     const hasComplete = engine.state.steps.find(s => s.id === 'complete');
     const verifyStep = engine.state.steps.find(s => s.id === 'verify');

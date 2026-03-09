@@ -11,24 +11,7 @@ import { getEnrollmentService } from '../services/enrollment';
 import { getActivationService } from '../services/activation';
 import { getAutoShieldService } from '../services/auto-shield';
 import { getStorage } from '@agenshield/storage';
-
-// Lazy-loaded integrations — avoids top-level await (TLA) which breaks CJS bundles
-let getOpenClawStatusSync: (() => unknown) | undefined;
-let detectHostOpenClawVersion: (() => string | null) | undefined;
-let _integrationsLoaded = false;
-
-function ensureIntegrations(): void {
-  if (_integrationsLoaded) return;
-  _integrationsLoaded = true;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const integrations = require('@agenshield/seatbelt') as Record<string, unknown>;
-    getOpenClawStatusSync = integrations['getOpenClawStatusSync'] as typeof getOpenClawStatusSync;
-    detectHostOpenClawVersion = integrations['detectHostOpenClawVersion'] as typeof detectHostOpenClawVersion;
-  } catch {
-    // @agenshield/seatbelt may not be available
-  }
-}
+import { getOpenClawStatusSync, detectHostOpenClawVersion } from '@agenshield/seatbelt';
 
 // Cached OpenClaw version (detected once, doesn't change at runtime)
 let cachedOpenClawVersion: string | null | undefined;
@@ -36,7 +19,6 @@ let cachedOpenClawVersion: string | null | undefined;
 export const startedAt = new Date();
 
 export function buildDaemonStatus(): DaemonStatus {
-  ensureIntegrations();
   const config = loadConfig();
   const state = loadState();
   const uptimeMs = Date.now() - startedAt.getTime();
@@ -47,15 +29,13 @@ export function buildDaemonStatus(): DaemonStatus {
   // Get OpenClaw status (sync to keep buildDaemonStatus synchronous)
   let openclaw: DaemonStatus['openclaw'] | undefined;
   try {
-    if (getOpenClawStatusSync) {
-      openclaw = getOpenClawStatusSync() as DaemonStatus['openclaw'];
-    }
+    openclaw = getOpenClawStatusSync() as DaemonStatus['openclaw'];
   } catch {
     // OpenClaw may not be installed
   }
 
   // Detect and cache OpenClaw version (once)
-  if (cachedOpenClawVersion === undefined && detectHostOpenClawVersion) {
+  if (cachedOpenClawVersion === undefined) {
     try {
       cachedOpenClawVersion = detectHostOpenClawVersion();
     } catch {

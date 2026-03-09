@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Terminal,
-  Eye, Zap, KeyRound, BarChart3, Settings as SettingsIcon,
+  Eye, Zap, KeyRound, BarChart3, Settings as SettingsIcon, Server,
 } from 'lucide-react';
 import { CircularLoader } from '../../../elements';
 import { setSkipEntryAnimation } from '../../../state/canvas-drilldown';
@@ -35,6 +35,7 @@ const PAGE_META: Record<string, { title: string; icon: typeof Terminal }> = {
   overview: { title: 'Overview', icon: Eye },
   settings: { title: 'Settings', icon: SettingsIcon },
   metrics: { title: 'System Metrics', icon: BarChart3 },
+  mcps: { title: 'MCP Servers', icon: Server },
 };
 
 /* ---- Lazy-loaded page components ---- */
@@ -46,6 +47,8 @@ const LazySecrets = lazy(() => import('../../../pages/Secrets').then(m => ({ def
 const LazyOverview = lazy(() => import('../../../pages/Overview').then(m => ({ default: m.Overview })));
 const LazySettings = lazy(() => import('../../../pages/Settings').then(m => ({ default: m.Settings })));
 const LazyAllMetrics = lazy(() => import('./CoreMetricsView').then(m => ({ default: m.AllMetricsView })));
+const LazyMcpServers = lazy(() => import('../../../pages/McpServers').then(m => ({ default: m.McpServers })));
+const LazyMcpServerPage = lazy(() => import('../../../pages/McpServerPage').then(m => ({ default: m.McpServerPage })));
 
 /* Metrics tabs removed — AllMetricsView shows all 4 charts at once */
 
@@ -88,14 +91,13 @@ export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps)
   }, [navigate]);
 
   const isSkillDetail = page === 'skills' && !!tab;
+  const isMcpDetail = page === 'mcps' && !!tab;
 
   const handleBack = useCallback(() => {
-    if (isSkillDetail) {
-      navigate('/skills');
-    } else {
-      navigate('/');
-    }
-  }, [navigate, isSkillDetail]);
+    if (isSkillDetail) navigate('/skills');
+    else if (isMcpDetail) navigate('/mcps');
+    else navigate('/');
+  }, [navigate, isSkillDetail, isMcpDetail]);
 
   const meta = PAGE_META[page];
   if (!meta) return null;
@@ -135,7 +137,7 @@ export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps)
             fontFamily: "'Manrope', sans-serif",
             color: theme.palette.text.primary,
           }}>
-            {isSkillDetail ? 'Skills / Detail' : meta.title}
+            {isMcpDetail ? 'MCP Servers' : isSkillDetail ? 'Skills / Detail' : meta.title}
           </span>
 
         </OverlayHeader>
@@ -167,6 +169,8 @@ export const PageOverlay = memo(({ page, tab, skipAnimation }: PageOverlayProps)
               )}
               {page === 'secrets' && <LazySecrets embedded />}
               {page === 'settings' && <LazySettings embedded />}
+              {page === 'mcps' && !tab && <LazyMcpServers />}
+              {page === 'mcps' && tab && <LazyMcpServerPage serverId={tab} embedded />}
               {page === 'metrics' && <LazyAllMetrics />}
             </Suspense>
           </ScrollArea>

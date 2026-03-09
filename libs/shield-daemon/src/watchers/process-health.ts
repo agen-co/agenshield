@@ -10,6 +10,7 @@
 
 import { emitProcessStarted, emitProcessStopped, emitProcessRestarted } from '../events/emitter';
 import { getSystemExecutor } from '../workers/system-command';
+import { getOpenClawStatusSync as seatbeltGetOpenClawStatus } from '@agenshield/seatbelt';
 
 const BROKER_LABEL = 'com.agenshield.broker';
 
@@ -23,17 +24,6 @@ let previousBrokerState: ProcessState = { running: false };
 let previousGatewayState: ProcessState = { running: false };
 let watcherInterval: NodeJS.Timeout | null = null;
 
-// Dynamic import — openclaw-launchdaemon may not be built yet
-let getOpenClawStatusSync: (() => { gateway: ProcessState }) | undefined;
-
-async function loadIntegrations(): Promise<void> {
-  try {
-    const integrations = await import('@agenshield/seatbelt');
-    getOpenClawStatusSync = (integrations as Record<string, unknown>)['getOpenClawStatusSync'] as typeof getOpenClawStatusSync;
-  } catch {
-    // @agenshield/seatbelt may not be available
-  }
-}
 
 /**
  * Parse launchctl list output to extract PID and exit status.
@@ -90,9 +80,8 @@ async function getBrokerStatus(): Promise<ProcessState> {
  * Get gateway process status via @agenshield/seatbelt.
  */
 function getGatewayStatus(): ProcessState {
-  if (!getOpenClawStatusSync) return { running: false };
   try {
-    const status = getOpenClawStatusSync();
+    const status = seatbeltGetOpenClawStatus();
     return status.gateway;
   } catch {
     return { running: false };
@@ -156,8 +145,6 @@ export async function startProcessHealthWatcher(intervalMs = 10000): Promise<voi
   if (watcherInterval) {
     return; // Already running
   }
-
-  await loadIntegrations();
 
   // Initial check
   checkAndEmit();

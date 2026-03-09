@@ -61,7 +61,7 @@ export class AutoShieldService {
     // Check cloud flag
     try {
       // Dynamic import to avoid circular deps at module load
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+       
       const { getCloudConnector } = require('./cloud-connector') as { getCloudConnector: () => { getAutoShieldFlag(): boolean | undefined } };
       const cloudFlag = getCloudConnector().getAutoShieldFlag();
       if (cloudFlag === true) return true;

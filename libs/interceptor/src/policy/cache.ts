@@ -18,8 +18,8 @@ export class PolicyCache {
   private cache: Map<string, CacheEntry<any>> = new Map();
   private ttl: number;
   private maxSize: number;
-  private hits: number = 0;
-  private misses: number = 0;
+  private hits = 0;
+  private misses = 0;
 
   constructor(options: PolicyCacheOptions) {
     this.ttl = options.ttl;

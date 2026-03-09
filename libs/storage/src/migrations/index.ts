@@ -7,6 +7,7 @@
 import type Database from 'better-sqlite3';
 import type { Migration } from './types';
 import { SchemaMigration } from './001-schema';
+import { McpServersMigration } from './002-mcp-servers';
 import { DatabaseCorruptedError } from '../errors';
 
 export type { Migration };
@@ -16,6 +17,7 @@ const TABLE = '_migrations';
 
 export const ALL_MIGRATIONS: Migration[] = [
   new SchemaMigration(),
+  new McpServersMigration(),
 ];
 
 /**

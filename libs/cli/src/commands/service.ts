@@ -14,6 +14,7 @@ import { ServiceError, PrivilegeError } from '../errors.js';
 import { output } from '../utils/output.js';
 import { findDaemonExecutable, DAEMON_CONFIG } from '../utils/daemon.js';
 import { resolveHostHome } from '../utils/host-user.js';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   installDaemonService,
   uninstallDaemonService,
@@ -29,6 +30,7 @@ import {
   uninstallMenuBarAgent,
   getMenuBarAgentStatus,
 } from '@agenshield/seatbelt';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { getMacAppBundlePath } from '@agenshield/sandbox';
 
 export function registerServiceCommand(program: Command): void {

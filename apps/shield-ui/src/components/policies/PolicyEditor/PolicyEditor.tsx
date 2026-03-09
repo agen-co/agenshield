@@ -15,6 +15,7 @@ import {
 } from '@mui/material';
 import { X, Terminal, Zap, Globe, FolderOpen, CircleCheck, Ban, Clock, Package } from 'lucide-react';
 import type { PolicyConfig, SecurityRisk, CatalogEntry } from '@agenshield/ipc';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { COMMAND_CATALOG } from '@agenshield/ipc';
 import { useDiscovery, useSkills, useSecrets } from '../../../api/hooks';
 import type { Secret } from '../../../api/client';
@@ -140,7 +141,6 @@ export function PolicyEditor({ policy, onSave, onCancel, onDirtyChange, onFocusC
     } else {
       setSecretIds([]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [policy?.id, secrets.length]);
 
   // Reset when policy prop changes

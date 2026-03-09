@@ -13,6 +13,7 @@ export default {
     ],
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
+  modulePathIgnorePatterns: ['<rootDir>/dist/'],
   moduleNameMapper: {
     '^(.*)\\.js$': '$1',
     '^@agenshield/ipc$': '<rootDir>/../shield-ipc/src/index.ts',

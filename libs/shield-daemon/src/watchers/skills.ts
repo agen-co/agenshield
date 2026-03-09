@@ -58,8 +58,8 @@ interface SkillsWatcherCallbacks {
 
 let watcher: fs.FSWatcher | null = null;
 let pollingInterval: NodeJS.Timeout | null = null;
-let debounceTimers: Map<string, NodeJS.Timeout> = new Map();
-let skillsDir: string = '';
+const debounceTimers: Map<string, NodeJS.Timeout> = new Map();
+let skillsDir = '';
 let callbacks: SkillsWatcherCallbacks = {};
 
 /**

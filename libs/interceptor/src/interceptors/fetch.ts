@@ -30,7 +30,7 @@ export class FetchInterceptor extends BaseInterceptor {
     // Create a ProxyAgent from undici (bundled with Node.js 18+) for proxy routing
     if (this.proxyConfig.enabled) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
+         
         const undici = require('undici');
         if (undici.ProxyAgent) {
           this.proxyDispatcher = new undici.ProxyAgent(this.proxyConfig.url);

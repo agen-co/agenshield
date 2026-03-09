@@ -908,7 +908,7 @@ export function useSetupCanvasLayout(
       });
 
       // Cross-contamination tendrils — adjacent main-row brokers only (daemon mode)
-      if (!false) {
+      {
         const unshieldedBrokers: string[] = [];
         topo.cardIds.forEach((cardId) => {
           const statusEntry = topo.cardStatuses.find((s) => s.startsWith(`${cardId}:`));

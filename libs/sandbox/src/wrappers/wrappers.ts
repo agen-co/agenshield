@@ -710,7 +710,7 @@ EOF`);
  * Install all wrappers
  */
 export async function installWrappers(
-  targetDir: string = '/Users/agenshield_agent/bin',
+  targetDir = '/Users/agenshield_agent/bin',
   config?: WrapperConfig
 ): Promise<WrapperResult[]> {
   const results: WrapperResult[] = [];
@@ -830,7 +830,7 @@ export async function uninstallWrapper(
  * Uninstall all wrappers
  */
 export async function uninstallWrappers(
-  targetDir: string = '/Users/agenshield_agent/bin'
+  targetDir = '/Users/agenshield_agent/bin'
 ): Promise<WrapperResult[]> {
   const results: WrapperResult[] = [];
 
@@ -846,7 +846,7 @@ export async function uninstallWrappers(
  * Verify wrapper installation
  */
 export async function verifyWrappers(
-  targetDir: string = '/Users/agenshield_agent/bin'
+  targetDir = '/Users/agenshield_agent/bin'
 ): Promise<{
   valid: boolean;
   installed: string[];
@@ -1131,7 +1131,7 @@ export async function addDynamicWrapper(
   name: string,
   content: string,
   targetDir: string,
-  useSudo: boolean = false,
+  useSudo = false,
   owner?: string,
   group?: string
 ): Promise<WrapperResult> {
@@ -1147,7 +1147,7 @@ export async function addDynamicWrapper(
 export async function removeDynamicWrapper(
   name: string,
   targetDir: string,
-  useSudo: boolean = false
+  useSudo = false
 ): Promise<WrapperResult> {
   const wrapperPath = path.join(targetDir, name);
 
@@ -1191,7 +1191,7 @@ export async function updateWrapper(
   name: string,
   targetDir: string,
   config?: WrapperConfig,
-  useSudo: boolean = false
+  useSudo = false
 ): Promise<WrapperResult> {
   const def = WRAPPER_DEFINITIONS[name];
   if (!def) {

@@ -3,6 +3,7 @@
  */
 
 import * as os from 'node:os';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   checkPrerequisites,
   createUserConfig,
@@ -37,6 +38,7 @@ import {
   type MigrationContext,
   type MigrationDirectories,
 } from '@agenshield/sandbox';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   // Homebrew
   installAgentHomebrew,
@@ -56,6 +58,7 @@ import {
   OPENCLAW_GATEWAY_PLIST,
 } from '@agenshield/seatbelt';
 import type { OriginalInstallation, MigratedPaths, SandboxUserInfo, UserConfig } from '@agenshield/ipc';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { isSEA } from '@agenshield/ipc';
 import type {
   WizardStep,

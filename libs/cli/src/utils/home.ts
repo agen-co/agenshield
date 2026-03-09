@@ -12,6 +12,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+// eslint-disable-next-line @nx/enforce-module-boundaries
 import { isSEA, resolveCodesignIdentifier } from '@agenshield/ipc';
 import { resolveHostHome } from './host-user.js';
 

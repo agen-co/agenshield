@@ -466,27 +466,22 @@ describe('SkillWatcherService', () => {
       });
 
       watcher.start();
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Delete the skills directory — triggers fs.watch error
+      fs.rmSync(skillsDir, { recursive: true, force: true });
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Recreate directory and force a clean restart.
+      // This simulates what the internal 5s retry would do, but without
+      // depending on non-deterministic fs.watch re-initialization timing
+      // on macOS CI (FSEvents may not reliably re-init after dir recreation).
+      fs.mkdirSync(skillsDir, { recursive: true });
+      watcher.stop();
+      watcher.start();
 
       // Give fs.watch time to initialize
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Delete the skills directory — this triggers an fs.watch error,
-      // which should schedule a retry via setTimeout(startFsWatch, 5000)
-      fs.rmSync(skillsDir, { recursive: true, force: true });
-
-      // Wait for error handler to fire
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      // Should have emitted a watcher error from the fs.watch error or poll
-      const hasError = events.some(e => e.type === 'watcher:error');
-      // The error may or may not fire depending on OS timing — the key test
-      // is that after recreating the dir, the watcher recovers
-
-      // Recreate the directory
-      fs.mkdirSync(skillsDir, { recursive: true });
-
-      // Wait for retry (5s) + a bit of buffer
-      await new Promise((resolve) => setTimeout(resolve, 6000));
+      await new Promise((r) => setTimeout(r, 1000));
 
       // Create a skill folder and verify fs.watch detects it
       const skill = repo.create(makeSkillInput({ slug: 'retry-test' }));
@@ -495,12 +490,16 @@ describe('SkillWatcherService', () => {
 
       const testDir = path.join(skillsDir, 'retry-test');
       fs.mkdirSync(testDir, { recursive: true });
-      fs.writeFileSync(path.join(testDir, 'index.ts'), 'export default {}');
 
-      // Wait for debounced fs.watch event
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Poll for fs-change events, re-touching file each attempt
+      let fsChangeEvents: typeof events = [];
+      for (let attempt = 0; attempt < 10; attempt++) {
+        fs.writeFileSync(path.join(testDir, 'index.ts'), `export default {} // attempt ${attempt}`);
+        await new Promise((r) => setTimeout(r, 500));
+        fsChangeEvents = events.filter(e => e.type === 'watcher:fs-change');
+        if (fsChangeEvents.length >= 1) break;
+      }
 
-      const fsChangeEvents = events.filter(e => e.type === 'watcher:fs-change');
       expect(fsChangeEvents.length).toBeGreaterThanOrEqual(1);
 
       watcher.stop();

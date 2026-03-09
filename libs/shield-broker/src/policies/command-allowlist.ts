@@ -70,8 +70,8 @@ const BUILTIN_COMMANDS: Record<string, string[]> = {
 export class CommandAllowlist {
   private configPath: string;
   private dynamicCommands: Map<string, AllowedCommand> = new Map();
-  private lastLoad: number = 0;
-  private reloadInterval: number = 30000; // 30 seconds
+  private lastLoad = 0;
+  private reloadInterval = 30000; // 30 seconds
 
   constructor(configPath: string) {
     this.configPath = configPath;

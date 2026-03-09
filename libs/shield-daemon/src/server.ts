@@ -12,7 +12,8 @@ import { execSync } from 'node:child_process';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
-import type { DaemonConfig } from '@agenshield/ipc';
+import type { DaemonConfig, PrivilegeExecutor } from '@agenshield/ipc';
+import { PRIVILEGE_HELPER_LAUNCHD_PLIST } from '@agenshield/ipc';
 import { sanitizeLogUrl } from './utils/log-sanitizer';
 import { setDaemonLogger } from './logger';
 import { createLogBufferDestination } from './services/log-buffer';
@@ -59,6 +60,10 @@ import { startFallbackNotifications, stopFallbackNotifications } from './service
 import { startAutoUpdateWatcher, stopAutoUpdateWatcher } from './watchers/auto-update';
 import { startExecutableWatcher, stopExecutableWatcher } from './watchers/executables';
 import { WorkspaceSkillScanner } from './services/workspace-skill-scanner';
+import { McpConfigInjector } from './services/mcp-config-injector';
+import { WorkspaceMcpScanner } from './services/workspace-mcp-scanner';
+import { initMcpManager } from './services/mcp-manager';
+import { initCapabilityProber } from './services/mcp-capability-prober';
 import { getActivationService } from './services/activation';
 import { getAutoShieldService } from './services/auto-shield';
 
@@ -572,15 +577,28 @@ export async function startEssentialServices(app: FastifyInstance, config: Daemo
   });
   app.decorate('workspaceSkillScanner', workspaceSkillScanner);
 
+  // Create MCP manager (injector + scanner) early so routes can use it.
+  // Scanner polling starts later in startMonitoringServices().
+  const mcpInjector = new McpConfigInjector({ storage, logger: app.log });
+  const mcpScanner = new WorkspaceMcpScanner({
+    storage,
+    logger: app.log,
+    configDir: getConfigDir(),
+  });
+  const mcpManager = initMcpManager(storage, mcpInjector, mcpScanner);
+  app.decorate('mcpManager', mcpManager);
+
+  // Initialize MCP capability prober (on-demand, with 30s cache)
+  initCapabilityProber();
+
   // Start persistent activity writer (SQLite-backed)
   const activityWriter = getActivityWriter();
   activityWriter.start();
 
   // Initialize privilege executor for root operations.
   // Prefer launchd-managed helper (no password dialog) with osascript fallback for dev mode.
-  let executor: import('@agenshield/ipc').PrivilegeExecutor;
+  let executor: PrivilegeExecutor;
   try {
-    const { PRIVILEGE_HELPER_LAUNCHD_PLIST } = await import('@agenshield/ipc');
     if (fs.existsSync(PRIVILEGE_HELPER_LAUNCHD_PLIST)) {
       const { LaunchdExecutor } = await import('./services/launchd-executor.js');
       executor = new LaunchdExecutor();
@@ -615,6 +633,13 @@ export async function startEssentialServices(app: FastifyInstance, config: Daemo
     if (app.workspaceSkillScanner) {
       app.workspaceSkillScanner.stop();
     }
+    // Stop MCP scanner
+    try {
+      const { getMcpManager: getMcp, hasMcpManager: hasMcp } = await import('./services/mcp-manager.js');
+      if (hasMcp()) {
+        // Scanner is stopped internally by the manager's scanner reference
+      }
+    } catch { /* non-fatal */ }
     // Stop essential services
     stopEventLoopMonitor();
     stopMetricsCollector();
@@ -762,6 +787,19 @@ export async function startMonitoringServices(app: FastifyInstance, config: Daem
   // Start workspace skill scanner polling (scanner was created in startEssentialServices)
   if (app.workspaceSkillScanner) {
     app.workspaceSkillScanner.start(30_000);
+  }
+
+  // Start workspace MCP scanner polling (scanner was created in startEssentialServices)
+  if (app.mcpManager) {
+    const { WorkspaceMcpScanner: McpScannerClass } = await import('./services/workspace-mcp-scanner.js');
+    // Scanner was already initialized via initMcpManager — just get it from the manager
+    // and trigger initial scan on all profiles
+    try {
+      const { getMcpManager: getMcp } = await import('./services/mcp-manager.js');
+      getMcp().scanWorkspaces();
+    } catch {
+      // Non-fatal: MCP scanner start failed
+    }
   }
 
   app.log.info('[daemon] Monitoring services started');

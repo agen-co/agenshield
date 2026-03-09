@@ -83,7 +83,7 @@ cat > "${nodePath}" << 'PATCH_EOF'
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NODE_REAL="$SCRIPT_DIR/$(basename "$0").real"
 if [ -f "${interceptorPath}" ]; then
-  export NODE_OPTIONS="\${NODE_OPTIONS:+\$NODE_OPTIONS }--require ${interceptorPath}"
+  export NODE_OPTIONS="\${NODE_OPTIONS:+$NODE_OPTIONS }--require ${interceptorPath}"
 fi
 export AGENSHIELD_NODE_BIN="${ctx.agentHome}/bin/node-bin"
 export AGENSHIELD_SOCKET="${socketPath}"
