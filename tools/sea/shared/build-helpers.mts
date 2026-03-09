@@ -145,16 +145,11 @@ export function injectBlob(opts: InjectOptions): void {
     }
   }
 
-  // Linux: strip symbols and remove .note sections to avoid duplicate sentinel fuse
+  // Linux: deduplicate sentinel fuse occurrences in ELF binary.
+  // Node.js v24 embeds the sentinel in multiple ELF sections (.rodata, .note*, string tables).
+  // postject requires exactly one occurrence. Zero out duplicates, keeping the real fuse.
   if (platform === 'linux') {
-    try {
-      run(
-        `objcopy --strip-all -w --remove-section='.note*' "${binaryPath}"`,
-        'Strip symbols and .note sections from ELF binary (Linux)',
-      );
-    } catch {
-      console.log('[WARN] objcopy failed — postject may fail if sentinel appears in multiple sections');
-    }
+    deduplicateSentinel(binaryPath, 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2');
   }
 
   // Inject the blob using postject
@@ -219,6 +214,52 @@ export function codesignBinary(
       );
     }
   }
+}
+
+/**
+ * Zero out duplicate occurrences of the SEA sentinel fuse in an ELF binary.
+ *
+ * Node.js v24 embeds the sentinel string in multiple ELF sections (.rodata,
+ * .note*, .dynstr, string tables). `postject` requires exactly one occurrence.
+ * `strip`/`objcopy` cannot remove these without breaking the binary because
+ * the sentinel lives in essential sections. This function patches the raw bytes
+ * directly — zeroing out every copy except the real fuse (the one followed by
+ * `:` which is the fuse state delimiter, e.g. `...b2:0`).
+ */
+function deduplicateSentinel(binaryPath: string, sentinel: string): void {
+  const buf = fs.readFileSync(binaryPath);
+  const sentinelBuf = Buffer.from(sentinel);
+
+  // Find all occurrences
+  const occurrences: number[] = [];
+  let offset = 0;
+  while (true) {
+    const idx = buf.indexOf(sentinelBuf, offset);
+    if (idx === -1) break;
+    occurrences.push(idx);
+    offset = idx + sentinelBuf.length;
+  }
+
+  if (occurrences.length <= 1) {
+    console.log(`[SENTINEL] Found ${occurrences.length} occurrence(s) — no deduplication needed`);
+    return;
+  }
+
+  // Find the real fuse — followed by ':' (0x3A) for the fuse state
+  let fuseIdx = occurrences.find(idx => buf[idx + sentinelBuf.length] === 0x3A);
+  if (fuseIdx === undefined) fuseIdx = occurrences[0];
+
+  // Zero out duplicates
+  let removed = 0;
+  for (const idx of occurrences) {
+    if (idx !== fuseIdx) {
+      buf.fill(0, idx, idx + sentinelBuf.length);
+      removed++;
+    }
+  }
+
+  fs.writeFileSync(binaryPath, buf);
+  console.log(`[SENTINEL] Removed ${removed} duplicate(s), kept fuse at offset 0x${fuseIdx.toString(16)}`);
 }
 
 /**
