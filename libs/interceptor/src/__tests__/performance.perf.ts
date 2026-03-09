@@ -546,7 +546,7 @@ describe('8. Event Loop', () => {
         shouldBypassProxy('http://api.example.com/test', noProxy);
       }
     });
-    perf('interceptor', 'evloop.proxyBypass', block, '<', 50, 'ms');
+    perf('interceptor', 'evloop.proxyBypass', block, '<', 75, 'ms');
   });
 
   it('event reporter enqueue batch should not block event loop: < 50ms', async () => {

@@ -421,7 +421,7 @@ describe('ChildProcessInterceptor (integration)', () => {
     expect(cpModule.exec).toBe(origExec);
   });
 
-  it('applies env allowlist and strips dangerous vars in seatbelt wrapping', () => {
+  (process.platform === 'darwin' ? it : it.skip)('applies env allowlist and strips dangerous vars in seatbelt wrapping', () => {
     // Set up env to test allowlist filtering
     const savedEnv: Record<string, string | undefined> = {};
     const testVars: Record<string, string> = {
@@ -1147,7 +1147,7 @@ describe('ChildProcessInterceptor - intercepted methods', () => {
     });
   });
 
-  it('wrapWithSeatbelt wraps command with sandbox-exec', () => {
+  (process.platform === 'darwin' ? it : it.skip)('wrapWithSeatbelt wraps command with sandbox-exec', () => {
     const { interceptor } = createCpInterceptor();
     (interceptor as any).profileManager = {
       generateProfile: jest.fn().mockReturnValue('(version 1)'),
@@ -1174,7 +1174,7 @@ describe('ChildProcessInterceptor - intercepted methods', () => {
     expect(result.options.env.NODE_OPTIONS).toBeUndefined();
   });
 
-  it('wrapCommandStringWithSeatbelt wraps command string', () => {
+  (process.platform === 'darwin' ? it : it.skip)('wrapCommandStringWithSeatbelt wraps command string', () => {
     const { interceptor } = createCpInterceptor();
     (interceptor as any).profileManager = {
       generateProfile: jest.fn().mockReturnValue('(version 1)'),

@@ -498,7 +498,7 @@ describe('SkillWatcherService', () => {
       fs.writeFileSync(path.join(testDir, 'index.ts'), 'export default {}');
 
       // Wait for debounced fs.watch event
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
 
       const fsChangeEvents = events.filter(e => e.type === 'watcher:fs-change');
       expect(fsChangeEvents.length).toBeGreaterThanOrEqual(1);

@@ -150,13 +150,16 @@ export function injectBlob(opts: InjectOptions): void {
     // in rebuilt string tables, causing postject's uniqueness check to fail on
     // Node.js v24. Use objcopy to add the section + binary-patch the fuse.
     injectBlobLinux(binaryPath, blobPath);
+  } else if (platform === 'darwin') {
+    // macOS: bypass postject. Same sentinel duplication issue occurs with
+    // Mach-O binaries. Use segedit (from Xcode cctools) to add the section
+    // + binary-patch the fuse.
+    injectBlobDarwin(binaryPath, blobPath);
   } else {
-    // macOS / Windows: use postject (works correctly with Mach-O / PE)
-    const machoFlag = platform === 'darwin' ? '--macho-segment-name NODE_SEA' : '';
+    // Windows or other: use postject
     run(
       `npx postject "${binaryPath}" NODE_SEA_BLOB "${blobPath}" ` +
-      `--sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 ` +
-      machoFlag,
+      `--sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2`,
       'Inject SEA blob into binary',
     );
   }
@@ -236,6 +239,46 @@ function injectBlobLinux(binaryPath: string, blobPath: string): void {
     `objcopy --add-section NODE_SEA_BLOB="${blobPath}" --set-section-flags NODE_SEA_BLOB=noload,readonly "${binaryPath}"`,
     'Inject SEA blob via objcopy (Linux)',
   );
+
+  // Step 2: Flip the fuse from :0 to :1
+  const fuseBefore = Buffer.from(`${SENTINEL}:0`);
+  const fuseAfter  = Buffer.from(`${SENTINEL}:1`);
+  const buf = fs.readFileSync(binaryPath);
+  const idx = buf.indexOf(fuseBefore);
+
+  if (idx === -1) {
+    throw new Error(`[FUSE] Could not find "${SENTINEL}:0" in ${binaryPath}`);
+  }
+
+  fuseAfter.copy(buf, idx);
+  fs.writeFileSync(binaryPath, buf);
+  console.log(`[FUSE] Flipped fuse at offset 0x${idx.toString(16)}`);
+}
+
+/**
+ * Inject SEA blob on macOS without postject.
+ *
+ * postject uses LIEF internally, which can duplicate the sentinel fuse string
+ * in Mach-O binaries — the same issue seen on Linux with ELF. This function
+ * bypasses postject/LIEF entirely:
+ *   1. `segedit -add` adds the blob as a Mach-O section in the NODE_SEA segment
+ *   2. Binary-patch the fuse: find `SENTINEL:0` → change to `SENTINEL:1`
+ *
+ * Node.js SEA runtime on macOS calls `getsectiondata("NODE_SEA", "NODE_SEA_BLOB", &size)`
+ * — it only cares about segment+section name. `segedit` is part of Apple's cctools
+ * (pre-installed on all Xcode-equipped macOS runners).
+ */
+function injectBlobDarwin(binaryPath: string, blobPath: string): void {
+  const SENTINEL = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
+  const tmpPath = `${binaryPath}.tmp`;
+
+  // Step 1: Add the blob as a Mach-O section in NODE_SEA segment
+  run(
+    `segedit "${binaryPath}" -add NODE_SEA NODE_SEA_BLOB "${blobPath}" -output "${tmpPath}"`,
+    'Inject SEA blob via segedit (macOS)',
+  );
+  fs.renameSync(tmpPath, binaryPath);
+  fs.chmodSync(binaryPath, 0o755);
 
   // Step 2: Flip the fuse from :0 to :1
   const fuseBefore = Buffer.from(`${SENTINEL}:0`);

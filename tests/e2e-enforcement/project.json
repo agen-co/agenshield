@@ -3,6 +3,16 @@
   "root": "tests/e2e-enforcement",
   "sourceRoot": "tests/e2e-enforcement/src",
   "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/test-output/coverage/tests/e2e-enforcement"],
+      "options": {
+        "jestConfig": "tests/e2e-enforcement/jest.config.ts",
+        "runInBand": true,
+        "passWithNoTests": true
+      },
+      "dependsOn": ["^build"]
+    },
     "e2e": {
       "executor": "@nx/jest:jest",
       "options": {

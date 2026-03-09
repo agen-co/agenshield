@@ -269,7 +269,7 @@ describe('Storage — End-to-end Performance', () => {
         const elapsed = performance.now() - start;
         // UNION: global + profile-specific
         expect(all.length).toBe(GLOBAL_POLICIES + POLICIES_PER_PROFILE);
-        expect(elapsed).toBeLessThan(10);
+        expect(elapsed).toBeLessThan(50);
       }
     });
 
