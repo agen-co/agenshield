@@ -151,9 +151,8 @@ export function injectBlob(opts: InjectOptions): void {
     // Node.js v24. Use objcopy to add the section + binary-patch the fuse.
     injectBlobLinux(binaryPath, blobPath);
   } else if (platform === 'darwin') {
-    // macOS: bypass postject. Same sentinel duplication issue occurs with
-    // Mach-O binaries. Use segedit (from Xcode cctools) to add the section
-    // + binary-patch the fuse.
+    // macOS: deduplicate sentinel fuse string (Node.js v24 has duplicates),
+    // then use postject (LIEF) to inject the blob + verify fuse is flipped.
     injectBlobDarwin(binaryPath, blobPath);
   } else {
     // Windows or other: use postject
@@ -256,43 +255,112 @@ function injectBlobLinux(binaryPath: string, blobPath: string): void {
 }
 
 /**
- * Inject SEA blob on macOS without postject.
+ * Deduplicate sentinel fuse occurrences in a binary.
  *
- * postject uses LIEF internally, which can duplicate the sentinel fuse string
- * in Mach-O binaries — the same issue seen on Linux with ELF. This function
- * bypasses postject/LIEF entirely:
- *   1. `segedit -add` adds the blob as a Mach-O section in the NODE_SEA segment
- *   2. Binary-patch the fuse: find `SENTINEL:0` → change to `SENTINEL:1`
+ * Node.js v24 binaries contain duplicate copies of the sentinel string in
+ * string tables / debug info. postject's uniqueness check fails when it finds
+ * more than one occurrence. This function zeroes out all NON-fuse occurrences
+ * (i.e. those NOT followed by `:0` or `:1`) so only the real fuse remains.
+ */
+function deduplicateSentinel(binaryPath: string, sentinel: string): void {
+  const buf = fs.readFileSync(binaryPath);
+  const needle = Buffer.from(sentinel);
+  const indices: number[] = [];
+
+  let searchStart = 0;
+  while (true) {
+    const idx = buf.indexOf(needle, searchStart);
+    if (idx === -1) break;
+    indices.push(idx);
+    searchStart = idx + 1;
+  }
+
+  if (indices.length === 0) {
+    throw new Error(`[DEDUP] No occurrences of sentinel found in ${binaryPath}`);
+  }
+
+  if (indices.length === 1) {
+    console.log('[DEDUP] Single sentinel occurrence — no deduplication needed');
+    return;
+  }
+
+  const colonZero = ':'.charCodeAt(0);
+  const colonOne = ':'.charCodeAt(0);
+  let zeroed = 0;
+
+  for (const idx of indices) {
+    const afterSentinel = idx + needle.length;
+    // Keep the fuse occurrence: sentinel followed by `:0` or `:1`
+    if (afterSentinel + 1 < buf.length) {
+      const nextByte = buf[afterSentinel];
+      const byteAfter = buf[afterSentinel + 1];
+      if (nextByte === colonZero && (byteAfter === '0'.charCodeAt(0) || byteAfter === '1'.charCodeAt(0))) {
+        continue; // This is the real fuse — keep it
+      }
+    }
+    // Zero out this non-fuse occurrence
+    buf.fill(0, idx, idx + needle.length);
+    zeroed++;
+  }
+
+  if (zeroed > 0) {
+    fs.writeFileSync(binaryPath, buf);
+    console.log(`[DEDUP] Zeroed ${zeroed} non-fuse sentinel occurrence(s) out of ${indices.length} total`);
+  }
+}
+
+/**
+ * Ensure the SEA fuse is flipped to `:1` in the binary.
  *
- * Node.js SEA runtime on macOS calls `getsectiondata("NODE_SEA", "NODE_SEA_BLOB", &size)`
- * — it only cares about segment+section name. `segedit` is part of Apple's cctools
- * (pre-installed on all Xcode-equipped macOS runners).
+ * postject should flip it, but if LIEF re-introduced duplicates during
+ * Mach-O reconstruction, we do it ourselves as a safety net.
+ */
+function ensureFuseFlipped(binaryPath: string, sentinel: string): void {
+  const buf = fs.readFileSync(binaryPath);
+  const fuseOn = Buffer.from(`${sentinel}:1`);
+  const fuseOff = Buffer.from(`${sentinel}:0`);
+
+  if (buf.indexOf(fuseOn) !== -1) {
+    console.log('[FUSE] Fuse already flipped to :1');
+    return;
+  }
+
+  const idx = buf.indexOf(fuseOff);
+  if (idx === -1) {
+    throw new Error(`[FUSE] Could not find "${sentinel}:0" or "${sentinel}:1" in ${binaryPath}`);
+  }
+
+  fuseOn.copy(buf, idx);
+  fs.writeFileSync(binaryPath, buf);
+  console.log(`[FUSE] Flipped fuse at offset 0x${idx.toString(16)}`);
+}
+
+/**
+ * Inject SEA blob on macOS using sentinel deduplication + postject.
+ *
+ * Node.js v24 binaries contain duplicate sentinel fuse strings that cause
+ * postject's uniqueness check to fail. We pre-deduplicate, then let postject
+ * (which uses LIEF) correctly create the Mach-O segment/section.
+ *
+ * Unlike ELF (Linux), LIEF's Mach-O reconstruction does not re-introduce
+ * sentinel duplicates, so postject works correctly after deduplication.
  */
 function injectBlobDarwin(binaryPath: string, blobPath: string): void {
   const SENTINEL = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
-  const tmpPath = `${binaryPath}.tmp`;
 
-  // Step 1: Add the blob as a Mach-O section in NODE_SEA segment
+  // Step 1: Deduplicate sentinel (Node.js v24 has duplicates that fail postject)
+  deduplicateSentinel(binaryPath, SENTINEL);
+
+  // Step 2: Inject blob via postject (LIEF handles Mach-O section creation correctly)
   run(
-    `segedit "${binaryPath}" -add NODE_SEA NODE_SEA_BLOB "${blobPath}" -output "${tmpPath}"`,
-    'Inject SEA blob via segedit (macOS)',
+    `npx postject "${binaryPath}" NODE_SEA_BLOB "${blobPath}" ` +
+    `--sentinel-fuse ${SENTINEL} --macho-segment-name NODE_SEA`,
+    'Inject SEA blob via postject (macOS)',
   );
-  fs.renameSync(tmpPath, binaryPath);
-  fs.chmodSync(binaryPath, 0o755);
 
-  // Step 2: Flip the fuse from :0 to :1
-  const fuseBefore = Buffer.from(`${SENTINEL}:0`);
-  const fuseAfter  = Buffer.from(`${SENTINEL}:1`);
-  const buf = fs.readFileSync(binaryPath);
-  const idx = buf.indexOf(fuseBefore);
-
-  if (idx === -1) {
-    throw new Error(`[FUSE] Could not find "${SENTINEL}:0" in ${binaryPath}`);
-  }
-
-  fuseAfter.copy(buf, idx);
-  fs.writeFileSync(binaryPath, buf);
-  console.log(`[FUSE] Flipped fuse at offset 0x${idx.toString(16)}`);
+  // Step 3: Verify fuse is flipped; postject should do this, but if LIEF
+  // re-introduced duplicates, do it ourselves
+  ensureFuseFlipped(binaryPath, SENTINEL);
 }
 
 /**

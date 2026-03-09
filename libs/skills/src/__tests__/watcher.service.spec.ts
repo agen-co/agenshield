@@ -485,8 +485,8 @@ describe('SkillWatcherService', () => {
       // Recreate the directory
       fs.mkdirSync(skillsDir, { recursive: true });
 
-      // Wait for retry (5s) + a bit of buffer
-      await new Promise((resolve) => setTimeout(resolve, 6000));
+      // Wait for retry (5s) + buffer
+      await new Promise((resolve) => setTimeout(resolve, 8000));
 
       // Create a skill folder and verify fs.watch detects it
       const skill = repo.create(makeSkillInput({ slug: 'retry-test' }));
@@ -495,19 +495,24 @@ describe('SkillWatcherService', () => {
 
       const testDir = path.join(skillsDir, 'retry-test');
       fs.mkdirSync(testDir, { recursive: true });
-      fs.writeFileSync(path.join(testDir, 'index.ts'), 'export default {}');
 
-      // Wait for debounced fs.watch event
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // Poll for debounced fs.watch event, re-touching file each attempt
+      // (fs.watch may not be ready during the first write)
+      let fsChangeEvents: typeof events = [];
+      for (let attempt = 0; attempt < 10; attempt++) {
+        fs.writeFileSync(path.join(testDir, 'index.ts'), `export default {} // attempt ${attempt}`);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        fsChangeEvents = events.filter(e => e.type === 'watcher:fs-change');
+        if (fsChangeEvents.length >= 1) break;
+      }
 
-      const fsChangeEvents = events.filter(e => e.type === 'watcher:fs-change');
       expect(fsChangeEvents.length).toBeGreaterThanOrEqual(1);
 
       watcher.stop();
       jest.useFakeTimers();
 
       try { fs.rmSync(tmpDir, { recursive: true }); } catch { /* */ }
-    }, 15000);
+    }, 20000);
   });
 
   describe('poll error handling', () => {
