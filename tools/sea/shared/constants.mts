@@ -31,6 +31,7 @@ export const ALIASES: Record<string, string> = {
   '@agenshield/policies': path.join(ROOT, 'libs/policies/src/index.ts'),
   '@agenshield/seatbelt': path.join(ROOT, 'libs/seatbelt/src/index.ts'),
   '@agenshield/keychain': path.join(ROOT, 'libs/keychain/src/index.ts'),
+  '@agenshield/cloud': path.join(ROOT, 'libs/cloud/src/index.ts'),
   '@agenshield/auth': path.join(ROOT, 'libs/auth/src/index.ts'),
 };
 

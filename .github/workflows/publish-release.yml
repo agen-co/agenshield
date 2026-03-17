@@ -78,6 +78,7 @@ jobs:
         run: |
           CERT_FILE=$(mktemp /tmp/cert.XXXXXX.p12)
           KEYCHAIN_FILE=$(mktemp /tmp/keychain.XXXXXX.keychain-db)
+          rm -f "$KEYCHAIN_FILE"  # mktemp creates the file; security create-keychain needs it absent
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
 
           echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT_FILE"
@@ -474,6 +475,7 @@ jobs:
         run: |
           CERT_FILE=$(mktemp /tmp/cert.XXXXXX.p12)
           KEYCHAIN_FILE=$(mktemp /tmp/keychain.XXXXXX.keychain-db)
+          rm -f "$KEYCHAIN_FILE"  # mktemp creates the file; security create-keychain needs it absent
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
 
           echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT_FILE"
@@ -768,6 +770,11 @@ jobs:
           **Binary (recommended):**
           \`\`\`bash
           curl -fsSL https://github.com/${{ github.repository }}/releases/download/v$VERSION/install.sh | sh
+          \`\`\`
+
+          **With cloud enrollment:**
+          \`\`\`bash
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/v$VERSION/install.sh | bash -s -- --cloud-url <CLOUD_URL> --org <ORG_ID>
           \`\`\`
 
           **npm:**

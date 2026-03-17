@@ -2,16 +2,13 @@
  * Cloud connector service
  *
  * Manages the connection from the local AgenShield daemon to AgenShield Cloud.
- * Uses WebSocket with Ed25519 AgentSig authentication, falling back to HTTP polling.
- *
- * Auth primitives (AgentSig header, credential loading) come from @agenshield/auth.
+ * Transport (WebSocket/HTTP, auth headers, heartbeat, reconnect) is handled by
+ * CloudClient from @agenshield/cloud. This service owns the business logic:
+ * what to DO when commands arrive.
  */
 
-import {
-  createAgentSigHeader,
-  loadCloudCredentials,
-} from '@agenshield/auth';
-import type { CloudCredentials } from '@agenshield/auth';
+import { CloudClient } from '@agenshield/cloud';
+import type { CloudCommand, CloudCredentials } from '@agenshield/cloud';
 import type { PolicyConfig } from '@agenshield/ipc';
 import { PolicyConfigSchema } from '@agenshield/ipc';
 import { getStorage } from '@agenshield/storage';
@@ -25,22 +22,8 @@ import { fingerprintProcess } from './process-fingerprint';
 import type { ProcessFingerprint } from './process-fingerprint';
 
 // ---------------------------------------------------------------------------
-// Types
+// Constants
 // ---------------------------------------------------------------------------
-
-interface CloudCommand {
-  id: string;
-  method: string;
-  params: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// Cloud Connector
-// ---------------------------------------------------------------------------
-
-const HEARTBEAT_INTERVAL = 30_000;
-const RECONNECT_DELAY = 10_000;
-const POLL_INTERVAL = 30_000;
 
 /** Maps cloud target process identifiers to glob patterns for matching */
 const TARGET_PROCESS_PATTERNS: Record<string, string[]> = {
@@ -48,80 +31,48 @@ const TARGET_PROCESS_PATTERNS: Record<string, string[]> = {
   'openclaw': ['*openclaw*', 'openclaw:*'],
 };
 
+// ---------------------------------------------------------------------------
+// Cloud Connector
+// ---------------------------------------------------------------------------
+
 export class CloudConnector {
-  private credentials: CloudCredentials | null = null;
-  private ws: import('ws').WebSocket | null = null;
-  private heartbeatTimer: NodeJS.Timeout | null = null;
-  private reconnectTimer: NodeJS.Timeout | null = null;
-  private pollTimer: NodeJS.Timeout | null = null;
-  private connected = false;
-  private stopped = false;
-  private lastCommandFetch: string | undefined;
+  private client: CloudClient;
   private _autoShieldFromCloud: boolean | undefined;
+
+  constructor() {
+    this.client = new CloudClient({ logger: getLogger() });
+
+    this.client.setCommandHandler((command) => this.handleCommand(command));
+    this.client.setOnConnect(() => this.onConnected());
+  }
 
   /**
    * Try to connect to AgenShield Cloud.
    * No-ops if credentials don't exist.
    */
   async connect(): Promise<void> {
-    this.stopped = false;
-    this.credentials = loadCloudCredentials();
-
-    if (!this.credentials) {
-      return;
-    }
-
-    const log = getLogger();
-    log.info(`[cloud] Connecting to ${this.credentials.cloudUrl} as agent ${this.credentials.agentId}`);
-
-    try {
-      await this.connectWebSocket();
-    } catch {
-      log.warn('[cloud] WebSocket connection failed, falling back to HTTP polling');
-      this.startPolling();
-    }
+    await this.client.connect();
   }
 
   /**
    * Disconnect from AgenShield Cloud.
    */
   disconnect(): void {
-    this.stopped = true;
-
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    }
-    if (this.ws) {
-      try {
-        this.ws.close(1000, 'Daemon shutting down');
-      } catch { /* ignore */ }
-      this.ws = null;
-    }
-
-    this.connected = false;
+    this.client.disconnect();
   }
 
   /**
    * Whether the daemon is currently connected to cloud.
    */
   isConnected(): boolean {
-    return this.connected;
+    return this.client.isConnected();
   }
 
   /**
    * Get the enrolled company name (or undefined if not enrolled).
    */
   getCompanyName(): string | undefined {
-    return this.credentials?.companyName;
+    return this.client.getCredentials()?.companyName;
   }
 
   /**
@@ -131,96 +82,20 @@ export class CloudConnector {
     return this._autoShieldFromCloud;
   }
 
-  // ─── WebSocket connection ──────────────────────────────────
+  // ─── Post-connection actions ──────────────────────────────
 
-  private async connectWebSocket(): Promise<void> {
-    if (!this.credentials || this.stopped) return;
+  private async onConnected(): Promise<void> {
+    const log = getLogger();
 
-    const { WebSocket } = await import('ws');
-
-    const wsUrl = this.credentials.cloudUrl
-      .replace(/^https:/, 'wss:')
-      .replace(/^http:/, 'ws:');
-
-    const authHeader = this.makeAuthHeader();
-
-    return new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(`${wsUrl}/ws/agents`, {
-        headers: { Authorization: authHeader },
-      });
-
-      const connectionTimeout = setTimeout(() => {
-        ws.close();
-        reject(new Error('WebSocket connection timed out'));
-      }, 10_000);
-
-      ws.on('open', () => {
-        clearTimeout(connectionTimeout);
-        this.ws = ws;
-        this.connected = true;
-        this.startHeartbeat();
-
-        const log = getLogger();
-        log.info('[cloud] WebSocket connected');
-        resolve();
-
-        // Pull policies and MCP servers after connecting
-        this.pullPoliciesWithRetry().catch((err) => {
-          const rlog = getLogger();
-          rlog.warn({ err }, '[cloud] Initial policy pull failed after all retries');
-        });
-        this.pullMcpServers().catch((err) => {
-          const rlog = getLogger();
-          rlog.warn({ err }, '[cloud] Initial MCP servers pull failed');
-        });
-      });
-
-      ws.on('message', (data) => {
-        this.handleMessage(data.toString());
-      });
-
-      ws.on('close', () => {
-        clearTimeout(connectionTimeout);
-        this.connected = false;
-        this.ws = null;
-        this.stopHeartbeat();
-
-        if (!this.stopped) {
-          const log = getLogger();
-          log.warn('[cloud] WebSocket disconnected, reconnecting...');
-          this.scheduleReconnect();
-        }
-      });
-
-      ws.on('error', (err) => {
-        clearTimeout(connectionTimeout);
-        const log = getLogger();
-        log.warn(`[cloud] WebSocket error: ${err.message}`);
-        reject(err);
-      });
+    this.pullPoliciesWithRetry().catch((err) => {
+      log.warn({ err }, '[cloud] Initial policy pull failed after all retries');
+    });
+    this.pullMcpServers().catch((err) => {
+      log.warn({ err }, '[cloud] Initial MCP servers pull failed');
     });
   }
 
-  private handleMessage(raw: string): void {
-    try {
-      const msg = JSON.parse(raw) as { jsonrpc: string; id?: string; method: string; params?: Record<string, unknown> };
-
-      const log = getLogger();
-      log.debug(`[cloud] Received command: ${msg.method}`);
-
-      this.handleCommand({
-        id: msg.id ?? '',
-        method: msg.method,
-        params: msg.params ?? {},
-      }).catch(err => {
-        const errLog = getLogger();
-        errLog.error({ err }, '[cloud] Error handling command');
-      });
-    } catch {
-      const log = getLogger();
-      log.warn('[cloud] Invalid message received');
-    }
-  }
+  // ─── Command dispatch ─────────────────────────────────────
 
   private async handleCommand(command: CloudCommand): Promise<void> {
     const log = getLogger();
@@ -257,143 +132,12 @@ export class CloudConnector {
         break;
 
       case 'ping':
-        // Respond to server ping
-        if (this.ws?.readyState === 1) { // WebSocket.OPEN
-          this.ws.send(JSON.stringify({ jsonrpc: '2.0', method: 'pong', params: {} }));
-        }
+        // Handled by CloudClient
         break;
 
       default:
         log.debug(`[cloud] Unknown command: ${command.method}`);
     }
-
-    // Send acknowledgement
-    if (command.id && this.ws?.readyState === 1) {
-      this.ws.send(JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'command_ack',
-        params: { commandId: command.id },
-      }));
-    }
-  }
-
-  private startHeartbeat(): void {
-    this.stopHeartbeat();
-    this.heartbeatTimer = setInterval(() => {
-      if (this.ws?.readyState === 1) {
-        this.ws.ping();
-      }
-    }, HEARTBEAT_INTERVAL);
-  }
-
-  private stopHeartbeat(): void {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-  }
-
-  private scheduleReconnect(): void {
-    if (this.stopped || this.reconnectTimer) return;
-
-    this.reconnectTimer = setTimeout(async () => {
-      this.reconnectTimer = null;
-      if (this.stopped) return;
-
-      try {
-        await this.connectWebSocket();
-      } catch {
-        // Fall back to polling if WS keeps failing
-        this.startPolling();
-      }
-    }, RECONNECT_DELAY);
-  }
-
-  // ─── HTTP polling fallback ─────────────────────────────────
-
-  private startPolling(): void {
-    if (this.stopped || this.pollTimer) return;
-
-    const log = getLogger();
-    log.info('[cloud] Starting HTTP polling fallback');
-
-    this.connected = true; // Consider polling as "connected"
-
-    this.pollTimer = setInterval(async () => {
-      if (this.stopped) return;
-      await this.pollCommands();
-    }, POLL_INTERVAL);
-
-    // Initial poll + pull policies + MCP servers
-    this.pollCommands();
-    this.pullPoliciesWithRetry().catch((err) => {
-      const rlog = getLogger();
-      rlog.warn({ err }, '[cloud] Initial policy pull failed after all retries (polling)');
-    });
-    this.pullMcpServers().catch((err) => {
-      const rlog = getLogger();
-      rlog.warn({ err }, '[cloud] Initial MCP servers pull failed (polling)');
-    });
-  }
-
-  private async pollCommands(): Promise<void> {
-    if (!this.credentials) return;
-
-    try {
-      const url = new URL(
-        `/api/agents/${this.credentials.agentId}/commands`,
-        this.credentials.cloudUrl,
-      );
-      if (this.lastCommandFetch) {
-        url.searchParams.set('since', this.lastCommandFetch);
-      }
-
-      const authHeader = this.makeAuthHeader();
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
-
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: authHeader },
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-
-      if (!res.ok) return;
-
-      const commands = (await res.json()) as CloudCommand[];
-      this.lastCommandFetch = new Date().toISOString();
-
-      for (const cmd of commands) {
-        await this.handleCommand(cmd);
-
-        // Acknowledge via HTTP
-        try {
-          await fetch(
-            `${this.credentials.cloudUrl}/api/agents/${this.credentials.agentId}/ack`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: authHeader,
-              },
-              body: JSON.stringify({ commandId: cmd.id }),
-            },
-          );
-        } catch { /* best effort */ }
-      }
-    } catch {
-      // Polling failed — will retry next interval
-    }
-  }
-
-  // ─── Authentication ────────────────────────────────────────
-
-  /**
-   * Create a fresh AgentSig authorization header using @agenshield/auth.
-   */
-  private makeAuthHeader(): string {
-    if (!this.credentials) return '';
-    return createAgentSigHeader(this.credentials.agentId, this.credentials.privateKey);
   }
 
   // ─── Policy push ─────────────────────────────────────────────
@@ -567,33 +311,11 @@ export class CloudConnector {
 
   /**
    * Pull policies from cloud after connecting.
-   * Called after WebSocket connect and after first HTTP poll.
    */
   async pullPolicies(): Promise<void> {
-    if (!this.credentials) return;
-
     const log = getLogger();
     try {
-      const url = new URL(
-        `/api/agents/${this.credentials.agentId}/policies`,
-        this.credentials.cloudUrl,
-      );
-
-      const authHeader = this.makeAuthHeader();
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
-
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: authHeader },
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} pulling policies`);
-      }
-
-      const body = await res.json() as { source?: string; policies?: PolicyConfig[]; autoShield?: boolean };
+      const body = await this.client.agentGet<{ source?: string; policies?: PolicyConfig[]; autoShield?: boolean }>('/policies');
       if (body.policies && Array.isArray(body.policies)) {
         await this.applyPolicyPush({
           source: body.source ?? 'cloud',
@@ -640,33 +362,11 @@ export class CloudConnector {
     skills: Array<{ skillName: string; contentHash: string; fileList: string[] }>,
   ): Promise<Array<{ skillName: string; approved: boolean; cloudSkillId?: string }>> {
     const log = getLogger();
-    if (!this.credentials) return [];
-
     try {
-      const agentId = this.credentials.agentId;
-      const authHeader = this.makeAuthHeader();
-      const url = `${this.credentials.cloudUrl}/api/agents/${agentId}/workspace-skills/verify`;
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: authHeader,
-        },
-        body: JSON.stringify({ skills }),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-
-      if (!res.ok) {
-        log.warn(`[cloud] Failed to verify workspace skills: ${res.status}`);
-        return [];
-      }
-
-      const body = await res.json() as { results?: Array<{ skillName: string; approved: boolean; cloudSkillId?: string }> };
+      const body = await this.client.agentPost<{ results?: Array<{ skillName: string; approved: boolean; cloudSkillId?: string }> }>(
+        '/workspace-skills/verify',
+        { skills },
+      );
       return body.results ?? [];
     } catch (err) {
       log.debug({ err }, '[cloud] Failed to verify workspace skills');
@@ -753,30 +453,9 @@ export class CloudConnector {
    * Pull MCP servers from the cloud policy server.
    */
   async pullMcpServers(): Promise<void> {
-    if (!this.credentials) return;
-
     const log = getLogger();
     try {
-      const url = new URL(
-        `/api/agents/${this.credentials.agentId}/mcp-servers`,
-        this.credentials.cloudUrl,
-      );
-
-      const authHeader = this.makeAuthHeader();
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10_000);
-
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: authHeader },
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} pulling MCP servers`);
-      }
-
-      const body = await res.json() as { source?: string; servers?: Array<Record<string, unknown>> };
+      const body = await this.client.agentGet<{ source?: string; servers?: Array<Record<string, unknown>> }>('/mcp-servers');
       if (body.servers && Array.isArray(body.servers)) {
         await this.handlePushMcpServers({
           source: body.source ?? 'cloud',

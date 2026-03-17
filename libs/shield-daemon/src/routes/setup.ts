@@ -17,7 +17,7 @@ import type {
   SetupLocalResponse,
   SetupEnrollmentState,
 } from '@agenshield/ipc';
-import { isCloudEnrolled, loadCloudCredentials } from '@agenshield/auth';
+import { isCloudEnrolled, loadCloudCredentials } from '@agenshield/cloud';
 import { getSetupService } from '../services/setup';
 import { getEnrollmentService, type EnrollmentState } from '../services/enrollment';
 

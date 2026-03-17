@@ -1,5 +1,5 @@
 export default {
-  displayName: 'auth',
+  displayName: 'cloud',
   testEnvironment: 'node',
   transform: {
     '^.+\\.tsx?$': [
@@ -11,23 +11,9 @@ export default {
         },
       },
     ],
-    // Transform jose ESM to CJS for Jest
-    'node_modules/jose/.+\\.js$': [
-      '@swc/jest',
-      {
-        jsc: {
-          parser: { syntax: 'ecmascript' },
-          target: 'es2022',
-        },
-      },
-    ],
   },
-  transformIgnorePatterns: [
-    'node_modules/(?!jose)',
-  ],
   moduleFileExtensions: ['ts', 'js', 'json'],
   moduleNameMapper: {
-    '^@agenshield/cloud$': '<rootDir>/../../libs/cloud/src/index.ts',
     '^(.*)\\.js$': '$1',
   },
   collectCoverageFrom: [
@@ -35,7 +21,7 @@ export default {
     '!src/**/*.spec.ts',
     '!src/index.ts',
   ],
-  coverageDirectory: '../../test-output/coverage/libs/auth',
+  coverageDirectory: '../../test-output/coverage/libs/cloud',
   coverageReporters: ['text', 'lcov', 'json-summary'],
   testMatch: ['<rootDir>/src/**/*.spec.ts'],
 };

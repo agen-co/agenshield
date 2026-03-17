@@ -26,6 +26,7 @@
     },
     "build-cjs": {
       "executor": "@nx/esbuild:esbuild",
+      "dependsOn": ["^build"],
       "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "libs/auth/dist",
@@ -40,7 +41,7 @@
         "assets": ["libs/auth/package.json"],
         "esbuildOptions": {
           "outExtension": { ".js": ".js" },
-          "external": ["@agenshield/ipc", "jose"]
+          "external": ["@agenshield/cloud", "@agenshield/ipc", "jose"]
         }
       }
     },
