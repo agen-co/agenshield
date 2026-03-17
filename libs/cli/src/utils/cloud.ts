@@ -1,10 +1,10 @@
 /**
  * Cloud client utilities (CLI-specific)
  *
- * Thin wrappers around @agenshield/auth cloud functions.
+ * Thin wrappers around @agenshield/cloud functions.
  * The CLI wrapper for registerDevice passes getVersion() as agentVersion.
  *
- * Core auth primitives (Ed25519, AgentSig, credentials) live in @agenshield/auth.
+ * Core cloud primitives (Ed25519, AgentSig, credentials) live in @agenshield/cloud.
  */
 
 import * as os from 'node:os';
@@ -16,19 +16,19 @@ import {
   saveCloudCredentials,
   loadCloudCredentials,
   isCloudEnrolled,
-  initiateDeviceCode as authInitiateDeviceCode,
-  pollDeviceCode as authPollDeviceCode,
-  registerDevice as authRegisterDevice,
-} from '@agenshield/auth';
+  initiateDeviceCode as cloudInitiateDeviceCode,
+  pollDeviceCode as cloudPollDeviceCode,
+  registerDevice as cloudRegisterDevice,
+} from '@agenshield/cloud';
 import type {
   Ed25519Keypair,
   CloudCredentials,
   DeviceCodeResponse,
   DeviceCodePollResult,
   DeviceRegistrationResult,
-} from '@agenshield/auth';
+} from '@agenshield/cloud';
 
-// Re-export auth primitives so setup.ts has a single import source
+// Re-export cloud primitives so setup.ts has a single import source
 export {
   CLOUD_CONFIG,
   generateEd25519Keypair,
@@ -46,7 +46,7 @@ export type {
 };
 
 // ---------------------------------------------------------------------------
-// Device code flow (delegates to @agenshield/auth)
+// Device code flow (delegates to @agenshield/cloud)
 // ---------------------------------------------------------------------------
 
 /**
@@ -54,7 +54,7 @@ export type {
  * Returns codes for the user to authorize in their browser.
  */
 export async function initiateDeviceCode(cloudUrl?: string): Promise<DeviceCodeResponse> {
-  return authInitiateDeviceCode(cloudUrl);
+  return cloudInitiateDeviceCode(cloudUrl);
 }
 
 /**
@@ -67,11 +67,11 @@ export async function pollDeviceCode(
   interval: number,
   timeoutMs = 15 * 60 * 1000,
 ): Promise<DeviceCodePollResult> {
-  return authPollDeviceCode(cloudUrl, deviceCode, interval, timeoutMs);
+  return cloudPollDeviceCode(cloudUrl, deviceCode, interval, timeoutMs);
 }
 
 // ---------------------------------------------------------------------------
-// Device registration (delegates to @agenshield/auth with CLI version)
+// Device registration (delegates to @agenshield/cloud with CLI version)
 // ---------------------------------------------------------------------------
 
 /**
@@ -86,5 +86,5 @@ export async function registerDevice(
   publicKey: string,
   hostname: string,
 ): Promise<DeviceRegistrationResult> {
-  return authRegisterDevice(cloudUrl, enrollmentToken, publicKey, hostname, getVersion());
+  return cloudRegisterDevice(cloudUrl, enrollmentToken, publicKey, hostname, getVersion());
 }

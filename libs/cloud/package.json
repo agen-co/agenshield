@@ -1,8 +1,8 @@
 {
-  "name": "@agenshield/auth",
+  "name": "@agenshield/cloud",
   "version": "0.7.3",
   "type": "module",
-  "description": "JWT authentication library for AgenShield",
+  "description": "AgenShield Cloud transport, auth, and enrollment protocol",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -16,8 +16,6 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@agenshield/cloud": "0.7.3",
-    "@agenshield/ipc": "0.7.3",
-    "jose": "^6.1.0"
+    "ws": "^8.18.0"
   }
 }

@@ -79,12 +79,26 @@ export function resolveCodesignIdentity(explicit?: string): string | null {
 
   const teamId = process.env['APPLE_TEAM_ID'];
   const orgName = process.env['APPLE_CODESIGN_ORG'];
-  if (!teamId || !orgName) return null;
+  if (teamId && orgName) {
+    const identity = `Developer ID Application: ${orgName} (${teamId})`;
+    if (hasIdentity(identity)) return identity;
+    console.log(`[WARN] Codesign identity "${identity}" not found in keychain`);
+  }
 
-  const identity = `Developer ID Application: ${orgName} (${teamId})`;
-  if (hasIdentity(identity)) return identity;
+  // Auto-detect: find the first "Developer ID Application" identity in keychain
+  try {
+    const result = execSync(
+      `security find-identity -v -p codesigning`,
+      { encoding: 'utf-8', timeout: 10_000 },
+    );
+    const match = result.match(/"(Developer ID Application: [^"]+)"/);
+    if (match) {
+      console.log(`[CODESIGN] Auto-detected identity: ${match[1]}`);
+      return match[1];
+    }
+  } catch { /* ignore */ }
 
-  console.log(`[WARN] Codesign identity "${identity}" not found in keychain — will ad-hoc sign`);
+  console.log(`[WARN] No Developer ID Application identity found — will ad-hoc sign`);
   return null;
 }
 
@@ -385,60 +399,91 @@ function addMachOSection(
 
   // ── 4. Compute blob placement — INSERT BEFORE __LINKEDIT ──────────────────
   //
-  // macOS codesign strict validation requires __LINKEDIT to be the last
-  // segment by file offset (the code signature lives inside __LINKEDIT).
-  // We insert the blob at __LINKEDIT's current fileoff and shift __LINKEDIT
-  // forward by the page-aligned blob size.
+  // Node.js v24 uses getsectdata() to find the SEA blob, which returns
+  // (header_address + section.offset). For this pointer to be valid, the
+  // Mach-O invariant vmaddr == fileoff + __PAGEZERO.vmsize must hold.
+  //
+  // We insert the blob before __LINKEDIT, but pad the insertion point so
+  // that vmaddr = fileoff + pagezeroVmsize does not overlap any existing
+  // segment's VM range (including __DATA's BSS region). __LINKEDIT is
+  // shifted forward in BOTH file and VM space.
   //
   // Before: [header] [__TEXT] [__DATA_CONST] [__DATA] [__LINKEDIT]
-  // After:  [header] [__TEXT] [__DATA_CONST] [__DATA] [NODE_SEA blob] [__LINKEDIT]
+  // After:  [header] [__TEXT] [__DATA_CONST] [__DATA] [pad] [NODE_SEA] [__LINKEDIT]
 
-  const insertOffset   = Number(linkeditFileoff);  // already page-aligned
+  const pagezeroVmsize = bin.readBigUInt64LE(32 + 32); // __PAGEZERO.vmsize (first segment)
   const alignedBlobSize = Math.ceil(data.length / PAGE_SIZE) * PAGE_SIZE;
-  const linkeditSize   = Number(linkeditFilesize);
   const blobSize       = data.length;
-  const totalSize      = insertOffset + alignedBlobSize + linkeditSize;
-  const newVmAddr      = (maxVmEnd + BigInt(PAGE_SIZE) - 1n) / BigInt(PAGE_SIZE) * BigInt(PAGE_SIZE);
+
+  // Compute the max VM end of all segments EXCEPT __LINKEDIT.
+  // This tells us where we can safely start NODE_SEA in VM space.
+  let maxVmEndExcludingLinkedit = 0n;
+  {
+    let off2 = headerSize;
+    for (let i = 0; i < ncmds; i++) {
+      const c = bin.readUInt32LE(off2);
+      const cs = bin.readUInt32LE(off2 + 4);
+      if (c === LC_SEGMENT_64) {
+        const sn = bin.toString('ascii', off2 + 8, off2 + 24).replace(/\0+$/, '');
+        if (sn !== '__LINKEDIT') {
+          const va = bin.readBigUInt64LE(off2 + 24);
+          const vs = bin.readBigUInt64LE(off2 + 32);
+          const ve = va + vs;
+          if (ve > maxVmEndExcludingLinkedit) maxVmEndExcludingLinkedit = ve;
+        }
+      }
+      off2 += cs;
+    }
+  }
+
+  // NODE_SEA vmaddr must be >= maxVmEndExcludingLinkedit (clear of __DATA BSS etc.)
+  // And vmaddr = fileoff + pagezeroVmsize, so fileoff = vmaddr - pagezeroVmsize
+  const minBlobFileoff = Number(maxVmEndExcludingLinkedit - pagezeroVmsize);
+  const blobFileoff    = Math.ceil(Math.max(Number(linkeditFileoff), minBlobFileoff) / PAGE_SIZE) * PAGE_SIZE;
+  const blobVmaddr     = BigInt(blobFileoff) + pagezeroVmsize;
+
+  // __LINKEDIT shifts forward by (blobFileoff - original linkeditFileoff + alignedBlobSize)
+  const linkeditNewFileoff = blobFileoff + alignedBlobSize;
+  const linkeditShift      = linkeditNewFileoff - Number(linkeditFileoff);
+  const linkeditSize       = Number(linkeditFilesize);
+  const linkeditNewVmaddr  = BigInt(linkeditNewFileoff) + pagezeroVmsize;
+  const totalSize          = linkeditNewFileoff + linkeditSize;
 
   // ── 5. Build output buffer ────────────────────────────────────────────────
   const result = Buffer.alloc(totalSize);
-  // Everything before __LINKEDIT (unchanged)
-  bin.copy(result, 0, 0, insertOffset);
-  // Blob data at insertOffset
-  data.copy(result, insertOffset);
-  // __LINKEDIT data shifted forward by alignedBlobSize
-  bin.copy(result, insertOffset + alignedBlobSize, insertOffset, insertOffset + linkeditSize);
+  // Copy everything before original __LINKEDIT (may include padding gap)
+  bin.copy(result, 0, 0, Number(linkeditFileoff));
+  // Blob data at blobFileoff
+  data.copy(result, blobFileoff);
+  // __LINKEDIT data at new position
+  bin.copy(result, linkeditNewFileoff, Number(linkeditFileoff), Number(linkeditFileoff) + linkeditSize);
 
-  // ── 6. Update __LINKEDIT fileoff ──────────────────────────────────────────
-  result.writeBigUInt64LE(BigInt(insertOffset + alignedBlobSize), linkeditCmdOffset + 40);
+  // ── 6. Update __LINKEDIT fileoff AND vmaddr ─────────────────────────────
+  result.writeBigUInt64LE(BigInt(linkeditNewFileoff), linkeditCmdOffset + 40); // fileoff
+  result.writeBigUInt64LE(linkeditNewVmaddr, linkeditCmdOffset + 24);          // vmaddr
 
   // ── 7. Shift all __LINKEDIT-referencing offset fields ─────────────────────
   for (const { cmdOffset: off, cmd } of linkeditRefCmds) {
     switch (cmd) {
       case LC_SYMTAB:
-        // +8: symoff, +16: stroff
-        shiftU32(result, off + 8, alignedBlobSize);
-        shiftU32(result, off + 16, alignedBlobSize);
+        shiftU32(result, off + 8, linkeditShift);
+        shiftU32(result, off + 16, linkeditShift);
         break;
       case LC_DYSYMTAB:
-        // +32: tocoff, +40: modtaboff, +48: extrefsymoff,
-        // +56: indirectsymoff, +64: extreloff, +72: locreloff
-        shiftU32(result, off + 32, alignedBlobSize);
-        shiftU32(result, off + 40, alignedBlobSize);
-        shiftU32(result, off + 48, alignedBlobSize);
-        shiftU32(result, off + 56, alignedBlobSize);
-        shiftU32(result, off + 64, alignedBlobSize);
-        shiftU32(result, off + 72, alignedBlobSize);
+        shiftU32(result, off + 32, linkeditShift);
+        shiftU32(result, off + 40, linkeditShift);
+        shiftU32(result, off + 48, linkeditShift);
+        shiftU32(result, off + 56, linkeditShift);
+        shiftU32(result, off + 64, linkeditShift);
+        shiftU32(result, off + 72, linkeditShift);
         break;
       case LC_DYLD_INFO:
       case LC_DYLD_INFO_ONLY:
-        // +8: rebase_off, +16: bind_off, +24: weak_bind_off,
-        // +32: lazy_bind_off, +40: export_off
-        shiftU32(result, off + 8, alignedBlobSize);
-        shiftU32(result, off + 16, alignedBlobSize);
-        shiftU32(result, off + 24, alignedBlobSize);
-        shiftU32(result, off + 32, alignedBlobSize);
-        shiftU32(result, off + 40, alignedBlobSize);
+        shiftU32(result, off + 8, linkeditShift);
+        shiftU32(result, off + 16, linkeditShift);
+        shiftU32(result, off + 24, linkeditShift);
+        shiftU32(result, off + 32, linkeditShift);
+        shiftU32(result, off + 40, linkeditShift);
         break;
       case LC_CODE_SIGNATURE:
       case LC_SEGMENT_SPLIT_INFO:
@@ -446,8 +491,7 @@ function addMachOSection(
       case LC_DATA_IN_CODE:
       case LC_DYLD_EXPORTS_TRIE:
       case LC_DYLD_CHAINED_FIXUPS:
-        // +8: dataoff
-        shiftU32(result, off + 8, alignedBlobSize);
+        shiftU32(result, off + 8, linkeditShift);
         break;
     }
   }
@@ -460,10 +504,10 @@ function addMachOSection(
   w.writeUInt32LE(LC_SEGMENT_64, newCmdOffset);           // cmd
   w.writeUInt32LE(NEW_CMD_SIZE, newCmdOffset + 4);         // cmdsize
   w.write(segmentName.padEnd(16, '\0'), newCmdOffset + 8, 16, 'ascii');  // segname
-  w.writeBigUInt64LE(newVmAddr, newCmdOffset + 24);        // vmaddr
-  w.writeBigUInt64LE(BigInt(blobSize), newCmdOffset + 32); // vmsize
-  w.writeBigUInt64LE(BigInt(insertOffset), newCmdOffset + 40); // fileoff — at insertion point
-  w.writeBigUInt64LE(BigInt(blobSize), newCmdOffset + 48); // filesize
+  w.writeBigUInt64LE(blobVmaddr, newCmdOffset + 24);       // vmaddr
+  w.writeBigUInt64LE(BigInt(alignedBlobSize), newCmdOffset + 32); // vmsize
+  w.writeBigUInt64LE(BigInt(blobFileoff), newCmdOffset + 40); // fileoff
+  w.writeBigUInt64LE(BigInt(alignedBlobSize), newCmdOffset + 48); // filesize
   w.writeInt32LE(VM_PROT_READ, newCmdOffset + 56);         // maxprot
   w.writeInt32LE(VM_PROT_READ, newCmdOffset + 60);         // initprot
   w.writeUInt32LE(1, newCmdOffset + 64);                   // nsects
@@ -473,9 +517,9 @@ function addMachOSection(
   const secOffset = newCmdOffset + SEGMENT_CMD_SIZE;
   w.write(sectionName.padEnd(16, '\0'), secOffset, 16, 'ascii');       // sectname
   w.write(segmentName.padEnd(16, '\0'), secOffset + 16, 16, 'ascii');  // segname
-  w.writeBigUInt64LE(newVmAddr, secOffset + 32);           // addr
+  w.writeBigUInt64LE(blobVmaddr, secOffset + 32);          // addr
   w.writeBigUInt64LE(BigInt(blobSize), secOffset + 40);    // size
-  w.writeUInt32LE(insertOffset, secOffset + 48);           // offset — at insertion point
+  w.writeUInt32LE(blobFileoff, secOffset + 48);            // offset
   w.writeUInt32LE(0, secOffset + 52);                      // align
   w.writeUInt32LE(0, secOffset + 56);                      // reloff
   w.writeUInt32LE(0, secOffset + 60);                      // nreloc
@@ -489,8 +533,8 @@ function addMachOSection(
   w.writeUInt32LE(sizeofcmds + NEW_CMD_SIZE, 20);          // sizeofcmds
 
   console.log(`[MACHO] Added segment "${segmentName}" section "${sectionName}": ` +
-    `fileoff=0x${insertOffset.toString(16)}, size=${blobSize}, vmaddr=0x${newVmAddr.toString(16)}, ` +
-    `__LINKEDIT shifted by 0x${alignedBlobSize.toString(16)} to fileoff=0x${(insertOffset + alignedBlobSize).toString(16)}`);
+    `fileoff=0x${blobFileoff.toString(16)}, size=${blobSize}, vmaddr=0x${blobVmaddr.toString(16)}, ` +
+    `__LINKEDIT shifted by 0x${linkeditShift.toString(16)} to fileoff=0x${linkeditNewFileoff.toString(16)}`);
 
   return result;
 }
@@ -498,7 +542,10 @@ function addMachOSection(
 /**
  * Inject SEA blob on macOS via direct Mach-O binary patching.
  *
- * Bypasses postject/LIEF entirely to avoid sentinel duplication issues:
+ * Bypasses postject/LIEF entirely to avoid sentinel duplication issues
+ * that occur with Node.js v24 (LIEF reconstructs string tables, creating
+ * duplicate sentinel strings that fail postject's uniqueness check).
+ *
  *   1. addMachOSection() writes an LC_SEGMENT_64 + section_64 with the blob
  *   2. Binary-patch the fuse: find `SENTINEL:0` → change to `SENTINEL:1`
  *
@@ -511,7 +558,9 @@ function injectBlobDarwin(binaryPath: string, blobPath: string): void {
   const blob = fs.readFileSync(blobPath);
 
   // Step 1: Inject blob as Mach-O section (no LIEF, no postject)
-  const patched = addMachOSection(bin, 'NODE_SEA', 'NODE_SEA_BLOB', blob);
+  // Node.js v24 uses getsectdata("NODE_SEA", "__NODE_SEA_BLOB") — section name
+  // follows Mach-O convention with __ prefix.
+  const patched = addMachOSection(bin, 'NODE_SEA', '__NODE_SEA_BLOB', blob);
 
   // Step 2: Flip fuse :0 → :1
   const fuseBefore = Buffer.from(`${SENTINEL}:0`);

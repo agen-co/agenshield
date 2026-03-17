@@ -12,8 +12,8 @@ src/
 ├── middleware.ts    # Fastify preHandler hook — token extraction, route matching
 ├── roles.ts        # Role hierarchy, PUBLIC_ROUTES, ADMIN_ONLY_ROUTES
 ├── sudo-verify.ts  # macOS dscl password check with in-memory rate limiter
-├── cloud-auth.ts   # Ed25519 keypair, AgentSig headers, credential storage, device code flow
-├── mdm-config.ts   # MDM org config read/write (~/.agenshield/mdm.json)
+├── cloud-auth.ts   # Re-exports from @agenshield/cloud (backward compat)
+├── mdm-config.ts   # Re-exports from @agenshield/cloud (backward compat)
 ├── errors.ts       # AuthError base + 6 typed subclasses
 ├── types.ts        # Shared interfaces and type aliases
 └── index.ts        # Barrel export
@@ -43,13 +43,11 @@ src/
 - The hook strips query strings before route matching
 - Custom routes passed via `JwtAuthHookOptions` are additive to built-in routes
 
-## Cloud Auth (Ed25519)
+## Cloud Auth (Re-exports)
 
-- Keypair: `generateKeyPairSync('ed25519')` with PEM SPKI/PKCS8 encoding
-- AgentSig format: `AgentSig {agentId}:{timestamp}:{base64Signature}`
-- Verification checks: parse → timestamp within 5 minutes → Ed25519 signature valid
-- Credentials stored at `~/.agenshield/cloud.json` (mode `0o600`)
-- Config paths resolve via: `AGENSHIELD_USER_HOME` → `HOME` → `os.homedir()`
+`cloud-auth.ts` and `mdm-config.ts` are re-exports from `@agenshield/cloud` for backward compatibility. The canonical implementations live in the cloud library. New code should import directly from `@agenshield/cloud`.
+
+Re-exported symbols: `generateEd25519Keypair`, `createAgentSigHeader`, `parseAgentSigHeader`, `verifyAgentSig`, `saveCloudCredentials`, `loadCloudCredentials`, `isCloudEnrolled`, `initiateDeviceCode`, `pollDeviceCode`, `registerDevice`, `loadMdmConfig`, `saveMdmConfig`, `hasMdmConfig`.
 
 ## Sudo Verification
 

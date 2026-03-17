@@ -321,12 +321,65 @@ jobs:
         continue-on-error: true
         run: npx nx build shield-macos
 
+      # Import Apple Developer ID certificate for code signing (if available)
+      - name: Import Apple certificate
+        if: env.APPLE_CERTIFICATE_P12_BASE64 != ''
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_FILE=$(mktemp /tmp/cert.XXXXXX.p12)
+          KEYCHAIN_FILE=$(mktemp /tmp/keychain.XXXXXX.keychain-db)
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT_FILE"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_FILE"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_FILE"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_FILE"
+          security import "$CERT_FILE" -k "$KEYCHAIN_FILE" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_FILE"
+          security list-keychains -d user -s "$KEYCHAIN_FILE" $(security list-keychains -d user | tr -d '"')
+
+          echo "KEYCHAIN_FILE=$KEYCHAIN_FILE" >> "$GITHUB_ENV"
+          rm -f "$CERT_FILE"
+
+      - name: Determine signing flags
+        id: signing
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CODESIGN_ORG: ${{ secrets.APPLE_CODESIGN_ORG }}
+        run: |
+          SIGN_FLAGS=""
+          if [ -n "$APPLE_CERTIFICATE_P12_BASE64" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            SIGN_FLAGS="--codesign-identity \"Developer ID Application: $APPLE_CODESIGN_ORG ($APPLE_TEAM_ID)\" --entitlements tools/sea/entitlements.plist"
+          fi
+          echo "flags=$SIGN_FLAGS" >> "$GITHUB_OUTPUT"
+
       - name: Build SEA binaries (darwin/arm64)
         id: sea-build
         run: >-
           node --experimental-strip-types tools/sea/build-all.mts
           --skip-nx
           --platform darwin --arch arm64
+          ${{ steps.signing.outputs.flags }}
+
+      - name: Upload SEA binaries
+        if: steps.sea-build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sea-darwin-arm64
+          path: |
+            dist/sea/agenshield-*.tar.gz
+            dist/sea/checksums.sha256
+          retention-days: 7
+
+      - name: Cleanup signing artifacts
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_FILE:-}" ] && [ -f "$KEYCHAIN_FILE" ]; then
+            security delete-keychain "$KEYCHAIN_FILE" 2>/dev/null || true
+          fi
 
       - name: Save Nx cache
         if: always()

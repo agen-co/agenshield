@@ -9,7 +9,8 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { signAdminToken, isCloudEnrolled, loadCloudCredentials } from '@agenshield/auth';
+import { signAdminToken } from '@agenshield/auth';
+import { isCloudEnrolled, loadCloudCredentials } from '@agenshield/cloud';
 import type { SetupStatus, SetupFlowState, SetupMode } from '@agenshield/ipc';
 import { getConfigDir } from '../config/paths';
 import { getLogger } from '../logger';

@@ -60,10 +60,18 @@ jest.mock('@agenshield/storage', () => ({
   })),
 }));
 
-// Mock auth
-jest.mock('@agenshield/auth', () => ({
-  createAgentSigHeader: jest.fn(() => 'mock-auth-header'),
-  loadCloudCredentials: jest.fn(() => null),
+// Mock cloud
+jest.mock('@agenshield/cloud', () => ({
+  CloudClient: jest.fn().mockImplementation(() => ({
+    setCommandHandler: jest.fn(),
+    setOnConnect: jest.fn(),
+    connect: jest.fn().mockResolvedValue(undefined),
+    disconnect: jest.fn(),
+    isConnected: jest.fn(() => false),
+    getCredentials: jest.fn(() => null),
+    agentGet: jest.fn().mockResolvedValue({}),
+    agentPost: jest.fn().mockResolvedValue({}),
+  })),
 }));
 
 // Mock config
