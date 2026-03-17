@@ -11,6 +11,15 @@
 #
 # Usage:
 #   curl -fsSL https://get.agenshield.com/install.sh | sh
+#   curl -fsSL https://get.agenshield.com/install.sh | bash -s -- --cloud-url https://cloud.example.com --org my-org
+#
+# CLI arguments (override environment variables):
+#   --cloud-url <url>     Cloud/policy server URL for automatic enrollment
+#   --org <id>            Org client ID for MDM enrollment (device code flow on daemon start)
+#   --token <token>       Enrollment token for automatic cloud setup (MDM)
+#   --version <ver>       Install a specific version (default: latest)
+#   --skip-services       Skip macOS LaunchDaemon/LaunchAgent install
+#   -h, --help            Show usage and exit
 #
 # Environment variables:
 #   AGENSHIELD_VERSION    - Install a specific version (default: latest)
@@ -227,6 +236,51 @@ ensure_path() {
 # ---------------------------------------------------------------------------
 
 main() {
+  # Parse CLI arguments (override environment variables)
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --cloud-url)
+        AGENSHIELD_CLOUD_URL="$2"; shift 2 ;;
+      --cloud-url=*)
+        AGENSHIELD_CLOUD_URL="${1#*=}"; shift ;;
+      --org)
+        AGENSHIELD_ORG="$2"; shift 2 ;;
+      --org=*)
+        AGENSHIELD_ORG="${1#*=}"; shift ;;
+      --token)
+        AGENSHIELD_TOKEN="$2"; shift 2 ;;
+      --token=*)
+        AGENSHIELD_TOKEN="${1#*=}"; shift ;;
+      --version)
+        AGENSHIELD_VERSION="$2"; shift 2 ;;
+      --version=*)
+        AGENSHIELD_VERSION="${1#*=}"; shift ;;
+      --skip-services)
+        AGENSHIELD_SKIP_SERVICES="1"; shift ;;
+      -h|--help)
+        printf "AgenShield Installer\n\n"
+        printf "Usage:\n"
+        printf "  curl -fsSL https://get.agenshield.com/install.sh | sh\n"
+        printf "  curl -fsSL https://get.agenshield.com/install.sh | bash -s -- [OPTIONS]\n\n"
+        printf "Options:\n"
+        printf "  --cloud-url <url>   Cloud/policy server URL for automatic enrollment\n"
+        printf "  --org <id>          Org client ID for MDM enrollment\n"
+        printf "  --token <token>     Enrollment token for automatic cloud setup\n"
+        printf "  --version <ver>     Install a specific version (default: latest)\n"
+        printf "  --skip-services     Skip macOS LaunchDaemon/LaunchAgent install\n"
+        printf "  -h, --help          Show this help message\n"
+        exit 0
+        ;;
+      *)
+        warn "Unknown option: $1"; shift ;;
+    esac
+  done
+
+  # Validate: --org requires --cloud-url
+  if [ -n "${AGENSHIELD_ORG:-}" ] && [ -z "${AGENSHIELD_CLOUD_URL:-}" ]; then
+    die "--org requires --cloud-url to be specified"
+  fi
+
   printf "\n${BOLD}AgenShield Installer${RESET}\n\n"
 
   detect_platform
