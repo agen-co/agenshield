@@ -668,6 +668,7 @@ describe('createPerRunProxy', () => {
       // Create a TCP server that sends data continuously so the proxy tries
       // to write to clientSocket, triggering an error when it's reset
       const echoServer = net.createServer((socket) => {
+        socket.on('error', () => {}); // Suppress errors from TCP RST
         socket.on('data', (data) => socket.write(data));
       });
       await new Promise<void>((resolve) => echoServer.listen(0, '127.0.0.1', resolve));

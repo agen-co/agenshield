@@ -319,7 +319,9 @@ jobs:
       - name: Build macOS menu bar app
         id: macos-app
         continue-on-error: true
-        run: npx nx build shield-macos
+        run: |
+          npx nx reset
+          npx nx build shield-macos
 
       # Import Apple Developer ID certificate for code signing (if available)
       - name: Import Apple certificate
@@ -333,6 +335,9 @@ jobs:
           KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
 
           echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERT_FILE"
+          # mktemp creates the file; security create-keychain needs it to not exist
+          rm -f "$KEYCHAIN_FILE"
+          security delete-keychain "$KEYCHAIN_FILE" 2>/dev/null || true
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_FILE"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_FILE"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_FILE"

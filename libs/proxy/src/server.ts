@@ -243,16 +243,22 @@ export function createPerRunProxy(options: CreateProxyOptions): http.Server {
     serverSocket.on('error', (err) => {
       const errorType = classifyNetworkError(err as Error & { code?: string });
       logger(`TUNNEL ${errorType.type} ${hostname}:${port}: ${err.message}`);
-      clientSocket.write(
-        'HTTP/1.1 502 Bad Gateway\r\n' +
-        `X-Proxy-Error: ${errorType.type}\r\n` +
-        'Content-Type: text/plain\r\n\r\n' +
-        errorType.userMessage,
-      );
+      serverSocket.unpipe(clientSocket);
+      clientSocket.unpipe(serverSocket);
+      if (clientSocket.writable) {
+        clientSocket.write(
+          'HTTP/1.1 502 Bad Gateway\r\n' +
+          `X-Proxy-Error: ${errorType.type}\r\n` +
+          'Content-Type: text/plain\r\n\r\n' +
+          errorType.userMessage,
+        );
+      }
       clientSocket.destroy();
     });
 
     clientSocket.on('error', () => {
+      serverSocket.unpipe(clientSocket);
+      clientSocket.unpipe(serverSocket);
       serverSocket.destroy();
     });
   });

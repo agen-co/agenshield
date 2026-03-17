@@ -12,6 +12,7 @@ import { isCloudEnrolled, saveCloudCredentials } from './credentials';
 import { loadMdmConfig } from './mdm-config';
 import { generateEd25519Keypair } from './auth';
 import { initiateDeviceCode, pollDeviceCode, registerDevice } from './device-code';
+import { CloudEnrollmentError } from './errors';
 import type { EnrollmentState, EnrollmentCallbacks, CloudLogger } from './types';
 
 // ---------------------------------------------------------------------------
@@ -26,10 +27,10 @@ const RETRY_DELAY_MS = 60_000;
 // ---------------------------------------------------------------------------
 
 const noopLogger: CloudLogger = {
-  info() {},
-  warn() {},
-  error() {},
-  debug() {},
+  info() { /* noop */ },
+  warn() { /* noop */ },
+  error() { /* noop */ },
+  debug() { /* noop */ },
 };
 
 // ---------------------------------------------------------------------------
@@ -153,10 +154,14 @@ export class EnrollmentProtocol {
       // 4. Generate keypair and register
       this.setState({ state: 'registering' });
 
+      if (!pollResult.enrollmentToken) {
+        throw new CloudEnrollmentError('Approved response missing enrollment token');
+      }
+
       const keypair = generateEd25519Keypair();
       const registration = await registerDevice(
         cloudUrl,
-        pollResult.enrollmentToken!,
+        pollResult.enrollmentToken,
         keypair.publicKey,
         os.hostname(),
         this.callbacks.getAgentVersion(),
