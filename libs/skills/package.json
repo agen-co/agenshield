@@ -1,6 +1,6 @@
 {
   "name": "@agentshield/skills",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "type": "module",
   "description": "Standalone skills manager for AgenShield — search, install, analyze, update",
   "main": "./dist/index.js",
@@ -16,8 +16,8 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@agenshield/ipc": "0.7.3",
-    "@agenshield/storage": "0.7.3"
+    "@agenshield/ipc": "0.8.0",
+    "@agenshield/storage": "0.8.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

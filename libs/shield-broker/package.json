@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/broker",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "type": "module",
   "description": "AgenShield broker daemon with Unix socket and HTTP fallback",
   "main": "./dist/index.js",
@@ -26,9 +26,9 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@agenshield/ipc": "0.7.3",
-    "@agenshield/seatbelt": "0.7.3",
-    "@agenshield/proxy": "0.7.3"
+    "@agenshield/ipc": "0.8.0",
+    "@agenshield/seatbelt": "0.8.0",
+    "@agenshield/proxy": "0.8.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
