@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/policies",
-  "version": "0.8.0",
+  "version": "0.8.2",
   "type": "module",
   "description": "Standalone policy manager for AgenShield — evaluation, matching, graph, hierarchy",
   "main": "./dist/index.js",
@@ -16,8 +16,8 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@agenshield/ipc": "0.8.0",
-    "@agenshield/storage": "0.8.0"
+    "@agenshield/ipc": "0.8.2",
+    "@agenshield/storage": "0.8.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

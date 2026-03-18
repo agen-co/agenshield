@@ -10,6 +10,7 @@
  *   Plist:  ~/Library/LaunchAgents/com.frontegg.AgenShield.menubar.plist
  */
 
+import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -179,10 +180,14 @@ export async function installMenuBarAgent(sourceAppPath: string, options?: MenuB
     const launchAgentsDir = path.dirname(plistPath);
     await fsp.mkdir(launchAgentsDir, { recursive: true });
 
-    // 4. Unload existing agent if present
+    // 4. Unload existing agent if present (including legacy label)
+    try {
+      const legacyPlist = path.join(launchAgentsDir, 'com.agenshield.menubar.plist');
+      await execAsync(`launchctl bootout gui/${uid} "${legacyPlist}" 2>/dev/null`);
+      if (fs.existsSync(legacyPlist)) await fsp.unlink(legacyPlist);
+    } catch { /* not loaded */ }
     try {
       await execAsync(`launchctl bootout gui/${uid} "${plistPath}" 2>/dev/null`);
-      // Give launchd time to fully unload the agent
       await new Promise(r => setTimeout(r, 2000));
     } catch { /* not loaded */ }
 

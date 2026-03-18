@@ -65,8 +65,8 @@ BROKER_BIN_DIR="$APPS_DIR/broker-bin"
 
 info "Preparing npm dist (v${VERSION}, ${PLATFORM}/${ARCH})"
 
-# Clean and create dist structure
-rm -rf "$CLI_DIST/bin" "$CLI_DIST/native" "$CLI_DIST/workers" "$CLI_DIST/interceptor" "$CLI_DIST/client" "$CLI_DIST/ui-assets" "$CLI_DIST/AgenShield.app"
+# Clean and create dist structure (remove Nx build output + old SEA files, keep README/LICENSE/CHANGELOG)
+rm -rf "$CLI_DIST/src" "$CLI_DIST/bin" "$CLI_DIST/native" "$CLI_DIST/workers" "$CLI_DIST/interceptor" "$CLI_DIST/client" "$CLI_DIST/ui-assets" "$CLI_DIST/AgenShield.app"
 mkdir -p "$CLI_DIST/bin"
 
 # Copy SEA binaries from fresh build output

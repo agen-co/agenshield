@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/keychain",
-  "version": "0.8.0",
+  "version": "0.8.2",
   "type": "module",
   "description": "Platform-aware key provider — macOS Keychain via Swift helper, noop fallback elsewhere",
   "main": "./dist/index.js",
