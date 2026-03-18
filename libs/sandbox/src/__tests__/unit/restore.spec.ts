@@ -237,7 +237,7 @@ describe('restoreInstallation', () => {
   describe('stopDaemon step', () => {
     it('handles plist exists path — removes plist and unloads', () => {
       mockExistsSync.mockImplementation((p: string) => {
-        if (p === '/Library/LaunchDaemons/com.agenshield.daemon.plist') return true;
+        if (p === '/Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist') return true;
         return false;
       });
 
@@ -245,7 +245,7 @@ describe('restoreInstallation', () => {
 
       // Should have called sudoExec to rm and unload the plist
       expect(mockSudoExec).toHaveBeenCalledWith(
-        expect.stringContaining('rm -f "/Library/LaunchDaemons/com.agenshield.daemon.plist"')
+        expect.stringContaining('rm -f "/Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist"')
       );
       expect(mockSudoExec).toHaveBeenCalledWith(
         expect.stringContaining('launchctl unload')
@@ -1100,11 +1100,11 @@ describe('restoreInstallation', () => {
         return false;
       });
       mockReaddirSync.mockImplementation((p: string) => {
-        if (p === '/Library/LaunchDaemons') return ['com.agenshield.daemon.plist'];
+        if (p === '/Library/LaunchDaemons') return ['com.frontegg.AgenShield.daemon.plist'];
         return [];
       });
       mockSudoExec.mockImplementation((cmd: string) => {
-        if (cmd.includes('rm -f "/Library/LaunchDaemons/com.agenshield.daemon.plist"')) {
+        if (cmd.includes('rm -f "/Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist"')) {
           return { success: false, error: 'plist rm failed', output: '' };
         }
         return { success: true, output: '' };
@@ -1488,7 +1488,7 @@ describe('isDaemonPresent and isBrokerPresent', () => {
 
   it('isDaemonPresent returns true when plist exists', () => {
     mockExistsSync.mockImplementation((p: string) => {
-      if (p === '/Library/LaunchDaemons/com.agenshield.daemon.plist') return true;
+      if (p === '/Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist') return true;
       return false;
     });
 

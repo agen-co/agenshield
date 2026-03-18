@@ -1142,11 +1142,16 @@ export async function buildAndInstallSEAFromLocal(
       if (destDir === libexecDir && needsSudo) {
         execSync(`sudo cp "${srcBinary}" "${destBinary}"`, { stdio: 'pipe' });
         execSync(`sudo chmod 755 "${destBinary}"`, { stdio: 'pipe' });
-        await signBinaryHardened(destBinary, { sudo: true });
       } else {
         fs.copyFileSync(srcBinary, destBinary);
         fs.chmodSync(destBinary, 0o755);
-        await signBinaryHardened(destBinary);
+      }
+      // Remove quarantine (binaries are already signed during build)
+      if (process.platform === 'darwin') {
+        const prefix = destDir === libexecDir && needsSudo ? 'sudo ' : '';
+        try {
+          execSync(`${prefix}xattr -d com.apple.quarantine "${destBinary}" 2>/dev/null`, { stdio: 'pipe' });
+        } catch { /* may not have the attribute */ }
       }
     }
 
@@ -1242,6 +1247,180 @@ export async function buildAndInstallSEAFromLocal(
     return {
       success: false,
       version: 'unknown',
+      error: (err as Error).message,
+    };
+  }
+}
+
+/**
+ * Install SEA binaries from a pre-extracted archive directory (flat layout).
+ *
+ * Expected directory layout (from tar.gz extraction):
+ *   sourceDir/agenshield
+ *   sourceDir/agenshield-daemon
+ *   sourceDir/agenshield-broker
+ *   sourceDir/native/better_sqlite3.node
+ *   sourceDir/workers/
+ *   sourceDir/interceptor/
+ *   sourceDir/client/
+ *   sourceDir/ui-assets/
+ *   sourceDir/AgenShield.app/  (macOS only)
+ */
+export async function installSEAFromDir(
+  sourceDir: string,
+  version: string,
+  onProgress?: (step: string) => void,
+): Promise<DownloadResult> {
+  try {
+    // Validate binaries exist
+    const binaries = [
+      { name: 'agenshield', target: 'bin' as const },
+      { name: 'agenshield-daemon', target: 'libexec' as const },
+      { name: 'agenshield-broker', target: 'libexec' as const },
+    ];
+
+    for (const bin of binaries) {
+      const binPath = path.join(sourceDir, bin.name);
+      if (!fs.existsSync(binPath)) {
+        return {
+          success: false,
+          version,
+          error: `Binary not found: ${binPath}`,
+        };
+      }
+    }
+
+    // Step 1: Copy binaries
+    const binDir = getBinDir();
+    const libexecDir = path.join(AGENSHIELD_HOME, 'libexec');
+    const needsSudo = isRootOwned(libexecDir);
+
+    fs.mkdirSync(binDir, { recursive: true });
+    if (needsSudo) {
+      execSync(`sudo mkdir -p "${libexecDir}"`, { stdio: 'pipe' });
+    } else {
+      fs.mkdirSync(libexecDir, { recursive: true });
+    }
+
+    onProgress?.('Installing binaries...');
+    for (const bin of binaries) {
+      const srcBinary = path.join(sourceDir, bin.name);
+      const destDir = bin.target === 'bin' ? binDir : libexecDir;
+      const destBinary = path.join(destDir, bin.name);
+      if (destDir === libexecDir && needsSudo) {
+        execSync(`sudo cp "${srcBinary}" "${destBinary}"`, { stdio: 'pipe' });
+        execSync(`sudo chmod 755 "${destBinary}"`, { stdio: 'pipe' });
+      } else {
+        fs.copyFileSync(srcBinary, destBinary);
+        fs.chmodSync(destBinary, 0o755);
+      }
+      // Remove quarantine (binaries are already signed during build)
+      if (process.platform === 'darwin') {
+        const prefix = destDir === libexecDir && needsSudo ? 'sudo ' : '';
+        try {
+          execSync(`${prefix}xattr -d com.apple.quarantine "${destBinary}" 2>/dev/null`, { stdio: 'pipe' });
+        } catch { /* may not have the attribute */ }
+      }
+    }
+
+    // Preserve root:wheel ownership on upgrade
+    if (needsSudo && process.platform === 'darwin') {
+      try {
+        execSync(`sudo chown -R root:wheel "${libexecDir}"`, { stdio: 'pipe' });
+      } catch { /* best-effort */ }
+    }
+
+    // Step 2: Copy native modules
+    const hostHome = resolveHostHome();
+    const libDir = path.join(hostHome, '.agenshield', 'lib', `v${version}`);
+
+    const srcNativeDir = path.join(sourceDir, 'native');
+    if (fs.existsSync(srcNativeDir)) {
+      const destNativeDir = path.join(libDir, 'native');
+      fs.mkdirSync(destNativeDir, { recursive: true });
+      for (const file of fs.readdirSync(srcNativeDir)) {
+        const destFile = path.join(destNativeDir, file);
+        fs.copyFileSync(path.join(srcNativeDir, file), destFile);
+      }
+      // Remove quarantine from native modules
+      if (process.platform === 'darwin') {
+        try {
+          execSync(`xattr -dr com.apple.quarantine "${destNativeDir}" 2>/dev/null`, { stdio: 'pipe' });
+        } catch { /* may not have the attribute */ }
+      }
+      onProgress?.('Installed native modules');
+    }
+
+    // Step 3: Copy worker scripts
+    const srcWorkersDir = path.join(sourceDir, 'workers');
+    if (fs.existsSync(srcWorkersDir)) {
+      const destWorkersDir = path.join(libDir, 'workers');
+      fs.mkdirSync(destWorkersDir, { recursive: true });
+      for (const file of fs.readdirSync(srcWorkersDir)) {
+        fs.copyFileSync(path.join(srcWorkersDir, file), path.join(destWorkersDir, file));
+      }
+      onProgress?.('Installed worker scripts');
+    }
+
+    // Step 4: Copy interceptor scripts
+    const srcInterceptorDir = path.join(sourceDir, 'interceptor');
+    if (fs.existsSync(srcInterceptorDir)) {
+      const destInterceptorDir = path.join(libDir, 'interceptor');
+      fs.mkdirSync(destInterceptorDir, { recursive: true });
+      for (const file of fs.readdirSync(srcInterceptorDir)) {
+        fs.copyFileSync(path.join(srcInterceptorDir, file), path.join(destInterceptorDir, file));
+      }
+      onProgress?.('Installed interceptor scripts');
+    }
+
+    // Step 5: Copy client scripts
+    const srcClientDir = path.join(sourceDir, 'client');
+    if (fs.existsSync(srcClientDir)) {
+      const destClientDir = path.join(libDir, 'client');
+      fs.mkdirSync(destClientDir, { recursive: true });
+      for (const file of fs.readdirSync(srcClientDir)) {
+        fs.copyFileSync(path.join(srcClientDir, file), path.join(destClientDir, file));
+      }
+      onProgress?.('Installed client scripts');
+    }
+
+    // Step 6: Copy UI assets
+    const srcUiDir = path.join(sourceDir, 'ui-assets');
+    if (fs.existsSync(srcUiDir)) {
+      const destUiDir = path.join(libDir, 'ui-assets');
+      fs.mkdirSync(destUiDir, { recursive: true });
+      execSync(`cp -R "${srcUiDir}/." "${destUiDir}/"`, { stdio: 'pipe' });
+      onProgress?.('Installed UI assets');
+    }
+
+    // Step 7: Copy macOS menu bar app
+    if (process.platform === 'darwin') {
+      const srcApp = path.join(sourceDir, 'AgenShield.app');
+      if (fs.existsSync(srcApp)) {
+        const appsDir = path.join(AGENSHIELD_HOME, 'apps');
+        fs.mkdirSync(appsDir, { recursive: true });
+        const destApp = path.join(appsDir, 'AgenShield.app');
+        if (fs.existsSync(destApp)) {
+          fs.rmSync(destApp, { recursive: true, force: true });
+        }
+        execSync(`cp -R "${srcApp}" "${destApp}"`, { stdio: 'pipe' });
+        // Remove quarantine from the entire app bundle
+        try {
+          execSync(`xattr -dr com.apple.quarantine "${destApp}" 2>/dev/null`, { stdio: 'pipe' });
+        } catch { /* may not have the attribute */ }
+        onProgress?.('Installed AgenShield.app');
+      }
+    }
+
+    // Step 8: Write extraction stamp
+    fs.mkdirSync(libDir, { recursive: true });
+    fs.writeFileSync(path.join(libDir, '.extracted'), `${version}:wius`);
+
+    return { success: true, version };
+  } catch (err) {
+    return {
+      success: false,
+      version,
       error: (err as Error).message,
     };
   }

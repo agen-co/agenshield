@@ -464,11 +464,11 @@ export async function startDaemon(options: { foreground?: boolean; sudo?: boolea
   try {
     // Try launchctl first (macOS preferred) — use enable + kickstart (not deprecated start)
     try {
-      execSync('launchctl list com.agenshield.daemon 2>/dev/null', { stdio: 'pipe' });
+      execSync('launchctl list com.frontegg.AgenShield.daemon 2>/dev/null', { stdio: 'pipe' });
       try {
-        execSync('sudo launchctl enable system/com.agenshield.daemon', { stdio: 'pipe' });
+        execSync('sudo launchctl enable system/com.frontegg.AgenShield.daemon', { stdio: 'pipe' });
       } catch { /* may already be enabled */ }
-      execSync('sudo launchctl kickstart system/com.agenshield.daemon', { stdio: 'pipe' });
+      execSync('sudo launchctl kickstart system/com.frontegg.AgenShield.daemon', { stdio: 'pipe' });
       return {
         success: true,
         message: 'Daemon started via launchd',
@@ -638,7 +638,7 @@ function findRegisteredAgenshieldLabels(): string[] {
   const labels: string[] = [];
 
   // Check well-known labels explicitly first
-  const KNOWN_LABELS = ['com.agenshield.daemon', 'com.agenshield.broker'];
+  const KNOWN_LABELS = ['com.frontegg.AgenShield.daemon', 'com.frontegg.AgenShield.broker'];
   for (const label of KNOWN_LABELS) {
     try {
       execSync(`launchctl list ${label} 2>/dev/null`, { stdio: 'pipe' });

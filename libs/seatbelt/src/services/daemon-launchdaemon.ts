@@ -10,7 +10,7 @@
  * "bash" / "unidentified developer".
  *
  * Layout:
- *   Plist:    /Library/LaunchDaemons/com.agenshield.daemon.plist
+ *   Plist:    /Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist
  *   Binary:   ~/.agenshield/libexec/agenshield-daemon
  *   Logs:     ~/.agenshield/logs/daemon.log + daemon.error.log
  */
@@ -172,20 +172,28 @@ export async function installDaemonService(config: DaemonServiceConfig): Promise
     const legacyLauncherPath = getLauncherPath(userHome);
     try { await fsp.unlink(legacyLauncherPath); } catch { /* may not exist */ }
 
-    // 3. Remove stale service if loaded
+    // 3. Remove stale service if loaded (including legacy label)
+    try {
+      await execAsync(`sudo launchctl bootout system/com.agenshield.daemon 2>/dev/null`);
+    } catch { /* not loaded */ }
     try {
       await execAsync(`sudo launchctl bootout system/${DAEMON_LAUNCHD_LABEL} 2>/dev/null`);
-      // Give launchd time to fully unload the service
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 2000));
     } catch { /* not loaded */ }
+    // Remove legacy plist if present
+    try {
+      await execAsync(`sudo rm -f "/Library/LaunchDaemons/com.agenshield.daemon.plist"`);
+    } catch { /* may not exist */ }
 
     // 3. Write plist
     const plistContent = generateDaemonPlist(config);
-    const tmpPlist = path.join(os.tmpdir(), 'com.agenshield.daemon.plist');
+    const tmpPlist = path.join(os.tmpdir(), 'com.frontegg.AgenShield.daemon.plist');
     await fsp.writeFile(tmpPlist, plistContent);
     await execAsync(`sudo cp "${tmpPlist}" "${DAEMON_LAUNCHD_PLIST}"`);
     await execAsync(`sudo chown root:wheel "${DAEMON_LAUNCHD_PLIST}"`);
     await execAsync(`sudo chmod 644 "${DAEMON_LAUNCHD_PLIST}"`);
+    // Strip provenance/quarantine xattrs — launchd refuses to bootstrap plists with these
+    await execAsync(`sudo xattr -c "${DAEMON_LAUNCHD_PLIST}"`);
     await fsp.unlink(tmpPlist);
 
     // 4. Bootstrap with retry (launchd may still be unloading after bootout)

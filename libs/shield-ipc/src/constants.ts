@@ -150,16 +150,16 @@ export const MDM_CONFIG_FILE = 'mdm.json';
 
 // LaunchDaemon constants (macOS)
 /** LaunchDaemon label for the AgenShield daemon */
-export const DAEMON_LAUNCHD_LABEL = 'com.agenshield.daemon';
+export const DAEMON_LAUNCHD_LABEL = 'com.frontegg.AgenShield.daemon';
 
 /** LaunchDaemon plist path */
-export const DAEMON_LAUNCHD_PLIST = '/Library/LaunchDaemons/com.agenshield.daemon.plist';
+export const DAEMON_LAUNCHD_PLIST = '/Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist';
 
 /** LaunchDaemon label for the AgenShield privilege helper */
-export const PRIVILEGE_HELPER_LAUNCHD_LABEL = 'com.agenshield.privilege-helper';
+export const PRIVILEGE_HELPER_LAUNCHD_LABEL = 'com.frontegg.AgenShield.privilege-helper';
 
 /** LaunchDaemon plist path for the privilege helper */
-export const PRIVILEGE_HELPER_LAUNCHD_PLIST = '/Library/LaunchDaemons/com.agenshield.privilege-helper.plist';
+export const PRIVILEGE_HELPER_LAUNCHD_PLIST = '/Library/LaunchDaemons/com.frontegg.AgenShield.privilege-helper.plist';
 
 /**
  * @deprecated Use logDir() instead.

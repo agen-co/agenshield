@@ -113,7 +113,7 @@ function waitForProcessExit(pid: number, timeoutMs = 5000): boolean {
 }
 
 function stopDaemon(): RestoreProgress {
-  const plistPath = '/Library/LaunchDaemons/com.agenshield.daemon.plist';
+  const plistPath = '/Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist';
 
   // Remove plist FIRST to prevent launchd from respawning, then unload
   if (fs.existsSync(plistPath)) {
@@ -696,7 +696,7 @@ function discoverSocketGroups(): string[] {
  * Check if daemon or broker are still present (plist exists or process on port)
  */
 function isDaemonPresent(): boolean {
-  if (fs.existsSync('/Library/LaunchDaemons/com.agenshield.daemon.plist')) return true;
+  if (fs.existsSync('/Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist')) return true;
   if (findDaemonPidByPort(DEFAULT_PORT)) return true;
   return false;
 }

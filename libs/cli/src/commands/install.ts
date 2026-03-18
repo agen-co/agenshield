@@ -33,6 +33,7 @@ import {
   readVersionInfo,
   ensurePathInShellRc,
   buildAndInstallSEAFromLocal,
+  installSEAFromDir,
   extractMacAppFromSandbox,
   isRootOwned,
 } from '../utils/home.js';
@@ -143,12 +144,44 @@ export function registerInstallCommand(program: Command): void {
     .option('--force', 'Overwrite existing installation', false)
     .option('--local', 'Install from local monorepo build output instead of npm', false)
     .option('--sea', 'Build and install as a Single Executable Application binary', false)
+    .option('--from-dir <dir>', 'Install SEA binaries from a pre-extracted archive directory')
     .option('--policy-url <url>', 'Policy server URL for cloud login', 'http://localhost:9090')
     .option('--org <name>', 'Organization name displayed in menu bar login')
+    .option('--token <token>', 'Enrollment token for automatic cloud setup')
+    .option('--cloud-url <url>', 'Cloud API URL for enrollment')
     .option('--skip-services', 'Skip automatic macOS LaunchDaemon and menu bar agent installation', false)
     .option('--auto-shield', 'Automatically shield detected targets after enrollment', false)
     .action(withGlobals(async (opts) => {
-      const useSEA = opts['sea'] as boolean;
+      const fromDir = opts['fromDir'] as string | undefined;
+
+      // Auto-detect SEA mode: if running as SEA binary, find sibling files
+      let autoFromDir: string | undefined;
+      if (!fromDir && !opts['local']) {
+        const { isSEA: checkSEA } = await import('@agenshield/ipc');
+        if (checkSEA()) {
+          const binDir = path.dirname(process.execPath);
+          const parentDir = path.dirname(binDir);
+          if (fs.existsSync(path.join(parentDir, 'native'))) {
+            // npx package layout: bin/ subdirectory + sibling assets at parent
+            autoFromDir = parentDir;
+            // Copy binaries to parent level so installSEAFromDir finds them
+            for (const name of ['agenshield', 'agenshield-daemon', 'agenshield-broker']) {
+              const src = path.join(binDir, name);
+              const dest = path.join(parentDir, name);
+              if (fs.existsSync(src) && !fs.existsSync(dest)) {
+                fs.copyFileSync(src, dest);
+                fs.chmodSync(dest, 0o755);
+              }
+            }
+          } else if (fs.existsSync(path.join(binDir, 'agenshield-daemon'))) {
+            // Flat layout: all files in same directory (archive extract)
+            autoFromDir = binDir;
+          }
+        }
+      }
+
+      const resolvedFromDir = fromDir || autoFromDir;
+      const useSEA = (opts['sea'] as boolean) || !!resolvedFromDir;
       const menuBarOptions = {
         policyUrl: opts['policyUrl'] as string | undefined,
         orgName: opts['org'] as string | undefined,
@@ -276,7 +309,41 @@ export function registerInstallCommand(program: Command): void {
 
       // -- SEA binary install path --
       if (useSEA) {
-        if (!opts['local']) {
+        let result: { success: boolean; version: string; error?: string };
+
+        if (resolvedFromDir) {
+          // Install from pre-extracted archive directory or npx package
+          const ver = (opts['version'] as string | undefined) ?? getOwnVersion();
+
+          const spinner2 = await createSpinner(`Installing SEA binaries from ${resolvedFromDir}...`);
+          result = await installSEAFromDir(resolvedFromDir, ver, (step) => spinner2.update(step));
+
+          if (!result.success) {
+            spinner2.fail(`SEA install failed: ${result.error}`);
+            throw new CliError(`SEA install failed: ${result.error}`, 'SEA_INSTALL_FAILED');
+          }
+          spinner2.succeed(`Installed agenshield@${result.version} SEA binaries`);
+        } else if (opts['local']) {
+          const repoRoot = findMonorepoRoot();
+          if (!repoRoot) {
+            throw new CliError(
+              'Could not find monorepo root (no package.json with workspaces field).',
+              'MONOREPO_NOT_FOUND',
+            );
+          }
+
+          const spinner2 = await createSpinner('Installing SEA binaries from local build...');
+          result = await buildAndInstallSEAFromLocal(
+            repoRoot,
+            (step) => spinner2.update(step),
+          );
+
+          if (!result.success) {
+            spinner2.fail(`SEA build failed: ${result.error}`);
+            throw new CliError(`SEA build failed: ${result.error}`, 'SEA_BUILD_FAILED');
+          }
+          spinner2.succeed(`Built agenshield@${result.version} SEA binary`);
+        } else {
           // TODO: Download pre-built SEA binary from GitHub Releases
           throw new CliError(
             'Remote SEA binary installs are not yet supported. Use --local --sea to build from monorepo.',
@@ -284,31 +351,11 @@ export function registerInstallCommand(program: Command): void {
           );
         }
 
-        const repoRoot = findMonorepoRoot();
-        if (!repoRoot) {
-          throw new CliError(
-            'Could not find monorepo root (no package.json with workspaces field).',
-            'MONOREPO_NOT_FOUND',
-          );
-        }
-
-        const spinner = await createSpinner('Installing SEA binaries from local build...');
-        const result = await buildAndInstallSEAFromLocal(
-          repoRoot,
-          (step) => spinner.update(step),
-        );
-
-        if (!result.success) {
-          spinner.fail(`SEA build failed: ${result.error}`);
-          throw new CliError(`SEA build failed: ${result.error}`, 'SEA_BUILD_FAILED');
-        }
-        spinner.succeed(`Built agenshield@${result.version} SEA binary`);
-
         // Write version.json with SEA format
         const now = new Date().toISOString();
         writeVersionInfo({
           version: result.version,
-          channel: 'local',
+          channel: resolvedFromDir ? (opts['channel'] as string) : 'local',
           installedAt: existing?.installedAt ?? now,
           updatedAt: now,
           format: 'sea',
@@ -348,6 +395,8 @@ export function registerInstallCommand(program: Command): void {
           output.info('');
           output.info('  Installing macOS services...');
           await installMacOSServices(menuBarOptions);
+
+          // Menu bar app is auto-launched by the LaunchAgent on bootstrap
         }
 
         // Write auto-shield intent file
@@ -355,6 +404,34 @@ export function registerInstallCommand(program: Command): void {
           const autoShieldPath = path.join(AGENSHIELD_HOME, 'auto-shield.json');
           fs.writeFileSync(autoShieldPath, JSON.stringify({ enabled: true, createdAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o644 });
           output.success('Auto-shield enabled');
+        }
+
+        // Enrollment via token or org
+        const token = opts['token'] as string | undefined;
+        const cloudUrl = opts['cloudUrl'] as string | undefined;
+        const org = opts['org'] as string | undefined;
+
+        if (token || (org && cloudUrl)) {
+          output.info('');
+          output.info('  Running enrollment...');
+          const setupArgs: string[] = [];
+          if (token) {
+            setupArgs.push('--token', token);
+          } else if (org) {
+            setupArgs.push('--org', org);
+          }
+          if (cloudUrl) {
+            setupArgs.push('--cloud-url', cloudUrl);
+          }
+          const agenshieldBin = path.join(getBinDir(), 'agenshield');
+          try {
+            execSync(`"${agenshieldBin}" setup ${setupArgs.join(' ')}`, {
+              stdio: 'inherit',
+            });
+            output.success('Enrollment completed');
+          } catch {
+            output.warn('Enrollment failed. You can retry manually: agenshield setup');
+          }
         }
 
         // Restart daemon if it was running before install
@@ -486,6 +563,14 @@ export function registerInstallCommand(program: Command): void {
         output.info('');
         output.info('  Installing macOS services...');
         await installMacOSServices(menuBarOptions);
+
+        // Launch the menu bar app
+        if (fs.existsSync('/Applications/AgenShield.app')) {
+          try {
+            execSync('open /Applications/AgenShield.app', { stdio: 'pipe' });
+            output.success('Launched AgenShield.app');
+          } catch { /* best-effort */ }
+        }
       }
 
       // 9d. Write auto-shield intent file
@@ -493,6 +578,36 @@ export function registerInstallCommand(program: Command): void {
         const autoShieldPath = path.join(AGENSHIELD_HOME, 'auto-shield.json');
         fs.writeFileSync(autoShieldPath, JSON.stringify({ enabled: true, createdAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o644 });
         output.success('Auto-shield enabled');
+      }
+
+      // 9e. Enrollment via token or org
+      {
+        const token = opts['token'] as string | undefined;
+        const cloudUrl = opts['cloudUrl'] as string | undefined;
+        const org = opts['org'] as string | undefined;
+
+        if (token || (org && cloudUrl)) {
+          output.info('');
+          output.info('  Running enrollment...');
+          const setupArgs: string[] = [];
+          if (token) {
+            setupArgs.push('--token', token);
+          } else if (org) {
+            setupArgs.push('--org', org);
+          }
+          if (cloudUrl) {
+            setupArgs.push('--cloud-url', cloudUrl);
+          }
+          const agenshieldBin = path.join(getBinDir(), 'agenshield');
+          try {
+            execSync(`"${agenshieldBin}" setup ${setupArgs.join(' ')}`, {
+              stdio: 'inherit',
+            });
+            output.success('Enrollment completed');
+          } catch {
+            output.warn('Enrollment failed. You can retry manually: agenshield setup');
+          }
+        }
       }
 
       // 10. Restart daemon if it was running before install

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Entitlements for signed builds only.
+      keychain-access-groups enables cross-app Keychain sharing with the main app.
+      iCloud container enables provisioned iCloud Drive access.
+      These are ignored for unsigned/ad-hoc builds (dev/community mode).
+    -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>3R2X6557U2.com.frontegg.AgenShield.shared</string>
+    </array>
+    <key>com.apple.developer.icloud-container-identifiers</key>
+    <array>
+        <string>iCloud.com.frontegg.AgenShield</string>
+    </array>
+    <key>com.apple.developer.icloud-services</key>
+    <array>
+        <string>CloudDocuments</string>
+    </array>
+</dict>
+</plist>

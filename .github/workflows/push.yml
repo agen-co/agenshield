@@ -319,9 +319,7 @@ jobs:
       - name: Build macOS menu bar app
         id: macos-app
         continue-on-error: true
-        run: |
-          npx nx reset
-          npx nx build shield-macos
+        run: npx nx build shield-macos
 
       # Import Apple Developer ID certificate for code signing (if available)
       - name: Import Apple certificate

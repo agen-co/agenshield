@@ -7,7 +7,7 @@
  *
  * Layout:
  *   App:    ~/.agenshield/apps/AgenShield.app
- *   Plist:  ~/Library/LaunchAgents/com.agenshield.menubar.plist
+ *   Plist:  ~/Library/LaunchAgents/com.frontegg.AgenShield.menubar.plist
  */
 
 import * as fsp from 'node:fs/promises';
@@ -20,7 +20,7 @@ const execAsync = promisify(exec);
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const MENUBAR_LABEL = 'com.agenshield.menubar';
+const MENUBAR_LABEL = 'com.frontegg.AgenShield.menubar';
 const MENUBAR_PLIST_NAME = `${MENUBAR_LABEL}.plist`;
 
 function getPlistPath(home?: string): string {
@@ -182,14 +182,31 @@ export async function installMenuBarAgent(sourceAppPath: string, options?: MenuB
     // 4. Unload existing agent if present
     try {
       await execAsync(`launchctl bootout gui/${uid} "${plistPath}" 2>/dev/null`);
+      // Give launchd time to fully unload the agent
+      await new Promise(r => setTimeout(r, 2000));
     } catch { /* not loaded */ }
 
     // 5. Write plist
     const plistContent = await generateMenuBarPlist(options);
     await fsp.writeFile(plistPath, plistContent);
+    // Strip provenance/quarantine xattrs — launchd refuses to bootstrap plists with these
+    try {
+      await execAsync(`xattr -c "${plistPath}"`);
+    } catch { /* may not have xattrs */ }
 
-    // 6. Load the agent
-    await execAsync(`launchctl bootstrap gui/${uid} "${plistPath}"`);
+    // 6. Load the agent with retry (launchd may still be unloading after bootout)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await execAsync(`launchctl bootstrap gui/${uid} "${plistPath}"`);
+        break;
+      } catch (err) {
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 1000));
+        } else {
+          throw err;
+        }
+      }
+    }
 
     return {
       success: true,

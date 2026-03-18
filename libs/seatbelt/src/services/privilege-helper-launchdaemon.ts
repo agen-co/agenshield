@@ -9,7 +9,7 @@
  * osascript-based privilege escalation dialogs.
  *
  * Layout:
- *   Plist:  /Library/LaunchDaemons/com.agenshield.privilege-helper.plist
+ *   Plist:  /Library/LaunchDaemons/com.frontegg.AgenShield.privilege-helper.plist
  *   Socket: ~/.agenshield/run/privilege-helper.sock
  *   Logs:   ~/.agenshield/logs/privilege-helper.log + .error.log
  */
@@ -118,10 +118,18 @@ export async function installPrivilegeHelperService(config: DaemonServiceConfig)
     const sockDir = socketDir(userHome);
     await fsp.mkdir(sockDir, { recursive: true, mode: 0o755 });
 
-    // 3. Remove stale plist if exists
+    // 3. Remove stale service if loaded (including legacy label)
+    try {
+      await execAsync(`sudo launchctl bootout system/com.agenshield.privilege-helper 2>/dev/null`);
+    } catch { /* not loaded */ }
     try {
       await execAsync(`sudo launchctl bootout system/${PRIVILEGE_HELPER_LAUNCHD_LABEL} 2>/dev/null`);
+      await new Promise(r => setTimeout(r, 2000));
     } catch { /* not loaded */ }
+    // Remove legacy plist if present
+    try {
+      await execAsync(`sudo rm -f "/Library/LaunchDaemons/com.agenshield.privilege-helper.plist"`);
+    } catch { /* may not exist */ }
 
     // 4. Remove stale socket if exists
     const sockPath = privilegeHelperSocket(userHome);
@@ -131,15 +139,28 @@ export async function installPrivilegeHelperService(config: DaemonServiceConfig)
 
     // 5. Write plist
     const plistContent = generatePrivilegeHelperPlist(config);
-    const tmpPlist = `${os.tmpdir()}/com.agenshield.privilege-helper.plist`;
+    const tmpPlist = `${os.tmpdir()}/com.frontegg.AgenShield.privilege-helper.plist`;
     await fsp.writeFile(tmpPlist, plistContent);
     await execAsync(`sudo cp "${tmpPlist}" "${PRIVILEGE_HELPER_LAUNCHD_PLIST}"`);
     await execAsync(`sudo chown root:wheel "${PRIVILEGE_HELPER_LAUNCHD_PLIST}"`);
     await execAsync(`sudo chmod 644 "${PRIVILEGE_HELPER_LAUNCHD_PLIST}"`);
+    // Strip provenance/quarantine xattrs — launchd refuses to bootstrap plists with these
+    await execAsync(`sudo xattr -c "${PRIVILEGE_HELPER_LAUNCHD_PLIST}"`);
     await fsp.unlink(tmpPlist);
 
-    // 6. Bootstrap the plist
-    await execAsync(`sudo launchctl bootstrap system "${PRIVILEGE_HELPER_LAUNCHD_PLIST}"`);
+    // 6. Bootstrap with retry (launchd may still be unloading after bootout)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await execAsync(`sudo launchctl bootstrap system "${PRIVILEGE_HELPER_LAUNCHD_PLIST}"`);
+        break;
+      } catch (err) {
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 1000));
+        } else {
+          throw err;
+        }
+      }
+    }
 
     return {
       success: true,
