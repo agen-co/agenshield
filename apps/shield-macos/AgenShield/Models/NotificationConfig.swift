@@ -32,6 +32,7 @@ struct NotificationConfig {
         "skills:untrusted_detected": .critical,
         "workspace_skills:detected": .critical,
         "workspace_skills:tampered": .critical,
+        "workspace_skills:approved": .medium,
         "api:open_url_request": .critical,
 
         // Medium — notify without sound (default on)

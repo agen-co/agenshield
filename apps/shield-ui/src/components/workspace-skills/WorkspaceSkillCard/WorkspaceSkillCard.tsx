@@ -2,6 +2,7 @@ import { Typography, Tooltip } from '@mui/material';
 import { ShieldCheck, ShieldX, Clock, Cloud, FolderOpen } from 'lucide-react';
 import { StatusBadge } from '../../shared/StatusBadge';
 import PrimaryButton from '../../../elements/buttons/PrimaryButton';
+import SecondaryButton from '../../../elements/buttons/SecondaryButton';
 import DangerButton from '../../../elements/buttons/DangerButton';
 import { Root, Info, Actions } from './WorkspaceSkillCard.styles';
 import type { WorkspaceSkillCardProps } from './WorkspaceSkillCard.types';
@@ -15,9 +16,18 @@ const STATUS_CONFIG: Record<string, { label: string; variant: StatusVariant; ico
   removed: { label: 'Removed', variant: 'default', icon: FolderOpen },
 };
 
-export function WorkspaceSkillCard({ skill, onApprove, onDeny, isReadOnly }: WorkspaceSkillCardProps) {
+export function WorkspaceSkillCard({ skill, onApprove, onRequestApproval, onDeny, cloudConnected, isReadOnly }: WorkspaceSkillCardProps) {
   const config = STATUS_CONFIG[skill.status] ?? STATUS_CONFIG.pending;
-  const showActions = !isReadOnly && (skill.status === 'pending' || skill.status === 'denied');
+
+  // Cloud mode: only show actions for pending skills (backend rejects non-pending)
+  // Local mode: show actions for pending or denied
+  const canAct = !isReadOnly && (cloudConnected
+    ? skill.status === 'pending'
+    : skill.status === 'pending' || skill.status === 'denied');
+
+  // If cloud-connected and skill already has a cloudSkillId but is still pending,
+  // it has been submitted for review — show "Pending Review" instead of action buttons
+  const pendingReview = cloudConnected && skill.cloudSkillId && skill.status === 'pending';
 
   return (
     <Root>
@@ -44,17 +54,37 @@ export function WorkspaceSkillCard({ skill, onApprove, onDeny, isReadOnly }: Wor
 
       <StatusBadge label={config.label} variant={config.variant} size="small" dot />
 
-      {showActions && (
+      {pendingReview && (
         <Actions>
-          <PrimaryButton
-            size="small"
-            onClick={(e: React.MouseEvent) => {
-              e.stopPropagation();
-              onApprove(skill.id);
-            }}
-          >
-            Approve
-          </PrimaryButton>
+          <SecondaryButton size="small" disabled>
+            Pending Review
+          </SecondaryButton>
+        </Actions>
+      )}
+
+      {canAct && !pendingReview && (
+        <Actions>
+          {cloudConnected ? (
+            <PrimaryButton
+              size="small"
+              onClick={(e: React.MouseEvent) => {
+                e.stopPropagation();
+                onRequestApproval(skill.id);
+              }}
+            >
+              Request Approval
+            </PrimaryButton>
+          ) : (
+            <PrimaryButton
+              size="small"
+              onClick={(e: React.MouseEvent) => {
+                e.stopPropagation();
+                onApprove(skill.id);
+              }}
+            >
+              Approve
+            </PrimaryButton>
+          )}
           {skill.status === 'pending' && (
             <DangerButton
               size="small"

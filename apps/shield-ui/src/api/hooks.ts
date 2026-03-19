@@ -742,6 +742,17 @@ export function useDenyWorkspaceSkill() {
   });
 }
 
+export function useRequestApprovalWorkspaceSkill() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.workspaceSkills.requestApproval(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkills });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSkillsPendingCount });
+    },
+  });
+}
+
 export function useScanWorkspaceSkills() {
   const queryClient = useQueryClient();
   return useMutation({

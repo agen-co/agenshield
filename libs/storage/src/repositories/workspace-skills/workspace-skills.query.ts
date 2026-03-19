@@ -15,6 +15,8 @@ export const Q = {
 
   selectByWorkspace: `SELECT * FROM ${TABLE} WHERE workspace_path = ? ORDER BY skill_name`,
 
+  selectByWorkspacePrefix: `SELECT * FROM ${TABLE} WHERE workspace_path LIKE @prefix || '%' AND workspace_path != @prefix ORDER BY workspace_path, skill_name`,
+
   selectByStatus: `SELECT * FROM ${TABLE} WHERE status = ? ORDER BY workspace_path, skill_name`,
 
   selectAllActive: `SELECT * FROM ${TABLE} WHERE status != 'removed' ORDER BY workspace_path, skill_name`,

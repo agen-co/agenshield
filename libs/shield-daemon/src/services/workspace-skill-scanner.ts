@@ -15,6 +15,14 @@ import { denyWorkspaceSkill, allowWorkspaceSkill } from '../acl';
 import { getWorkspaceSkillBackupDir, getCloudSkillsDir } from '../config/paths';
 import { eventBus } from '../events/emitter';
 
+/** Directories to skip when walking for nested .claude/skills/ dirs. */
+const NESTED_SKIP_DIRS = new Set([
+  'node_modules', '.git', '.hg', '.svn', 'vendor', '__pycache__',
+  '.tox', '.venv', 'venv', 'dist', 'build', '.next', '.cache',
+  '.gradle', 'target', '.terraform', '.cargo', 'Pods', '.eggs',
+  'bower_components',
+]);
+
 interface Logger {
   info(msg: string, ...args: unknown[]): void;
   warn(msg: string, ...args: unknown[]): void;
@@ -31,7 +39,7 @@ interface ScannerDeps {
 /**
  * Read all files from a skill directory recursively (skips dot-files).
  */
-function readSkillFiles(dir: string, prefix = ''): Array<{ name: string; content: string }> {
+export function readSkillFiles(dir: string, prefix = ''): Array<{ name: string; content: string }> {
   const files: Array<{ name: string; content: string }> = [];
   try {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -99,6 +107,11 @@ function getSkillBackupPath(workspacePath: string, skillName: string): string {
   return path.join(getWorkspaceSkillBackupDir(), hash);
 }
 
+// Singleton for cross-module access (e.g. from cloud-connector)
+let scannerSingleton: WorkspaceSkillScanner | null = null;
+export function setWorkspaceSkillScanner(s: WorkspaceSkillScanner): void { scannerSingleton = s; }
+export function getWorkspaceSkillScanner(): WorkspaceSkillScanner | null { return scannerSingleton; }
+
 export class WorkspaceSkillScanner {
   private storage: Storage;
   private logger: Logger;
@@ -133,6 +146,15 @@ export class WorkspaceSkillScanner {
     const results: WorkspaceSkill[] = [];
 
     if (!fs.existsSync(skillsDir)) {
+      // Clean up any stale DB records for this workspace
+      const dbSkills = this.storage.workspaceSkills.getByWorkspace(workspacePath);
+      for (const skill of dbSkills) {
+        if (skill.status !== 'removed') {
+          this.storage.workspaceSkills.markRemoved(skill.id);
+          eventBus.emit('workspace_skills:removed', { workspacePath, skillName: skill.skillName });
+          this.logger.info(`[workspace-skills] skill removed (skills dir gone): ${skill.skillName} in ${workspacePath}`);
+        }
+      }
       return results;
     }
 
@@ -232,6 +254,7 @@ export class WorkspaceSkillScanner {
             status: 'pending',
             contentHash: currentHash,
             aclApplied,
+            cloudSkillId: null,
           });
 
           eventBus.emit('workspace_skills:tampered', {
@@ -242,6 +265,33 @@ export class WorkspaceSkillScanner {
           });
 
           this.logger.warn(`[workspace-skills] tamper detected: ${skillName} in ${workspacePath}`);
+          const updated = this.storage.workspaceSkills.getById(existing.id);
+          if (updated) results.push(updated);
+        } else if (
+          existing.approvedBy?.startsWith('cloud') &&
+          currentHash &&
+          !this.storage.approvedSkillHashes.isApproved(currentHash)
+        ) {
+          // Cloud approval revoked — re-quarantine
+          const aclApplied = agentUsername
+            ? denyWorkspaceSkill(skillPath, agentUsername, this.logger)
+            : false;
+
+          this.storage.workspaceSkills.update(existing.id, {
+            status: 'pending',
+            aclApplied,
+            cloudSkillId: null,
+            approvedBy: null,
+            approvedAt: null,
+          });
+
+          eventBus.emit('workspace_skills:revoked', {
+            workspacePath,
+            skillName,
+            previousApprovedBy: existing.approvedBy,
+          });
+
+          this.logger.warn(`[workspace-skills] cloud approval revoked: ${skillName} in ${workspacePath}`);
           const updated = this.storage.workspaceSkills.getById(existing.id);
           if (updated) results.push(updated);
         } else {
@@ -256,12 +306,20 @@ export class WorkspaceSkillScanner {
         }
         results.push(existing);
       } else {
-        // pending or denied — ensure deny ACL is applied
-        if (!existing.aclApplied && agentUsername) {
-          denyWorkspaceSkill(skillPath, agentUsername, this.logger);
-          this.storage.workspaceSkills.update(existing.id, { aclApplied: true });
+        // pending or denied — re-check hash against approved list
+        const currentHash = computeSkillHash(skillPath);
+        if (currentHash && this.storage.approvedSkillHashes.isApproved(currentHash)) {
+          this.approveSkill(existing.id, 'cloud:sha256');
+          const updated = this.storage.workspaceSkills.getById(existing.id);
+          if (updated) results.push(updated);
+          this.logger.info(`[workspace-skills] auto-approved (hash match on rescan): ${skillName} in ${workspacePath}`);
+        } else {
+          if (!existing.aclApplied && agentUsername) {
+            denyWorkspaceSkill(skillPath, agentUsername, this.logger);
+            this.storage.workspaceSkills.update(existing.id, { aclApplied: true });
+          }
+          results.push(existing);
         }
-        results.push(existing);
       }
     }
 
@@ -300,9 +358,35 @@ export class WorkspaceSkillScanner {
               this.storage.workspaceSkills.markRemoved(skill.id);
             }
           }
+          // Also clean up nested workspace skills
+          const nestedSkills = this.storage.workspaceSkills.getByWorkspacePrefix(ws + '/');
+          for (const skill of nestedSkills) {
+            if (skill.status !== 'removed') {
+              this.storage.workspaceSkills.markRemoved(skill.id);
+            }
+          }
           continue;
         }
+
+        // Scan root workspace
         this.scanWorkspace(profile.id, ws);
+
+        // Discover and scan nested workspaces
+        const nested = this.discoverNestedSkillsDirs(ws);
+        const nestedSet = new Set(nested);
+        for (const nestedPath of nested) {
+          this.scanWorkspace(profile.id, nestedPath);
+          this.watchWorkspaceSkillsDir(profile.id, nestedPath);
+        }
+
+        // Clean up stale nested workspaces (in DB but no longer discovered)
+        const nestedDbSkills = this.storage.workspaceSkills.getByWorkspacePrefix(ws + '/');
+        for (const skill of nestedDbSkills) {
+          if (skill.status !== 'removed' && !nestedSet.has(skill.workspacePath)) {
+            // This nested workspace no longer has .claude/skills/ — scanWorkspace will clean up
+            this.scanWorkspace(profile.id, skill.workspacePath);
+          }
+        }
       }
     }
   }
@@ -363,6 +447,13 @@ export class WorkspaceSkillScanner {
   onWorkspaceGranted(profileId: string, workspacePath: string): void {
     this.scanWorkspace(profileId, workspacePath);
     this.watchWorkspaceSkillsDir(profileId, workspacePath);
+
+    // Discover and handle nested workspaces
+    const nested = this.discoverNestedSkillsDirs(workspacePath);
+    for (const nestedPath of nested) {
+      this.scanWorkspace(profileId, nestedPath);
+      this.watchWorkspaceSkillsDir(profileId, nestedPath);
+    }
   }
 
   /**
@@ -370,17 +461,24 @@ export class WorkspaceSkillScanner {
    * Marks all skills for that workspace as removed.
    */
   onWorkspaceRevoked(workspacePath: string): void {
-    const skills = this.storage.workspaceSkills.getByWorkspace(workspacePath);
-    for (const skill of skills) {
-      if (skill.status !== 'removed') {
-        const agentUsername = this.resolveAgentUsername(skill.profileId);
-        this.storage.workspaceSkills.markRemoved(skill.id);
+    // Revoke root workspace skills
+    this.revokeWorkspaceSkills(workspacePath);
 
-        // Remove deny ACL
-        if (agentUsername) {
-          const skillPath = path.join(workspacePath, '.claude', 'skills', skill.skillName);
-          allowWorkspaceSkill(skillPath, agentUsername, this.logger);
-        }
+    // Revoke all nested workspace skills
+    const nestedSkills = this.storage.workspaceSkills.getByWorkspacePrefix(workspacePath + '/');
+    const revokedPaths = new Set<string>();
+    for (const skill of nestedSkills) {
+      revokedPaths.add(skill.workspacePath);
+    }
+    for (const nestedPath of revokedPaths) {
+      this.revokeWorkspaceSkills(nestedPath);
+    }
+
+    // Close watchers for nested paths
+    for (const [dir, watcher] of this.watchers) {
+      if (dir.startsWith(workspacePath + '/')) {
+        watcher.close();
+        this.watchers.delete(dir);
       }
     }
   }
@@ -534,6 +632,60 @@ export class WorkspaceSkillScanner {
   }
 
   /**
+   * Revoke all skills for a single workspace path (mark removed + allow ACL).
+   */
+  private revokeWorkspaceSkills(workspacePath: string): void {
+    const skills = this.storage.workspaceSkills.getByWorkspace(workspacePath);
+    for (const skill of skills) {
+      if (skill.status !== 'removed') {
+        const agentUsername = this.resolveAgentUsername(skill.profileId);
+        this.storage.workspaceSkills.markRemoved(skill.id);
+        if (agentUsername) {
+          const skillPath = path.join(workspacePath, '.claude', 'skills', skill.skillName);
+          allowWorkspaceSkill(skillPath, agentUsername, this.logger);
+        }
+      }
+    }
+  }
+
+  /**
+   * Discover nested projects within a workspace root that have .claude/skills/.
+   * Returns project root paths (excluding the root workspace itself).
+   */
+  private discoverNestedSkillsDirs(rootPath: string, maxDepth = 5): string[] {
+    const results: string[] = [];
+
+    const walk = (dir: string, depth: number): void => {
+      if (depth > maxDepth) return;
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith('.') || NESTED_SKIP_DIRS.has(entry.name)) continue;
+        const child = path.join(dir, entry.name);
+        // Check if this child has .claude/skills/
+        const skillsDir = path.join(child, '.claude', 'skills');
+        try {
+          if (fs.statSync(skillsDir).isDirectory()) {
+            results.push(child);
+          }
+        } catch {
+          /* no .claude/skills/ here */
+        }
+        // Keep walking deeper regardless
+        walk(child, depth + 1);
+      }
+    };
+
+    walk(rootPath, 0);
+    return results;
+  }
+
+  /**
    * Set up fs.watch on all workspace .claude/skills/ directories.
    */
   private setupWatchers(): void {
@@ -545,6 +697,12 @@ export class WorkspaceSkillScanner {
       const workspacePaths = (profile as { workspacePaths?: string[] }).workspacePaths ?? [];
       for (const ws of workspacePaths) {
         this.watchWorkspaceSkillsDir(profile.id, ws);
+
+        // Also watch nested workspace skills dirs
+        const nested = this.discoverNestedSkillsDirs(ws);
+        for (const nestedPath of nested) {
+          this.watchWorkspaceSkillsDir(profile.id, nestedPath);
+        }
       }
     }
   }
@@ -557,7 +715,7 @@ export class WorkspaceSkillScanner {
     if (!fs.existsSync(skillsDir) || this.watchers.has(skillsDir)) return;
 
     try {
-      const watcher = fs.watch(skillsDir, { persistent: false }, () => {
+      const watcher = fs.watch(skillsDir, { persistent: false, recursive: true }, () => {
         if (this.stopped) return;
         this.debounceScan(profileId, workspacePath);
       });

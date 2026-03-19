@@ -177,9 +177,10 @@ export function injectBlob(opts: InjectOptions): void {
     );
   }
 
-  // macOS: code signing
+  // macOS: code signing + verification
   if (platform === 'darwin') {
     codesignBinary(binaryPath, codesignIdentity, entitlementsPath);
+    verifyCodesign(binaryPath);
   }
 
   // Post-injection validation: ensure binary runs
@@ -229,6 +230,17 @@ export function codesignBinary(
       );
     }
   }
+}
+
+/**
+ * Verify that a binary passes strict codesign verification.
+ * Throws on failure to fail the build early.
+ */
+export function verifyCodesign(binaryPath: string): void {
+  run(
+    `codesign --verify --deep --strict "${binaryPath}"`,
+    `Verifying code signature: ${path.basename(binaryPath)}`,
+  );
 }
 
 /**
@@ -671,6 +683,7 @@ export function createArchive(opts: PackageOptions): string {
       // Sign .node native modules when a real signing identity is provided
       if (platform === 'darwin' && opts.codesignIdentity) {
         codesignBinary(destPath, opts.codesignIdentity, opts.entitlementsPath);
+        verifyCodesign(destPath);
       }
       break;
     }
@@ -718,6 +731,7 @@ export function createArchive(opts: PackageOptions): string {
         }
         // Also sign the whole .app bundle
         codesignBinary(destAppDir, opts.codesignIdentity, opts.entitlementsPath);
+        verifyCodesign(destAppDir);
       }
     } else {
       console.log('[INFO] AgenShield.app not found — skipping menu bar app staging');

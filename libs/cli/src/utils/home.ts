@@ -1280,12 +1280,13 @@ export async function installSEAFromDir(
     ];
 
     for (const bin of binaries) {
-      const binPath = path.join(sourceDir, bin.name);
-      if (!fs.existsSync(binPath)) {
+      const flatPath = path.join(sourceDir, bin.name);
+      const nestedPath = path.join(sourceDir, 'bin', bin.name);
+      if (!fs.existsSync(flatPath) && !fs.existsSync(nestedPath)) {
         return {
           success: false,
           version,
-          error: `Binary not found: ${binPath}`,
+          error: `Binary not found: ${flatPath} or ${nestedPath}`,
         };
       }
     }
@@ -1304,7 +1305,9 @@ export async function installSEAFromDir(
 
     onProgress?.('Installing binaries...');
     for (const bin of binaries) {
-      const srcBinary = path.join(sourceDir, bin.name);
+      const flatPath = path.join(sourceDir, bin.name);
+      const nestedPath = path.join(sourceDir, 'bin', bin.name);
+      const srcBinary = fs.existsSync(flatPath) ? flatPath : nestedPath;
       const destDir = bin.target === 'bin' ? binDir : libexecDir;
       const destBinary = path.join(destDir, bin.name);
       if (destDir === libexecDir && needsSudo) {

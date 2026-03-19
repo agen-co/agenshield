@@ -447,9 +447,27 @@ struct PopoverContent: View {
                                 if skill.isRequesting {
                                     ProgressView()
                                         .controlSize(.mini)
+                                } else if skill.cloudSkillId != nil {
+                                    Text("Pending Approval")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(Color.secondary)
+                                        .cornerRadius(4)
+
+                                    Button(action: { appState.deleteSkill(skill.id) }) {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.white)
+                                            .padding(4)
+                                            .background(Color.red.opacity(0.85))
+                                            .cornerRadius(4)
+                                    }
+                                    .buttonStyle(.plain)
                                 } else {
                                     Button(action: { appState.requestSkillApproval(skill.id) }) {
-                                        Text("Approve")
+                                        Text("Request Approval")
                                             .font(.system(size: 10, weight: .medium))
                                             .foregroundColor(.white)
                                             .padding(.horizontal, 8)

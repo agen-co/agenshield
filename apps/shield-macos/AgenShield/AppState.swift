@@ -373,8 +373,12 @@ class AppState {
                 try await DaemonAPI.shared.shieldTarget(targetId: targetId)
             } catch {
                 await MainActor.run {
-                    self.shieldError = "Failed to start shielding"
-                    self.shieldingTargetId = nil
+                    if self.shieldingTargetId != nil {
+                        // HTTP timeout doesn't mean daemon failed — SSE events will drive final state
+                        NSLog("[AgenShield] Shield HTTP request failed (may still be in progress): \(error.localizedDescription)")
+                    } else {
+                        self.shieldError = "Failed to start shielding: \(error.localizedDescription)"
+                    }
                 }
             }
         }

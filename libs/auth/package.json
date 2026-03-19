@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/auth",
-  "version": "0.8.10",
+  "version": "0.8.13",
   "type": "module",
   "description": "JWT authentication library for AgenShield",
   "main": "./dist/index.js",
@@ -16,8 +16,8 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@agenshield/cloud": "0.8.10",
-    "@agenshield/ipc": "0.8.10",
+    "@agenshield/cloud": "0.8.13",
+    "@agenshield/ipc": "0.8.13",
     "jose": "^6.1.0"
   }
 }

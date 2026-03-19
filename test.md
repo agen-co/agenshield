@@ -1,2 +1,3 @@
 - change approve in submenu of quarantine skills to request approval 
 - after approval accept by admin, it must be directly affected the active workspaces in endpoint and enable acl for the approved skill
+- the npx agenshield install been blocked and removed by sentinelOne find the issue, it also remove node and npx from my system

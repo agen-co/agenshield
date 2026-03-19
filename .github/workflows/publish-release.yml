@@ -531,7 +531,7 @@ jobs:
           # Extract and re-zip for notarization (notarytool requires .zip)
           STAGING=$(mktemp -d)
           tar -xzf "$ARCHIVE" -C "$STAGING"
-          ditto -c -k --keepParent "$STAGING" "$NOTARIZE_ZIP"
+          (cd "$STAGING" && ditto -c -k . "$NOTARIZE_ZIP")
           rm -rf "$STAGING"
 
           xcrun notarytool submit "$NOTARIZE_ZIP" \

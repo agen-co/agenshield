@@ -33,6 +33,12 @@ export interface WorkspaceSkillTamperedPayload {
   currentHash: string;
 }
 
+export interface WorkspaceSkillRevokedPayload {
+  workspacePath: string;
+  skillName: string;
+  previousApprovedBy: string;
+}
+
 export interface WorkspaceSkillCloudForcedPayload {
   skillName: string;
   targetWorkspaces: string[];
@@ -45,6 +51,7 @@ declare module '@agenshield/ipc' {
     'workspace_skills:denied': WorkspaceSkillDeniedPayload;
     'workspace_skills:removed': WorkspaceSkillRemovedPayload;
     'workspace_skills:tampered': WorkspaceSkillTamperedPayload;
+    'workspace_skills:revoked': WorkspaceSkillRevokedPayload;
     'workspace_skills:cloud_forced': WorkspaceSkillCloudForcedPayload;
   }
 }
@@ -55,6 +62,7 @@ export const WORKSPACE_SKILL_EVENT_TYPES = [
   'workspace_skills:denied',
   'workspace_skills:removed',
   'workspace_skills:tampered',
+  'workspace_skills:revoked',
   'workspace_skills:cloud_forced',
 ] as const;
 

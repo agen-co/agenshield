@@ -517,6 +517,10 @@ export const api = {
       request<{ data: WorkspaceSkillSummary }>(`/workspace-skills/${id}/deny`, {
         method: 'POST',
       }),
+    requestApproval: (id: string) =>
+      request<{ data: { cloudSkillId?: string; existingDecision?: string } }>(
+        `/workspace-skills/${id}/request-approval`, { method: 'POST' },
+      ),
     scan: (workspacePath?: string) =>
       request<{ data: WorkspaceSkillSummary[] }>('/workspace-skills/scan', {
         method: 'POST',

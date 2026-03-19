@@ -5,7 +5,9 @@ import {
   useWorkspaceSkills,
   useApproveWorkspaceSkill,
   useDenyWorkspaceSkill,
+  useRequestApprovalWorkspaceSkill,
   useScanWorkspaceSkills,
+  useStatus,
 } from '../../../api/hooks';
 import type { WorkspaceSkillSummary } from '../../../api/client';
 import { WorkspaceSkillCard } from '../WorkspaceSkillCard';
@@ -15,13 +17,17 @@ import type { WorkspaceSkillsPanelProps } from './WorkspaceSkillsPanel.types';
 
 export function WorkspaceSkillsPanel({ isReadOnly, profileId }: WorkspaceSkillsPanelProps) {
   const { data, isLoading } = useWorkspaceSkills();
+  const { data: statusData } = useStatus();
+  const cloudConnected = statusData?.data?.cloudConnected ?? false;
+
   const approveMutation = useApproveWorkspaceSkill();
   const denyMutation = useDenyWorkspaceSkill();
+  const requestApprovalMutation = useRequestApprovalWorkspaceSkill();
   const scanMutation = useScanWorkspaceSkills();
 
   const [dialog, setDialog] = useState<{
     skill: WorkspaceSkillSummary;
-    action: 'approve' | 'deny';
+    action: 'approve' | 'request-approval' | 'deny';
   } | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
 
@@ -43,6 +49,14 @@ export function WorkspaceSkillsPanel({ isReadOnly, profileId }: WorkspaceSkillsP
     }
   };
 
+  const handleRequestApproval = (id: string) => {
+    const skill = skills.find((s) => s.id === id);
+    if (skill) {
+      setDialogError(null);
+      setDialog({ skill, action: 'request-approval' });
+    }
+  };
+
   const handleDeny = (id: string) => {
     const skill = skills.find((s) => s.id === id);
     if (skill) {
@@ -55,7 +69,9 @@ export function WorkspaceSkillsPanel({ isReadOnly, profileId }: WorkspaceSkillsP
     if (!dialog) return;
 
     try {
-      if (dialog.action === 'approve') {
+      if (dialog.action === 'request-approval') {
+        await requestApprovalMutation.mutateAsync(dialog.skill.id);
+      } else if (dialog.action === 'approve') {
         await approveMutation.mutateAsync(dialog.skill.id);
       } else {
         await denyMutation.mutateAsync(dialog.skill.id);
@@ -139,7 +155,9 @@ export function WorkspaceSkillsPanel({ isReadOnly, profileId }: WorkspaceSkillsP
                 key={skill.id}
                 skill={skill}
                 onApprove={handleApprove}
+                onRequestApproval={handleRequestApproval}
                 onDeny={handleDeny}
+                cloudConnected={cloudConnected}
                 isReadOnly={isReadOnly}
               />
             ))}
@@ -153,7 +171,7 @@ export function WorkspaceSkillsPanel({ isReadOnly, profileId }: WorkspaceSkillsP
         action={dialog?.action ?? 'approve'}
         onConfirm={handleConfirm}
         onCancel={() => setDialog(null)}
-        isLoading={approveMutation.isPending || denyMutation.isPending}
+        isLoading={approveMutation.isPending || denyMutation.isPending || requestApprovalMutation.isPending}
         error={dialogError}
       />
     </Root>

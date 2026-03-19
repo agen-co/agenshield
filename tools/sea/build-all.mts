@@ -130,6 +130,14 @@ async function step2b_buildMacApp(): Promise<void> {
     console.log('[SKIP] macOS app build (not on darwin)');
     return;
   }
+
+  // Clean stale build output so a failed build can't leave an old .app behind
+  const macAppOut = path.join(ROOT, 'dist/apps/shield-macos/Release');
+  if (fs.existsSync(macAppOut)) {
+    fs.rmSync(macAppOut, { recursive: true, force: true });
+    console.log('[CLEAN] Removed stale dist/apps/shield-macos/Release/');
+  }
+
   try {
     run('npx nx build shield-macos', 'Build macOS menu bar app (Xcode)', { timeout: 600_000 });
   } catch (err) {

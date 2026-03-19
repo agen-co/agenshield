@@ -17,7 +17,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { withGlobals } from './base.js';
-import { execSync } from 'node:child_process';
 import {
   AGENSHIELD_HOME,
   getBinDir,
@@ -37,13 +36,12 @@ import {
   extractMacAppFromSandbox,
   isRootOwned,
 } from '../utils/home.js';
-import { stopDaemon, getDaemonStatus, findDaemonExecutable } from '../utils/daemon.js';
+import { stopDaemon, getDaemonStatus } from '../utils/daemon.js';
 import { inkSelect } from '../prompts/index.js';
 import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
 import { CliError, ConnectionError } from '../errors.js';
-import { ensureSudoAccess } from '../utils/privileges.js';
-import { resolveHostUser, resolveHostHome } from '../utils/host-user.js';
+import { resolveHostHome } from '../utils/host-user.js';
 
 /**
  * Read the version from the CLI's own package.json (fallback for --version).
@@ -171,15 +169,6 @@ export function registerInstallCommand(program: Command): void {
           if (fs.existsSync(path.join(parentDir, 'native'))) {
             // npx package layout: bin/ subdirectory + sibling assets at parent
             autoFromDir = parentDir;
-            // Copy binaries to parent level so installSEAFromDir finds them
-            for (const name of ['agenshield', 'agenshield-daemon', 'agenshield-broker']) {
-              const src = path.join(binDir, name);
-              const dest = path.join(parentDir, name);
-              if (fs.existsSync(src) && !fs.existsSync(dest)) {
-                fs.copyFileSync(src, dest);
-                fs.chmodSync(dest, 0o755);
-              }
-            }
           } else if (fs.existsSync(path.join(binDir, 'agenshield-daemon'))) {
             // Flat layout: all files in same directory (archive extract)
             autoFromDir = binDir;
@@ -194,12 +183,6 @@ export function registerInstallCommand(program: Command): void {
       output.info(`  AgenShield ${useSEA ? 'SEA Binary' : 'Local'} Install`);
       output.info('  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
       output.info('');
-
-      // Pre-flight: acquire sudo early so the password prompt isn't mid-install
-      // (needed for .app copy to /Applications/ and Claude wrapper to /usr/local/bin/)
-      if (os.platform() === 'darwin') {
-        ensureSudoAccess();
-      }
 
       // 1. Check Node.js version
       const nodeError = checkNodeVersion(22);
@@ -282,21 +265,12 @@ export function registerInstallCommand(program: Command): void {
         }
       }
 
-      // 2b. Fix ownership if ~/.agenshield was left behind as root-owned
+      // 2b. Warn if ~/.agenshield was left behind as root-owned
       if (fs.existsSync(AGENSHIELD_HOME) && isRootOwned(AGENSHIELD_HOME)) {
-        try {
-          const { username: hostUsername } = resolveHostUser();
-          execSync(`sudo chown -R ${hostUsername} "${AGENSHIELD_HOME}"`, {
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
-          output.success(`Reclaimed ownership of ${AGENSHIELD_HOME}`);
-        } catch {
-          throw new CliError(
-            `${AGENSHIELD_HOME} is owned by root and could not be reclaimed. Run: sudo chown -R $(whoami) "${AGENSHIELD_HOME}"`,
-            'PERMISSION_ERROR',
-          );
-        }
+        throw new CliError(
+          `${AGENSHIELD_HOME} is owned by root. Run:\n  sudo chown -R $(whoami) "${AGENSHIELD_HOME}"`,
+          'PERMISSION_ERROR',
+        );
       }
 
       // 3. Create directories
@@ -394,56 +368,23 @@ export function registerInstallCommand(program: Command): void {
           output.success(`PATH already configured in ${rcFile}`);
         }
 
-        // Install Claude bootstrap wrapper
+        // Install Claude bootstrap wrapper (user-level only, no sudo)
         const { installClaudeWrapper } = await import('../utils/claude-wrapper.js');
-        const wrapperResult = installClaudeWrapper();
+        const wrapperResult = installClaudeWrapper({ skipSystemPath: true });
         if (wrapperResult.installed.length > 0) {
           output.success(`Installed Claude launcher → ${wrapperResult.installed.join(', ')}`);
         }
 
-        // Copy AgenShield.app to /Applications/ (best-effort, requires sudo)
+        // Write pending-services manifest — privileged ops deferred to `agenshield start`
         if (os.platform() === 'darwin') {
-          const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
-          if (fs.existsSync(menuBarAppPath)) {
-            try {
-              execSync(`sudo cp -R "${menuBarAppPath}" /Applications/AgenShield.app`, {
-                encoding: 'utf-8',
-                stdio: ['pipe', 'pipe', 'pipe'],
-              });
-              execSync(`sudo chown -R root:wheel /Applications/AgenShield.app`, {
-                encoding: 'utf-8',
-                stdio: ['pipe', 'pipe', 'pipe'],
-              });
-              output.success('Copied AgenShield.app to /Applications/');
-            } catch {
-              output.warn('Could not copy AgenShield.app to /Applications/ (sudo may be required).');
-            }
-          }
-
-          // Install macOS service plists (bootstrap deferred to `agenshield start`)
-          const daemonPath = findDaemonExecutable();
-          const hostHome = resolveHostHome();
-          if (daemonPath) {
-            const { installDaemonService, installPrivilegeHelperService, installMenuBarAgent }
-              = await import('@agenshield/seatbelt');
-
-            const dr = await installDaemonService({ daemonPath, userHome: hostHome, skipBootstrap: true });
-            if (dr.success) output.success('Installed daemon service plist');
-            else output.warn(`Daemon plist: ${dr.message}`);
-
-            const hr = await installPrivilegeHelperService({ daemonPath, userHome: hostHome, skipBootstrap: true });
-            if (hr.success) output.success('Installed privilege helper plist');
-            else output.warn(`Privilege helper plist: ${hr.message}`);
-
-            const effectiveAppPath = fs.existsSync('/Applications/AgenShield.app')
-              ? '/Applications/AgenShield.app'
-              : menuBarAppPath;
-            if (fs.existsSync(effectiveAppPath)) {
-              const mr = await installMenuBarAgent(effectiveAppPath, { userHome: hostHome, skipBootstrap: true });
-              if (mr.success) output.success('Installed menu bar agent plist');
-              else output.warn(`Menu bar plist: ${mr.message}`);
-            }
-          }
+          const pendingPath = path.join(AGENSHIELD_HOME, 'pending-services.json');
+          fs.writeFileSync(pendingPath, JSON.stringify({
+            copyApp: true,
+            installPlists: true,
+            claudeSystemWrapper: true,
+            createdAt: new Date().toISOString(),
+          }, null, 2) + '\n', { mode: 0o644 });
+          output.success('Deferred privileged operations to `agenshield start`');
         }
 
         // Write auto-shield intent file
@@ -564,10 +505,10 @@ export function registerInstallCommand(program: Command): void {
         output.success(`PATH already configured in ${npmRcFile}`);
       }
 
-      // 9b. Install Claude bootstrap wrapper
+      // 9b. Install Claude bootstrap wrapper (user-level only, no sudo)
       {
         const { installClaudeWrapper: installNpmClaudeWrapper } = await import('../utils/claude-wrapper.js');
-        const npmWrapperResult = installNpmClaudeWrapper();
+        const npmWrapperResult = installNpmClaudeWrapper({ skipSystemPath: true });
         if (npmWrapperResult.installed.length > 0) {
           output.success(`Installed Claude launcher → ${npmWrapperResult.installed.join(', ')}`);
         }
@@ -581,46 +522,16 @@ export function registerInstallCommand(program: Command): void {
         }
       }
 
-      // 9d. Copy AgenShield.app to /Applications/ (best-effort, requires sudo)
+      // 9d. Write pending-services manifest — privileged ops deferred to `agenshield start`
       if (os.platform() === 'darwin') {
-        const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
-        if (fs.existsSync(menuBarAppPath)) {
-          try {
-            execSync(`sudo cp -R "${menuBarAppPath}" /Applications/AgenShield.app`, {
-              encoding: 'utf-8',
-              stdio: ['pipe', 'pipe', 'pipe'],
-            });
-            execSync(`sudo chown -R root:wheel /Applications/AgenShield.app`, {
-              encoding: 'utf-8',
-              stdio: ['pipe', 'pipe', 'pipe'],
-            });
-            output.success('Copied AgenShield.app to /Applications/');
-          } catch {
-            output.warn('Could not copy AgenShield.app to /Applications/ (sudo may be required).');
-          }
-        }
-
-        // 9d-ii. Install macOS service plists (bootstrap deferred to `agenshield start`)
-        const npmDaemonPath = findDaemonExecutable();
-        const npmHostHome = resolveHostHome();
-        if (npmDaemonPath) {
-          const { installDaemonService: npmInstallDaemon, installPrivilegeHelperService: npmInstallHelper, installMenuBarAgent: npmInstallMenuBar }
-            = await import('@agenshield/seatbelt');
-
-          const dr = await npmInstallDaemon({ daemonPath: npmDaemonPath, userHome: npmHostHome, skipBootstrap: true });
-          if (dr.success) output.success('Installed daemon service plist');
-
-          const hr = await npmInstallHelper({ daemonPath: npmDaemonPath, userHome: npmHostHome, skipBootstrap: true });
-          if (hr.success) output.success('Installed privilege helper plist');
-
-          const effectiveAppPath = fs.existsSync('/Applications/AgenShield.app')
-            ? '/Applications/AgenShield.app'
-            : menuBarAppPath;
-          if (fs.existsSync(effectiveAppPath)) {
-            const mr = await npmInstallMenuBar(effectiveAppPath, { userHome: npmHostHome, skipBootstrap: true });
-            if (mr.success) output.success('Installed menu bar agent plist');
-          }
-        }
+        const pendingPath = path.join(AGENSHIELD_HOME, 'pending-services.json');
+        fs.writeFileSync(pendingPath, JSON.stringify({
+          copyApp: true,
+          installPlists: true,
+          claudeSystemWrapper: true,
+          createdAt: new Date().toISOString(),
+        }, null, 2) + '\n', { mode: 0o644 });
+        output.success('Deferred privileged operations to `agenshield start`');
       }
 
       // 9e. Write auto-shield intent file

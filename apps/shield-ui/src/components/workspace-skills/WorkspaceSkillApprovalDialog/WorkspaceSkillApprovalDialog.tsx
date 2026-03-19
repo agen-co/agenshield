@@ -13,6 +13,24 @@ import DangerButton from '../../../elements/buttons/DangerButton';
 import { CircularLoader } from '../../../elements/loaders/CircularLoader';
 import type { WorkspaceSkillApprovalDialogProps } from './WorkspaceSkillApprovalDialog.types';
 
+const COPY = {
+  'request-approval': {
+    title: 'Request Approval',
+    description: 'This will send the skill to your organization for review. Once approved, the deny ACL will be automatically removed.',
+    button: 'Request Approval',
+  },
+  approve: {
+    title: 'Approve Workspace Skill',
+    description: 'This will allow the agent to read this skill locally and remove the deny ACL.',
+    button: 'Approve',
+  },
+  deny: {
+    title: 'Deny Workspace Skill',
+    description: 'This will block the agent from reading this skill.',
+    button: 'Deny',
+  },
+};
+
 export function WorkspaceSkillApprovalDialog({
   open,
   skill,
@@ -24,20 +42,15 @@ export function WorkspaceSkillApprovalDialog({
 }: WorkspaceSkillApprovalDialogProps) {
   if (!skill) return null;
 
-  const isApprove = action === 'approve';
+  const copy = COPY[action];
+  const isApprove = action === 'approve' || action === 'request-approval';
 
   return (
     <Dialog open={open} onClose={onCancel} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        {isApprove ? 'Approve Workspace Skill' : 'Deny Workspace Skill'}
-      </DialogTitle>
+      <DialogTitle>{copy.title}</DialogTitle>
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
-          <Typography variant="body2">
-            {isApprove
-              ? 'This will allow the agent to read this skill. A backup will be created for tamper detection.'
-              : 'This will block the agent from reading this skill.'}
-          </Typography>
+          <Typography variant="body2">{copy.description}</Typography>
 
           <Box
             sx={{
@@ -82,11 +95,11 @@ export function WorkspaceSkillApprovalDialog({
         </SecondaryButton>
         {isApprove ? (
           <PrimaryButton onClick={onConfirm} disabled={isLoading}>
-            {isLoading ? <CircularLoader size={16} /> : 'Approve'}
+            {isLoading ? <CircularLoader size={16} /> : copy.button}
           </PrimaryButton>
         ) : (
           <DangerButton onClick={onConfirm} disabled={isLoading}>
-            {isLoading ? <CircularLoader size={16} /> : 'Deny'}
+            {isLoading ? <CircularLoader size={16} /> : copy.button}
           </DangerButton>
         )}
       </DialogActions>

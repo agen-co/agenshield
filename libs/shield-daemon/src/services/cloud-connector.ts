@@ -121,6 +121,11 @@ export class CloudConnector {
     }).catch((err) => {
       log.debug({ err }, '[cloud] Skills re-scan after connect failed');
     });
+
+    // Also re-scan workspace skills (the above only triggers the legacy watcher)
+    import('./workspace-skill-scanner').then(({ getWorkspaceSkillScanner }) => {
+      getWorkspaceSkillScanner()?.scanAllWorkspaces();
+    }).catch(() => {});
   }
 
   private async syncClaimState(): Promise<void> {
@@ -522,12 +527,14 @@ export class CloudConnector {
     sha256: string,
     name: string,
     source?: string,
+    files?: Array<{ name: string; content: string }>,
+    metadata?: Record<string, unknown>,
   ): Promise<{ id?: string; existingDecision?: string }> {
     const log = getLogger();
     try {
       const body = await this.client.post<{ id: string; existingDecision?: string }>(
         '/skills/report',
-        { sha256, name, source },
+        { sha256, name, source, files, metadata },
       );
       log.info(`[cloud] Reported quarantined skill: ${name} (sha256=${sha256.slice(0, 12)}...)`);
       return body;
@@ -559,6 +566,11 @@ export class CloudConnector {
       // Re-scan skills to auto-approve newly approved hashes
       const { triggerSkillsScan } = await import('../watchers/skills');
       triggerSkillsScan();
+
+      // Also re-scan workspace skills
+      import('./workspace-skill-scanner').then(({ getWorkspaceSkillScanner }) => {
+        getWorkspaceSkillScanner()?.scanAllWorkspaces();
+      }).catch(() => {});
     } catch (err) {
       log.error({ err }, '[cloud] Failed to update approved skill hashes');
     }
@@ -587,6 +599,13 @@ export class CloudConnector {
         })),
       );
       log.info(`[cloud] Synced ${approvedSkillHashes.length} approved skill hashes`);
+    }
+
+    // Re-scan workspace skills if approved hashes were updated
+    if (Array.isArray(approvedSkillHashes)) {
+      import('./workspace-skill-scanner').then(({ getWorkspaceSkillScanner }) => {
+        getWorkspaceSkillScanner()?.scanAllWorkspaces();
+      }).catch(() => {});
     }
 
     // Update bundle revision in cloud identity

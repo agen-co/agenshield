@@ -59,7 +59,7 @@ import { initSystemExecutor, shutdownSystemExecutor } from './workers/system-com
 import { startFallbackNotifications, stopFallbackNotifications } from './services/notifications';
 import { startAutoUpdateWatcher, stopAutoUpdateWatcher } from './watchers/auto-update';
 import { startExecutableWatcher, stopExecutableWatcher } from './watchers/executables';
-import { WorkspaceSkillScanner } from './services/workspace-skill-scanner';
+import { WorkspaceSkillScanner, setWorkspaceSkillScanner } from './services/workspace-skill-scanner';
 import { McpConfigInjector } from './services/mcp-config-injector';
 import { WorkspaceMcpScanner } from './services/workspace-mcp-scanner';
 import { initMcpManager } from './services/mcp-manager';
@@ -621,6 +621,7 @@ export async function startEssentialServices(app: FastifyInstance, config: Daemo
     configDir: getConfigDir(),
   });
   app.decorate('workspaceSkillScanner', workspaceSkillScanner);
+  setWorkspaceSkillScanner(workspaceSkillScanner);
 
   // Bridge workspace_skills events to SSE so the menu bar app receives them
   for (const evtName of [

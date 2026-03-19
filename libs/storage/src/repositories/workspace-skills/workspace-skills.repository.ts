@@ -83,6 +83,17 @@ export class WorkspaceSkillsRepository extends BaseRepository {
   }
 
   /**
+   * Get all workspace skills whose workspace path starts with the given prefix.
+   * Excludes exact matches (use getByWorkspace for that).
+   */
+  getByWorkspacePrefix(workspacePathPrefix: string): WorkspaceSkill[] {
+    const rows = this.db
+      .prepare(Q.selectByWorkspacePrefix)
+      .all({ prefix: workspacePathPrefix }) as DbWorkspaceSkillRow[];
+    return rows.map(mapWorkspaceSkill);
+  }
+
+  /**
    * Get all workspace skills with a specific status.
    */
   getByStatus(status: string): WorkspaceSkill[] {

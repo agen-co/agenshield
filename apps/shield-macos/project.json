@@ -10,7 +10,7 @@
       "outputs": ["{workspaceRoot}/dist/apps/shield-macos"],
       "inputs": ["{projectRoot}/**/*"],
       "options": {
-        "command": "xcodebuild -project apps/shield-macos/AgenShield.xcodeproj -scheme AgenShield -configuration Release build SYMROOT=\"$PWD/dist/apps/shield-macos\" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=\"Developer ID Application\" OTHER_CODE_SIGN_FLAGS=--timestamp 2>&1 || echo '[shield-macos] xcodebuild skipped — certificate not available or not on macOS'"
+        "command": "xcodebuild -project apps/shield-macos/AgenShield.xcodeproj -scheme AgenShield -configuration Release build SYMROOT=\"$PWD/dist/apps/shield-macos\" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=\"Developer ID Application\" OTHER_CODE_SIGN_FLAGS=--timestamp 2>&1"
       }
     }
   }

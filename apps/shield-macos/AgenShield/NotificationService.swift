@@ -221,6 +221,9 @@ class NotificationService {
         case "workspace_skills:tampered":
             let tamperedName = dataString(event, key: "skillName") ?? "Unknown"
             return "Skill \"\(tamperedName)\" was modified — re-quarantined"
+        case "workspace_skills:approved":
+            let approvedName = dataString(event, key: "skillName") ?? "Unknown"
+            return "Skill \"\(approvedName)\" has been approved"
         case "skills:untrusted_detected":
             let name = dataString(event, key: "name") ?? "Unknown"
             return "Untrusted skill \"\(name)\" detected"

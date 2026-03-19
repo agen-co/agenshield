@@ -239,7 +239,7 @@ class DaemonAPI {
 
     func shieldTarget(targetId: String) async throws {
         let body = try JSONSerialization.data(withJSONObject: ["enforcementMode": "both"])
-        _ = try await post("/api/targets/lifecycle/\(targetId)/shield", body: body)
+        _ = try await post("/api/targets/lifecycle/\(targetId)/shield", body: body, timeout: 600)
     }
 
     // MARK: - Status Endpoints
@@ -273,13 +273,13 @@ class DaemonAPI {
         return data
     }
 
-    private func post(_ path: String, body: Data?) async throws -> Data {
+    private func post(_ path: String, body: Data?, timeout: TimeInterval = 30) async throws -> Data {
         guard let url = URL(string: baseURL + path) else {
             throw DaemonAPIError.invalidURL
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 30
+        request.timeoutInterval = timeout
         if let body = body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = body

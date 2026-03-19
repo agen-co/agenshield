@@ -13,6 +13,7 @@ import { getStorage } from '@agenshield/storage';
 import { verifyToken } from '@agenshield/auth';
 import { extractToken } from '../auth/middleware';
 import { getCloudConnector } from '../services/cloud-connector';
+import { readSkillFiles } from '../services/workspace-skill-scanner';
 
 /**
  * Verify that the request has admin-level JWT authentication.
@@ -223,10 +224,10 @@ export async function workspaceSkillsRoutes(app: FastifyInstance): Promise<void>
       });
     }
 
-    if (skill.status !== 'pending') {
+    if (skill.status !== 'pending' && skill.status !== 'denied') {
       return reply.status(400).send({
         success: false,
-        error: { message: `Skill is not pending approval (status: ${skill.status})`, statusCode: 400 },
+        error: { message: `Skill is not pending or denied (status: ${skill.status})`, statusCode: 400 },
       });
     }
 
@@ -238,10 +239,28 @@ export async function workspaceSkillsRoutes(app: FastifyInstance): Promise<void>
       });
     }
 
+    // Idempotent: if cloudSkillId already exists, don't re-submit
+    if (skill.cloudSkillId) {
+      return { success: true, data: { cloudSkillId: skill.cloudSkillId, existingDecision: undefined } };
+    }
+
+    // Read skill files from disk for cloud review
+    const skillDir = path.join(skill.workspacePath, '.claude', 'skills', skill.skillName);
+    const files = fs.existsSync(skillDir) ? readSkillFiles(skillDir) : [];
+
+    // Build metadata — flag tampered re-submissions
+    const metadata: Record<string, unknown> = {};
+    if (skill.approvedBy) {
+      metadata.tampered = true;
+      metadata.previousApprovedBy = skill.approvedBy;
+    }
+
     const result = await connector.reportQuarantinedSkill(
       skill.contentHash ?? '',
       skill.skillName,
       skill.workspacePath,
+      files,
+      metadata,
     );
 
     // Update DB with cloud skill ID if returned
@@ -249,12 +268,13 @@ export async function workspaceSkillsRoutes(app: FastifyInstance): Promise<void>
       storage.workspaceSkills.update(id, { cloudSkillId: result.id });
     }
 
-    // If cloud already has a decision, apply it locally
+    // If cloud already has a decision, apply it locally and rescan all workspaces
     if (result.existingDecision === 'approved' && skill.contentHash) {
       storage.approvedSkillHashes.upsert(skill.contentHash, skill.skillName);
       const scanner = app.workspaceSkillScanner;
       if (scanner) {
-        scanner.approveSkill(id, 'cloud:verify');
+        // Rescan all workspaces to approve all entries with the same hash
+        scanner.scanAllWorkspaces();
       }
     }
 

@@ -63,23 +63,73 @@ async function autoInstallMacOSServices(): Promise<void> {
     const daemonPath = findDaemonExecutable();
     const hostHome = resolveHostHome();
 
+    // Check for pending-services.json written by install (deferred privileged ops)
+    const pendingPath = path.join(AGENSHIELD_HOME, 'pending-services.json');
+    let pending: { copyApp?: boolean; installPlists?: boolean; claudeSystemWrapper?: boolean } | null = null;
+    try {
+      if (fs.existsSync(pendingPath)) {
+        pending = JSON.parse(fs.readFileSync(pendingPath, 'utf-8'));
+      }
+    } catch { /* ignore malformed */ }
+
+    // Perform deferred privileged operations from install
+    if (pending) {
+      output.info('  Completing deferred install operations...');
+
+      // Copy .app to /Applications/
+      if (pending.copyApp) {
+        const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
+        if (fs.existsSync(menuBarAppPath) && !fs.existsSync('/Applications/AgenShield.app')) {
+          try {
+            execSync(`sudo cp -R "${menuBarAppPath}" /Applications/AgenShield.app`, {
+              encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+            });
+            execSync(`sudo chown -R root:wheel /Applications/AgenShield.app`, {
+              encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+            });
+            output.success('Copied AgenShield.app to /Applications/');
+          } catch {
+            output.warn('Could not copy AgenShield.app to /Applications/');
+          }
+        }
+      }
+
+      // Install Claude wrapper to /usr/local/bin/claude
+      if (pending.claudeSystemWrapper) {
+        try {
+          const { installClaudeWrapper } = await import('../utils/claude-wrapper.js');
+          const wrapperResult = installClaudeWrapper();
+          if (wrapperResult.installed.length > 0) {
+            output.success(`Installed Claude launcher → ${wrapperResult.installed.join(', ')}`);
+          }
+        } catch {
+          output.warn('Could not install Claude wrapper to /usr/local/bin/');
+        }
+      }
+
+      // Remove pending manifest after processing
+      try { fs.unlinkSync(pendingPath); } catch { /* best effort */ }
+    }
+
     if (!serviceStatus.installed) {
-      // Legacy path: plists not written by install — do full install (write + bootstrap)
+      // Plists not written yet — do full install (write + bootstrap)
       output.info('  Installing macOS services (first run)...');
 
-      // Copy .app if not present
-      const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
-      if (fs.existsSync(menuBarAppPath) && !fs.existsSync('/Applications/AgenShield.app')) {
-        try {
-          execSync(`sudo cp -R "${menuBarAppPath}" /Applications/AgenShield.app`, {
-            encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
-          });
-          execSync(`sudo chown -R root:wheel /Applications/AgenShield.app`, {
-            encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
-          });
-          output.success('Copied AgenShield.app to /Applications/');
-        } catch {
-          output.warn('Could not copy AgenShield.app to /Applications/');
+      // Copy .app if not present (fallback if pending didn't handle it)
+      if (!pending?.copyApp) {
+        const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
+        if (fs.existsSync(menuBarAppPath) && !fs.existsSync('/Applications/AgenShield.app')) {
+          try {
+            execSync(`sudo cp -R "${menuBarAppPath}" /Applications/AgenShield.app`, {
+              encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+            });
+            execSync(`sudo chown -R root:wheel /Applications/AgenShield.app`, {
+              encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+            });
+            output.success('Copied AgenShield.app to /Applications/');
+          } catch {
+            output.warn('Could not copy AgenShield.app to /Applications/');
+          }
         }
       }
 

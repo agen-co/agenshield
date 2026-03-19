@@ -92,6 +92,24 @@ for NATIVE_SRC in $NATIVE_PATHS; do
     mkdir -p "$CLI_DIST/native"
     cp "$NATIVE_SRC" "$CLI_DIST/native/better_sqlite3.node"
     ok "Copied native modules"
+
+    # Sign better_sqlite3.node with Developer ID on macOS
+    if [ "$PLATFORM" = "darwin" ]; then
+      CODESIGN_ID="${AGENSHIELD_CODESIGN_IDENTITY:-}"
+      if [ -z "$CODESIGN_ID" ]; then
+        CODESIGN_ID=$(security find-identity -v -p codesigning 2>/dev/null \
+          | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+      fi
+      if [ -n "$CODESIGN_ID" ]; then
+        codesign --force --sign "$CODESIGN_ID" \
+          --identifier "com.frontegg.agenshield.native.better-sqlite3" \
+          --timestamp "$CLI_DIST/native/better_sqlite3.node"
+        ok "Signed better_sqlite3.node with: $(echo "$CODESIGN_ID" | head -c 40)..."
+      else
+        info "No Developer ID found — better_sqlite3.node will be ad-hoc signed"
+      fi
+    fi
+
     break
   fi
 done
@@ -132,6 +150,8 @@ MAC_APP="$REPO_ROOT/dist/apps/shield-macos/Release/AgenShield.app"
 if [ -d "$MAC_APP" ]; then
   cp -R "$MAC_APP" "$CLI_DIST/AgenShield.app"
   ok "Copied AgenShield.app"
+else
+  info "AgenShield.app not found — npm package will not include the macOS menu bar app"
 fi
 
 # Generate package.json for npm publish
