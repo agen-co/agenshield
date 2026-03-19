@@ -52,6 +52,7 @@ export interface DeviceCodePollResult {
 export interface DeviceRegistrationResult {
   agentId: string;
   agentKey: string;
+  companyName: string;
 }
 
 // ---------------------------------------------------------------------------

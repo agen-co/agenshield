@@ -160,7 +160,7 @@ export function generateDaemonPlist(config: DaemonServiceConfig): string {
 /**
  * Install the AgenShield daemon as a macOS LaunchDaemon.
  */
-export async function installDaemonService(config: DaemonServiceConfig): Promise<DaemonServiceResult> {
+export async function installDaemonService(config: DaemonServiceConfig & { skipBootstrap?: boolean }): Promise<DaemonServiceResult> {
   const userHome = config.userHome || os.homedir();
 
   try {
@@ -173,19 +173,21 @@ export async function installDaemonService(config: DaemonServiceConfig): Promise
     try { await fsp.unlink(legacyLauncherPath); } catch { /* may not exist */ }
 
     // 3. Remove stale service if loaded (including legacy label)
-    try {
-      await execAsync(`sudo launchctl bootout system/com.agenshield.daemon 2>/dev/null`);
-    } catch { /* not loaded */ }
-    try {
-      await execAsync(`sudo launchctl bootout system/${DAEMON_LAUNCHD_LABEL} 2>/dev/null`);
-      await new Promise(r => setTimeout(r, 2000));
-    } catch { /* not loaded */ }
+    if (!config.skipBootstrap) {
+      try {
+        await execAsync(`sudo launchctl bootout system/com.agenshield.daemon 2>/dev/null`);
+      } catch { /* not loaded */ }
+      try {
+        await execAsync(`sudo launchctl bootout system/${DAEMON_LAUNCHD_LABEL} 2>/dev/null`);
+        await new Promise(r => setTimeout(r, 2000));
+      } catch { /* not loaded */ }
+    }
     // Remove legacy plist if present
     try {
       await execAsync(`sudo rm -f "/Library/LaunchDaemons/com.agenshield.daemon.plist"`);
     } catch { /* may not exist */ }
 
-    // 3. Write plist
+    // 4. Write plist
     const plistContent = generateDaemonPlist(config);
     const tmpPlist = path.join(os.tmpdir(), 'com.frontegg.AgenShield.daemon.plist');
     await fsp.writeFile(tmpPlist, plistContent);
@@ -196,12 +198,18 @@ export async function installDaemonService(config: DaemonServiceConfig): Promise
     await execAsync(`sudo xattr -c "${DAEMON_LAUNCHD_PLIST}"`);
     await fsp.unlink(tmpPlist);
 
-    // 4. Bootstrap with retry (launchd may still be unloading after bootout)
-    let bootstrapped = false;
+    // When skipBootstrap is set, stop here — bootstrap is deferred to `agenshield start`
+    if (config.skipBootstrap) {
+      return {
+        success: true,
+        message: 'AgenShield daemon plist installed (bootstrap deferred)',
+      };
+    }
+
+    // 5. Bootstrap with retry (launchd may still be unloading after bootout)
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         await execAsync(`sudo launchctl bootstrap system "${DAEMON_LAUNCHD_PLIST}"`);
-        bootstrapped = true;
         break;
       } catch (err) {
         if (attempt < 2) {

@@ -30,6 +30,8 @@ struct NotificationConfig {
         "enforcement:process_killed": .critical,
         "skills:quarantined": .critical,
         "skills:untrusted_detected": .critical,
+        "workspace_skills:detected": .critical,
+        "workspace_skills:tampered": .critical,
         "api:open_url_request": .critical,
 
         // Medium — notify without sound (default on)
@@ -59,6 +61,7 @@ struct NotificationConfig {
         "skills": "View Skills",
         "enrollment": "View Dashboard",
         "workspace": "View Dashboard",
+        "workspace_skills": "View Skills",
         "url_approval": "Open URL",
     ]
 

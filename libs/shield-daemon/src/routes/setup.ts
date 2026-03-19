@@ -18,6 +18,7 @@ import type {
   SetupEnrollmentState,
 } from '@agenshield/ipc';
 import { isCloudEnrolled, loadCloudCredentials } from '@agenshield/cloud';
+import { getStorage } from '@agenshield/storage';
 import { getSetupService } from '../services/setup';
 import { getEnrollmentService, type EnrollmentState } from '../services/enrollment';
 
@@ -51,19 +52,46 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
 
     const setup = setupService.getStatus();
     const enrollment = mapEnrollmentState(enrollmentService.getState());
-    const cloudEnrolled = isCloudEnrolled();
+    // Check file-based credentials first, then SQLite
+    let cloudEnrolled = isCloudEnrolled();
+    let claim: SetupStatusResponse['claim'];
 
-    // Enrich with company name from cloud credentials
-    if (cloudEnrolled && !enrollment.companyName) {
-      const creds = loadCloudCredentials();
-      if (creds?.companyName) {
-        enrollment.companyName = creds.companyName;
+    try {
+      const storage = getStorage();
+      const identity = storage.cloudIdentity.get();
+
+      if (!cloudEnrolled && storage.cloudIdentity.isEnrolled()) {
+        cloudEnrolled = true;
       }
-    }
+
+      // Enrich with company name from credentials or SQLite
+      if (cloudEnrolled && !enrollment.companyName) {
+        const creds = loadCloudCredentials();
+        if (creds?.companyName) {
+          enrollment.companyName = creds.companyName;
+        } else if (identity?.companyName) {
+          enrollment.companyName = identity.companyName;
+        }
+      }
+
+      // Build claim state from cloud identity
+      if (identity) {
+        claim = {
+          status: identity.claimStatus,
+          ...(identity.claimStatus === 'claimed' && identity.claimedUserId ? {
+            user: {
+              id: identity.claimedUserId,
+              name: identity.claimedUserName ?? '',
+              email: identity.claimedUserEmail ?? '',
+            },
+          } : {}),
+        };
+      }
+    } catch { /* storage may not be ready */ }
 
     return {
       success: true,
-      data: { setup, enrollment, cloudEnrolled },
+      data: { setup, enrollment, cloudEnrolled, claim },
     };
   });
 

@@ -106,7 +106,7 @@ export function generatePrivilegeHelperPlist(config: DaemonServiceConfig): strin
 /**
  * Install the AgenShield privilege helper as a macOS LaunchDaemon.
  */
-export async function installPrivilegeHelperService(config: DaemonServiceConfig): Promise<DaemonServiceResult> {
+export async function installPrivilegeHelperService(config: DaemonServiceConfig & { skipBootstrap?: boolean }): Promise<DaemonServiceResult> {
   const userHome = config.userHome || os.homedir();
 
   try {
@@ -119,13 +119,15 @@ export async function installPrivilegeHelperService(config: DaemonServiceConfig)
     await fsp.mkdir(sockDir, { recursive: true, mode: 0o755 });
 
     // 3. Remove stale service if loaded (including legacy label)
-    try {
-      await execAsync(`sudo launchctl bootout system/com.agenshield.privilege-helper 2>/dev/null`);
-    } catch { /* not loaded */ }
-    try {
-      await execAsync(`sudo launchctl bootout system/${PRIVILEGE_HELPER_LAUNCHD_LABEL} 2>/dev/null`);
-      await new Promise(r => setTimeout(r, 2000));
-    } catch { /* not loaded */ }
+    if (!config.skipBootstrap) {
+      try {
+        await execAsync(`sudo launchctl bootout system/com.agenshield.privilege-helper 2>/dev/null`);
+      } catch { /* not loaded */ }
+      try {
+        await execAsync(`sudo launchctl bootout system/${PRIVILEGE_HELPER_LAUNCHD_LABEL} 2>/dev/null`);
+        await new Promise(r => setTimeout(r, 2000));
+      } catch { /* not loaded */ }
+    }
     // Remove legacy plist if present
     try {
       await execAsync(`sudo rm -f "/Library/LaunchDaemons/com.agenshield.privilege-helper.plist"`);
@@ -147,6 +149,14 @@ export async function installPrivilegeHelperService(config: DaemonServiceConfig)
     // Strip provenance/quarantine xattrs — launchd refuses to bootstrap plists with these
     await execAsync(`sudo xattr -c "${PRIVILEGE_HELPER_LAUNCHD_PLIST}"`);
     await fsp.unlink(tmpPlist);
+
+    // When skipBootstrap is set, stop here — bootstrap is deferred to `agenshield start`
+    if (config.skipBootstrap) {
+      return {
+        success: true,
+        message: 'Privilege helper plist installed (bootstrap deferred)',
+      };
+    }
 
     // 6. Bootstrap with retry (launchd may still be unloading after bootout)
     for (let attempt = 0; attempt < 3; attempt++) {

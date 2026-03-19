@@ -72,12 +72,22 @@ export class CloudClient {
   }
 
   /**
+   * Set credentials directly (e.g. from SQLite storage).
+   * If set before connect(), the file-based lookup is skipped.
+   */
+  setCredentials(creds: CloudCredentials): void {
+    this.credentials = creds;
+  }
+
+  /**
    * Try to connect to AgenShield Cloud.
    * No-ops if credentials don't exist.
    */
   async connect(): Promise<void> {
     this.stopped = false;
-    this.credentials = loadCloudCredentials();
+    if (!this.credentials) {
+      this.credentials = loadCloudCredentials();
+    }
 
     if (!this.credentials) {
       return;
@@ -169,7 +179,8 @@ export class CloudClient {
   }
 
   /**
-   * Make an authenticated POST request to the cloud API.
+   * Make an authenticated POST request to the cloud API (agent-scoped).
+   * URL: {cloudUrl}/api/agents/{agentId}{path}
    */
   async agentPost<T>(path: string, body: unknown, timeoutMs = 10_000): Promise<T> {
     if (!this.credentials) {
@@ -177,6 +188,23 @@ export class CloudClient {
     }
 
     const url = `${this.credentials.cloudUrl}/api/agents/${this.credentials.agentId}${path}`;
+    return this._post<T>(url, path, body, timeoutMs);
+  }
+
+  /**
+   * Make an authenticated POST request to a non-agent-scoped cloud endpoint.
+   * URL: {cloudUrl}/api{path}
+   */
+  async post<T>(path: string, body: unknown, timeoutMs = 10_000): Promise<T> {
+    if (!this.credentials) {
+      throw new Error('Not connected to cloud');
+    }
+
+    const url = `${this.credentials.cloudUrl}/api${path}`;
+    return this._post<T>(url, path, body, timeoutMs);
+  }
+
+  private async _post<T>(url: string, path: string, body: unknown, timeoutMs: number): Promise<T> {
     const authHeader = this.makeAuthHeader();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);

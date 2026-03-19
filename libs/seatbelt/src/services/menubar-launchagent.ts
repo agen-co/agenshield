@@ -78,6 +78,8 @@ export interface MenuBarAgentOptions {
   policyUrl?: string;
   orgName?: string;
   userHome?: string;
+  /** When true, write plist but skip launchctl bootstrap (deferred to `agenshield start`) */
+  skipBootstrap?: boolean;
 }
 
 /**
@@ -181,15 +183,17 @@ export async function installMenuBarAgent(sourceAppPath: string, options?: MenuB
     await fsp.mkdir(launchAgentsDir, { recursive: true });
 
     // 4. Unload existing agent if present (including legacy label)
-    try {
-      const legacyPlist = path.join(launchAgentsDir, 'com.agenshield.menubar.plist');
-      await execAsync(`launchctl bootout gui/${uid} "${legacyPlist}" 2>/dev/null`);
-      if (fs.existsSync(legacyPlist)) await fsp.unlink(legacyPlist);
-    } catch { /* not loaded */ }
-    try {
-      await execAsync(`launchctl bootout gui/${uid} "${plistPath}" 2>/dev/null`);
-      await new Promise(r => setTimeout(r, 2000));
-    } catch { /* not loaded */ }
+    if (!options?.skipBootstrap) {
+      try {
+        const legacyPlist = path.join(launchAgentsDir, 'com.agenshield.menubar.plist');
+        await execAsync(`launchctl bootout gui/${uid} "${legacyPlist}" 2>/dev/null`);
+        if (fs.existsSync(legacyPlist)) await fsp.unlink(legacyPlist);
+      } catch { /* not loaded */ }
+      try {
+        await execAsync(`launchctl bootout gui/${uid} "${plistPath}" 2>/dev/null`);
+        await new Promise(r => setTimeout(r, 2000));
+      } catch { /* not loaded */ }
+    }
 
     // 5. Write plist
     const plistContent = await generateMenuBarPlist(options);
@@ -198,6 +202,14 @@ export async function installMenuBarAgent(sourceAppPath: string, options?: MenuB
     try {
       await execAsync(`xattr -c "${plistPath}"`);
     } catch { /* may not have xattrs */ }
+
+    // When skipBootstrap is set, stop here — bootstrap is deferred to `agenshield start`
+    if (options?.skipBootstrap) {
+      return {
+        success: true,
+        message: 'Menu bar agent plist installed (bootstrap deferred)',
+      };
+    }
 
     // 6. Load the agent with retry (launchd may still be unloading after bootout)
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -249,6 +261,11 @@ export async function uninstallMenuBarAgent(): Promise<MenuBarAgentResult> {
       await new Promise(r => setTimeout(r, 1000));
       await execAsync('killall AgenShield 2>/dev/null');
     } catch { /* not running */ }
+
+    // Remove login item registration (macOS auto-registers on first launch)
+    try {
+      await execAsync(`osascript -e 'tell application "System Events" to delete login item "AgenShield"' 2>/dev/null`);
+    } catch { /* may not be registered */ }
 
     // 2. Remove plist
     try {

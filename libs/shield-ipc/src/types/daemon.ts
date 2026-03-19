@@ -36,6 +36,8 @@ export interface DaemonStatus {
   cloudConnected?: boolean;
   /** Company name from AgenShield Cloud enrollment */
   cloudCompany?: string;
+  /** Whether the device is enrolled in AgenShield Cloud (credentials exist) */
+  cloudEnrolled?: boolean;
   /** Whether monitoring services (watchers, enforcer, etc.) are active */
   servicesActive?: boolean;
   /** Aggregate stats for menu bar / status display */
@@ -43,6 +45,8 @@ export interface DaemonStatus {
     events: number;
     policies: number;
     skills: number;
+    /** Count of quarantined workspace skills pending admin approval */
+    pendingSkills: number;
   };
   /** Whether enrollment is pending user action */
   enrollmentPending?: boolean;
@@ -53,6 +57,11 @@ export interface DaemonStatus {
     userCode?: string;
     expiresAt?: string;
     error?: string;
+  };
+  /** Device claim status (user login on managed devices) */
+  claim?: {
+    status: 'unclaimed' | 'pending' | 'claimed';
+    user?: { id: string; name: string; email: string };
   };
   /** Auto-shield state (present when auto-shield has been triggered) */
   autoShield?: {

@@ -82,11 +82,14 @@ export class AutoShieldService {
    * Main entry point — run auto-shield if enabled and not yet completed.
    * Idempotent: no-ops if already in progress or completed.
    */
-  async run(): Promise<void> {
-    // Guard: already running or completed
+  async run(opts?: { force?: boolean }): Promise<void> {
+    // Guard: already running
     if (this.currentState.state === 'in_progress') return;
-    if (this.isCompleted()) return;
-    if (!this.isEnabled()) return;
+    // force bypasses both isCompleted and isEnabled
+    if (!opts?.force) {
+      if (this.isCompleted()) return;
+      if (!this.isEnabled()) return;
+    }
 
     const log = getLogger();
 
@@ -102,7 +105,8 @@ export class AutoShieldService {
       const { invalidateDetectionCache, detectTargets } = await import('../routes/target-lifecycle');
       invalidateDetectionCache();
       const allTargets = await detectTargets();
-      const unshielded = allTargets.filter((t: DetectedTarget) => !t.shielded);
+      // Only auto-shield Claude Code targets
+      const unshielded = allTargets.filter((t: DetectedTarget) => !t.shielded && t.type === 'claude-code');
 
       if (unshielded.length === 0) {
         log.info('[auto-shield] No unshielded targets found');
@@ -192,7 +196,10 @@ export class AutoShieldService {
     } catch (err) {
       const errorMessage = (err as Error).message;
       log.error({ err }, '[auto-shield] Auto-shield failed');
-      this.currentState = { state: 'failed', error: errorMessage };
+      const result = { shielded: 0, failed: 0, skipped: 0 };
+      this.currentState = { state: 'failed', error: errorMessage, result };
+      this.writeCompletion(result);
+      emitEvent('auto-shield:complete', result);
     }
   }
 

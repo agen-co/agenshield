@@ -37,11 +37,11 @@ import {
   extractMacAppFromSandbox,
   isRootOwned,
 } from '../utils/home.js';
-import { stopDaemon, startDaemon, getDaemonStatus, DAEMON_CONFIG, findDaemonExecutable } from '../utils/daemon.js';
+import { stopDaemon, getDaemonStatus, findDaemonExecutable } from '../utils/daemon.js';
 import { inkSelect } from '../prompts/index.js';
 import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
-import { CliError } from '../errors.js';
+import { CliError, ConnectionError } from '../errors.js';
 import { ensureSudoAccess } from '../utils/privileges.js';
 import { resolveHostUser, resolveHostHome } from '../utils/host-user.js';
 
@@ -63,76 +63,83 @@ function getOwnVersion(): string {
   return 'latest';
 }
 
+// Service installation (LaunchDaemon, menu bar agent) is NOT performed during install.
+// The user runs `agenshield start` after install, which uses the signed SEA binary
+// to auto-install services on first run. This avoids SentinelOne blocking the
+// unsigned npx process from writing plists to system directories.
+
 /**
- * Best-effort macOS service installation (LaunchDaemon + menu bar agent).
- * Failures are warnings, not hard errors.
+ * Token-based cloud enrollment (--token + --cloud-url).
+ *
+ * Registers this device with the cloud, saves credentials locally,
+ * and writes setup.json so `ensureSetupComplete()` passes on `agenshield start`.
+ *
+ * Does NOT install services or start the daemon — that's `agenshield start`'s job.
  */
-async function installMacOSServices(menuBarOptions?: { policyUrl?: string; orgName?: string }): Promise<void> {
-  if (os.platform() !== 'darwin') return;
+async function performTokenEnrollment(cloudUrl: string, token: string): Promise<void> {
+  output.info('');
+  output.info(`  ${output.bold('Cloud Enrollment (Token)')}`);
+  output.info('');
 
-  // Step 0: Copy AgenShield.app to /Applications/ (before LaunchDaemon install so
-  // generateDaemonPlist() sees it for AssociatedBundleIdentifiers / Login Items icon)
-  const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
-  if (fs.existsSync(menuBarAppPath)) {
-    try {
-      execSync(`sudo cp -R "${menuBarAppPath}" /Applications/AgenShield.app`, {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      execSync(`sudo chown -R root:wheel /Applications/AgenShield.app`, {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      output.success('Copied AgenShield.app to /Applications/');
-    } catch {
-      output.warn('Could not copy AgenShield.app to /Applications/ (sudo may be required).');
-    }
+  // Ensure downstream libs resolve paths correctly under sudo/root
+  if (process.getuid?.() === 0 && !process.env['AGENSHIELD_USER_HOME']) {
+    process.env['AGENSHIELD_USER_HOME'] = resolveHostHome();
   }
 
-  // Step A: LaunchDaemon + privilege helper (requires sudo)
-  const daemonPath = findDaemonExecutable();
-  const hostHome = resolveHostHome();
-  if (daemonPath) {
-    try {
-      const { installDaemonService, installPrivilegeHelperService } = await import('@agenshield/seatbelt');
+  const {
+    generateEd25519Keypair,
+    registerDevice,
+    saveCloudCredentials,
+    isCloudEnrolled,
+  } = await import('../utils/cloud.js');
+  const { writeSetupState } = await import('../utils/setup-state.js');
 
-      const daemonResult = await installDaemonService({ daemonPath, userHome: hostHome });
-      if (daemonResult.success) {
-        output.success('Installed LaunchDaemon service');
-      } else {
-        output.warn(`LaunchDaemon install: ${daemonResult.message}`);
-      }
-
-      const helperResult = await installPrivilegeHelperService({ daemonPath, userHome: hostHome });
-      if (helperResult.success) {
-        output.success('Installed privilege helper service');
-      } else {
-        output.warn(`Privilege helper install: ${helperResult.message}`);
-      }
-    } catch {
-      output.warn('Could not install LaunchDaemon services (sudo may be required).');
-      output.info('    Run later: sudo agenshield service install');
-    }
-  } else {
-    output.warn('Daemon executable not found — skipping LaunchDaemon installation.');
+  // Check if already enrolled
+  if (isCloudEnrolled()) {
+    output.warn('This device is already enrolled in AgenShield Cloud.');
+    output.info('  To re-enroll, remove ~/.agenshield/cloud.json first.');
+    output.info('');
+    return;
   }
 
-  // Step B: Menu bar app LaunchAgent (no sudo needed)
-  if (fs.existsSync(menuBarAppPath)) {
-    try {
-      const { installMenuBarAgent } = await import('@agenshield/seatbelt');
-      const agentResult = await installMenuBarAgent(menuBarAppPath, { ...menuBarOptions, userHome: hostHome });
-      if (agentResult.success) {
-        output.success('Installed menu bar agent');
-      } else {
-        output.warn(`Menu bar agent: ${agentResult.message}`);
-      }
-    } catch {
-      output.warn('Could not install menu bar agent.');
-    }
-  } else {
-    output.info('  AgenShield.app not found — skipping menu bar installation.');
+  // 1. Generate Ed25519 keypair
+  const keypairSpinner = await createSpinner('Generating device keypair...');
+  const keypair = generateEd25519Keypair();
+  keypairSpinner.succeed('Device keypair generated');
+
+  // 2. Register device with cloud using the enrollment token
+  const registerSpinner = await createSpinner('Registering device...');
+  let registration: Awaited<ReturnType<typeof registerDevice>>;
+  try {
+    registration = await registerDevice(
+      cloudUrl,
+      token,
+      keypair.publicKey,
+      os.hostname(),
+    );
+  } catch (err) {
+    registerSpinner.fail('Registration failed');
+    throw new ConnectionError(`Failed to register device: ${(err as Error).message}`);
   }
+  registerSpinner.succeed(`Device registered (ID: ${registration.agentId})`);
+
+  // 3. Save credentials locally (file-based, daemon not running yet)
+  saveCloudCredentials(
+    registration.agentId,
+    keypair.privateKey,
+    cloudUrl,
+    'MDM',
+  );
+
+  // 4. Persist setup state so `ensureSetupComplete()` passes on `agenshield start`
+  writeSetupState({
+    mode: 'cloud',
+    cloudUrl,
+    completedAt: new Date().toISOString(),
+  });
+
+  output.success(`Enrolled with cloud (Agent ID: ${registration.agentId})`);
+  output.info('');
 }
 
 export function registerInstallCommand(program: Command): void {
@@ -182,10 +189,6 @@ export function registerInstallCommand(program: Command): void {
 
       const resolvedFromDir = fromDir || autoFromDir;
       const useSEA = (opts['sea'] as boolean) || !!resolvedFromDir;
-      const menuBarOptions = {
-        policyUrl: opts['policyUrl'] as string | undefined,
-        orgName: opts['org'] as string | undefined,
-      };
 
       output.info('');
       output.info(`  AgenShield ${useSEA ? 'SEA Binary' : 'Local'} Install`);
@@ -193,7 +196,8 @@ export function registerInstallCommand(program: Command): void {
       output.info('');
 
       // Pre-flight: acquire sudo early so the password prompt isn't mid-install
-      if (!opts['skipServices'] && os.platform() === 'darwin') {
+      // (needed for .app copy to /Applications/ and Claude wrapper to /usr/local/bin/)
+      if (os.platform() === 'darwin') {
         ensureSudoAccess();
       }
 
@@ -390,13 +394,56 @@ export function registerInstallCommand(program: Command): void {
           output.success(`PATH already configured in ${rcFile}`);
         }
 
-        // Auto-install macOS services (LaunchDaemon + menu bar agent)
-        if (!opts['skipServices'] && os.platform() === 'darwin') {
-          output.info('');
-          output.info('  Installing macOS services...');
-          await installMacOSServices(menuBarOptions);
+        // Install Claude bootstrap wrapper
+        const { installClaudeWrapper } = await import('../utils/claude-wrapper.js');
+        const wrapperResult = installClaudeWrapper();
+        if (wrapperResult.installed.length > 0) {
+          output.success(`Installed Claude launcher → ${wrapperResult.installed.join(', ')}`);
+        }
 
-          // Menu bar app is auto-launched by the LaunchAgent on bootstrap
+        // Copy AgenShield.app to /Applications/ (best-effort, requires sudo)
+        if (os.platform() === 'darwin') {
+          const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
+          if (fs.existsSync(menuBarAppPath)) {
+            try {
+              execSync(`sudo cp -R "${menuBarAppPath}" /Applications/AgenShield.app`, {
+                encoding: 'utf-8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+              });
+              execSync(`sudo chown -R root:wheel /Applications/AgenShield.app`, {
+                encoding: 'utf-8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+              });
+              output.success('Copied AgenShield.app to /Applications/');
+            } catch {
+              output.warn('Could not copy AgenShield.app to /Applications/ (sudo may be required).');
+            }
+          }
+
+          // Install macOS service plists (bootstrap deferred to `agenshield start`)
+          const daemonPath = findDaemonExecutable();
+          const hostHome = resolveHostHome();
+          if (daemonPath) {
+            const { installDaemonService, installPrivilegeHelperService, installMenuBarAgent }
+              = await import('@agenshield/seatbelt');
+
+            const dr = await installDaemonService({ daemonPath, userHome: hostHome, skipBootstrap: true });
+            if (dr.success) output.success('Installed daemon service plist');
+            else output.warn(`Daemon plist: ${dr.message}`);
+
+            const hr = await installPrivilegeHelperService({ daemonPath, userHome: hostHome, skipBootstrap: true });
+            if (hr.success) output.success('Installed privilege helper plist');
+            else output.warn(`Privilege helper plist: ${hr.message}`);
+
+            const effectiveAppPath = fs.existsSync('/Applications/AgenShield.app')
+              ? '/Applications/AgenShield.app'
+              : menuBarAppPath;
+            if (fs.existsSync(effectiveAppPath)) {
+              const mr = await installMenuBarAgent(effectiveAppPath, { userHome: hostHome, skipBootstrap: true });
+              if (mr.success) output.success('Installed menu bar agent plist');
+              else output.warn(`Menu bar plist: ${mr.message}`);
+            }
+          }
         }
 
         // Write auto-shield intent file
@@ -406,54 +453,21 @@ export function registerInstallCommand(program: Command): void {
           output.success('Auto-shield enabled');
         }
 
-        // Enrollment via token or org
-        const token = opts['token'] as string | undefined;
-        const cloudUrl = opts['cloudUrl'] as string | undefined;
-        const org = opts['org'] as string | undefined;
-
-        if (token || (org && cloudUrl)) {
-          output.info('');
-          output.info('  Running enrollment...');
-          const setupArgs: string[] = [];
-          if (token) {
-            setupArgs.push('--token', token);
-          } else if (org) {
-            setupArgs.push('--org', org);
-          }
-          if (cloudUrl) {
-            setupArgs.push('--cloud-url', cloudUrl);
-          }
-          const agenshieldBin = path.join(getBinDir(), 'agenshield');
-          try {
-            execSync(`"${agenshieldBin}" setup ${setupArgs.join(' ')}`, {
-              stdio: 'inherit',
-            });
-            output.success('Enrollment completed');
-          } catch {
-            output.warn('Enrollment failed. You can retry manually: agenshield setup');
-          }
-        }
-
-        // Restart daemon if it was running before install
-        if (wasDaemonRunning) {
-          const restartSpinner = await createSpinner('Restarting daemon...');
-          const startResult = await startDaemon();
-          if (startResult.success) {
-            const url = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
-            restartSpinner.succeed(startResult.message);
-            output.info(`  URL: ${url}`);
-          } else {
-            restartSpinner.fail(startResult.message);
-            output.warn('  Daemon did not restart. Run `agenshield start` manually.');
+        // Token enrollment (--token + --cloud-url)
+        {
+          const token = opts['token'] as string | undefined;
+          const cloudUrl = (opts['cloudUrl'] as string | undefined) || (opts['policyUrl'] as string | undefined);
+          if (token && cloudUrl) {
+            await performTokenEnrollment(cloudUrl, token);
           }
         }
 
         output.info('');
         output.success('SEA installation complete!');
         output.info('');
-        output.info('  Verify with:');
+        output.info('  Next step — start the daemon:');
         output.info('');
-        output.info('    agenshield --version');
+        output.info('    agenshield start');
         output.info('');
         output.info(`  Installation directory: ${AGENSHIELD_HOME}`);
         output.info(`  Binaries:              ${binDir}/`);
@@ -550,7 +564,16 @@ export function registerInstallCommand(program: Command): void {
         output.success(`PATH already configured in ${npmRcFile}`);
       }
 
-      // 9b. Extract AgenShield.app from sandbox package to ~/.agenshield/apps/
+      // 9b. Install Claude bootstrap wrapper
+      {
+        const { installClaudeWrapper: installNpmClaudeWrapper } = await import('../utils/claude-wrapper.js');
+        const npmWrapperResult = installNpmClaudeWrapper();
+        if (npmWrapperResult.installed.length > 0) {
+          output.success(`Installed Claude launcher → ${npmWrapperResult.installed.join(', ')}`);
+        }
+      }
+
+      // 9c. Extract AgenShield.app from sandbox package to ~/.agenshield/apps/
       if (os.platform() === 'darwin') {
         const extracted = extractMacAppFromSandbox(distDir);
         if (extracted) {
@@ -558,78 +581,70 @@ export function registerInstallCommand(program: Command): void {
         }
       }
 
-      // 9c. Auto-install macOS services (LaunchDaemon + menu bar agent)
-      if (!opts['skipServices'] && os.platform() === 'darwin') {
-        output.info('');
-        output.info('  Installing macOS services...');
-        await installMacOSServices(menuBarOptions);
-
-        // Launch the menu bar app
-        if (fs.existsSync('/Applications/AgenShield.app')) {
+      // 9d. Copy AgenShield.app to /Applications/ (best-effort, requires sudo)
+      if (os.platform() === 'darwin') {
+        const menuBarAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
+        if (fs.existsSync(menuBarAppPath)) {
           try {
-            execSync('open /Applications/AgenShield.app', { stdio: 'pipe' });
-            output.success('Launched AgenShield.app');
-          } catch { /* best-effort */ }
+            execSync(`sudo cp -R "${menuBarAppPath}" /Applications/AgenShield.app`, {
+              encoding: 'utf-8',
+              stdio: ['pipe', 'pipe', 'pipe'],
+            });
+            execSync(`sudo chown -R root:wheel /Applications/AgenShield.app`, {
+              encoding: 'utf-8',
+              stdio: ['pipe', 'pipe', 'pipe'],
+            });
+            output.success('Copied AgenShield.app to /Applications/');
+          } catch {
+            output.warn('Could not copy AgenShield.app to /Applications/ (sudo may be required).');
+          }
+        }
+
+        // 9d-ii. Install macOS service plists (bootstrap deferred to `agenshield start`)
+        const npmDaemonPath = findDaemonExecutable();
+        const npmHostHome = resolveHostHome();
+        if (npmDaemonPath) {
+          const { installDaemonService: npmInstallDaemon, installPrivilegeHelperService: npmInstallHelper, installMenuBarAgent: npmInstallMenuBar }
+            = await import('@agenshield/seatbelt');
+
+          const dr = await npmInstallDaemon({ daemonPath: npmDaemonPath, userHome: npmHostHome, skipBootstrap: true });
+          if (dr.success) output.success('Installed daemon service plist');
+
+          const hr = await npmInstallHelper({ daemonPath: npmDaemonPath, userHome: npmHostHome, skipBootstrap: true });
+          if (hr.success) output.success('Installed privilege helper plist');
+
+          const effectiveAppPath = fs.existsSync('/Applications/AgenShield.app')
+            ? '/Applications/AgenShield.app'
+            : menuBarAppPath;
+          if (fs.existsSync(effectiveAppPath)) {
+            const mr = await npmInstallMenuBar(effectiveAppPath, { userHome: npmHostHome, skipBootstrap: true });
+            if (mr.success) output.success('Installed menu bar agent plist');
+          }
         }
       }
 
-      // 9d. Write auto-shield intent file
+      // 9e. Write auto-shield intent file
       if (opts['autoShield']) {
         const autoShieldPath = path.join(AGENSHIELD_HOME, 'auto-shield.json');
         fs.writeFileSync(autoShieldPath, JSON.stringify({ enabled: true, createdAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o644 });
         output.success('Auto-shield enabled');
       }
 
-      // 9e. Enrollment via token or org
+      // 9f. Token enrollment (--token + --cloud-url)
       {
         const token = opts['token'] as string | undefined;
-        const cloudUrl = opts['cloudUrl'] as string | undefined;
-        const org = opts['org'] as string | undefined;
-
-        if (token || (org && cloudUrl)) {
-          output.info('');
-          output.info('  Running enrollment...');
-          const setupArgs: string[] = [];
-          if (token) {
-            setupArgs.push('--token', token);
-          } else if (org) {
-            setupArgs.push('--org', org);
-          }
-          if (cloudUrl) {
-            setupArgs.push('--cloud-url', cloudUrl);
-          }
-          const agenshieldBin = path.join(getBinDir(), 'agenshield');
-          try {
-            execSync(`"${agenshieldBin}" setup ${setupArgs.join(' ')}`, {
-              stdio: 'inherit',
-            });
-            output.success('Enrollment completed');
-          } catch {
-            output.warn('Enrollment failed. You can retry manually: agenshield setup');
-          }
-        }
-      }
-
-      // 10. Restart daemon if it was running before install
-      if (wasDaemonRunning) {
-        const restartSpinner = await createSpinner('Restarting daemon...');
-        const startResult = await startDaemon();
-        if (startResult.success) {
-          const url = `http://${DAEMON_CONFIG.DISPLAY_HOST}:${DAEMON_CONFIG.PORT}`;
-          restartSpinner.succeed(startResult.message);
-          output.info(`  URL: ${url}`);
-        } else {
-          restartSpinner.fail(startResult.message);
-          output.warn('  Daemon did not restart. Run `agenshield start` manually.');
+        const cloudUrl = (opts['cloudUrl'] as string | undefined) || (opts['policyUrl'] as string | undefined);
+        if (token && cloudUrl) {
+          await performTokenEnrollment(cloudUrl, token);
         }
       }
 
       output.info('');
       output.success('Installation complete!');
       output.info('');
-      output.info('  Verify with:');
+      output.info('  Next step — start the daemon:');
       output.info('');
-      output.info('    agenshield --version');
+      output.info('    agenshield start');
       output.info('');
       output.info(`  Installation directory: ${AGENSHIELD_HOME}`);
       output.info(`  CLI shim:              ${getBinDir()}/agenshield`);

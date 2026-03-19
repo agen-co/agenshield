@@ -14,7 +14,7 @@ import * as readline from 'node:readline';
 import { execSync } from 'node:child_process';
 import { withGlobals } from './base.js';
 import { ensureSudoAccess } from '../utils/privileges.js';
-import { stopDaemon } from '../utils/daemon.js';
+import { stopDaemon, DAEMON_CONFIG } from '../utils/daemon.js';
 import { output } from '../utils/output.js';
 import { createSpinner } from '../utils/spinner.js';
 import { CliError } from '../errors.js';
@@ -538,6 +538,8 @@ async function systemCleanup(dataDir: string): Promise<void> {
     '/etc/agenshield',
     '/opt/agenshield',
     '/Applications/AgenShield.app',
+    '/Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist',
+    '/Library/LaunchDaemons/com.frontegg.AgenShield.privilege-helper.plist',
   ];
   for (const p of cleanupPaths) {
     if (fs.existsSync(p)) {
@@ -559,23 +561,29 @@ async function systemCleanup(dataDir: string): Promise<void> {
     // Best effort
   }
 
+  // Delete ~/.agenshield LAST — the running SEA binary lives inside this directory.
+  // Try synchronous deletion first (we already have sudo context from earlier).
+  // Fall back to a deferred background process if the binary is still locked.
   if (fs.existsSync(dataDir)) {
     try {
-      execSync(`sudo rm -rf "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    } catch { /* handled below */ }
+      execSync(`sudo rm -rf "${dataDir}"`, { encoding: 'utf-8', stdio: 'inherit' });
+    } catch { /* may fail if our own binary is inside */ }
 
-    // Verify removal — if directory persists, try chown + rm as current user
     if (fs.existsSync(dataDir)) {
+      // Fallback: schedule deferred deletion for after our process exits (use cached sudo creds)
       try {
-        execSync(`sudo chown -R $(whoami) "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-        fs.rmSync(dataDir, { recursive: true, force: true });
-      } catch { /* handled below */ }
-    }
-
-    if (fs.existsSync(dataDir)) {
-      output.warn(`Could not fully remove ${dataDir} — remove manually with: sudo rm -rf "${dataDir}"`);
+        const { spawn } = await import('node:child_process');
+        const child = spawn('sh', ['-c', `sleep 1 && sudo -n rm -rf "${dataDir}" 2>/dev/null || rm -rf "${dataDir}"`], {
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+        output.warn(`Directory partially removed — scheduled background cleanup of ${dataDir}`);
+      } catch {
+        output.warn(`Could not fully remove ${dataDir} — remove manually with: sudo rm -rf "${dataDir}"`);
+      }
     } else {
-      output.success(`Deleted ${dataDir} (databases, vault, logs)`);
+      output.success(`Deleted ${dataDir}`);
     }
   }
 }
@@ -663,6 +671,21 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
 
   output.info('\nUninstalling...\n');
 
+  // Best-effort cloud deregistration while daemon is still running
+  try {
+    const res = await fetch(
+      `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}/api/enrollment/unenroll`,
+      { method: 'POST', signal: AbortSignal.timeout(10_000) },
+    );
+    if (res.ok) {
+      output.success('cloud: Deregistered from cloud');
+    } else {
+      output.warn('cloud: Cloud deregistration skipped (daemon returned error)');
+    }
+  } catch {
+    output.warn('cloud: Cloud deregistration skipped (daemon unreachable)');
+  }
+
   const stopSpinner = await createSpinner('Stopping daemon...');
   let stopResult: { success: boolean; message: string } = { success: false, message: '' };
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -678,6 +701,12 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
   } else {
     stopSpinner.fail(`stop-daemon: ${stopResult.message}`);
   }
+
+  // Kill any leftover process still holding the daemon port
+  try {
+    execSync(`lsof -ti :${DAEMON_CONFIG.PORT} | xargs kill -9 2>/dev/null`, { stdio: 'pipe' });
+  } catch { /* non-fatal — no process on port */ }
+
   output.info('');
 
   for (const profile of profiles) {
@@ -713,6 +742,13 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
     } catch {
       // Best effort — service may not be installed
     }
+
+    // Remove privilege helper LaunchDaemon
+    try {
+      const { uninstallPrivilegeHelperService } = await import('@agenshield/seatbelt');
+      const result = await uninstallPrivilegeHelperService();
+      if (result.success) output.success('Removed privilege helper service');
+    } catch { /* best effort */ }
   }
 
   await systemCleanup(dataDir);
@@ -769,6 +805,21 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
 
   output.info('\nForce uninstalling...\n');
 
+  // Best-effort cloud deregistration before force uninstall stops the daemon
+  try {
+    const res = await fetch(
+      `http://${DAEMON_CONFIG.HOST}:${DAEMON_CONFIG.PORT}/api/enrollment/unenroll`,
+      { method: 'POST', signal: AbortSignal.timeout(10_000) },
+    );
+    if (res.ok) {
+      output.success('cloud: Deregistered from cloud');
+    } else {
+      output.warn('cloud: Cloud deregistration skipped');
+    }
+  } catch {
+    output.warn('cloud: Cloud deregistration skipped (daemon unreachable)');
+  }
+
   const result = forceUninstall((progress: { success: boolean; step: string; message?: string; error?: string }) => {
     if (progress.success) {
       output.success(`${progress.step}: ${progress.message || progress.error || ''}`);
@@ -777,34 +828,23 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
     }
   });
 
+  // Kill any leftover process still holding the daemon port
+  try {
+    execSync(`lsof -ti :${DAEMON_CONFIG.PORT} | xargs kill -9 2>/dev/null`, { stdio: 'pipe' });
+  } catch { /* non-fatal — no process on port */ }
+
   // Remove menu bar LaunchAgent and app (user-level, no sudo needed)
   try {
     const { uninstallMenuBarAgent } = await import('@agenshield/seatbelt');
     await uninstallMenuBarAgent();
   } catch { /* best effort */ }
 
-  const dataDir = resolveDataDir();
-  if (fs.existsSync(dataDir)) {
-    try {
-      execSync(`sudo rm -rf "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    } catch { /* handled below */ }
-
-    // Verify removal — if directory persists, try chown + rm as current user
-    if (fs.existsSync(dataDir)) {
-      try {
-        execSync(`sudo chown -R $(whoami) "${dataDir}"`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-        fs.rmSync(dataDir, { recursive: true, force: true });
-      } catch { /* handled below */ }
-    }
-
-    if (fs.existsSync(dataDir)) {
-      output.warn(`cleanup: Could not fully remove ${dataDir} — remove manually with: sudo rm -rf "${dataDir}"`);
-    } else {
-      output.success(`cleanup: Deleted ${dataDir} (databases, vault, logs)`);
-    }
-  }
-
-  output.info('');
+  // Remove privilege helper LaunchDaemon
+  try {
+    const { uninstallPrivilegeHelperService } = await import('@agenshield/seatbelt');
+    const phResult = await uninstallPrivilegeHelperService();
+    if (phResult.success) output.success('Removed privilege helper service');
+  } catch { /* best effort */ }
 
   // Orphan cleanup — best-effort, failure doesn't affect main uninstall
   try {
@@ -816,6 +856,33 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
   if (result.success) {
     output.success('Force uninstall complete!');
     output.info('AgenShield artifacts have been removed.');
+
+    // Delete ~/.agenshield LAST — the running SEA binary lives inside this directory.
+    // Try synchronous deletion first (we already have sudo context from earlier).
+    // Fall back to a deferred background process if the binary is still locked.
+    const dataDir = resolveDataDir();
+    if (fs.existsSync(dataDir)) {
+      try {
+        execSync(`sudo rm -rf "${dataDir}"`, { encoding: 'utf-8', stdio: 'inherit' });
+      } catch { /* may fail if our own binary is inside */ }
+
+      if (fs.existsSync(dataDir)) {
+        // Fallback: schedule deferred deletion for after our process exits (use cached sudo creds)
+        try {
+          const { spawn } = await import('node:child_process');
+          const child = spawn('sh', ['-c', `sleep 1 && sudo -n rm -rf "${dataDir}" 2>/dev/null || rm -rf "${dataDir}"`], {
+            detached: true,
+            stdio: 'ignore',
+          });
+          child.unref();
+          output.warn(`cleanup: Directory partially removed — scheduled background cleanup of ${dataDir}`);
+        } catch {
+          output.warn(`cleanup: Could not fully remove ${dataDir} — remove manually with: sudo rm -rf "${dataDir}"`);
+        }
+      } else {
+        output.success(`cleanup: Deleted ${dataDir}`);
+      }
+    }
   } else {
     throw new CliError(result.error || 'Force uninstall failed', 'UNINSTALL_FAILED');
   }

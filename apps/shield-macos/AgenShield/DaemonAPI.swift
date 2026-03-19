@@ -30,10 +30,22 @@ struct SetupEnrollmentState: Codable {
     let companyName: String?
 }
 
+struct ClaimUserInfo: Codable {
+    let id: String
+    let name: String
+    let email: String
+}
+
+struct ClaimStatusInfo: Codable {
+    let status: String
+    let user: ClaimUserInfo?
+}
+
 struct SetupStatusData: Codable {
     let setup: SetupStatus
     let enrollment: SetupEnrollmentState
     let cloudEnrolled: Bool
+    let claim: ClaimStatusInfo?
 }
 
 struct SetupLocalData: Codable {
@@ -48,6 +60,7 @@ struct DaemonStats: Codable {
     let events: Int
     let policies: Int
     let skills: Int
+    let pendingSkills: Int?
 }
 
 struct AutoShieldProgress: Codable {
@@ -81,7 +94,9 @@ struct DaemonStatusData: Codable {
     let stats: DaemonStats?
     let cloudConnected: Bool?
     let cloudCompany: String?
+    let cloudEnrolled: Bool?
     let enrollmentPending: Bool?
+    let claim: ClaimStatusInfo?
     let autoShield: AutoShieldState?
 }
 
@@ -132,6 +147,22 @@ class DaemonAPI {
         return result
     }
 
+    // MARK: - Claim Endpoints
+
+    struct ClaimResponse: Codable {
+        let status: String
+        let claimUrl: String?
+        let claimSessionId: String?
+        let user: ClaimUserInfo?
+        let message: String?
+    }
+
+    func startClaim() async throws -> ClaimResponse {
+        let data = try await post("/api/cloud/claim", body: nil)
+        let response = try JSONDecoder().decode(ClaimResponse.self, from: data)
+        return response
+    }
+
     // MARK: - Target Endpoints
 
     struct TargetProcessInfo: Codable {
@@ -160,6 +191,55 @@ class DaemonAPI {
             throw DaemonAPIError.requestFailed
         }
         return result
+    }
+
+    // MARK: - Workspace Skills Endpoints
+
+    struct WorkspaceSkillData: Codable {
+        let id: String
+        let skillName: String
+        let workspacePath: String
+        let status: String
+        let contentHash: String?
+        let cloudSkillId: String?
+    }
+
+    struct SkillApprovalResponse: Codable {
+        let cloudSkillId: String?
+        let existingDecision: String?
+    }
+
+    func getQuarantinedSkills() async throws -> [WorkspaceSkillInfo] {
+        let data = try await get("/api/workspace-skills?status=pending")
+        let response = try JSONDecoder().decode(ApiResponse<[WorkspaceSkillData]>.self, from: data)
+        guard response.success, let skills = response.data else {
+            throw DaemonAPIError.requestFailed
+        }
+        return skills.map { s in
+            WorkspaceSkillInfo(
+                id: s.id,
+                skillName: s.skillName,
+                workspacePath: s.workspacePath,
+                status: s.status,
+                contentHash: s.contentHash,
+                cloudSkillId: s.cloudSkillId
+            )
+        }
+    }
+
+    func requestSkillApproval(skillId: String) async throws {
+        _ = try await post("/api/workspace-skills/\(skillId)/request-approval", body: nil)
+    }
+
+    func deleteSkill(skillId: String) async throws {
+        _ = try await post("/api/workspace-skills/\(skillId)/delete", body: nil)
+    }
+
+    // MARK: - Shield Endpoint
+
+    func shieldTarget(targetId: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["enforcementMode": "both"])
+        _ = try await post("/api/targets/lifecycle/\(targetId)/shield", body: body)
     }
 
     // MARK: - Status Endpoints

@@ -16,6 +16,28 @@ import { getOpenClawStatusSync, detectHostOpenClawVersion } from '@agenshield/se
 // Cached OpenClaw version (detected once, doesn't change at runtime)
 let cachedOpenClawVersion: string | null | undefined;
 
+/** Build claim status from cloud identity storage */
+function buildClaimStatus(): { claim?: DaemonStatus['claim'] } {
+  try {
+    const storage = getStorage();
+    const identity = storage.cloudIdentity.get();
+    if (!identity) return {};
+    const claim: DaemonStatus['claim'] = {
+      status: identity.claimStatus,
+      ...(identity.claimStatus === 'claimed' && identity.claimedUserId ? {
+        user: {
+          id: identity.claimedUserId,
+          name: identity.claimedUserName ?? '',
+          email: identity.claimedUserEmail ?? '',
+        },
+      } : {}),
+    };
+    return { claim };
+  } catch {
+    return {};
+  }
+}
+
 export const startedAt = new Date();
 
 export function buildDaemonStatus(): DaemonStatus {
@@ -74,6 +96,7 @@ export function buildDaemonStatus(): DaemonStatus {
       events: storage.activities.count({ since: todayStart.toISOString() }),
       policies: storage.policies.getAll().length,
       skills: storage.skills.getAll().length,
+      pendingSkills: storage.workspaceSkills.countByStatus('pending'),
     };
   } catch {
     // Storage may not be initialized yet
@@ -91,6 +114,21 @@ export function buildDaemonStatus(): DaemonStatus {
     ...(stats ? { stats } : {}),
     ...(openclaw ? { openclaw } : {}),
     ...(cloudConnected ? { cloudConnected, cloudCompany } : {}),
+    ...(() => {
+      try {
+        const storage = getStorage();
+        if (storage.cloudIdentity.isEnrolled()) {
+          const identity = storage.cloudIdentity.get();
+          return {
+            cloudEnrolled: true as const,
+            ...(!cloudCompany && identity?.companyName ? { cloudCompany: identity.companyName } : {}),
+          };
+        }
+        return {};
+      } catch {
+        return {};
+      }
+    })(),
     ...(enrollmentPending ? { enrollmentPending } : {}),
     ...(includeEnrollment ? {
       enrollment: {
@@ -109,6 +147,7 @@ export function buildDaemonStatus(): DaemonStatus {
         ...('error' in autoShieldState ? { error: autoShieldState.error } : {}),
       },
     } : {}),
+    ...buildClaimStatus(),
   };
 }
 

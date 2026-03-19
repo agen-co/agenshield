@@ -51,6 +51,13 @@ export { WorkspaceSkillsRepository } from './repositories/workspace-skills';
 export type { CreateWorkspaceSkillInput, UpdateWorkspaceSkillInput } from './repositories/workspace-skills';
 export { McpServerRepository } from './repositories/mcps';
 export type { UpdateMcpServerInput } from './repositories/mcps';
+export { CloudIdentityRepository } from './repositories/cloud-identity';
+export type { CloudIdentity, SaveCloudIdentityInput } from './repositories/cloud-identity';
+export { ApprovedSkillHashesRepository } from './repositories/approved-skill-hashes';
+export type { ApprovedSkillHash } from './repositories/approved-skill-hashes';
+
+// Vault key
+export { loadOrCreateVaultKey, getVaultKey, getVaultKeyPath, clearVaultKeyCache } from './vault';
 
 // Migrations
 export { runMigrations, runActivityMigrations, getCurrentVersion, getDbVersion, validateDbIntegrity } from './migrations/index';

@@ -157,29 +157,65 @@ export class WorkspaceSkillScanner {
       const existing = this.storage.workspaceSkills.getByKey(workspacePath, skillName);
 
       if (!existing) {
-        // New skill — create as pending + apply deny ACL
+        // New skill — check SHA256 against approved hashes first
         const contentHash = computeSkillHash(skillPath);
-        const aclApplied = agentUsername
-          ? denyWorkspaceSkill(skillPath, agentUsername, this.logger)
-          : false;
 
-        const created = this.storage.workspaceSkills.create({
-          profileId,
-          workspacePath,
-          skillName,
-          status: 'pending',
-          contentHash: contentHash ?? undefined,
-          aclApplied,
-        });
+        // SHA256-only enforcement: matching hash = auto-approve
+        const hashApproved = contentHash && this.storage.approvedSkillHashes.isApproved(contentHash);
 
-        eventBus.emit('workspace_skills:detected', {
-          workspacePath,
-          skillName,
-          status: 'pending',
-        });
+        if (hashApproved) {
+          // Auto-approve: hash matches cloud-approved list
+          const backupDir = getSkillBackupPath(workspacePath, skillName);
+          const backupHash = backupSkill(skillPath, backupDir);
 
-        results.push(created);
-        this.logger.info(`[workspace-skills] detected new skill: ${skillName} in ${workspacePath} (acl=${aclApplied})`);
+          const created = this.storage.workspaceSkills.create({
+            profileId,
+            workspacePath,
+            skillName,
+            status: 'approved',
+            contentHash: contentHash ?? undefined,
+            approvedBy: 'cloud:sha256',
+            approvedAt: new Date().toISOString(),
+            aclApplied: false,
+          });
+
+          // Set backup hash via update (not in create schema)
+          if (backupHash && created) {
+            this.storage.workspaceSkills.update(created.id, { backupHash });
+          }
+
+          eventBus.emit('workspace_skills:approved', {
+            workspacePath,
+            skillName,
+            approvedBy: 'cloud:sha256',
+          });
+
+          results.push(created);
+          this.logger.info(`[workspace-skills] auto-approved (SHA256 match): ${skillName} in ${workspacePath}`);
+        } else {
+          // No hash match — pending, apply deny ACL
+          const aclApplied = agentUsername
+            ? denyWorkspaceSkill(skillPath, agentUsername, this.logger)
+            : false;
+
+          const created = this.storage.workspaceSkills.create({
+            profileId,
+            workspacePath,
+            skillName,
+            status: 'pending',
+            contentHash: contentHash ?? undefined,
+            aclApplied,
+          });
+
+          eventBus.emit('workspace_skills:detected', {
+            workspacePath,
+            skillName,
+            status: 'pending',
+          });
+
+          results.push(created);
+          this.logger.info(`[workspace-skills] detected new skill: ${skillName} in ${workspacePath} (acl=${aclApplied})`);
+        }
       } else if (existing.status === 'removed') {
         // Previously removed — don't re-add
         results.push(existing);

@@ -36,6 +36,11 @@ export interface SetupStatusResponse {
   setup: SetupStatus;
   enrollment: SetupEnrollmentState;
   cloudEnrolled: boolean;
+  /** Device claim status (user login on managed devices) */
+  claim?: {
+    status: 'unclaimed' | 'pending' | 'claimed';
+    user?: { id: string; name: string; email: string };
+  };
 }
 
 /** Request body for POST /api/setup/cloud */

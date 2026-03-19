@@ -203,7 +203,7 @@ describe('Device code flow', () => {
         'my-host',
         '1.0.0',
       );
-      expect(result).toEqual({ agentId: 'agent-1', agentKey: 'key-1' });
+      expect(result).toEqual({ agentId: 'agent-1', agentKey: 'key-1', companyName: '' });
     });
 
     it('should throw on non-ok response', async () => {

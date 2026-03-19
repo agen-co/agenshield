@@ -52,6 +52,12 @@ function hasStatusChanged(prev: SecurityStatus | null, current: SecurityStatus):
  */
 async function checkAndEmit(): Promise<void> {
   try {
+    // Skip security checks when shield operations are active (expected root/sudo processes)
+    try {
+      const { getActiveShieldOperations } = await import('../services/shield-registry');
+      if (getActiveShieldOperations().length > 0) return;
+    } catch { /* non-fatal — shield-registry may not be loaded yet */ }
+
     const status = await checkSecurityStatus({ knownTargets: getKnownTargets(), callerRole: 'daemon' });
 
     // Merge secret names detected in the calling user's environment

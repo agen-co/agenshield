@@ -117,9 +117,10 @@ export async function registerDevice(
     throw new Error(`Device registration failed: ${res.status} ${text}`);
   }
 
-  const data = (await res.json()) as { agent: { id: string }; agentKey: { id: string } };
+  const data = (await res.json()) as { agent: { id: string }; agentKey: { id: string }; companyName?: string };
   return {
     agentId: data.agent.id,
     agentKey: data.agentKey.id,
+    companyName: data.companyName ?? '',
   };
 }

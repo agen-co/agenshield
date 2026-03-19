@@ -30,6 +30,18 @@ enum StatusColor {
     }
 }
 
+// MARK: - Workspace Skill Models
+
+struct WorkspaceSkillInfo: Identifiable {
+    let id: String
+    let skillName: String
+    let workspacePath: String
+    let status: String           // "pending" | "approved" | "denied" | "cloud_forced" | "removed"
+    let contentHash: String?
+    let cloudSkillId: String?
+    var isRequesting: Bool = false  // UI state: approval request in flight
+}
+
 // MARK: - Target Models
 
 struct TargetInfo: Identifiable {
@@ -41,6 +53,13 @@ struct TargetInfo: Identifiable {
     let version: String?
     let gatewayPort: Int?
     let processCount: Int
+}
+
+// MARK: - Popover Navigation
+
+enum PopoverRoute {
+    case main
+    case quarantinedSkills
 }
 
 @Observable
@@ -56,6 +75,11 @@ class AppState {
     var enrollmentState: String = "idle"          // "idle" | "initiating" | "pending_user_auth" | "registering" | "complete" | "failed"
     var verificationUri: String?
     var userCode: String?
+
+    // Claim state (user login on managed devices)
+    var claimStatus: String = "unclaimed"        // "unclaimed" | "pending" | "claimed"
+    var claimedUserName: String?
+    var claimedUserEmail: String?
 
     // Daemon info
     var daemonVersion: String?
@@ -74,12 +98,31 @@ class AppState {
     var autoShieldShielded: Int = 0
     var autoShieldFailed: Int = 0
 
+    // Quarantined workspace skills
+    var pendingSkillCount: Int = 0
+    var quarantinedSkills: [WorkspaceSkillInfo] = []
+    var quarantineLoading: Bool = false
+    var quarantineError: String? = nil
+
+    // Popover navigation
+    var popoverRoute: PopoverRoute = .main
+
     // Targets
     var targets: [TargetInfo] = []
 
     var shieldedTargets: [TargetInfo] {
         targets.filter { $0.shielded }
     }
+
+    var unshieldedTargets: [TargetInfo] {
+        targets.filter { !$0.shielded }
+    }
+
+    // Shield target (manual)
+    var shieldingTargetId: String? = nil
+    var shieldProgress: Int = 0
+    var shieldProgressMessage: String? = nil
+    var shieldError: String? = nil
 
     /// Update connection status
     func setConnected(_ connected: Bool) {
@@ -88,6 +131,7 @@ class AppState {
             updateDaemonStatus()
             updateSetupStatus()
             updateTargets()
+            updateQuarantinedSkills()
         }
         updateStatusColor()
     }
@@ -115,12 +159,18 @@ class AppState {
                 await MainActor.run {
                     self.daemonVersion = status.version
                     self.servicesActive = status.servicesActive ?? false
-                    if status.cloudConnected == true { self.cloudEnrolled = true }
+                    if status.cloudEnrolled == true || status.cloudConnected == true { self.cloudEnrolled = true }
                     self.companyName = status.cloudCompany
                     if let stats = status.stats {
                         self.eventCount = stats.events
                         self.policyCount = stats.policies
                         self.skillCount = stats.skills
+                        self.pendingSkillCount = stats.pendingSkills ?? 0
+                    }
+                    if let claim = status.claim {
+                        self.claimStatus = claim.status
+                        self.claimedUserName = claim.user?.name
+                        self.claimedUserEmail = claim.user?.email
                     }
                     if let autoShield = status.autoShield {
                         self.autoShieldState = autoShield.state
@@ -155,6 +205,11 @@ class AppState {
                     self.enrollmentState = status.enrollment.state
                     self.verificationUri = status.enrollment.verificationUri
                     self.userCode = status.enrollment.userCode
+                    if let claim = status.claim {
+                        self.claimStatus = claim.status
+                        self.claimedUserName = claim.user?.name
+                        self.claimedUserEmail = claim.user?.email
+                    }
                 }
             } catch {
                 // Silently ignore — daemon may not be reachable
@@ -172,7 +227,9 @@ class AppState {
         if let active = dict["servicesActive"] as? Bool {
             self.servicesActive = active
         }
-        if let cloudConnected = dict["cloudConnected"] as? Bool, cloudConnected {
+        if let cloudEnrolled = dict["cloudEnrolled"] as? Bool, cloudEnrolled {
+            self.cloudEnrolled = true
+        } else if let cloudConnected = dict["cloudConnected"] as? Bool, cloudConnected {
             self.cloudEnrolled = true
         }
         if let company = dict["cloudCompany"] as? String {
@@ -182,6 +239,14 @@ class AppState {
             if let events = stats["events"] as? Int { self.eventCount = events }
             if let policies = stats["policies"] as? Int { self.policyCount = policies }
             if let skills = stats["skills"] as? Int { self.skillCount = skills }
+            if let pending = stats["pendingSkills"] as? Int { self.pendingSkillCount = pending }
+        }
+        if let claim = dict["claim"] as? [String: Any] {
+            if let status = claim["status"] as? String { self.claimStatus = status }
+            if let user = claim["user"] as? [String: Any] {
+                self.claimedUserName = user["name"] as? String
+                self.claimedUserEmail = user["email"] as? String
+            }
         }
 
         updateStatusColor()
@@ -238,6 +303,83 @@ class AppState {
         }
     }
 
+    /// Fetch quarantined (pending) workspace skills from daemon API
+    func updateQuarantinedSkills() {
+        quarantineLoading = true
+        quarantineError = nil
+        Task {
+            do {
+                let skills = try await DaemonAPI.shared.getQuarantinedSkills()
+                await MainActor.run {
+                    self.quarantinedSkills = skills
+                    self.pendingSkillCount = skills.count
+                    self.quarantineLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.quarantineLoading = false
+                    self.quarantineError = "Failed to load skills"
+                }
+            }
+        }
+    }
+
+    /// Request admin approval for a quarantined skill (uploads to cloud)
+    func requestSkillApproval(_ skillId: String) {
+        // Mark as requesting in UI
+        if let idx = quarantinedSkills.firstIndex(where: { $0.id == skillId }) {
+            quarantinedSkills[idx].isRequesting = true
+        }
+        Task {
+            do {
+                try await DaemonAPI.shared.requestSkillApproval(skillId: skillId)
+                await MainActor.run {
+                    // Refresh the list after successful request
+                    self.updateQuarantinedSkills()
+                }
+            } catch {
+                await MainActor.run {
+                    if let idx = self.quarantinedSkills.firstIndex(where: { $0.id == skillId }) {
+                        self.quarantinedSkills[idx].isRequesting = false
+                    }
+                }
+            }
+        }
+    }
+
+    /// Delete a quarantined skill from disk
+    func deleteSkill(_ skillId: String) {
+        Task {
+            do {
+                try await DaemonAPI.shared.deleteSkill(skillId: skillId)
+                await MainActor.run {
+                    self.quarantinedSkills.removeAll { $0.id == skillId }
+                    self.pendingSkillCount = self.quarantinedSkills.count
+                }
+            } catch {
+                // Silently ignore
+            }
+        }
+    }
+
+    /// Shield a specific target
+    func shieldTarget(_ targetId: String) {
+        shieldingTargetId = targetId
+        shieldProgress = 0
+        shieldProgressMessage = nil
+        shieldError = nil
+        Task {
+            do {
+                try await DaemonAPI.shared.shieldTarget(targetId: targetId)
+            } catch {
+                await MainActor.run {
+                    self.shieldError = "Failed to start shielding"
+                    self.shieldingTargetId = nil
+                }
+            }
+        }
+    }
+
     /// Stop the daemon via API
     func stopDaemon() {
         Task {
@@ -270,6 +412,15 @@ class AppState {
         eventCount = 0
         policyCount = 0
         skillCount = 0
+        pendingSkillCount = 0
+        quarantinedSkills = []
+        quarantineLoading = false
+        quarantineError = nil
+        popoverRoute = .main
         targets = []
+        shieldingTargetId = nil
+        shieldProgress = 0
+        shieldProgressMessage = nil
+        shieldError = nil
     }
 }

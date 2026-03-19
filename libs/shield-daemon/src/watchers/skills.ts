@@ -26,6 +26,8 @@ import { getConfigDir } from '../config/paths';
 import { resolveTargetContext } from '../services/target-context';
 import { extractTagsFromSkillMd } from '../services/skill-tag-injector';
 import { hasValidInstallationTagSync } from '../vault/installation-key';
+import { isCloudEnrolled } from '@agenshield/cloud';
+import { getStorage } from '@agenshield/storage';
 
 /** Path to the approved skills configuration (always user-writable) */
 function getApprovedSkillsPath(): string {
@@ -306,6 +308,22 @@ export function updateApprovedHash(skillName: string, hash: string): void {
 }
 
 /**
+ * Report a quarantined skill to the cloud for CISO review.
+ */
+async function reportSkillToCloud(sha256: string, name: string, sourcePath: string): Promise<void> {
+  try {
+    const { getCloudConnector } = await import('../services/cloud-connector');
+    const connector = getCloudConnector();
+    if (!connector.isConnected()) return;
+
+    await connector.reportQuarantinedSkill(sha256, name, sourcePath);
+    console.log(`[SkillsWatcher] Reported quarantined skill to cloud: ${name} (sha256=${sha256.slice(0, 12)}...)`);
+  } catch (err) {
+    console.warn(`[SkillsWatcher] Cloud report failed for ${name}:`, (err as Error).message);
+  }
+}
+
+/**
  * Scan the skills directory for unapproved skills and detect mismatches.
  */
 function scanSkills(): void {
@@ -365,11 +383,45 @@ function scanSkills(): void {
         }
 
         if (!autoApproved) {
-          // No valid tag → move to marketplace as untrusted
+          const hash = computeSkillHash(fullPath);
+
+          // Check cloud-approved hashes when cloud-enrolled
+          if (hash && isCloudEnrolled()) {
+            try {
+              const storage = getStorage();
+              if (storage.approvedSkillHashes.isApproved(hash)) {
+                console.log(`[SkillsWatcher] Auto-approving skill from cloud hash: ${skillName}`);
+                addToApprovedList(skillName, undefined, hash);
+                addSkillPolicy(skillName);
+                const resolvedCtx = resolveTargetContext();
+                if (resolvedCtx) {
+                  const binDir = path.join(resolvedCtx.agentHome, 'bin');
+                  createSkillWrapper(skillName, binDir).catch((err) => {
+                    console.warn(`[SkillsWatcher] Failed to create wrapper for ${skillName}:`, (err as Error).message);
+                  });
+                }
+                if (callbacks.onApproved) {
+                  callbacks.onApproved(skillName);
+                }
+                continue;
+              }
+            } catch {
+              // Storage not available, fall through to quarantine
+            }
+          }
+
+          // No valid tag and not cloud-approved → move to marketplace as untrusted
           const slug = moveToMarketplace(skillName, fullPath);
           if (slug) {
             if (callbacks.onUntrustedDetected) {
               callbacks.onUntrustedDetected({ name: skillName, reason: 'Skill not in approved list' });
+            }
+
+            // Report quarantined skill to cloud if enrolled
+            if (hash && isCloudEnrolled()) {
+              reportSkillToCloud(hash, skillName, fullPath).catch((err) => {
+                console.warn(`[SkillsWatcher] Failed to report skill to cloud:`, (err as Error).message);
+              });
             }
           }
         }

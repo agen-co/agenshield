@@ -41,6 +41,27 @@ struct AgenShieldApp: App {
                 return
             }
 
+            // Shield progress events
+            if event.type == "setup:shield_progress" {
+                if let dict = event.data.value as? [String: Any] {
+                    appState.shieldProgress = dict["progress"] as? Int ?? 0
+                    appState.shieldProgressMessage = dict["message"] as? String
+                }
+                return
+            }
+            if event.type == "setup:shield_complete" {
+                appState.shieldingTargetId = nil
+                appState.shieldProgress = 100
+                appState.updateTargets()
+                return
+            }
+
+            // Refresh quarantined skills on workspace skill events
+            if event.type.hasPrefix("workspace_skills:") {
+                appState.updateQuarantinedSkills()
+                appState.updateDaemonStatus()
+            }
+
             // Send native notifications for relevant events
             NotificationService.shared.notify(for: event)
 

@@ -48,9 +48,25 @@ export class CloudConnector {
 
   /**
    * Try to connect to AgenShield Cloud.
+   * Loads credentials from SQLite first, falling back to file.
    * No-ops if credentials don't exist.
    */
   async connect(): Promise<void> {
+    try {
+      const storage = getStorage();
+      const identity = storage.cloudIdentity.get();
+      if (identity?.agentId && identity.privateKey && identity.cloudUrl) {
+        this.client.setCredentials({
+          agentId: identity.agentId,
+          privateKey: identity.privateKey,
+          cloudUrl: identity.cloudUrl,
+          companyName: identity.companyName ?? '',
+          registeredAt: identity.enrolledAt ?? new Date().toISOString(),
+        });
+      }
+    } catch {
+      // Storage may not be ready — client will try file fallback
+    }
     await this.client.connect();
   }
 
@@ -93,6 +109,26 @@ export class CloudConnector {
     this.pullMcpServers().catch((err) => {
       log.warn({ err }, '[cloud] Initial MCP servers pull failed');
     });
+
+    // Sync claim state from cloud (so already-claimed devices show user info after restart)
+    this.syncClaimState().catch((err) => {
+      log.debug({ err }, '[cloud] Claim state sync failed');
+    });
+
+    // Re-scan skills after bundle sync applies cloud-approved hashes
+    import('../watchers/skills').then(({ triggerSkillsScan }) => {
+      triggerSkillsScan();
+    }).catch((err) => {
+      log.debug({ err }, '[cloud] Skills re-scan after connect failed');
+    });
+  }
+
+  private async syncClaimState(): Promise<void> {
+    const { getClaimService } = await import('./claim');
+    const creds = this.client.getCredentials();
+    if (creds?.agentId && creds.privateKey && creds.cloudUrl) {
+      await getClaimService().syncFromCloud(creds.cloudUrl, creds.agentId, creds.privateKey);
+    }
   }
 
   // ─── Command dispatch ─────────────────────────────────────
@@ -129,6 +165,16 @@ export class CloudConnector {
       case 'push_mcp_servers':
         log.info(`[cloud] Received MCP servers push: ${JSON.stringify(command.params).slice(0, 200)}`);
         await this.handlePushMcpServers(command.params);
+        break;
+
+      case 'push_bundle':
+        log.info(`[cloud] Received bundle push: revision=${(command.params as Record<string, unknown>)?.revision ?? 'unknown'}`);
+        await this.handlePushBundle(command.params);
+        break;
+
+      case 'update_approved_hashes':
+        log.info('[cloud] Received approved skill hashes update');
+        await this.handleUpdateApprovedHashes(command.params);
         break;
 
       case 'ping':
@@ -465,6 +511,88 @@ export class CloudConnector {
       }
     } catch (err) {
       log.warn({ err }, '[cloud] Failed to pull MCP servers');
+    }
+  }
+
+  /**
+   * Report a quarantined skill to the cloud for CISO review.
+   * Optionally includes full file contents so the admin can analyze remotely.
+   */
+  async reportQuarantinedSkill(
+    sha256: string,
+    name: string,
+    source?: string,
+  ): Promise<{ id?: string; existingDecision?: string }> {
+    const log = getLogger();
+    try {
+      const body = await this.client.post<{ id: string; existingDecision?: string }>(
+        '/skills/report',
+        { sha256, name, source },
+      );
+      log.info(`[cloud] Reported quarantined skill: ${name} (sha256=${sha256.slice(0, 12)}...)`);
+      return body;
+    } catch (err) {
+      log.warn({ err }, '[cloud] Failed to report quarantined skill');
+      return {};
+    }
+  }
+
+  /**
+   * Handle an update_approved_hashes command: replace approved hashes and re-scan skills.
+   */
+  private async handleUpdateApprovedHashes(params: Record<string, unknown>): Promise<void> {
+    const log = getLogger();
+    const hashes = params.hashes as Array<{ sha256: string; name?: string }> | undefined;
+
+    if (!Array.isArray(hashes)) {
+      log.warn('[cloud] update_approved_hashes: missing or invalid hashes array');
+      return;
+    }
+
+    try {
+      const storage = getStorage();
+      storage.approvedSkillHashes.replaceAll(
+        hashes.map((h) => ({ sha256: h.sha256, displayName: h.name })),
+      );
+      log.info(`[cloud] Updated ${hashes.length} approved skill hashes`);
+
+      // Re-scan skills to auto-approve newly approved hashes
+      const { triggerSkillsScan } = await import('../watchers/skills');
+      triggerSkillsScan();
+    } catch (err) {
+      log.error({ err }, '[cloud] Failed to update approved skill hashes');
+    }
+  }
+
+  /**
+   * Handle a push_bundle command: update policies + approved skill hashes.
+   */
+  private async handlePushBundle(params: Record<string, unknown>): Promise<void> {
+    const log = getLogger();
+    const storage = getStorage();
+
+    // Apply policies from bundle
+    const policies = params['policies'] as unknown[];
+    if (Array.isArray(policies)) {
+      await this.applyPolicyPush({ source: 'cloud', policies });
+    }
+
+    // Sync approved skill hashes
+    const approvedSkillHashes = params['approvedSkillHashes'] as Array<{ sha256: string; name?: string }>;
+    if (Array.isArray(approvedSkillHashes)) {
+      storage.approvedSkillHashes.replaceAll(
+        approvedSkillHashes.map(h => ({
+          sha256: h.sha256,
+          displayName: h.name,
+        })),
+      );
+      log.info(`[cloud] Synced ${approvedSkillHashes.length} approved skill hashes`);
+    }
+
+    // Update bundle revision in cloud identity
+    const revision = params['revision'] as string | undefined;
+    if (revision) {
+      storage.cloudIdentity.updateBundleRevision(revision);
     }
   }
 }

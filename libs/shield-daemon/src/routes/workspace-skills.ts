@@ -1,14 +1,18 @@
 /**
  * Workspace skills governance routes
  *
- * Endpoints for listing, approving, and denying workspace-level skills.
+ * Endpoints for listing, approving, denying, requesting cloud approval,
+ * and deleting workspace-level skills.
  * Admin-only operations require JWT with role=admin.
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { getStorage } from '@agenshield/storage';
 import { verifyToken } from '@agenshield/auth';
 import { extractToken } from '../auth/middleware';
+import { getCloudConnector } from '../services/cloud-connector';
 
 /**
  * Verify that the request has admin-level JWT authentication.
@@ -202,4 +206,107 @@ export async function workspaceSkillsRoutes(app: FastifyInstance): Promise<void>
     const allSkills = storage.workspaceSkills.getAllActive();
     return { success: true, data: allSkills };
   });
+
+  /**
+   * POST /workspace-skills/:id/request-approval — Upload skill to cloud for admin review.
+   * Reads skill files from disk and sends them to the cloud for CISO analysis.
+   */
+  app.post('/workspace-skills/:id/request-approval', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const storage = getStorage();
+
+    const skill = storage.workspaceSkills.getById(id);
+    if (!skill) {
+      return reply.status(404).send({
+        success: false,
+        error: { message: `Workspace skill not found: ${id}`, statusCode: 404 },
+      });
+    }
+
+    if (skill.status !== 'pending') {
+      return reply.status(400).send({
+        success: false,
+        error: { message: `Skill is not pending approval (status: ${skill.status})`, statusCode: 400 },
+      });
+    }
+
+    const connector = getCloudConnector();
+    if (!connector.isConnected()) {
+      return reply.status(503).send({
+        success: false,
+        error: { message: 'Not connected to AgenShield Cloud', statusCode: 503 },
+      });
+    }
+
+    const result = await connector.reportQuarantinedSkill(
+      skill.contentHash ?? '',
+      skill.skillName,
+      skill.workspacePath,
+    );
+
+    // Update DB with cloud skill ID if returned
+    if (result.id) {
+      storage.workspaceSkills.update(id, { cloudSkillId: result.id });
+    }
+
+    // If cloud already has a decision, apply it locally
+    if (result.existingDecision === 'approved' && skill.contentHash) {
+      storage.approvedSkillHashes.upsert(skill.contentHash, skill.skillName);
+      const scanner = app.workspaceSkillScanner;
+      if (scanner) {
+        scanner.approveSkill(id, 'cloud:verify');
+      }
+    }
+
+    return { success: true, data: { cloudSkillId: result.id, existingDecision: result.existingDecision } };
+  });
+
+  /**
+   * POST /workspace-skills/:id/delete — Delete skill files from disk.
+   * Removes the skill directory and marks the DB record as removed.
+   */
+  app.post('/workspace-skills/:id/delete', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const storage = getStorage();
+
+    const skill = storage.workspaceSkills.getById(id);
+    if (!skill) {
+      return reply.status(404).send({
+        success: false,
+        error: { message: `Workspace skill not found: ${id}`, statusCode: 404 },
+      });
+    }
+
+    // Remove skill directory from disk
+    const skillDir = path.join(skill.workspacePath, '.claude', 'skills', skill.skillName);
+    try {
+      if (fs.existsSync(skillDir)) {
+        fs.rmSync(skillDir, { recursive: true, force: true });
+      }
+    } catch (err) {
+      return reply.status(500).send({
+        success: false,
+        error: { message: `Failed to delete skill files: ${(err as Error).message}`, statusCode: 500 },
+      });
+    }
+
+    // Mark as removed in DB
+    storage.workspaceSkills.markRemoved(id);
+
+    // Remove deny ACL if scanner is available
+    const scanner = app.workspaceSkillScanner;
+    if (scanner) {
+      try {
+        const { allowWorkspaceSkill } = await import('../acl');
+        const profile = storage.profiles.getById(skill.profileId);
+        const agentUsername = (profile as { agentUsername?: string } | null)?.agentUsername ?? '';
+        if (agentUsername) {
+          allowWorkspaceSkill(skillDir, agentUsername, request.log);
+        }
+      } catch { /* best effort ACL cleanup */ }
+    }
+
+    return { success: true, data: { deleted: true } };
+  });
 }
+

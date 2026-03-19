@@ -35,6 +35,8 @@ import { workspacePathsRoutes } from './workspace-paths';
 import { workspaceSkillsRoutes } from './workspace-skills';
 import { mcpsRoutes } from './mcps';
 import { setupRoutes } from './setup';
+import { launchGateRoutes } from './launch-gate';
+import { cloudClaimRoutes } from './cloud-claim';
 import { emitApiRequest } from '../events/emitter';
 import { createAuthHook } from '../auth/middleware';
 import { registerShieldContext } from '../context';
@@ -56,6 +58,8 @@ const SYSTEM_ROUTE_PREFIXES = [
   '/api/profiles',
   '/api/setup/',
   '/api/enrollment/',
+  '/api/launch-gate/',
+  '/api/cloud/',
 ];
 
 /**
@@ -85,7 +89,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // Skip SSE, RPC, static file requests, and noisy health polls
     if (!request.url.startsWith('/sse') && !request.url.startsWith('/rpc') && !request.url.includes('.') && !request.url.endsWith('/health')) {
       // Skip successful status polls — too noisy
-      if (request.method === 'GET' && (request.url.startsWith('/api/status') || request.url.startsWith('/api/activity') || request.url.startsWith('/api/alerts') || request.url.startsWith('/api/workspace-paths/check')) && reply.statusCode === 200) {
+      if (request.method === 'GET' && (request.url.startsWith('/api/status') || request.url.startsWith('/api/activity') || request.url.startsWith('/api/alerts') || request.url.startsWith('/api/launch-gate/') || request.url.startsWith('/api/workspace-paths/check')) && reply.statusCode === 200) {
         done();
         return;
       }
@@ -167,6 +171,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await api.register(workspaceSkillsRoutes);
       await api.register(mcpsRoutes);
       await api.register(setupRoutes);
+      await api.register(launchGateRoutes);
+      await api.register(cloudClaimRoutes);
     },
     { prefix: API_PREFIX }
   );

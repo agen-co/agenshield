@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/interceptor",
-  "version": "0.8.2",
+  "version": "0.8.10",
   "type": "module",
   "description": "Node.js runtime interception via ESM loader and CJS preload",
   "main": "./dist/index.js",
@@ -28,8 +28,8 @@
   },
   "license": "Apache-2.0",
   "dependencies": {
-    "@agenshield/ipc": "0.8.2",
-    "@agenshield/seatbelt": "0.8.2",
+    "@agenshield/ipc": "0.8.10",
+    "@agenshield/seatbelt": "0.8.10",
     "pidusage": "^4.0.1"
   },
   "devDependencies": {

@@ -190,6 +190,12 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   // Essential services always start (storage, vault, policy manager, etc.)
   await startEssentialServices(app, config);
 
+  // Import file-based cloud credentials to SQLite if needed.
+  // When `agenshield install --token` runs before the daemon, credentials are saved
+  // to ~/.agenshield/cloud.json (file). The daemon needs them in SQLite for
+  // launch-gate, claim service, and cloud connector.
+  await importFileCredentialsIfNeeded(app);
+
   // Check whether setup is complete to decide if monitoring should start now
   const activation = getActivationService();
   const { getSetupService } = await import('./services/setup.js');
@@ -224,6 +230,45 @@ export async function startServer(config: DaemonConfig): Promise<FastifyInstance
   getAutoShieldService().setApp(app);
 
   return app;
+}
+
+/**
+ * Import file-based cloud credentials to SQLite on first boot.
+ *
+ * When `agenshield install --token` runs, credentials are saved to
+ * ~/.agenshield/cloud.json (file-based) because the daemon isn't running yet.
+ * The daemon's launch-gate, claim service, and cloud connector all read from
+ * SQLite. This function bridges the gap by importing file credentials into
+ * SQLite on the first boot after token enrollment.
+ */
+async function importFileCredentialsIfNeeded(app: FastifyInstance): Promise<void> {
+  try {
+    const storage = getStorage();
+    if (storage.cloudIdentity.isEnrolled()) return; // Already in SQLite
+
+    const { isCloudEnrolled, loadCloudCredentials } = await import('@agenshield/cloud');
+    if (!isCloudEnrolled()) return; // No file either
+
+    const creds = loadCloudCredentials();
+    if (!creds?.agentId || !creds.privateKey || !creds.cloudUrl) return;
+
+    // Derive public key from private key (Ed25519 PKCS8 PEM → SPKI PEM)
+    const { createPrivateKey, createPublicKey } = await import('node:crypto');
+    const privKeyObj = createPrivateKey({ key: creds.privateKey, format: 'pem', type: 'pkcs8' });
+    const publicKey = createPublicKey(privKeyObj).export({ type: 'spki', format: 'pem' }) as string;
+
+    storage.cloudIdentity.save({
+      agentId: creds.agentId,
+      publicKey,
+      privateKey: creds.privateKey,
+      cloudUrl: creds.cloudUrl,
+      companyName: creds.companyName,
+    });
+
+    app.log.info(`[cloud] Imported file credentials to SQLite (Agent ID: ${creds.agentId})`);
+  } catch (err) {
+    app.log.warn({ err }, '[cloud] Failed to import file credentials to SQLite');
+  }
 }
 
 /**
@@ -576,6 +621,20 @@ export async function startEssentialServices(app: FastifyInstance, config: Daemo
     configDir: getConfigDir(),
   });
   app.decorate('workspaceSkillScanner', workspaceSkillScanner);
+
+  // Bridge workspace_skills events to SSE so the menu bar app receives them
+  for (const evtName of [
+    'workspace_skills:detected',
+    'workspace_skills:approved',
+    'workspace_skills:denied',
+    'workspace_skills:tampered',
+    'workspace_skills:removed',
+    'workspace_skills:cloud_forced',
+  ] as const) {
+    eventBus.on(evtName, (payload) => {
+      daemonEvents.broadcast(evtName, payload);
+    });
+  }
 
   // Create MCP manager (injector + scanner) early so routes can use it.
   // Scanner polling starts later in startMonitoringServices().

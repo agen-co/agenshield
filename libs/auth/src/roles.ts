@@ -33,6 +33,10 @@ export const PUBLIC_ROUTES = [
   '/api/setup/status',
   '/api/setup/cloud',
   '/api/setup/local',
+  '/api/launch-gate/',
+  '/api/cloud/claim',
+  '/api/enrollment/',
+  '/api/workspace-skills',  // Menubar reads pending skills without auth
 ] as const;
 
 /**

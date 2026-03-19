@@ -113,12 +113,16 @@ function waitForProcessExit(pid: number, timeoutMs = 5000): boolean {
 }
 
 function stopDaemon(): RestoreProgress {
-  const plistPath = '/Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist';
+  const DAEMON_LABEL = 'com.frontegg.AgenShield.daemon';
+  const plistPath = `/Library/LaunchDaemons/${DAEMON_LABEL}.plist`;
 
-  // Remove plist FIRST to prevent launchd from respawning, then unload
+  // Bootout the launchd service by label (works even if plist file is already deleted).
+  // This prevents KeepAlive from respawning the process.
+  sudoExec(`launchctl bootout system/${DAEMON_LABEL} 2>/dev/null || true`);
+
+  // Remove plist file if it still exists
   if (fs.existsSync(plistPath)) {
     sudoExec(`rm -f "${plistPath}"`);
-    sudoExec(`launchctl unload "${plistPath}" 2>/dev/null || true`);
   }
 
   // Kill any process still on the port
@@ -462,7 +466,7 @@ function cleanup(): RestoreProgress {
   try {
     if (fs.existsSync(plistDir)) {
       for (const file of fs.readdirSync(plistDir)) {
-        if (file.startsWith('com.agenshield.') && file.endsWith('.plist')) {
+        if ((file.startsWith('com.agenshield.') || file.startsWith('com.frontegg.AgenShield.')) && file.endsWith('.plist')) {
           const fullPath = path.join(plistDir, file);
           const label = file.replace('.plist', '');
           sudoExec(`launchctl bootout system/${label} 2>/dev/null || true`);
@@ -739,12 +743,29 @@ export function forceUninstall(
   // Always attempt to stop daemon (safe no-op if not running)
   runStep(() => stopDaemon());
 
-  // Discover and stop all agenshield plists (daemon, broker, per-target brokers)
+  // Bootout all known agenshield launchd labels (even if plist files are already deleted)
+  const KNOWN_LAUNCHD_LABELS = [
+    'com.frontegg.AgenShield.daemon',
+    'com.frontegg.AgenShield.broker',
+    'com.agenshield.daemon',
+    'com.agenshield.broker',
+    'com.agenshield.broker.claude',
+    'com.agenshield.broker.openclaw',
+    'com.agenshield.privilege-helper',
+    'com.agenshield.openclaw.daemon',
+    'com.agenshield.openclaw.gateway',
+    'com.agenshield.menubar',
+  ];
+  for (const label of KNOWN_LAUNCHD_LABELS) {
+    sudoExec(`launchctl bootout system/${label} 2>/dev/null || true`);
+  }
+
+  // Also discover and remove any plist files
   const plistDir = '/Library/LaunchDaemons';
   try {
     if (fs.existsSync(plistDir)) {
       for (const file of fs.readdirSync(plistDir)) {
-        if (file.startsWith('com.agenshield.') && file.endsWith('.plist')) {
+        if ((file.startsWith('com.agenshield.') || file.startsWith('com.frontegg.AgenShield.')) && file.endsWith('.plist')) {
           const label = file.replace('.plist', '');
           sudoExec(`launchctl bootout system/${label} 2>/dev/null || true`);
           sudoExec(`rm -f "${path.join(plistDir, file)}"`);

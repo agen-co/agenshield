@@ -258,10 +258,11 @@ export async function checkSecurityStatus(options?: SecurityCheckOptions): Promi
   // Filter out short-lived installer processes (npm install, node setup scripts) from unisolated list
   const INSTALLER_PATTERNS = ['npm ', 'npm install', 'node setup', 'node install', 'brew ', 'dummy-openclaw'];
 
-  // Detect sudo delegation: `sudo -u {sandboxUser}` wrappers run as root but
-  // correctly delegate to the agent user — not a security violation.
+  // Detect sudo delegation: `sudo -u {sandboxUser}` wrappers run as root or
+  // the host user — correctly delegate to the agent user — not a security violation.
   const isSudoDelegation = (proc: { user: string; command: string }) => {
-    if (proc.user !== 'root') return false;
+    // Allow root OR the current (host) user delegating to a sandbox user
+    if (proc.user !== 'root' && proc.user !== currentUser) return false;
     const tokens = tokenizeCommand(proc.command);
     const parsed = parseSudoCommand(tokens);
     return !!parsed?.targetUser && sandboxUsers.includes(parsed.targetUser);
@@ -270,7 +271,7 @@ export async function checkSecurityStatus(options?: SecurityCheckOptions): Promi
   // macOS setup commands that run as root during `agenshield install`.
   // These are expected: user creation (dscl), group membership (dseditgroup),
   // home dir setup (createhomedir), ownership changes (chown), and config copies (cp).
-  const SETUP_COMMAND_PREFIXES = ['dscl ', 'dseditgroup ', 'createhomedir ', 'chown ', 'cp '];
+  const SETUP_COMMAND_PREFIXES = ['dscl ', 'dseditgroup ', 'createhomedir ', 'chown ', 'cp ', 'chmod '];
 
   const isSetupCommand = (proc: { user: string; command: string }) => {
     if (proc.user !== 'root') return false;
@@ -317,6 +318,16 @@ export async function checkSecurityStatus(options?: SecurityCheckOptions): Promi
     // 5. Bash-wrapped sudo delegation to sandbox users (readiness checks, etc.)
     // isSudoDelegation only handles top-level sudo; this catches /bin/bash -c sudo -H -u {sandboxUser} ...
     if (cmd.includes('sudo') && sandboxUsers.some((u) => cmd.includes(`-u ${u}`))) {
+      return true;
+    }
+
+    // 6. ACL setup commands (chmod +a / -a) targeting sandbox users during shielding
+    if ((cmd.includes('chmod +a') || cmd.includes('chmod -a')) && sandboxUsers.some((u) => cmd.includes(u))) {
+      return true;
+    }
+
+    // 7. find commands for workspace ACL setup targeting sandbox users
+    if (cmd.includes('find') && cmd.includes('chmod') && sandboxUsers.some((u) => cmd.includes(u))) {
       return true;
     }
 

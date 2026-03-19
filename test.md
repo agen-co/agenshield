@@ -1,0 +1,2 @@
+- change approve in submenu of quarantine skills to request approval 
+- after approval accept by admin, it must be directly affected the active workspaces in endpoint and enable acl for the approved skill

@@ -215,6 +215,12 @@ class NotificationService {
         case "skills:quarantined":
             let name = dataString(event, key: "name") ?? "Unknown"
             return "Skill \"\(name)\" has been quarantined"
+        case "workspace_skills:detected":
+            let wsSkillName = dataString(event, key: "skillName") ?? "Unknown"
+            return "New skill \"\(wsSkillName)\" quarantined — approval required"
+        case "workspace_skills:tampered":
+            let tamperedName = dataString(event, key: "skillName") ?? "Unknown"
+            return "Skill \"\(tamperedName)\" was modified — re-quarantined"
         case "skills:untrusted_detected":
             let name = dataString(event, key: "name") ?? "Unknown"
             return "Untrusted skill \"\(name)\" detected"

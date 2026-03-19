@@ -31,6 +31,8 @@ import { MetricsRepository } from './repositories/metrics';
 import { BinarySignatureRepository } from './repositories/binary-signature';
 import { WorkspaceSkillsRepository } from './repositories/workspace-skills';
 import { McpServerRepository } from './repositories/mcps';
+import { CloudIdentityRepository } from './repositories/cloud-identity';
+import { ApprovedSkillHashesRepository } from './repositories/approved-skill-hashes';
 
 export interface ScopedStorage {
   readonly config: ConfigRepository;
@@ -66,6 +68,8 @@ export class Storage {
   readonly binarySignatures: BinarySignatureRepository;
   readonly workspaceSkills: WorkspaceSkillsRepository;
   readonly mcpServers: McpServerRepository;
+  readonly cloudIdentity: CloudIdentityRepository;
+  readonly approvedSkillHashes: ApprovedSkillHashesRepository;
 
   private constructor(db: Database.Database, activityDb: Database.Database) {
     this.db = db;
@@ -89,6 +93,10 @@ export class Storage {
     this.binarySignatures = new BinarySignatureRepository(db, getKey);
     this.workspaceSkills = new WorkspaceSkillsRepository(db, getKey);
     this.mcpServers = new McpServerRepository(db, getKey);
+    this.cloudIdentity = new CloudIdentityRepository(db, getKey);
+    this.cloudIdentity.ensureTable();
+    this.approvedSkillHashes = new ApprovedSkillHashesRepository(db, getKey);
+    this.approvedSkillHashes.ensureTable();
   }
 
   /**
