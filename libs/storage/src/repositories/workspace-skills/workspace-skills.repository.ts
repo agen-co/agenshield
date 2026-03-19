@@ -102,6 +102,14 @@ export class WorkspaceSkillsRepository extends BaseRepository {
   }
 
   /**
+   * Get all workspace skills matching a cloud skill ID (non-removed).
+   */
+  getByCloudSkillId(cloudSkillId: string): WorkspaceSkill[] {
+    const rows = this.db.prepare(Q.selectByCloudSkillId).all(cloudSkillId) as DbWorkspaceSkillRow[];
+    return rows.map(mapWorkspaceSkill);
+  }
+
+  /**
    * Get all active (non-removed) workspace skills.
    */
   getAllActive(): WorkspaceSkill[] {

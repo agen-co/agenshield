@@ -33,5 +33,7 @@ export const Q = {
 
   deleteById: `DELETE FROM ${TABLE} WHERE id = ?`,
 
+  selectByCloudSkillId: `SELECT * FROM ${TABLE} WHERE cloud_skill_id = ? AND status != 'removed' ORDER BY workspace_path, skill_name`,
+
   deleteManagedBySource: `DELETE FROM ${TABLE} WHERE managed = 1 AND managed_source = @source`,
 } as const;

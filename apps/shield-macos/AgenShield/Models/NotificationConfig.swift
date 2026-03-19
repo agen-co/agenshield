@@ -33,6 +33,10 @@ struct NotificationConfig {
         "workspace_skills:detected": .critical,
         "workspace_skills:tampered": .critical,
         "workspace_skills:approved": .medium,
+        "workspace_skills:denied": .medium,
+        "workspace_skills:revoked": .medium,
+        "workspace_skills:removed": .low,
+        "workspace_skills:cloud_forced": .medium,
         "api:open_url_request": .critical,
 
         // Medium — notify without sound (default on)

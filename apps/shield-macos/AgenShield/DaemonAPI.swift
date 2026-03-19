@@ -105,33 +105,51 @@ struct ApiResponse<T: Codable>: Codable {
     let data: T?
 }
 
+private struct AdminAuthResponse: Codable {
+    let success: Bool
+    let token: String?
+    let expiresAt: Int?
+    let error: String?
+}
+
+private struct MenuBarAdminSession {
+    let token: String
+    let expiresAt: Date
+}
+
 // MARK: - DaemonAPI
 
 class DaemonAPI {
     static let shared = DaemonAPI()
     private let session = URLSession.shared
+    private let authRefreshLeeway: TimeInterval = 120
+    private var adminSession: MenuBarAdminSession?
 
     private var baseURL: String {
         let port = readDaemonPort()
         return "http://127.0.0.1:\(port)"
     }
 
+    private var defaultAuthenticationMessage: String {
+        "Authentication required. Enter your system password to continue."
+    }
+
     // MARK: - Setup Endpoints
 
     func getSetupStatus() async throws -> SetupStatusData {
         let data = try await get("/api/setup/status")
-        let response = try JSONDecoder().decode(ApiResponse<SetupStatusData>.self, from: data)
+        let response = try decode(ApiResponse<SetupStatusData>.self, from: data)
         guard response.success, let result = response.data else {
-            throw DaemonAPIError.requestFailed
+            throw DaemonAPIError.requestFailed("Failed to load setup status.")
         }
         return result
     }
 
     func setupLocal() async throws -> SetupLocalData {
         let data = try await post("/api/setup/local", body: nil)
-        let response = try JSONDecoder().decode(ApiResponse<SetupLocalData>.self, from: data)
+        let response = try decode(ApiResponse<SetupLocalData>.self, from: data)
         guard response.success, let result = response.data else {
-            throw DaemonAPIError.requestFailed
+            throw DaemonAPIError.requestFailed("Failed to start local setup.")
         }
         return result
     }
@@ -140,9 +158,9 @@ class DaemonAPI {
         let body = ["cloudUrl": cloudUrl]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         let data = try await post("/api/setup/cloud", body: bodyData)
-        let response = try JSONDecoder().decode(ApiResponse<SetupCloudData>.self, from: data)
+        let response = try decode(ApiResponse<SetupCloudData>.self, from: data)
         guard response.success, let result = response.data else {
-            throw DaemonAPIError.requestFailed
+            throw DaemonAPIError.requestFailed("Failed to start cloud setup.")
         }
         return result
     }
@@ -159,7 +177,7 @@ class DaemonAPI {
 
     func startClaim() async throws -> ClaimResponse {
         let data = try await post("/api/cloud/claim", body: nil)
-        let response = try JSONDecoder().decode(ClaimResponse.self, from: data)
+        let response = try decode(ClaimResponse.self, from: data)
         return response
     }
 
@@ -185,10 +203,15 @@ class DaemonAPI {
     }
 
     func getTargets() async throws -> [TargetLifecycleInfo] {
-        let data = try await get("/api/targets/lifecycle")
-        let response = try JSONDecoder().decode(ApiResponse<[TargetLifecycleInfo]>.self, from: data)
+        let data: Data
+        if adminSession != nil {
+            data = try await get("/api/targets/lifecycle", requiresAuth: true)
+        } else {
+            data = try await get("/api/targets/lifecycle")
+        }
+        let response = try decode(ApiResponse<[TargetLifecycleInfo]>.self, from: data)
         guard response.success, let result = response.data else {
-            throw DaemonAPIError.requestFailed
+            throw DaemonAPIError.requestFailed("Failed to load detected targets.")
         }
         return result
     }
@@ -211,9 +234,9 @@ class DaemonAPI {
 
     func getQuarantinedSkills() async throws -> [WorkspaceSkillInfo] {
         let data = try await get("/api/workspace-skills?status=pending")
-        let response = try JSONDecoder().decode(ApiResponse<[WorkspaceSkillData]>.self, from: data)
+        let response = try decode(ApiResponse<[WorkspaceSkillData]>.self, from: data)
         guard response.success, let skills = response.data else {
-            throw DaemonAPIError.requestFailed
+            throw DaemonAPIError.requestFailed("Failed to load quarantined skills.")
         }
         return skills.map { s in
             WorkspaceSkillInfo(
@@ -239,16 +262,16 @@ class DaemonAPI {
 
     func shieldTarget(targetId: String) async throws {
         let body = try JSONSerialization.data(withJSONObject: ["enforcementMode": "both"])
-        _ = try await post("/api/targets/lifecycle/\(targetId)/shield", body: body, timeout: 600)
+        _ = try await post("/api/targets/lifecycle/\(targetId)/shield", body: body, timeout: 600, requiresAuth: true)
     }
 
     // MARK: - Status Endpoints
 
     func getDaemonStatus() async throws -> DaemonStatusData {
         let data = try await get("/api/status")
-        let response = try JSONDecoder().decode(ApiResponse<DaemonStatusData>.self, from: data)
+        let response = try decode(ApiResponse<DaemonStatusData>.self, from: data)
         guard response.success, let result = response.data else {
-            throw DaemonAPIError.requestFailed
+            throw DaemonAPIError.requestFailed("Failed to load daemon status.")
         }
         return result
     }
@@ -257,23 +280,62 @@ class DaemonAPI {
         _ = try await post("/api/shutdown", body: nil)
     }
 
+    // MARK: - Admin Session
+
+    func hasValidSession() async throws -> Bool {
+        guard adminSession != nil else {
+            return false
+        }
+
+        do {
+            _ = try await ensureAdminSession()
+            return true
+        } catch let error as DaemonAPIError {
+            if case .authenticationRequired = error {
+                return false
+            }
+            throw error
+        }
+    }
+
+    func loginWithPassword(_ password: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["password": password])
+        let data = try await post("/api/auth/sudo-login", body: body, timeout: 15)
+        let response = try decode(AdminAuthResponse.self, from: data)
+
+        guard response.success, let token = response.token, let expiresAt = response.expiresAt else {
+            throw DaemonAPIError.requestFailed(response.error ?? "Authentication failed.")
+        }
+
+        storeAdminSession(token: token, expiresAtMillis: expiresAt)
+    }
+
+    func clearSession() {
+        adminSession = nil
+    }
+
     // MARK: - HTTP Helpers
 
-    private func get(_ path: String) async throws -> Data {
+    private func get(_ path: String, requiresAuth: Bool = false) async throws -> Data {
         guard let url = URL(string: baseURL + path) else {
             throw DaemonAPIError.invalidURL
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 10
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw DaemonAPIError.requestFailed
+        if requiresAuth {
+            request.setValue("Bearer \(try await ensureAdminSession())", forHTTPHeaderField: "Authorization")
         }
-        return data
+        return try await perform(request, requiresAuth: requiresAuth)
     }
 
-    private func post(_ path: String, body: Data?, timeout: TimeInterval = 30) async throws -> Data {
+    private func post(
+        _ path: String,
+        body: Data?,
+        timeout: TimeInterval = 30,
+        requiresAuth: Bool = false,
+        extraHeaders: [String: String] = [:]
+    ) async throws -> Data {
         guard let url = URL(string: baseURL + path) else {
             throw DaemonAPIError.invalidURL
         }
@@ -284,11 +346,137 @@ class DaemonAPI {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = body
         }
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw DaemonAPIError.requestFailed
+        for (header, value) in extraHeaders {
+            request.setValue(value, forHTTPHeaderField: header)
         }
-        return data
+        if requiresAuth {
+            request.setValue("Bearer \(try await ensureAdminSession())", forHTTPHeaderField: "Authorization")
+        }
+        return try await perform(request, requiresAuth: requiresAuth)
+    }
+
+    private func perform(_ request: URLRequest, requiresAuth: Bool) async throws -> Data {
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw DaemonAPIError.invalidResponse
+            }
+
+            guard (200..<300).contains(http.statusCode) else {
+                let message = parseErrorMessage(from: data) ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode).capitalized
+                if requiresAuth && (http.statusCode == 401 || http.statusCode == 403) {
+                    clearSession()
+                    throw DaemonAPIError.authenticationRequired(message.isEmpty ? defaultAuthenticationMessage : message)
+                }
+                if http.statusCode == 429 {
+                    throw DaemonAPIError.rateLimited(message.isEmpty ? "Too many attempts. Please wait before trying again." : message)
+                }
+                throw DaemonAPIError.httpError(statusCode: http.statusCode, message: message)
+            }
+
+            return data
+        } catch let error as DaemonAPIError {
+            throw error
+        } catch let error as URLError {
+            if error.code == .timedOut {
+                throw DaemonAPIError.timedOut
+            }
+            throw DaemonAPIError.transport(error.localizedDescription)
+        } catch {
+            throw DaemonAPIError.transport(error.localizedDescription)
+        }
+    }
+
+    private func ensureAdminSession() async throws -> String {
+        guard let currentSession = adminSession else {
+            throw DaemonAPIError.authenticationRequired(defaultAuthenticationMessage)
+        }
+
+        let now = Date()
+        if currentSession.expiresAt.timeIntervalSince(now) > authRefreshLeeway {
+            return currentSession.token
+        }
+
+        if currentSession.expiresAt > now {
+            do {
+                return try await refreshAdminSession(using: currentSession.token)
+            } catch let error as DaemonAPIError {
+                switch error {
+                case .authenticationRequired:
+                    clearSession()
+                    throw error
+                default:
+                    return currentSession.token
+                }
+            }
+        }
+
+        clearSession()
+        throw DaemonAPIError.authenticationRequired(defaultAuthenticationMessage)
+    }
+
+    private func refreshAdminSession(using token: String) async throws -> String {
+        do {
+            let data = try await post(
+                "/api/auth/refresh",
+                body: Data("{}".utf8),
+                timeout: 15,
+                extraHeaders: ["Authorization": "Bearer \(token)"]
+            )
+            let response = try decode(AdminAuthResponse.self, from: data)
+
+            guard response.success, let refreshedToken = response.token, let expiresAt = response.expiresAt else {
+                clearSession()
+                throw DaemonAPIError.authenticationRequired(response.error ?? defaultAuthenticationMessage)
+            }
+
+            storeAdminSession(token: refreshedToken, expiresAtMillis: expiresAt)
+            return refreshedToken
+        } catch let error as DaemonAPIError {
+            switch error {
+            case .httpError(let statusCode, let message) where statusCode == 401 || statusCode == 403:
+                clearSession()
+                throw DaemonAPIError.authenticationRequired(message)
+            default:
+                throw error
+            }
+        }
+    }
+
+    private func storeAdminSession(token: String, expiresAtMillis: Int) {
+        let expiresAt = Date(timeIntervalSince1970: Double(expiresAtMillis) / 1000)
+        adminSession = MenuBarAdminSession(token: token, expiresAt: expiresAt)
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            throw DaemonAPIError.decodingFailed(error.localizedDescription)
+        }
+    }
+
+    private func parseErrorMessage(from data: Data) -> String? {
+        guard !data.isEmpty else {
+            return nil
+        }
+
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let error = json["error"] as? String, !error.isEmpty {
+                return error
+            }
+            if let error = json["error"] as? [String: Any],
+               let message = error["message"] as? String,
+               !message.isEmpty {
+                return message
+            }
+            if let message = json["message"] as? String, !message.isEmpty {
+                return message
+            }
+        }
+
+        let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return raw?.isEmpty == false ? raw : nil
     }
 
     // MARK: - Port Discovery
@@ -309,12 +497,33 @@ class DaemonAPI {
 
 enum DaemonAPIError: Error, LocalizedError {
     case invalidURL
-    case requestFailed
+    case invalidResponse
+    case decodingFailed(String)
+    case authenticationRequired(String)
+    case rateLimited(String)
+    case httpError(statusCode: Int, message: String)
+    case timedOut
+    case transport(String)
+    case requestFailed(String)
+
+    var isTimeout: Bool {
+        if case .timedOut = self {
+            return true
+        }
+        return false
+    }
 
     var errorDescription: String? {
         switch self {
         case .invalidURL: return "Invalid daemon URL"
-        case .requestFailed: return "Daemon request failed"
+        case .invalidResponse: return "Invalid daemon response"
+        case .decodingFailed(let message): return "Failed to decode daemon response: \(message)"
+        case .authenticationRequired(let message): return message
+        case .rateLimited(let message): return message
+        case .httpError(_, let message): return message
+        case .timedOut: return "The daemon took too long to respond."
+        case .transport(let message): return message
+        case .requestFailed(let message): return message
         }
     }
 }

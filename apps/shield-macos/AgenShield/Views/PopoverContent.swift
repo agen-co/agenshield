@@ -9,17 +9,12 @@ import SwiftUI
 
 struct PopoverContent: View {
     @Environment(AppState.self) private var appState
+    @State private var pendingShieldTargetId: String?
+    @State private var shieldUnlockPassword = ""
+    @State private var shieldUnlockError: String?
+    @State private var shieldUnlockInFlight = false
 
     var body: some View {
-        switch appState.popoverRoute {
-        case .main:
-            mainContent
-        case .quarantinedSkills:
-            quarantinedSkillsScreen
-        }
-    }
-
-    private var mainContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             headerSection
@@ -82,6 +77,9 @@ struct PopoverContent: View {
             quitSection
         }
         .frame(width: 300)
+        .sheet(isPresented: isShieldUnlockSheetPresented) {
+            shieldUnlockSheet
+        }
     }
 
     // MARK: - Sections
@@ -228,7 +226,7 @@ struct PopoverContent: View {
                             }
                         }
                     } else {
-                        Button(action: { appState.shieldTarget(target.id) }) {
+                        Button(action: { startShieldFlow(target.id) }) {
                             HStack(spacing: 4) {
                                 Image(systemName: "shield.fill")
                                     .font(.system(size: 9))
@@ -242,7 +240,7 @@ struct PopoverContent: View {
                             .cornerRadius(4)
                         }
                         .buttonStyle(.plain)
-                        .disabled(appState.shieldingTargetId != nil)
+                        .disabled(appState.shieldingTargetId != nil || shieldUnlockInFlight)
                     }
                 }
                 .padding(.vertical, 2)
@@ -346,166 +344,139 @@ struct PopoverContent: View {
     }
 
     private var quarantinedSkillsSection: some View {
-        PopoverActionRow(action: {
-            appState.popoverRoute = .quarantinedSkills
-            appState.updateQuarantinedSkills()
-        }) {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.orange)
-                    .frame(width: 16, alignment: .center)
-                Text("\(appState.pendingSkillCount) skill\(appState.pendingSkillCount == 1 ? "" : "s") quarantined")
-                    .font(.system(size: 12, weight: .medium))
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
-    }
-
-    // MARK: - Quarantined Skills Submenu
-
-    private var quarantinedSkillsScreen: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Back row
-            PopoverActionRow(action: { appState.popoverRoute = .main }) {
+            // Expandable header row
+            PopoverActionRow(action: {
+                appState.quarantineExpanded.toggle()
+                if appState.quarantineExpanded {
+                    appState.updateQuarantinedSkills()
+                }
+            }) {
                 HStack(spacing: 6) {
-                    Image(systemName: "chevron.left")
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
+                        .frame(width: 16, alignment: .center)
+                    Text("\(appState.pendingSkillCount) skill\(appState.pendingSkillCount == 1 ? "" : "s") quarantined")
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    Image(systemName: appState.quarantineExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 10))
-                    Text("Back")
-                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 4)
             .padding(.vertical, 4)
 
-            sectionDivider
-
-            // Title
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.orange)
-                Text("Quarantined Skills")
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            sectionDivider
-
-            // Content: loading / error / empty / list
-            if appState.quarantineLoading {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading...")
+            // Inline expanded skill list
+            if appState.quarantineExpanded {
+                if appState.quarantineLoading {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading...")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                } else if let error = appState.quarantineError {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(error)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red)
+                        Button(action: { appState.updateQuarantinedSkills() }) {
+                            Text("Retry")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                } else if appState.quarantinedSkills.isEmpty {
+                    Text("No quarantined skills")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            } else if let error = appState.quarantineError {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(error)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.red)
-                    Button(action: { appState.updateQuarantinedSkills() }) {
-                        Text("Retry")
-                            .font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            } else if appState.quarantinedSkills.isEmpty {
-                Text("No quarantined skills")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(appState.quarantinedSkills) { skill in
-                            HStack(spacing: 6) {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(skill.skillName)
-                                        .font(.system(size: 11, weight: .medium))
-                                        .lineLimit(1)
-                                    Text(abbreviatePath(skill.workspacePath))
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                                Spacer()
-                                if skill.isRequesting {
-                                    ProgressView()
-                                        .controlSize(.mini)
-                                } else if skill.cloudSkillId != nil {
-                                    Text("Pending Approval")
-                                        .font(.system(size: 10, weight: .medium))
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(Color.secondary)
-                                        .cornerRadius(4)
-
-                                    Button(action: { appState.deleteSkill(skill.id) }) {
-                                        Image(systemName: "trash")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.white)
-                                            .padding(4)
-                                            .background(Color.red.opacity(0.85))
-                                            .cornerRadius(4)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(appState.quarantinedSkills) { skill in
+                                HStack(spacing: 6) {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(skill.skillName)
+                                            .font(.system(size: 11, weight: .medium))
+                                            .lineLimit(1)
+                                        Text(abbreviatePath(skill.workspacePath))
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
                                     }
-                                    .buttonStyle(.plain)
-                                } else {
-                                    Button(action: { appState.requestSkillApproval(skill.id) }) {
-                                        Text("Request Approval")
+                                    Spacer()
+                                    if skill.isRequesting {
+                                        ProgressView()
+                                            .controlSize(.mini)
+                                    } else if skill.cloudSkillId != nil {
+                                        Text("Pending")
                                             .font(.system(size: 10, weight: .medium))
                                             .foregroundColor(.white)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 3)
-                                            .background(Color.accentColor)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.secondary)
                                             .cornerRadius(4)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .disabled(!appState.cloudEnrolled)
 
-                                    Button(action: { appState.deleteSkill(skill.id) }) {
-                                        Image(systemName: "trash")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.white)
-                                            .padding(4)
-                                            .background(Color.red.opacity(0.85))
-                                            .cornerRadius(4)
+                                        Button(action: { appState.deleteSkill(skill.id) }) {
+                                            Image(systemName: "trash")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.white)
+                                                .padding(3)
+                                                .background(Color.red.opacity(0.85))
+                                                .cornerRadius(4)
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        Button(action: { appState.requestSkillApproval(skill.id) }) {
+                                            Text("Request")
+                                                .font(.system(size: 10, weight: .medium))
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.accentColor)
+                                                .cornerRadius(4)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .disabled(!appState.cloudEnrolled)
+
+                                        Button(action: { appState.deleteSkill(skill.id) }) {
+                                            Image(systemName: "trash")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.white)
+                                                .padding(3)
+                                                .background(Color.red.opacity(0.85))
+                                                .cornerRadius(4)
+                                        }
+                                        .buttonStyle(.plain)
                                     }
-                                    .buttonStyle(.plain)
+                                }
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 2)
+
+                                if skill.status == "approved" {
+                                    Text("Restart Claude Code to apply")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 4)
                                 }
                             }
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-
-                            if skill.status == "approved" {
-                                Text("Restart Claude Code to apply")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 4)
-                            }
                         }
+                        .padding(.horizontal, 8)
                     }
-                    .padding(.horizontal, 8)
+                    .frame(maxHeight: 200)
                 }
-                .frame(maxHeight: 300)
             }
         }
-        .frame(width: 300)
     }
 
     private var loginSection: some View {
@@ -616,26 +587,87 @@ struct PopoverContent: View {
         Divider().padding(.horizontal, 8)
     }
 
+    private var isShieldUnlockSheetPresented: Binding<Bool> {
+        Binding(
+            get: { pendingShieldTargetId != nil },
+            set: { isPresented in
+                if !isPresented {
+                    dismissShieldUnlockSheet()
+                }
+            }
+        )
+    }
+
+    private var shieldUnlockTargetName: String {
+        guard let targetId = pendingShieldTargetId else {
+            return "this target"
+        }
+        return appState.targets.first(where: { $0.id == targetId })?.name ?? "this target"
+    }
+
+    private var shieldUnlockSheet: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Unlock Shielding")
+                .font(.system(size: 16, weight: .semibold))
+
+            Text("Enter your system password to shield \(shieldUnlockTargetName).")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+
+            SecureField("System password", text: $shieldUnlockPassword)
+                .textFieldStyle(.roundedBorder)
+                .disabled(shieldUnlockInFlight)
+                .onSubmit {
+                    submitShieldUnlock()
+                }
+
+            if let shieldUnlockError, !shieldUnlockError.isEmpty {
+                Text(shieldUnlockError)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    dismissShieldUnlockSheet()
+                }
+                .disabled(shieldUnlockInFlight)
+
+                Button(action: submitShieldUnlock) {
+                    if shieldUnlockInFlight {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Unlocking...")
+                        }
+                    } else {
+                        Text("Unlock & Shield")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(shieldUnlockPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || shieldUnlockInFlight)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+    }
+
     // MARK: - Computed Properties
 
     private var statusDotColor: Color {
-        switch appState.connectionStatus {
-        case .connected:
-            return appState.servicesActive ? .green : .yellow
-        case .connecting:
-            return .yellow
-        case .disconnected:
-            return .gray
-        }
+        appState.statusColor.color
     }
 
     private var statusLabel: String {
-        switch appState.connectionStatus {
-        case .connected:
-            return appState.servicesActive ? "Online" : "Standby"
-        case .connecting:
-            return "Connecting..."
-        case .disconnected:
+        switch appState.statusColor {
+        case .green:
+            return "Online"
+        case .orange:
+            return "Attention Required"
+        case .red:
+            return "Not Logged In"
+        case .gray:
             return "Offline"
         }
     }
@@ -678,6 +710,72 @@ struct PopoverContent: View {
     }
 
     // MARK: - Actions
+
+    private func startShieldFlow(_ targetId: String) {
+        // Immediately clear all previous shield state so the UI resets
+        appState.shieldError = nil
+        appState.shieldProgress = 0
+        appState.shieldProgressMessage = nil
+
+        Task {
+            do {
+                if try await DaemonAPI.shared.hasValidSession() {
+                    await appState.startShieldTarget(targetId)
+                    return
+                }
+
+                // No valid session — show password dialog
+                await MainActor.run {
+                    pendingShieldTargetId = targetId
+                    shieldUnlockPassword = ""
+                    shieldUnlockError = nil
+                    shieldUnlockInFlight = false
+                }
+            } catch {
+                await MainActor.run {
+                    appState.resetShieldingState(
+                        error: "Failed to prepare shielding: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
+                    )
+                }
+            }
+        }
+    }
+
+    private func submitShieldUnlock() {
+        guard let targetId = pendingShieldTargetId else {
+            return
+        }
+
+        let password = shieldUnlockPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !password.isEmpty else {
+            return
+        }
+
+        shieldUnlockInFlight = true
+        shieldUnlockError = nil
+
+        Task {
+            do {
+                try await DaemonAPI.shared.loginWithPassword(password)
+                await MainActor.run {
+                    dismissShieldUnlockSheet()
+                }
+                await appState.startShieldTarget(targetId)
+            } catch {
+                await MainActor.run {
+                    shieldUnlockError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    shieldUnlockInFlight = false
+                }
+            }
+        }
+    }
+
+    private func dismissShieldUnlockSheet() {
+        pendingShieldTargetId = nil
+        shieldUnlockPassword = ""
+        shieldUnlockError = nil
+        shieldUnlockInFlight = false
+    }
 
     private func startCloudLogin() {
         Task {

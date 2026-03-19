@@ -628,6 +628,7 @@ export async function startEssentialServices(app: FastifyInstance, config: Daemo
     'workspace_skills:detected',
     'workspace_skills:approved',
     'workspace_skills:denied',
+    'workspace_skills:revoked',
     'workspace_skills:tampered',
     'workspace_skills:removed',
     'workspace_skills:cloud_forced',

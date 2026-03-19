@@ -632,6 +632,47 @@ export class WorkspaceSkillScanner {
   }
 
   /**
+   * Deny and remove a workspace skill (used by cloud deny flow).
+   * Applies deny ACL, deletes files from disk, marks removed in DB.
+   */
+  denyAndRemoveSkill(skillId: string): void {
+    const skill = this.storage.workspaceSkills.getById(skillId);
+    if (!skill || skill.status === 'removed') return;
+
+    const agentUsername = this.resolveAgentUsername(skill.profileId);
+    const skillPath = path.join(skill.workspacePath, '.claude', 'skills', skill.skillName);
+
+    // Apply deny ACL
+    if (agentUsername) {
+      denyWorkspaceSkill(skillPath, agentUsername, this.logger);
+    }
+
+    // Delete skill files from disk
+    try {
+      if (fs.existsSync(skillPath)) {
+        fs.rmSync(skillPath, { recursive: true, force: true });
+      }
+    } catch (err) {
+      this.logger.warn(`[workspace-skills] failed to delete skill files: ${(err as Error).message}`);
+    }
+
+    // Mark removed in DB
+    this.storage.workspaceSkills.markRemoved(skillId);
+
+    // Clean up ACL
+    if (agentUsername) {
+      allowWorkspaceSkill(skillPath, agentUsername, this.logger);
+    }
+
+    eventBus.emit('workspace_skills:denied', {
+      workspacePath: skill.workspacePath,
+      skillName: skill.skillName,
+    });
+
+    this.logger.info(`[workspace-skills] denied and removed by cloud: ${skill.skillName} in ${skill.workspacePath}`);
+  }
+
+  /**
    * Revoke all skills for a single workspace path (mark removed + allow ACL).
    */
   private revokeWorkspaceSkills(workspacePath: string): void {

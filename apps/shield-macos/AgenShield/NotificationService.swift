@@ -224,6 +224,18 @@ class NotificationService {
         case "workspace_skills:approved":
             let approvedName = dataString(event, key: "skillName") ?? "Unknown"
             return "Skill \"\(approvedName)\" has been approved"
+        case "workspace_skills:denied":
+            let deniedName = dataString(event, key: "skillName") ?? "Unknown"
+            return "Skill \"\(deniedName)\" has been denied"
+        case "workspace_skills:revoked":
+            let revokedName = dataString(event, key: "skillName") ?? "Unknown"
+            return "Skill \"\(revokedName)\" approval was revoked"
+        case "workspace_skills:cloud_forced":
+            let forcedName = dataString(event, key: "skillName") ?? "Unknown"
+            return "Skill \"\(forcedName)\" was pushed by organization"
+        case "workspace_skills:removed":
+            let removedName = dataString(event, key: "skillName") ?? "Unknown"
+            return "Skill \"\(removedName)\" was removed"
         case "skills:untrusted_detected":
             let name = dataString(event, key: "name") ?? "Unknown"
             return "Untrusted skill \"\(name)\" detected"

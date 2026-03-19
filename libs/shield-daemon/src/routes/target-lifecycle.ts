@@ -431,8 +431,26 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
         });
       }
 
-      // Pre-flight: validate baseName format
-      const baseName = body.baseName || targetId.replace(/-/g, '');
+      // Pre-flight: validate baseName format.
+      // On re-shield, reuse the existing profile's baseName to avoid user/group mismatch.
+      let baseName = body.baseName;
+      if (!baseName) {
+        try {
+          const basePreset = resolvePresetId(targetId);
+          const existingProfiles = getStorage().profiles.getAll();
+          const existingProfile = existingProfiles.find(
+            (p) => p.presetId === basePreset,
+          );
+          if (existingProfile?.agentUsername) {
+            baseName = existingProfile.agentUsername
+              .replace(/^ash_/, '')
+              .replace(/_agent$/, '');
+          }
+        } catch { /* noop — storage may not be ready */ }
+      }
+      if (!baseName) {
+        baseName = targetId.replace(/-/g, '');
+      }
       if (!/^[a-z0-9]+$/.test(baseName)) {
         return reply.code(400).send({
           success: false,
@@ -562,7 +580,8 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           // Detection is optional for install
         }
 
-        const resolvedBaseName = body.baseName || targetId.replace(/-/g, '');
+        // Reuse the pre-flight baseName (which already checks existing profiles)
+        const resolvedBaseName = baseName;
         manifestBuilder = new ManifestBuilder(basePresetId);
         const { baseUid, baseGid } = allocateNextUidGid();
         const userConfig = createUserConfig({ baseName: resolvedBaseName, baseUid, baseGid });
@@ -629,8 +648,9 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
           `dscl . -create /Groups/${groupName} PrimaryGroupID ${userConfig.groups.socket.gid}`,
           `dscl . -create /Groups/${groupName} RealName "${userConfig.groups.socket.description}"`,
           `dscl . -create /Groups/${groupName} Password "*"`,
-        ].join(' && '), { timeout: 30_000 }).catch(() => {
-          // Best-effort — group may already exist
+        ].join(' && '), { timeout: 30_000 }).catch((err) => {
+          request.log.warn({ err, groupName }, 'Group creation failed — group may already exist');
+          shieldLog.info(`Warning: Group creation for ${groupName} failed: ${(err as Error).message}`);
         });
         tracker.completeStep('create_socket_group');
         manifestBuilder.recordInfra('create_socket_group', 2, { groupName });

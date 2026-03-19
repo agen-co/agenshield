@@ -81,7 +81,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     // MARK: - NSPopoverDelegate
 
     func popoverDidClose(_ notification: Notification) {
-        appState.popoverRoute = .main
+        appState.quarantineExpanded = false
     }
 
     // MARK: - Status Dot Observation
@@ -105,7 +105,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         let nsColor: NSColor
         switch appState.statusColor {
         case .green:  nsColor = .systemGreen
-        case .yellow: nsColor = .systemYellow
+        case .orange: nsColor = .systemOrange
         case .red:    nsColor = .systemRed
         case .gray:   nsColor = .systemGray
         }
@@ -140,8 +140,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                 return
             }
             if event.type == "setup:shield_complete" {
-                appState.shieldingTargetId = nil
-                appState.shieldProgress = 100
+                appState.finishShielding()
                 appState.updateTargets()
                 return
             }
@@ -150,10 +149,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                     let errorMessage = dict["error"] as? String ?? "Unknown error"
                     let errorTargetId = dict["targetId"] as? String
                     if errorTargetId == nil || errorTargetId == appState.shieldingTargetId {
-                        appState.shieldError = errorMessage
-                        appState.shieldingTargetId = nil
-                        appState.shieldProgress = 0
-                        appState.shieldProgressMessage = nil
+                        appState.resetShieldingState(error: errorMessage)
                     }
                 }
                 return

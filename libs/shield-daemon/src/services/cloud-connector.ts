@@ -162,6 +162,11 @@ export class CloudConnector {
         await this.handleKillProcess(command.params);
         break;
 
+      case 'deny_skill':
+        log.info(`[cloud] Received deny_skill command: ${JSON.stringify(command.params).slice(0, 200)}`);
+        await this.handleDenySkill(command.params);
+        break;
+
       case 'push_forced_skills':
         log.info(`[cloud] Received forced skills push: ${JSON.stringify(command.params).slice(0, 200)}`);
         await this.handlePushForcedSkills(command.params);
@@ -357,6 +362,47 @@ export class CloudConnector {
         log.info(`[cloud] Process violation (${action}): PID ${proc.pid}: ${proc.command.slice(0, 120)}`);
         emitProcessViolation(payload);
       }
+    }
+  }
+
+  // ─── Deny skill ──────────────────────────────────────────────
+
+  /**
+   * Handle a deny_skill command from cloud.
+   * Looks up workspace skills by cloudSkillId and removes them.
+   */
+  private async handleDenySkill(params: Record<string, unknown>): Promise<void> {
+    const log = getLogger();
+    const cloudSkillId = params.cloudSkillId as string | undefined;
+
+    if (!cloudSkillId) {
+      log.warn('[cloud] deny_skill: missing cloudSkillId');
+      return;
+    }
+
+    try {
+      const storage = getStorage();
+      const skills = storage.workspaceSkills.getByCloudSkillId(cloudSkillId);
+
+      if (skills.length === 0) {
+        log.info(`[cloud] deny_skill: no matching skills found for cloudSkillId=${cloudSkillId}`);
+        return;
+      }
+
+      const { getWorkspaceSkillScanner } = await import('./workspace-skill-scanner');
+      const scanner = getWorkspaceSkillScanner();
+
+      for (const skill of skills) {
+        if (scanner) {
+          scanner.denyAndRemoveSkill(skill.id);
+        } else {
+          // Fallback: mark removed in DB directly
+          storage.workspaceSkills.markRemoved(skill.id);
+        }
+        log.info(`[cloud] deny_skill: removed skill "${skill.skillName}" in ${skill.workspacePath}`);
+      }
+    } catch (err) {
+      log.error({ err }, '[cloud] Failed to handle deny_skill command');
     }
   }
 

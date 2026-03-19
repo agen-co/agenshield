@@ -20,6 +20,7 @@ import type {
   InstallResult,
 } from '../types.js';
 import { buildClaudeSearchPath, CLAUDE_BIN_CANDIDATE_DIRS } from './claude-paths.js';
+import { findOriginalBinary, isRouterWrapper } from '../../wrappers/index.js';
 
 /**
  * Claude Code preset implementation
@@ -41,13 +42,8 @@ export const claudeCodePreset: TargetPreset = {
     let configPath: string | undefined;
     let method: 'npm' | 'binary' | undefined;
 
-    // 1. Find the claude binary
-    try {
-      const { stdout: whichOut } = await execAsync('which claude', { encoding: 'utf-8', timeout: 5_000 });
-      binaryPath = whichOut.trim();
-    } catch {
-      // Not found in PATH — try known candidate directories
-    }
+    // 1. Find the claude binary (skip AgenShield wrapper/router scripts)
+    binaryPath = findOriginalBinary('claude') ?? undefined;
 
     if (!binaryPath) {
       const homeDir = process.env['HOME'] || '';
@@ -56,6 +52,8 @@ export const claudeCodePreset: TargetPreset = {
           const candidatePath = path.join(homeDir, dir, 'claude');
           try {
             fs.accessSync(candidatePath, fs.constants.X_OK);
+            // Skip if this candidate is also an AgenShield wrapper
+            if (isRouterWrapper(candidatePath)) continue;
             binaryPath = candidatePath;
             break;
           } catch {

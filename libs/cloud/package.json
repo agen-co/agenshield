@@ -1,6 +1,6 @@
 {
   "name": "@agenshield/cloud",
-  "version": "0.8.13",
+  "version": "0.8.14",
   "type": "module",
   "description": "AgenShield Cloud transport, auth, and enrollment protocol",
   "main": "./dist/index.js",

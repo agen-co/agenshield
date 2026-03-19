@@ -15,15 +15,15 @@ enum ConnectionStatus: String {
 }
 
 enum StatusColor {
-    case green   // Connected, no issues
-    case yellow  // Warnings present
-    case red     // Critical alert or disconnected
+    case green   // Fully operational: logged in, shielded, no quarantine
+    case orange  // Logged in but has quarantine skills or unshielded targets
+    case red     // Not logged in (unclaimed)
     case gray    // Daemon not running
 
     var color: Color {
         switch self {
         case .green: return .green
-        case .yellow: return .yellow
+        case .orange: return .orange
         case .red: return .red
         case .gray: return .gray
         }
@@ -53,13 +53,6 @@ struct TargetInfo: Identifiable {
     let version: String?
     let gatewayPort: Int?
     let processCount: Int
-}
-
-// MARK: - Popover Navigation
-
-enum PopoverRoute {
-    case main
-    case quarantinedSkills
 }
 
 @Observable
@@ -104,8 +97,8 @@ class AppState {
     var quarantineLoading: Bool = false
     var quarantineError: String? = nil
 
-    // Popover navigation
-    var popoverRoute: PopoverRoute = .main
+    // Quarantine section expand state
+    var quarantineExpanded: Bool = false
 
     // Targets
     var targets: [TargetInfo] = []
@@ -124,6 +117,27 @@ class AppState {
     var shieldProgressMessage: String? = nil
     var shieldError: String? = nil
 
+    func beginShielding(_ targetId: String) {
+        shieldingTargetId = targetId
+        shieldProgress = 0
+        shieldProgressMessage = nil
+        shieldError = nil
+    }
+
+    func finishShielding() {
+        shieldingTargetId = nil
+        shieldProgress = 100
+        shieldProgressMessage = nil
+        shieldError = nil
+    }
+
+    func resetShieldingState(error: String? = nil) {
+        shieldingTargetId = nil
+        shieldProgress = 0
+        shieldProgressMessage = nil
+        shieldError = error
+    }
+
     /// Update connection status
     func setConnected(_ connected: Bool) {
         connectionStatus = connected ? .connected : .disconnected
@@ -136,15 +150,20 @@ class AppState {
         updateStatusColor()
     }
 
-    /// Compute the status color based on connection and services
+    /// Compute the status color based on connection, claim, and quarantine state
     private func updateStatusColor() {
         if connectionStatus == .disconnected {
             statusColor = .gray
             return
         }
 
-        if !servicesActive {
-            statusColor = .yellow
+        if claimStatus != "claimed" {
+            statusColor = .red
+            return
+        }
+
+        if pendingSkillCount > 0 || !unshieldedTargets.isEmpty {
+            statusColor = .orange
             return
         }
 
@@ -362,23 +381,23 @@ class AppState {
         }
     }
 
-    /// Shield a specific target
-    func shieldTarget(_ targetId: String) {
-        shieldingTargetId = targetId
-        shieldProgress = 0
-        shieldProgressMessage = nil
-        shieldError = nil
-        Task {
-            do {
-                try await DaemonAPI.shared.shieldTarget(targetId: targetId)
-            } catch {
-                await MainActor.run {
-                    if self.shieldingTargetId != nil {
-                        // HTTP timeout doesn't mean daemon failed — SSE events will drive final state
-                        NSLog("[AgenShield] Shield HTTP request failed (may still be in progress): \(error.localizedDescription)")
-                    } else {
-                        self.shieldError = "Failed to start shielding: \(error.localizedDescription)"
-                    }
+    /// Shield a specific target after the popup has obtained admin auth.
+    func startShieldTarget(_ targetId: String) async {
+        await MainActor.run {
+            self.beginShielding(targetId)
+        }
+
+        do {
+            try await DaemonAPI.shared.shieldTarget(targetId: targetId)
+        } catch {
+            await MainActor.run {
+                if let daemonError = error as? DaemonAPIError, daemonError.isTimeout {
+                    // HTTP timeout doesn't mean daemon failed — SSE events will drive final state.
+                    NSLog("[AgenShield] Shield HTTP request timed out (continuing via SSE): \(daemonError.localizedDescription)")
+                } else {
+                    self.resetShieldingState(
+                        error: "Failed to start shielding: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
+                    )
                 }
             }
         }
@@ -420,11 +439,8 @@ class AppState {
         quarantinedSkills = []
         quarantineLoading = false
         quarantineError = nil
-        popoverRoute = .main
+        quarantineExpanded = false
         targets = []
-        shieldingTargetId = nil
-        shieldProgress = 0
-        shieldProgressMessage = nil
-        shieldError = nil
+        resetShieldingState()
     }
 }

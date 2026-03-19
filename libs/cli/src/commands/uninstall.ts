@@ -704,7 +704,7 @@ async function runUninstall(options: { force?: boolean; prefix?: string; skipBac
 
   // Kill any leftover process still holding the daemon port
   try {
-    execSync(`lsof -ti :${DAEMON_CONFIG.PORT} | xargs kill -9 2>/dev/null`, { stdio: 'pipe' });
+    execSync(`lsof -ti :${DAEMON_CONFIG.PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: 'pipe' });
   } catch { /* non-fatal — no process on port */ }
 
   output.info('');
@@ -830,7 +830,7 @@ async function runForceUninstall(options: { force?: boolean }): Promise<void> {
 
   // Kill any leftover process still holding the daemon port
   try {
-    execSync(`lsof -ti :${DAEMON_CONFIG.PORT} | xargs kill -9 2>/dev/null`, { stdio: 'pipe' });
+    execSync(`lsof -ti :${DAEMON_CONFIG.PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: 'pipe' });
   } catch { /* non-fatal — no process on port */ }
 
   // Remove menu bar LaunchAgent and app (user-level, no sudo needed)
