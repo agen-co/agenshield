@@ -37,7 +37,6 @@ import {
   buildInstallRouterCommands,
   buildInstallUserLocalRouterCommands,
   generatePromptHelper,
-  getMacAppBundlePath,
   getRollbackHandler,
   removeRegistryInstance,
   buildRemoveRouterCommands,
@@ -1357,12 +1356,14 @@ export async function targetLifecycleRoutes(app: FastifyInstance): Promise<void>
             hostAppInstalled = true;
             shieldLog.info('Host app found at /Applications/AgenShield.app');
           } else {
-            // Try to install from embedded bundle (best-effort)
+            // Try to install from ~/.agenshield/apps/ (best-effort)
             try {
-              const embeddedApp = getMacAppBundlePath();
-              if (embeddedApp) {
+              const osModule = await import('node:os');
+              const pathModule = await import('node:path');
+              const localApp = pathModule.join(osModule.homedir(), '.agenshield', 'apps', 'AgenShield.app');
+              if (fsSync.existsSync(localApp)) {
                 const cpResult = await executor.execAsRoot(
-                  `cp -r "${embeddedApp}" "${hostAppPath}" && chown -R root:wheel "${hostAppPath}"`,
+                  `cp -r "${localApp}" "${hostAppPath}" && chown -R root:wheel "${hostAppPath}"`,
                   { timeout: 15_000 },
                 );
                 if (cpResult.success) {

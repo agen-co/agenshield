@@ -46,6 +46,9 @@ xcuserdata/
 *.mobileprovision
 *.provisionprofile
 
+# Embedded macOS app (built from apps/shield-macos, not committed)
+libs/sandbox/macos-app/
+
 # Verdaccio local registry
 scripts/registry/.verdaccio-storage/
 scripts/registry/.verdaccio-htpasswd

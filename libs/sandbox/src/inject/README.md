@@ -1,6 +1,6 @@
 # Inject
 
-Skill injection and macOS app resolution. Injects security-related skills into the target application's skills directory and resolves the path to the embedded macOS app bundle.
+Skill injection for the target application's skills directory.
 
 ## Public API
 
@@ -19,24 +19,15 @@ Skill injection and macOS app resolution. Injects security-related skills into t
 
 - **`SkillInjectionResult`** -- `{ success, skillsDir, injectedSkills, error? }`
 
-### macOS App (`macos-app.ts`)
-
-#### Functions
-
-- **`getMacAppBundlePath()`** -- Resolve the path to the embedded `AgenShield.app` bundle that ships inside the `@agenshield/sandbox` npm package. Returns `null` if the bundle is not found (development mode or Xcode build was skipped).
-
 ## Internal Dependencies
 
 - `@agenshield/ipc` -- `UserConfig` type
-- `@agenshield/sandbox/package.json` -- Used to locate the `macos-app/` directory
 
 ## Testing
 
 - `getSkillsDir()` and `getAgenCoSkillPath()` can be tested by mocking filesystem existence checks.
-- `getMacAppBundlePath()` depends on the package directory structure and can be tested with fixture directories.
 
 ## Notes
 
 - The AgenCo skill is auto-generated and deployed by the daemon at runtime. The injector copies it into the target application's skills directory so it is visible to the agent.
-- The macOS app bundle is an optional component. It is only present when the Xcode build step has been run.
 - Skill injection uses `sudo` for writing to directories owned by the broker user.

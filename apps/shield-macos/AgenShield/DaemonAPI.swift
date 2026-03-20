@@ -260,8 +260,12 @@ class DaemonAPI {
 
     // MARK: - Shield Endpoint
 
-    func shieldTarget(targetId: String) async throws {
-        let body = try JSONSerialization.data(withJSONObject: ["enforcementMode": "both"])
+    func shieldTarget(targetId: String, freshInstall: Bool = false) async throws {
+        var bodyDict: [String: Any] = ["enforcementMode": "both"]
+        if freshInstall {
+            bodyDict["freshInstall"] = true
+        }
+        let body = try JSONSerialization.data(withJSONObject: bodyDict)
         _ = try await post("/api/targets/lifecycle/\(targetId)/shield", body: body, timeout: 600, requiresAuth: true)
     }
 

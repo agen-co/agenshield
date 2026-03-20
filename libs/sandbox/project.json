@@ -45,21 +45,9 @@
         }
       }
     },
-    "bundle-macos-app": {
-      "executor": "nx:run-commands",
-      "dependsOn": ["build-cjs"],
-      "options": {
-        "commands": [
-          "rm -rf libs/sandbox/dist/macos-app",
-          "mkdir -p libs/sandbox/dist/macos-app",
-          "if [ -d dist/apps/shield-macos/Release/AgenShield.app ]; then cp -r dist/apps/shield-macos/Release/AgenShield.app libs/sandbox/dist/macos-app/AgenShield.app; elif [ -d libs/sandbox/macos-app/AgenShield.app ]; then cp -r libs/sandbox/macos-app/AgenShield.app libs/sandbox/dist/macos-app/AgenShield.app; else echo 'WARNING: No AgenShield.app found'; fi"
-        ],
-        "parallel": false
-      }
-    },
     "build": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-cjs", "bundle-macos-app"],
+      "dependsOn": ["build-cjs"],
       "options": {
         "command": "node scripts/strip-dist-from-pkg.js libs/sandbox/dist/package.json"
       }

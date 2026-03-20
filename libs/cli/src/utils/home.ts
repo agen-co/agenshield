@@ -1031,43 +1031,6 @@ export async function downloadAndInstallSEARemote(
   }
 }
 
-// ---------------------------------------------------------------------------
-// npm → ~/.agenshield/apps extraction
-// ---------------------------------------------------------------------------
-
-/**
- * Extract the AgenShield.app from the sandbox npm package into
- * `~/.agenshield/apps/AgenShield.app`.
- *
- * This bridges the gap between the npm-pack install path (where the .app
- * lives inside `node_modules/@agenshield/sandbox/macos-app/`) and the
- * menu bar installer which expects it at `~/.agenshield/apps/`.
- *
- * @param distDir - The installation dist directory (e.g. `~/.agenshield/dist/`)
- * @returns `true` if the app was extracted, `false` if not found or not macOS.
- */
-export function extractMacAppFromSandbox(distDir: string): boolean {
-  if (process.platform !== 'darwin') return false;
-
-  const sandboxAppPath = path.join(
-    distDir, 'node_modules', '@agenshield', 'sandbox', 'macos-app', 'AgenShield.app',
-  );
-
-  if (!fs.existsSync(sandboxAppPath)) return false;
-
-  const appsDir = path.join(AGENSHIELD_HOME, 'apps');
-  fs.mkdirSync(appsDir, { recursive: true });
-
-  const destApp = path.join(appsDir, 'AgenShield.app');
-  // Remove old app bundle if present
-  if (fs.existsSync(destApp)) {
-    fs.rmSync(destApp, { recursive: true, force: true });
-  }
-
-  execSync(`cp -R "${sandboxAppPath}" "${destApp}"`, { stdio: 'pipe' });
-  return true;
-}
-
 /** Path to the SEA binary in ~/.agenshield/bin/ */
 export function getSEABinaryPath(): string {
   return path.join(getBinDir(), 'agenshield');

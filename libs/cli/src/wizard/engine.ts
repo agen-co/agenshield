@@ -2,7 +2,9 @@
  * Wizard engine - orchestrates the setup steps
  */
 
+import * as fs from 'node:fs';
 import * as os from 'node:os';
+import * as path from 'node:path';
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   checkPrerequisites,
@@ -33,8 +35,6 @@ import {
   // Preset system
   getPreset,
   autoDetectPreset,
-  // macOS App
-  getMacAppBundlePath,
   type MigrationContext,
   type MigrationDirectories,
 } from '@agenshield/sandbox';
@@ -69,6 +69,7 @@ import type {
 } from './types.js';
 import { createWizardSteps, getStepsByPhase, getAllStepIds } from './types.js';
 import { resolveHostHome } from '../utils/host-user.js';
+import { AGENSHIELD_HOME } from '../utils/home.js';
 
 export type StepExecutor = (context: WizardContext) => Promise<{ success: boolean; error?: string }>;
 
@@ -1458,11 +1459,11 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     if (!context.options?.dryRun) {
       const { execSync } = await import('node:child_process');
       const fs = await import('node:fs');
-      const embeddedApp = getMacAppBundlePath();
-      if (embeddedApp) {
+      const localApp = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
+      if (fs.existsSync(localApp)) {
         const installedApp = '/Applications/AgenShield.app';
         const installedPlist = `${installedApp}/Contents/Info.plist`;
-        const embeddedPlist = `${embeddedApp}/Contents/Info.plist`;
+        const embeddedPlist = `${localApp}/Contents/Info.plist`;
 
         // Compare CFBundleVersion to avoid unnecessary reinstall
         let needsInstall = true;
@@ -1497,7 +1498,7 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
             });
           }
           logVerbose(`Copying AgenShield.app to /Applications for Login Items attribution`, context);
-          execSync(`sudo cp -r "${embeddedApp}" "${installedApp}"`, {
+          execSync(`sudo cp -r "${localApp}" "${installedApp}"`, {
             encoding: 'utf-8',
             stdio: ['pipe', 'pipe', 'pipe'],
           });
@@ -1527,17 +1528,17 @@ SHIELD_EOF`, { encoding: 'utf-8', stdio: 'pipe' });
     const { execSync } = await import('node:child_process');
     const { existsSync, writeFileSync, mkdirSync } = await import('node:fs');
 
-    // Resolve the embedded .app from the @agenshield/sandbox package
-    const embeddedApp = getMacAppBundlePath();
-    if (!embeddedApp) {
-      logVerbose('ES extension app not bundled in @agenshield/sandbox — skipping (optional)', context);
-      context.macAppInstalled = { status: 'skipped', message: 'app bundle not bundled' };
+    // Resolve the .app from ~/.agenshield/apps/
+    const localAppPath = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
+    if (!fs.existsSync(localAppPath)) {
+      logVerbose('ES extension app not found at ~/.agenshield/apps/ — skipping (optional)', context);
+      context.macAppInstalled = { status: 'skipped', message: 'app bundle not found' };
       return { success: true };
     }
 
-    // Copy the embedded .app to /Applications for system extension loading
-    logVerbose(`Copying ES extension from ${embeddedApp} to /Applications/AgenShield.app`, context);
-    execSync(`sudo cp -r "${embeddedApp}" /Applications/AgenShield.app`, {
+    // Copy the .app to /Applications for system extension loading
+    logVerbose(`Copying ES extension from ${localAppPath} to /Applications/AgenShield.app`, context);
+    execSync(`sudo cp -r "${localAppPath}" /Applications/AgenShield.app`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });

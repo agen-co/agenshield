@@ -1,5 +1,3 @@
-export { getMacAppBundlePath } from './macos-app.js';
-
 export {
   injectAgenCoSkill,
   createAgenCoSymlink,

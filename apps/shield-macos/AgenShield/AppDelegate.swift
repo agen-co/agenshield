@@ -26,6 +26,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.info("Application did finish launching")
 
+        // Ensure app icon is set for notifications (required after move from
+        // MenuBarExtra to NSStatusItem — without a real SwiftUI scene the
+        // system may not resolve the bundle icon automatically).
+        if let appIcon = NSImage(named: "AppIcon") {
+            NSApp.applicationIconImage = appIcon
+        }
+
         // Notification setup
         UNUserNotificationCenter.current().delegate = self
         NotificationService.shared.requestPermission()
@@ -168,6 +175,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             if event.type.hasPrefix("enrollment:") {
                 appState.updateSetupStatus()
                 appState.updateDaemonStatus()
+                appState.updateTargets()
             }
         }
         connection.onConnectionChange = { [weak self] connected in

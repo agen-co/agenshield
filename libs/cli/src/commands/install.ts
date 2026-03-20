@@ -33,7 +33,6 @@ import {
   ensurePathInShellRc,
   buildAndInstallSEAFromLocal,
   installSEAFromDir,
-  extractMacAppFromSandbox,
   isRootOwned,
 } from '../utils/home.js';
 import { stopDaemon, getDaemonStatus } from '../utils/daemon.js';
@@ -514,15 +513,7 @@ export function registerInstallCommand(program: Command): void {
         }
       }
 
-      // 9c. Extract AgenShield.app from sandbox package to ~/.agenshield/apps/
-      if (os.platform() === 'darwin') {
-        const extracted = extractMacAppFromSandbox(distDir);
-        if (extracted) {
-          output.success('Extracted AgenShield.app to ~/.agenshield/apps/');
-        }
-      }
-
-      // 9d. Write pending-services manifest — privileged ops deferred to `agenshield start`
+      // 9c. Write pending-services manifest — privileged ops deferred to `agenshield start`
       if (os.platform() === 'darwin') {
         const pendingPath = path.join(AGENSHIELD_HOME, 'pending-services.json');
         fs.writeFileSync(pendingPath, JSON.stringify({

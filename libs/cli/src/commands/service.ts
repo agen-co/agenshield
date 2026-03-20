@@ -30,8 +30,9 @@ import {
   uninstallMenuBarAgent,
   getMenuBarAgentStatus,
 } from '@agenshield/seatbelt';
-// eslint-disable-next-line @nx/enforce-module-boundaries
-import { getMacAppBundlePath } from '@agenshield/sandbox';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import { AGENSHIELD_HOME } from '../utils/home.js';
 
 export function registerServiceCommand(program: Command): void {
   const service = program
@@ -222,11 +223,11 @@ export function registerServiceCommand(program: Command): void {
       }
 
       // Find the AgenShield.app bundle
-      const embeddedApp = getMacAppBundlePath();
+      const localApp = path.join(AGENSHIELD_HOME, 'apps', 'AgenShield.app');
       const systemApp = '/Applications/AgenShield.app';
-      const sourceApp = embeddedApp
-        ? embeddedApp
-        : require('node:fs').existsSync(systemApp)
+      const sourceApp = fs.existsSync(localApp)
+        ? localApp
+        : fs.existsSync(systemApp)
           ? systemApp
           : null;
 

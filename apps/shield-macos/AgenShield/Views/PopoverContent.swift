@@ -13,6 +13,7 @@ struct PopoverContent: View {
     @State private var shieldUnlockPassword = ""
     @State private var shieldUnlockError: String?
     @State private var shieldUnlockInFlight = false
+    @State private var pendingFreshInstall = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -34,6 +35,12 @@ struct PopoverContent: View {
             if appState.connectionStatus == .connected && !appState.unshieldedTargets.isEmpty {
                 sectionDivider
                 unshieldedSection
+            }
+
+            // Suggest installing Claude Code when not detected
+            if appState.shouldShowClaudeCodeSuggestion {
+                sectionDivider
+                claudeCodeSuggestionSection
             }
 
             // Stats
@@ -709,7 +716,107 @@ struct PopoverContent: View {
         return path
     }
 
+    private var claudeCodeSuggestionSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("SUGGESTION")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 2)
+
+            HStack(spacing: 8) {
+                Image(systemName: "terminal")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.blue)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Claude Code")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("Not installed. Install & shield with AgenShield.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                if appState.shieldingTargetId == "claude-code" {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        if appState.shieldProgress > 0 {
+                            Text("\(appState.shieldProgress)%")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    Button(action: { startInstallClaudeCode() }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 9))
+                            Text("Install")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.blue)
+                        .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(appState.shieldingTargetId != nil || shieldUnlockInFlight)
+                }
+            }
+
+            if appState.shieldingTargetId == "claude-code", let msg = appState.shieldProgressMessage {
+                Text(msg)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            if let error = appState.shieldError, appState.shieldingTargetId == nil {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
     // MARK: - Actions
+
+    private func startInstallClaudeCode() {
+        appState.shieldError = nil
+        appState.shieldProgress = 0
+        appState.shieldProgressMessage = nil
+
+        Task {
+            do {
+                if try await DaemonAPI.shared.hasValidSession() {
+                    await appState.installClaudeCode()
+                    return
+                }
+
+                // No valid session — show password dialog
+                await MainActor.run {
+                    pendingFreshInstall = true
+                    pendingShieldTargetId = "claude-code"
+                    shieldUnlockPassword = ""
+                    shieldUnlockError = nil
+                    shieldUnlockInFlight = false
+                }
+            } catch {
+                await MainActor.run {
+                    appState.resetShieldingState(
+                        error: "Failed to prepare installation: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
+                    )
+                }
+            }
+        }
+    }
 
     private func startShieldFlow(_ targetId: String) {
         // Immediately clear all previous shield state so the UI resets
@@ -757,10 +864,15 @@ struct PopoverContent: View {
         Task {
             do {
                 try await DaemonAPI.shared.loginWithPassword(password)
+                let isFreshInstall = pendingFreshInstall
                 await MainActor.run {
                     dismissShieldUnlockSheet()
                 }
-                await appState.startShieldTarget(targetId)
+                if isFreshInstall {
+                    await appState.installClaudeCode()
+                } else {
+                    await appState.startShieldTarget(targetId)
+                }
             } catch {
                 await MainActor.run {
                     shieldUnlockError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -772,6 +884,7 @@ struct PopoverContent: View {
 
     private func dismissShieldUnlockSheet() {
         pendingShieldTargetId = nil
+        pendingFreshInstall = false
         shieldUnlockPassword = ""
         shieldUnlockError = nil
         shieldUnlockInFlight = false
@@ -853,6 +966,10 @@ struct PopoverContent: View {
                     break
                 }
             }
+
+            // Claim completed — refresh targets and status so unshielded targets appear
+            appState.updateTargets()
+            appState.updateDaemonStatus()
         }
     }
 

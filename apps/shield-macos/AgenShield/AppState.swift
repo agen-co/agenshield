@@ -102,6 +102,7 @@ class AppState {
 
     // Targets
     var targets: [TargetInfo] = []
+    var targetsLoaded: Bool = false
 
     var shieldedTargets: [TargetInfo] {
         targets.filter { $0.shielded }
@@ -109,6 +110,19 @@ class AppState {
 
     var unshieldedTargets: [TargetInfo] {
         targets.filter { !$0.shielded }
+    }
+
+    /// Whether any claude-code type target was detected (installed on the system)
+    var claudeCodeDetected: Bool {
+        targets.contains { $0.type == "claude-code" }
+    }
+
+    /// Whether the suggestion to install Claude Code should be shown
+    var shouldShowClaudeCodeSuggestion: Bool {
+        connectionStatus == .connected &&
+        claimStatus == "claimed" &&
+        targetsLoaded &&
+        !claudeCodeDetected
     }
 
     // Shield target (manual)
@@ -260,12 +274,18 @@ class AppState {
             if let skills = stats["skills"] as? Int { self.skillCount = skills }
             if let pending = stats["pendingSkills"] as? Int { self.pendingSkillCount = pending }
         }
+        let previousClaimStatus = self.claimStatus
         if let claim = dict["claim"] as? [String: Any] {
             if let status = claim["status"] as? String { self.claimStatus = status }
             if let user = claim["user"] as? [String: Any] {
                 self.claimedUserName = user["name"] as? String
                 self.claimedUserEmail = user["email"] as? String
             }
+        }
+
+        // Claim just completed — refresh targets so unshielded ones appear immediately
+        if self.claimStatus == "claimed" && previousClaimStatus != "claimed" {
+            self.updateTargets()
         }
 
         updateStatusColor()
@@ -289,6 +309,8 @@ class AppState {
                             processCount: t.processes?.count ?? 0
                         )
                     }
+                    self.targetsLoaded = true
+                    self.updateStatusColor()
                 }
             } catch {
                 // Silently ignore — daemon may not be reachable
@@ -381,6 +403,28 @@ class AppState {
         }
     }
 
+    /// Install and shield Claude Code as a fresh installation.
+    func installClaudeCode() async {
+        await MainActor.run {
+            self.beginShielding("claude-code")
+        }
+
+        do {
+            try await DaemonAPI.shared.shieldTarget(targetId: "claude-code", freshInstall: true)
+        } catch {
+            await MainActor.run {
+                if let daemonError = error as? DaemonAPIError, daemonError.isTimeout {
+                    // HTTP timeout doesn't mean daemon failed — SSE events will drive final state.
+                    NSLog("[AgenShield] Install HTTP request timed out (continuing via SSE): \(daemonError.localizedDescription)")
+                } else {
+                    self.resetShieldingState(
+                        error: "Failed to install Claude Code: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
+                    )
+                }
+            }
+        }
+    }
+
     /// Shield a specific target after the popup has obtained admin auth.
     func startShieldTarget(_ targetId: String) async {
         await MainActor.run {
@@ -441,6 +485,7 @@ class AppState {
         quarantineError = nil
         quarantineExpanded = false
         targets = []
+        targetsLoaded = false
         resetShieldingState()
     }
 }

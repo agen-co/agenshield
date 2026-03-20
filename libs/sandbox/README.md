@@ -41,7 +41,7 @@ libs/sandbox/src/
 | `wrappers/` | Wrapper scripts + PATH router | `WRAPPER_DEFINITIONS`, `installWrappers`, `installPresetBinaries`, `generateRouterWrapper`, `readPathRegistry` |
 | `detection/` | Read-only host inspection | `detectOpenClaw`, `checkSecurityStatus`, `scanHost`, `scanDiscovery` |
 | `backup/` | Backup, restore & file migration | `saveBackup`, `loadBackup`, `fullRestore`, `migrateFiles` |
-| `inject/` | Skill injection into sandbox | `injectAgenCoSkill`, `getMacAppBundlePath`, `updateOpenClawMcpConfig` |
+| `inject/` | Skill injection into sandbox | `injectAgenCoSkill`, `updateOpenClawMcpConfig` |
 | `presets/` | Target app preset system | `PRESETS`, `getPreset`, `autoDetectPreset`, `TargetPreset`, `runPipeline` |
 
 ## Error Hierarchy

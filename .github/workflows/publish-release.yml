@@ -137,31 +137,6 @@ jobs:
           xcrun stapler staple "$MAC_APP" || true
           rm -f "$APP_ZIP" "$API_KEY_FILE"
 
-      # Commit the freshly built .app to the release branch
-      - name: Update committed .app
-        if: env.APPLE_CERTIFICATE_P12_BASE64 != ''
-        env:
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-        run: |
-          MAC_APP="dist/apps/shield-macos/Release/AgenShield.app"
-          if [ ! -d "$MAC_APP" ]; then
-            echo "AgenShield.app not found, skipping commit"
-            exit 0
-          fi
-
-          rm -rf libs/sandbox/macos-app/AgenShield.app
-          cp -R "$MAC_APP" libs/sandbox/macos-app/AgenShield.app
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -n "$(git status --porcelain libs/sandbox/macos-app/)" ]; then
-            git add libs/sandbox/macos-app/AgenShield.app
-            git commit -m "chore: update signed AgenShield.app for npm distribution"
-            git push origin HEAD
-          else
-            echo "No changes to AgenShield.app"
-          fi
-
       # Cleanup temp keychain (always runs)
       - name: Cleanup signing artifacts
         if: always()
