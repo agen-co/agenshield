@@ -1,1 +1,0 @@
-export { NetworkPolicyList } from './NetworkPolicyList';

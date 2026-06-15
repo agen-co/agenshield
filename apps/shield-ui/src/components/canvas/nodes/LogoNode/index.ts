@@ -1,1 +1,0 @@
-export { LogoNode } from './LogoNode';

@@ -1,702 +1,91 @@
-# AgenShield
+<div align="center">
 
-**Open-source security sandbox for AI agents on macOS.**
+# 🛡️ AgenShield
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![macOS](https://img.shields.io/badge/platform-macOS_12+-lightgrey.svg)]()
-[![Node.js 24](https://img.shields.io/badge/node-24.x-green.svg)]()
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)]()
+### Endpoint security & policy enforcement for AI coding agents
 
-> [!WARNING]
-> AgenShield is under **heavy development**. Expect breaking changes between releases. APIs, configuration formats, and CLI flags may change without notice.
+**[agen.co](https://agen.co)** — by [Frontegg](https://frontegg.com)
 
-## The Problem
+[![Latest release](https://img.shields.io/github/v/release/agen-co/agenshield?sort=semver&display_name=tag&label=latest&color=0F766E)](https://github.com/agen-co/agenshield/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-555.svg)](#-install)
+[![Get started](https://img.shields.io/badge/get%20started-portal.frontegg.com-0F766E.svg)](https://portal.frontegg.com)
 
-Open-source AI skills (MCP servers, tool plugins, agents) execute code on your machine with full access to:
-
-- **Your filesystem** - API keys in `~/.env`, SSH keys, cloud credentials, browser cookies
-- **Your network** - exfiltrate data to any server, download malware, pivot laterally
-- **System commands** - `rm -rf`, install backdoors, modify startup items, escalate privileges
-- **Other processes** - read memory of running applications, inject into other tools
-
-A single malicious or compromised skill can own your entire machine.
-
-## The Solution - Six Security Layers
-
-AgenShield wraps AI agents in a defense-in-depth sandbox with six isolation layers:
-
-| Layer | Mechanism | What It Does |
-|-------|-----------|-------------|
-| **1. User Isolation** | Unprivileged macOS users via `dscl` | Agent runs as `ash_default_agent` (uid 5200) with no admin access |
-| **2. Group Access Control** | Socket and workspace groups | Only group members can access the broker socket or workspace files |
-| **3. Guarded Shell** | Restricted `zsh` with locked-down `PATH` | Agent can only run approved binaries from its own `~/bin` |
-| **4. macOS Seatbelt** | `sandbox-exec` with deny-default profiles | Blocks all filesystem, network, and process access except explicit allowlists |
-| **5. Command Wrappers** | `curl`, `python`, `node`, `git` routed through broker | Every external command is policy-checked before execution |
-| **6. Node.js Interceptor** | Hooks `child_process`, `fetch`, `http` at runtime | Catches programmatic network/exec calls that bypass wrappers |
+</div>
 
 ---
 
-# User Guide
+AgenShield keeps AI coding agents — Claude Code, OpenClaw, and others — inside the
+guardrails your organization sets. A local daemon plus macOS **EndpointSecurity**
+and **NetworkExtension** system extensions enforce, at the kernel level, exactly
+what an agent may **execute**, **read**, and **connect to** — all driven by policy
+you manage centrally from the cloud.
 
-## System Requirements
+> **ℹ️ About this repository**
+> AgenShield is a commercial product with a **closed source**. This public
+> repository is its home for **documentation, the changelog, and signed release
+> downloads** — it does not contain the product source. Learn more at
+> **[agen.co](https://agen.co)**.
 
-| Requirement | Details |
-|-------------|---------|
-| **OS** | macOS 12+ (Monterey or later) |
-| **Node.js** | 24.x (via `nvm` recommended) |
-| **Admin Access** | `sudo` required during setup |
-| **Xcode CLT** | Required (`xcode-select --install`) |
+## ✨ What it does
 
-## Prerequisites: Install OpenClaw
+| Capability | What it enforces |
+| --- | --- |
+| 🚦 **Process control** | Allow or deny what an agent may execute — enforced in the kernel via EndpointSecurity. |
+| 📁 **File guardrails** | Block reads/writes to sensitive paths: `.env`, SSH keys, credentials, tokens. |
+| 🌐 **Network policy** | Allowlist outbound connections, with TLS-terminating inspection. |
+| 🧩 **Skills & MCP** | Quarantine unapproved agent skills; govern Model Context Protocol servers. |
+| ⚙️ **Managed settings** | Push organization config to Claude Code and other agents — users can't override it. |
+| 📊 **Telemetry & alerts** | Stream policy violations and security events to AgenShield Cloud. |
 
-AgenShield sandboxes [OpenClaw](https://www.npmjs.com/package/openclaw) — you need a working OpenClaw installation before setting up AgenShield.
+## 🚀 Install
 
-```bash
-# 1. Install OpenClaw globally
-npm install -g openclaw@latest
-
-# 2. Run the onboarding wizard (sets up gateway, workspace, channels, and skills)
-openclaw onboard
-```
-
-The onboarding wizard will walk you through linking your AI model provider (Google Gemini, Anthropic Claude, OpenAI, etc.) and configuring your workspace. Once `openclaw onboard` completes successfully, you're ready to install AgenShield.
-
-> For full OpenClaw documentation, see [docs.openclaw.ai/install](https://docs.openclaw.ai/install).
-
-## Installation
-
-### Method 1: curl | sh (Recommended)
-
-Downloads pre-built SEA (Single Executable Application) binaries — **no Node.js required** on the host machine.
+AgenShield is deployed from your organization's **AgenShield workspace** in the
+Frontegg dashboard. Sign in at **[portal.frontegg.com](https://portal.frontegg.com)**,
+open **AgenShield**, create a deployment campaign, and run the one-line install
+command it gives you — it carries your enrollment token:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/agen-co/agenshield/main/tools/sea/install.sh | sh
+curl -fsSL '<YOUR_INSTALL_URL>' | bash
 ```
 
-This installs three binaries to `~/.agenshield/bin/`:
-
-| Binary | Purpose |
-|--------|---------|
-| `agenshield` | CLI |
-| `agenshield-daemon` | Daemon + privilege helper |
-| `agenshield-broker` | Request broker |
-
-The installer auto-adds `~/.agenshield/bin` to your shell's PATH. After install:
+Prefer npm? Use the cloud URL + token from your workspace:
 
 ```bash
-source ~/.zshrc   # or ~/.bashrc, ~/.bash_profile
-agenshield setup
+npx agenshield install --cloud-url <CLOUD_URL> --token <TOKEN>
+agenshield start
 ```
 
-**Supported platforms:** macOS (arm64, x64), Linux (arm64, x64)
+Either way, the installer pulls the signed, notarized `.pkg` straight from this
+repo's [**Releases**](https://github.com/agen-co/agenshield/releases) and verifies
+it against the published `checksums.sha256`. Requires macOS 14+ (Apple Silicon).
 
-**Environment variables:**
+## 📚 Documentation
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AGENSHIELD_VERSION` | Install a specific version | latest |
-| `AGENSHIELD_INSTALL_DIR` | Installation directory | `~/.agenshield` |
-| `AGENSHIELD_GITHUB_REPO` | GitHub repo for downloads | `agen-co/agenshield` |
+Guides live in [`docs/`](./docs):
 
-### Method 2: npm
+- [**Installation**](./docs/installation.md) — install, enroll, and uninstall on macOS
+- [**Usage**](./docs/usage.md) — start the daemon, sign in, and what's enforced
+- [**CLI reference**](./docs/cli.md) — every `agenshield` command
 
-Requires Node.js >= 22. Runs via Node.js — no standalone binaries are produced.
+## 📦 Releases
 
-```bash
-# Run directly (no global install)
-npx agenshield@latest setup
+Each release attaches a signed macOS installer to a
+[GitHub Release](https://github.com/agen-co/agenshield/releases). The full,
+versioned history is in [`CHANGELOG.md`](./CHANGELOG.md).
 
-# Or install globally
-npm install -g agenshield
-agenshield setup
-```
+## 💬 Support
 
-### Method 3: Install from GitHub Releases
-
-Download the `.tar.gz` archive for your platform from the [GitHub Releases](https://github.com/agen-co/agenshield/releases) page:
-
-```bash
-# Download the archive (replace VERSION, PLATFORM, ARCH)
-curl -fsSL -o agenshield.tar.gz \
-  https://github.com/agen-co/agenshield/releases/download/vVERSION/agenshield-VERSION-PLATFORM-ARCH.tar.gz
-
-# Verify checksum
-curl -fsSL https://github.com/agen-co/agenshield/releases/download/vVERSION/checksums.sha256 | \
-  grep agenshield-VERSION-PLATFORM-ARCH.tar.gz | shasum -a 256 -c
-
-# Extract and install
-mkdir -p ~/.agenshield/bin
-tar -xzf agenshield.tar.gz -C ~/.agenshield/bin
-chmod 755 ~/.agenshield/bin/agenshield*
-
-# Add to PATH
-export PATH="$HOME/.agenshield/bin:$PATH"
-```
-
-### Post-Installation
-
-After installing via any method, run the setup wizard:
-
-```bash
-agenshield setup
-```
-
-The wizard prompts you to choose between **local** and **cloud** mode, then starts the daemon and opens the dashboard at **http://127.0.0.1:5200**.
-
-Verify the installation:
-
-```bash
-agenshield status
-agenshield doctor
-```
-
-## CLI Reference
-
-### `agenshield setup`
-
-Interactive guided setup — choose between local and cloud mode.
-
-| Flag | Description |
-|------|-------------|
-| `--mode <mode>` | Skip mode prompt: `local` or `cloud` |
-| `--cloud-url <url>` | Cloud API URL (implies `--mode cloud`) |
-
-### `agenshield install`
-
-Download and install AgenShield to `~/.agenshield/`. Downloads the npm package from the registry, extracts it, and runs `npm install --production` for dependencies. Requires Node.js >= 22.
-
-| Flag | Description |
-|------|-------------|
-| `--version <ver>` | Install a specific version (default: own version or latest) |
-| `--channel <ch>` | Release channel (default: `stable`) |
-| `--force` | Overwrite existing installation |
-| `--local` | Install from local monorepo build output instead of npm (contributors only) |
-| `--sea` | Build and install as SEA binaries (requires `--local`, contributors only) |
-
-### `agenshield status`
-
-Show current AgenShield installation status.
-
-| Flag | Description |
-|------|-------------|
-| `-j, --json` | Output as JSON |
-
-### `agenshield doctor`
-
-Check and diagnose common issues.
-
-| Flag | Description |
-|------|-------------|
-| `-j, --json` | Output as JSON |
-| `--fix` | Attempt to fix issues automatically |
-
-### `agenshield daemon <subcommand>`
-
-Manage the AgenShield daemon.
-
-| Subcommand | Description | Flags |
-|------------|-------------|-------|
-| `start` | Start the daemon | `-f, --foreground` |
-| `stop` | Stop the daemon | |
-| `restart` | Restart the daemon | |
-| `status` | Show daemon status | `-j, --json` |
-
-### `agenshield uninstall`
-
-Reverse isolation and restore the original application.
-
-| Flag | Description |
-|------|-------------|
-| `-f, --force` | Skip confirmation prompt |
-| `--prefix <prefix>` | Uninstall a specific prefixed installation |
-| `--skip-backup` | Force uninstall without backup (will not restore application) |
-
-### `agenshield dev`
-
-Run AgenShield in dev mode with interactive TUI for testing sandbox actions.
-
-| Subcommand / Flag | Description |
-|--------------------|-------------|
-| *(no subcommand)* | Start dev mode |
-| `clean` | Stop daemon, remove dev users/groups, clean up dev state |
-| `shell` | Open interactive login shell as the sandboxed agent user |
-| `--base-name <name>` | Base name for users/groups |
-| `--prefix <prefix>` | Custom prefix (default: `dev`) |
-| `--base-uid <uid>` | Base UID for users |
-| `--no-tui` | Start daemon without interactive TUI |
-| `shell --no-daemon` | Open shell without starting/stopping daemon |
-
-## Dashboard
-
-After setup, the AgenShield dashboard is available at **http://127.0.0.1:5200**.
-
-**Pages:**
-
-| Page | Description |
-|------|-------------|
-| **Overview** | Traffic chart, activity feed, security status, daemon info |
-| **Policies** | Manage command, network, and filesystem policies |
-| **Skills** | View and manage installed/quarantined AI skills |
-| **Secrets** | Manage secrets injected into the sandbox by scope |
-| **Settings** | Daemon configuration, OpenClaw config, passcode |
-
-Passcode protection is optional and can be set during setup or later in Settings. When enabled, the dashboard requires authentication to make changes.
-
-## Policy System
-
-AgenShield uses a **deny-default** policy model. All operations are blocked unless explicitly allowed.
-
-Policies are organized into categories:
-
-- **Command policies** - which system commands the agent can execute
-- **Network policies** - which hosts/ports the agent can reach
-- **Filesystem policies** - which paths the agent can read/write
-
-Example policy rule:
-
-```json
-{
-  "id": "allow-github-api",
-  "name": "Allow GitHub API",
-  "type": "allowlist",
-  "operations": ["http_request"],
-  "patterns": ["https://api.github.com/**"],
-  "enabled": true,
-  "priority": 100
-}
-```
-
-Policies are stored in `/opt/agenshield/policies/` and can be managed through the dashboard or API.
-
-<details>
-<summary><strong>Directory Structure</strong></summary>
-
-### System Directories
-
-```
-/opt/agenshield/
-├── bin/                         # Broker binary, node-bin, openclaw-launcher.sh
-├── config/
-│   └── shield.json              # Daemon configuration
-├── policies/
-│   ├── default.json             # Default policies
-│   └── custom/                  # Custom policy files
-├── lib/
-│   └── interceptor/
-│       └── register.cjs         # Node.js interceptor loader
-├── ops/                         # Operational files
-└── quarantine/
-    └── skills/                  # Quarantined skill packages
-
-~/.agenshield/
-├── seatbelt/
-│   ├── agent.sb                 # Agent sandbox profile
-│   └── ops/                     # Per-operation seatbelt profiles
-└── zdot/                        # Guarded shell configuration
-
-~/.agenshield/run/
-└── agenshield.sock              # Unix socket (mode 0770)
-
-~/.agenshield/logs/
-├── broker.log                   # Broker stdout
-├── broker.error.log             # Broker stderr
-├── openclaw-daemon.log          # OpenClaw daemon stdout
-├── openclaw-gateway.log         # OpenClaw gateway stdout
-└── daemon.log                   # Daemon log
-```
-
-### Agent Home (`/Users/ash_default_agent/`)
-
-```
-/Users/ash_default_agent/
-├── bin/                         # Command wrappers (curl, python, node, git, etc.)
-├── .openclaw/                   # OpenClaw configuration
-│   ├── mcp.json                 # MCP server config
-│   └── skills/                  # Installed skills
-├── workspace/                   # Agent working directory
-└── .nvm/                        # Node Version Manager (agent-local)
-```
-
-### User Configuration
-
-```
-~/.agenshield/                   # Per-user config (on host)
-```
-
-</details>
-
-<details>
-<summary><strong>Environment Variables</strong></summary>
-
-### Runtime Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AGENSHIELD_PORT` | Daemon HTTP port | `5200` |
-| `AGENSHIELD_HOST` | Daemon HTTP host | `127.0.0.1` |
-| `AGENSHIELD_SOCKET` | Unix socket path | `~/.agenshield/run/agenshield.sock` |
-| `AGENSHIELD_CONFIG` | Path to config file | `/opt/agenshield/config/shield.json` |
-| `AGENSHIELD_AGENT_HOME` | Agent home directory | `/Users/ash_default_agent` |
-| `AGENSHIELD_LOG_LEVEL` | Log level (`warn`, `debug`, `info`, `error`) | `warn` |
-| `AGENSHIELD_LOG_DIR` | Log directory | from config |
-| `AGENSHIELD_FAIL_OPEN` | Fail open on broker errors | `false` |
-| `AGENSHIELD_TIMEOUT` | Policy check timeout (ms) | `5000` |
-
-### Interceptor Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AGENSHIELD_INTERCEPT_FETCH` | Intercept `fetch()` calls | `true` |
-| `AGENSHIELD_INTERCEPT_HTTP` | Intercept `http`/`https` module | `true` |
-| `AGENSHIELD_INTERCEPT_WS` | Intercept WebSocket | `true` |
-| `AGENSHIELD_INTERCEPT_EXEC` | Intercept `child_process` | `true` |
-| `AGENSHIELD_CONTEXT_TYPE` | Execution context: `agent` or `skill` | `agent` |
-| `AGENSHIELD_SKILL_SLUG` | Skill identifier (when context is `skill`) | |
-| `AGENSHIELD_SEATBELT` | Enable seatbelt profiles | `true` |
-
-</details>
-
-## Troubleshooting
-
-**Permission denied errors**
-```bash
-# Setup requires sudo
-npx agenshield@latest setup
-
-# Check file ownership
-ls -la ~/.agenshield/run/
-ls -la /opt/agenshield/
-```
-
-**Daemon won't start**
-```bash
-# Check if port 5200 is in use
-lsof -i :5200
-
-# Run in foreground to see errors
-agenshield daemon start --foreground
-
-# Check logs
-cat ~/.agenshield/logs/broker.error.log
-```
-
-**Socket connection refused**
-```bash
-# Check socket exists
-ls -la ~/.agenshield/run/agenshield.sock
-
-# Check broker is running
-sudo launchctl list | grep agenshield
-
-# Restart broker
-sudo launchctl kickstart -k system/com.agenshield.broker
-```
-
-**Agent still has network access**
-```bash
-# Verify seatbelt profile is loaded
-sudo -u ash_default_agent sandbox-exec -f ~/.agenshield/seatbelt/agent.sb -- curl https://example.com
-# Should fail with "Operation not permitted"
-
-# Check wrapper PATH
-sudo -u ash_default_agent /usr/local/bin/guarded-shell -c 'echo $PATH'
-```
-
-**Run the doctor**
-```bash
-agenshield doctor --fix
-```
-
-## Uninstalling
-
-```bash
-sudo agenshield uninstall
-```
-
-This removes:
-- Created users (`ash_default_agent`, `ash_default_broker`) and groups (`ash_default`, `ash_default_workspace`)
-- System directories (`/opt/agenshield/`, `~/.agenshield/`, `~/.agenshield/run/`, `~/.agenshield/logs/`)
-- LaunchDaemons (`com.agenshield.broker`, `com.agenshield.openclaw.daemon`, `com.agenshield.openclaw.gateway`)
-- Command wrappers and seatbelt profiles
-
-Your original application is restored from backup (unless `--skip-backup` was used during setup).
+- 🐛 [Open an issue](https://github.com/agen-co/agenshield/issues)
+- 🌐 [agen.co](https://agen.co)
+- ✉️ [support@frontegg.com](mailto:support@frontegg.com)
 
 ---
 
-# Contributing / Development
+<div align="center">
 
-## Development Setup
+**[AgenShield](https://agen.co)** — built by **[Frontegg](https://frontegg.com)**
 
-```bash
-git clone https://github.com/AgenShield/agenshield.git
-cd agenshield
-nvm use          # v24
-yarn install
-yarn build
-```
+© Frontegg LTD · Licensed under [Apache-2.0](./LICENSE)
 
-## Monorepo Structure
-
-| Package | Directory | Purpose |
-|---------|-----------|---------|
-| `agenshield` | `libs/cli/` | CLI - setup wizard, status, doctor, daemon management |
-| `@agenshield/daemon` | `libs/shield-daemon/` | HTTP daemon server (port 5200) with embedded UI |
-| `@agenshield/broker` | `libs/shield-broker/` | Request broker - Unix socket (port 5201 HTTP fallback) |
-| `@agenshield/sandbox` | `libs/shield-sandbox/` | User isolation, seatbelt, wrappers, directories |
-| `@agenshield/interceptor` | `libs/shield-interceptor/` | Node.js runtime interception (ESM loader + CJS preload) |
-| `@agenshield/patcher` | `libs/shield-patcher/` | Python network isolation via `sitecustomize.py` |
-| `@agenshield/ipc` | `libs/shield-ipc/` | Shared types, schemas, constants |
-| `@agenshield/integrations` | `libs/shield-integrations/` | OpenClaw and third-party integration utilities |
-| `@agenshield/skills` | `libs/shield-skills/` | Skill analysis and management |
-| `@agenshield/ui` | `apps/shield-ui/` | React 19 + Vite + MUI dashboard (port 4200 dev) |
-
-<details>
-<summary><strong>Full directory tree</strong></summary>
-
-```
-agenshield/
-├── apps/
-│   └── shield-ui/              # React dashboard
-├── libs/
-│   ├── cli/                    # CLI tool
-│   ├── shield-broker/          # Request broker
-│   ├── shield-daemon/          # HTTP daemon
-│   ├── shield-interceptor/     # Node.js interceptor
-│   ├── shield-integrations/    # Integration utilities
-│   ├── shield-ipc/             # Shared types
-│   ├── shield-patcher/         # Python patcher
-│   ├── shield-sandbox/         # Sandbox utilities
-│   └── shield-skills/          # Skill management
-├── tools/
-│   └── test-harness/           # Dummy OpenClaw for testing
-└── scripts/
-    └── registry/               # Local npm registry scripts
-```
-
-</details>
-
-## Running Locally
-
-```bash
-# Start daemon in dev mode (watches for changes, uses ./tmp/dev-agent as agent home)
-yarn daemon:dev
-
-# Start UI dev server (port 4200, proxies API to daemon on 5200)
-npx nx serve shield-ui
-
-# Run CLI from source
-yarn cli -- status
-yarn cli -- doctor
-sudo yarn cli:setup
-```
-
-## Build Commands
-
-```bash
-# Build all packages
-yarn build
-
-# Build a single package
-npx nx build <package-name>
-
-# Build UI only
-npx nx build shield-ui
-
-# Build CLI only
-npx nx build cli
-```
-
-## Building & Installing from Source
-
-### Building SEA Binaries
-
-SEA (Single Executable Application) binaries bundle AgenShield into standalone executables that don't require Node.js on the host.
-
-**Prerequisites:** Node.js >= 22, yarn
-
-```bash
-# Full build (all 3 binaries: agenshield, agenshield-daemon, agenshield-broker)
-node --experimental-strip-types tools/sea/build-all.mts
-```
-
-**Build options:**
-
-| Flag | Description |
-|------|-------------|
-| `--skip-nx` | Skip Nx library build step |
-| `--skip-ui` | Skip UI dashboard build step |
-| `--skip-inject` | Skip postject injection (produce bundles only) |
-| `--minify` | Minify all bundles |
-| `--platform` | Target platform (default: current) |
-| `--arch` | Target architecture (default: current) |
-
-You can also build via Nx targets:
-
-```bash
-npx nx run-many -t build --projects=cli-bin,daemon-bin,broker-bin
-```
-
-Output binaries are placed in `dist/sea/apps/{cli-bin,daemon-bin,broker-bin}/`. A `.tar.gz` archive is created automatically for distribution.
-
-### Installing from Local Monorepo
-
-To install the locally-built SEA binaries to `~/.agenshield/`:
-
-```bash
-agenshield install --local --sea
-```
-
-This builds all three SEA binaries from the monorepo source and installs them to `~/.agenshield/bin/`.
-
-For a Node.js-based local install (requires Node.js on the host — copies build outputs into `~/.agenshield/dist/`, runs `npm install --production` for third-party deps, creates a shell shim):
-
-```bash
-agenshield install --local
-```
-
-## Testing
-
-```bash
-# Unit tests (all packages)
-yarn test
-
-# Unit tests (single package)
-npx nx test <package-name>
-
-# E2E tests (requires sudo)
-yarn test:e2e
-
-# E2E policy tests
-yarn test:e2e-policies
-
-# E2E enforcement tests (requires sudo)
-yarn test:e2e-enforcement
-
-# Seatbelt integration tests
-yarn test:seatbelt
-
-# Install test harness (dummy OpenClaw)
-yarn test-harness:install
-```
-
-## Code Quality
-
-```bash
-# Lint all packages
-yarn lint
-
-# Format all files
-yarn format
-
-# Check formatting
-yarn format:check
-```
-
-Prettier config: 120 char width, single quotes, trailing commas.
-
-<details>
-<summary><strong>Daemon API Reference</strong></summary>
-
-### Ports
-
-| Service | Port | Protocol |
-|---------|------|----------|
-| Daemon | 5200 | HTTP |
-| Broker HTTP fallback | 5201 | HTTP |
-| Broker primary | `~/.agenshield/run/agenshield.sock` | Unix Socket |
-
-### Route Groups
-
-| Prefix | Description | Key Endpoints |
-|--------|-------------|---------------|
-| `/api/health` | Health check | `GET /api/health` |
-| `/api/status` | Daemon status | `GET /api/status` |
-| `/api/config` | Configuration | `GET`, `PUT /api/config`, `POST /api/config/factory-reset`, `POST /api/config/install-wrappers` |
-| `/api/auth` | Authentication | `POST setup`, `POST unlock`, `POST lock`, `POST refresh`, `POST enable`, `POST disable`, `POST anonymous-readonly` |
-| `/api/security` | Security status | `GET /api/security` |
-| `/api/wrappers` | Wrapper management | `GET list`, `POST install`, `DELETE`, `PUT update`, `POST sync`, `POST regenerate`, `POST custom` |
-| `/api/skills` | Skill management | `GET list`, `GET quarantined`, `POST analyze`, `POST approve`, `DELETE reject`, `POST revoke`, `PUT toggle` |
-| `/api/marketplace` | Skill marketplace | `GET search`, `GET details`, `POST analyze`, `POST install` |
-| `/api/secrets` | Secrets management | `GET list`, `GET env`, `GET skill-env`, `POST create`, `PATCH update`, `DELETE` |
-| `/api/exec` | Execution control | `GET system-bins`, `GET/POST/DELETE allowed-commands` |
-| `/api/discovery` | System discovery | `GET /api/discovery/scan` |
-| `/api/activity` | Activity log | `GET /api/activity` |
-| `/api/agenco` | AgenCo integration | OAuth flow, MCP activation, tool execution, integrations |
-| `/api/openclaw` | OpenClaw management | `GET status`, `POST start`, `POST stop`, `POST restart`, `GET dashboard-url` |
-| `/api/fs` | Filesystem browsing | `GET /api/fs/browse` |
-| `/sse/events` | Server-Sent Events | Real-time event stream (filterable by prefix) |
-| `/rpc` | JSON-RPC 2.0 | Interceptor communication (`policy_check`, `events_batch`, `http_request`, `ping`) |
-
-### SSE Event Categories
-
-| Category | Events |
-|----------|--------|
-| `security:` | `status`, `warning`, `critical`, `alert` |
-| `skills:` | `quarantined`, `untrusted_detected`, `approved`, `analyzed`, `analysis_failed`, `install_started`, `install_progress`, `installed`, `install_failed`, `uninstalled` |
-| `wrappers:` | `installed`, `uninstalled`, `updated`, `custom_added`, `custom_removed`, `synced`, `regenerated` |
-| `broker:` | `request`, `response` |
-| `exec:` | `monitored`, `denied` |
-| `agenco:` | `connected`, `disconnected`, `auth_required`, `auth_completed`, `tool_executed`, `error` |
-| `config:` | `changed` |
-| `api:` | `request`, `outbound` |
-| `interceptor:` | `event` |
-| `process:` | `started`, `stopped` |
-| `daemon:` | `status` |
-| | `heartbeat` |
-
-</details>
-
-<details>
-<summary><strong>Development Environment Variables</strong></summary>
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `AGENSHIELD_AGENT_HOME` | Override agent home (for dev) | `./tmp/dev-agent` in `daemon:dev` |
-| `AGENSHIELD_DRY_RUN` | Dry-run mode for setup | `false` |
-| `AGENSHIELD_SKIP_CONFIRM` | Skip confirmation prompts | `false` |
-| `AGENSHIELD_VERBOSE` | Verbose CLI output | `false` |
-| `AGENSHIELD_PREFIX` | Custom prefix for users/groups | |
-| `AGENSHIELD_BASE_NAME` | Base name for sandbox users/groups | |
-| `AGENSHIELD_BASE_UID` | Base UID for created sandbox users | |
-| `AGENSHIELD_TARGET` | Setup target environment | |
-| `AGENSHIELD_ENTRY_POINT` | Entry point for execution | |
-| `AGENSHIELD_BROKER_VERBOSE` | Verbose broker output | `false` |
-| `AGENSHIELD_HTTP_PORT` | Broker HTTP fallback port | `5201` |
-| `AGENSHIELD_HTTP_HOST` | Broker HTTP fallback host | `localhost` |
-| `AGENSHIELD_HTTP_ENABLED` | Enable broker HTTP fallback | `true` |
-
-</details>
-
-## Architecture
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for full system diagrams including:
-
-- Installation sequence (29-step wizard)
-- Daemon startup and API routes
-- Broker request flow and policy evaluation
-- Sandbox isolation layers
-- Interceptor architecture
-- Seatbelt profile generation
-- LaunchDaemon configuration
-
-## Local npm Registry
-
-For testing published packages locally:
-
-```bash
-yarn registry:start     # Start local Verdaccio registry
-yarn registry:publish   # Publish all packages to local registry
-yarn registry:stop      # Stop local registry
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Follow existing code patterns and conventions
-4. Run `yarn lint && yarn format:check && yarn test` before submitting
-5. Open a pull request
-
-## License
-
-[Apache-2.0](LICENSE)
+</div>

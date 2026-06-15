@@ -1,1 +1,0 @@
-export { SecretForm } from './SecretForm';

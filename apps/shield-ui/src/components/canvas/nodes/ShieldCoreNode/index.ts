@@ -1,1 +1,0 @@
-export { ShieldCoreNode } from './ShieldCoreNode';

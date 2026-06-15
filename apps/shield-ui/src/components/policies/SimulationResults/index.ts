@@ -1,1 +1,0 @@
-export { SimulationResults } from './SimulationResults';

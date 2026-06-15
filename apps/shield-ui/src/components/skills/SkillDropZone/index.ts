@@ -1,1 +1,0 @@
-export { SkillDropZone } from './SkillDropZone';
