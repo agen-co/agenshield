@@ -10,7 +10,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/agen-co/agenshield?sort=semver&display_name=tag&label=latest&color=0F766E)](https://github.com/agen-co/agenshield/releases)
 &nbsp;[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
-&nbsp;[![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-555.svg)](#install)
+&nbsp;[![Platform](<https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-555.svg>)](#install)
 &nbsp;[![Get started](https://img.shields.io/badge/get%20started-portal.frontegg.com-0F766E.svg)](https://portal.frontegg.com)
 
 </div>
@@ -30,14 +30,14 @@ you manage centrally from the cloud.
 
 ## What it does
 
-| Capability | What it enforces |
-| --- | --- |
-| **Process control** | Allow or deny what an agent may execute — enforced in the kernel via EndpointSecurity. |
-| **File guardrails** | Block reads and writes to sensitive paths: `.env`, SSH keys, credentials, tokens. |
-| **Network policy** | Allowlist outbound connections, with TLS-terminating inspection. |
-| **Skills and MCP** | Quarantine unapproved agent skills; govern Model Context Protocol servers. |
-| **Managed settings** | Push organization configuration to Claude Code and other agents — users cannot override it. |
-| **Telemetry and alerts** | Stream policy violations and security events to AgenShield Cloud. |
+| Capability               | What it enforces                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| **Process control**      | Allow or deny what an agent may execute — enforced in the kernel via EndpointSecurity.      |
+| **File guardrails**      | Block reads and writes to sensitive paths: `.env`, SSH keys, credentials, tokens.           |
+| **Network policy**       | Allowlist outbound connections, with TLS-terminating inspection.                            |
+| **Skills and MCP**       | Quarantine unapproved agent skills; govern Model Context Protocol servers.                  |
+| **Managed settings**     | Push organization configuration to Claude Code and other agents — users cannot override it. |
+| **Telemetry and alerts** | Stream policy violations and security events to AgenShield Cloud.                           |
 
 ## Install
 

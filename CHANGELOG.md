@@ -9,4 +9,9 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v0.11.2 - 2026-06-18
+
+{"message":"Resource not accessible by integration","documentation_url":"https://docs.github.com/rest/commits/commits#list-pull-requests-associated-with-a-commit","status":"403"}
+
+
 _Notes for the next release will appear here when it ships._
