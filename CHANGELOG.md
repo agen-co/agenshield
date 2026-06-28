@@ -9,6 +9,38 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.6.2 - 2026-06-28
+
+
+### New
+
+- **Desktop dashboard is now the main AgenShield interface.** The app adds live system metrics, richer policy views, grouped agent resources, detected MCP servers, and Finder reveal actions for reviewed resources.
+- **Remote host recovery support.** AgenShield endpoints can now accept signed emergency-disable commands from AgenShield Cloud, giving admins a remote recovery path if enforcement wedges a host.
+- **Calendar-based versioning.** Releases now use `YYYY.M.N`, making it easier to tell when a build shipped and preserving correct upgrade ordering across branches.
+
+### Improved
+
+- **Menubar status reflects actual protection health.** The shield dot is green when endpoint and network enforcement are healthy; pending skill approvals and stopped optional tools are shown in the popover without making the device look degraded.
+- **Upgrades are more reliable.** `agenshield upgrade` now stops the privileged daemon cleanly and restarts an already-open dashboard on the updated build, avoiding failed first upgrade attempts and stale frozen windows.
+- **Setup and updates now use the desktop app.** The deprecated browser dashboard has been removed; setup opens the menubar dashboard, and upgrades run in the terminal.
+- **Diagnostics report the true enforcement posture.** `agenshield doctor` now distinguishes registered extensions from actually enforcing protection, including emergency disable, missing Full Disk Access, network filter outages, and fallback mode.
+- **Agent-host performance is lighter.** AgenShield reduces unnecessary discovery, enforcement sweeps, telemetry retries, and stale process tracking, lowering background work during busy agent sessions.
+- **Security hardening:** Policy bundles and cloud commands now support trusted signing-key rotation, broader signed policy coverage, authenticated keyring updates, OAuth callback protection, stricter network-policy validation, local policy-bundle signature checks, safer privileged operations, capped proxy responses, bounded caches, and safer handling of process ID reuse.
+
+### Fixed
+
+- **Login-screen freeze protection.** AgenShield now caches repeated code-signing checks and rate-limits fresh attestations during enforcement sweeps, preventing the trust-service storm that could starve macOS login components.
+- **Host lockout self-healing.** Near-deadline host enforcement pressure can now temporarily force-allow Apple/system login components while keeping sandboxed agent enforcement active, reducing the chance of a machine needing safe-mode recovery.
+- **Network enforcement no longer blocks on an absent or invalid initial policy bundle.** If no valid bundle has ever loaded, AgenShield observes and raises a clear alarm instead of denying traffic; if a previous valid bundle exists, it stays in effect.
+- **Monitor-mode network policies behave consistently.** Non-canonical per-rule enforcement values now inherit the bundle mode instead of accidentally hard-blocking traffic intended only for observation.
+- **TLS inspection trust works for agents.** The public CA certificate is written with readable permissions and existing overly restrictive copies are healed automatically, so protected agents can trust AgenShield-managed TLS termination.
+- **Dashboard live data stays accurate.** Reconnects no longer overlap event streams or reuse rejected tokens, stale metrics no longer appear as live, and policies refresh immediately after cloud sync.
+- **Agent resource status is clearer.** Quarantined-skill refresh failures are visible in the menubar, markdown skills are grouped as skills instead of rules, and pending resources remain visible in the right status filters.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v0.11.5 - 2026-06-24
 
 
