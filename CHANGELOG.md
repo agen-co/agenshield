@@ -9,6 +9,33 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.6.4 - 2026-06-28
+
+
+### New
+
+- **One-click diagnostics for support.** The desktop app can now save a complete diagnostics `.zip` with AgenShield logs, extension status, Full Disk Access posture, proxy and certificate checks, daemon/cloud status, crash reports, and local user context.
+- **Local user visibility.** The Overview dashboard now shows the macOS users AgenShield knows about, including the active console session, so admins can verify the machine context after install.
+- **Clear enforcement status in the app.** AgenShield now shows a prominent alert when endpoint or network enforcement is not active, including a direct path to Full Disk Access settings when that is the likely fix.
+
+### Improved
+
+- **Security hardening:** Cloud signing-key rotation now works from a built-in trust anchor, rejected policy bundles no longer mark themselves as applied, and devices periodically re-pull full policy so signing or sync recovery can heal without re-enrollment.
+- **Install and upgrade recovery are smoother.** The macOS installer now uses native notifications for required approvals, waits less time before continuing when Full Disk Access is not yet granted, and clears stale prior-version enforcement-disable markers when the newly installed version can safely enforce.
+- **Large resource inventories are easier to review.** Skills and MCP resource lists now load in pages, keep true totals visible, prioritize items that need attention, and avoid flicker during discovery updates.
+- **Diagnostics are more complete.** Support bundles now include the logged-in user's desktop logs, crash reports, and certificate checks even when AgenShield is running as a root LaunchDaemon.
+
+### Fixed
+
+- **Sign-in opens the right hosted login.** OAuth login now targets the AgenShield application configuration and fails clearly if enrollment metadata is missing, instead of routing users to the wrong portal or returning an opaque invalid-client error.
+- **Emergency-disable recovery guidance is reachable.** `agenshield doctor --fix` can recover local enforcement when possible and now reports when an extension immediately re-disables itself because the installed build still needs a fix.
+- **User attribution no longer appears as root.** Telemetry, MCP servers, and resource catalog entries now attribute activity to the owning macOS user where AgenShield can determine it.
+- **Uninstall completes with less delay.** Profile teardown avoids unnecessary privileged wait steps during process cleanup.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.6.2 - 2026-06-28
 
 
