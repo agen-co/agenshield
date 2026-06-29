@@ -9,6 +9,32 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.6.6 - 2026-06-29
+
+
+### New
+
+- **In-app updates:** The desktop dashboard now shows available releases, links to release notes, and can start an AgenShield upgrade through the native macOS admin prompt.
+
+### Improved
+
+- **Security hardening:** AgenShield now keeps the last valid enforcement policy active if a reload fails, refuses to mark failed policy deliveries as applied, tightens local request identity checks, fails closed when TLS inspection keys cannot load unexpectedly, and reduces sensitive cloud-sync detail in default logs.
+- **More reliable enforcement under load:** Policy and configuration reloads are safer during concurrent activity, host process attribution is cached more efficiently, and high-volume event reporting now applies backpressure instead of allowing unbounded memory growth.
+- **Faster TLS inspection:** Generated inspection certificates now use a lower-latency key type, reducing connection overhead when new per-site certificates are minted.
+- **More accurate cloud reporting:** AgenShield now reports the logged-in Mac user more reliably, sends telemetry under the correct tenant identity, and uses the correct per-application sign-in host during authentication.
+- **MCP monitoring updates without restart:** Newly added or removed cloud-managed agent profiles are reflected in MCP monitoring after policy updates, without requiring a daemon restart.
+
+### Fixed
+
+- **Claude Code settings stay readable:** AgenShield no longer leaves Claude Code settings owned or permissioned in a way that prevents the signed-in user from reading them, and it heals existing affected files.
+- **Update retry controls recover sooner:** If an upgrade is already in progress, the dashboard no longer disables update controls for a full fresh update window before allowing a real retry.
+- **Sensitive-file matching is more accurate:** Sensitive filenames and extensions are now matched case-insensitively, while broad secret-related substring checks are scoped more narrowly to avoid unnecessary enforcement work on unrelated paths.
+- **Process tracing is more stable:** Running process start times are parsed correctly on macOS, preventing long-running agent sessions from being split into separate traces during reseeding.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.6.5 - 2026-06-29
 
 
