@@ -9,6 +9,35 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.1 - 2026-07-01
+
+
+### New
+
+- **MCP activity visibility:** AgenShield now detects Model Context Protocol (MCP) server launches and MCP-over-HTTP activity, including tool calls, so admins can see which agents are using which MCP servers and tools. This is observe-only and records tool names, not tool arguments or results.
+- **Workspace dependency inventory:** AgenShield now reports each discovered workspace’s declared npm dependencies and detected package manager, giving admins better context about what agents are working with.
+- **Agent resource usage signals:** AgenShield now tracks how often agent skills, rules, instructions, and related resources are observed, including user-level resources, so admins can identify the most-used resources by agent.
+
+### Improved
+
+- **Lower-downtime upgrades:** macOS package upgrades now keep the daemon, menu bar app, and privilege helper running through most of the install, then perform a single cutover near the end. This reduces the upgrade interruption window from the full install period to a short restart.
+- **Clearer menu bar health:** The menu bar now shows cloud-link health for enrolled devices, surfaces unhealthy sync status in the header, and offers a direct Full Disk Access settings shortcut when Endpoint Security is not functional.
+- **More useful health reporting:** Health checks now include the specific unhealthy components that caused a warning, making dashboard status easier to diagnose.
+- **Clearer network activity labels:** SNI-less or IP-literal network flows can now be labeled with the matching DNS hostname when available, so shadowed destinations are easier to understand.
+- **Security hardening:** Upgrades now require trusted Frontegg-signed packages, mandatory production checksums, HTTPS-only redirects, safer enrollment-file handling, bounded MCP parsing, spoof-resistant MCP direction checks, rate limits, and log sanitization.
+
+### Fixed
+
+- **Daemon slowdown from stale process tracking:** AgenShield now prunes dead process records more reliably, preventing process-tree growth that could stall the daemon event loop and slow agent launches.
+- **Failed upgrades no longer look successful:** The CLI now verifies that the daemon restarted on the expected version after a package upgrade and reports recovery steps if the cutover did not complete.
+- **Cloud sync no longer stalls on missing home directories:** Local user sync now always supplies a usable home directory, avoiding sync rejection that could leave devices stuck in an “awaiting first device” or disconnected cloud-link state.
+- **User attribution for telemetry is more accurate:** Telemetry now uses the correct environment vendor identity and refreshes user attribution from the current session token when available.
+- **User-level skill usage now appears in usage rankings:** Global and user-scoped skills and rules are now counted in resource usage telemetry, not only workspace-scoped resources.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.6.6 - 2026-06-29
 
 
