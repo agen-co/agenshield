@@ -9,6 +9,44 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.2 - 2026-07-04
+
+
+### New
+
+- **Zero-touch MDM deployment:** Admins can now deploy AgenShield with managed preferences, approval profiles, and the signed installer in any order; endpoints enroll and activate without a user present.
+- **Passwordless in-app upgrades:** The desktop app can now start upgrades through the privileged daemon, show upgrade progress, and surface upgrade logs when troubleshooting is needed.
+- **MCP server visibility:** The desktop app now has a dedicated MCP servers view, and AgenShield can detect configured, launched, and observed MCP servers more reliably.
+- **MCP inspection groundwork:** AgenShield can now capture MCP server identity and tool inventory from inspected traffic without collecting tool results.
+- **Support system status:** The Support page now includes a collapsible system status snapshot with daemon, extension, proxy, certificate, enrollment, and recent crash details for admins.
+
+### Improved
+
+- **Dashboard navigation is clearer:** Agents, policies, workspaces, MCP servers, resources, events, and support information are now separated into focused views with cleaner summaries.
+- **Agent posture is easier to read:** The Agents page now combines detection, shielding, managed status, and run-control posture in one table instead of duplicating rows.
+- **Workspace inventory is more accurate:** Nested project folders now roll up under their parent workspace, and workspaces discovered by resource scanning appear even when no grant exists.
+- **Managed policies are less noisy:** Resource approval rules are hidden from the policy summaries and remain visible in the resource-focused views where they belong.
+- **Resource usage telemetry is quieter:** Repeated resource usage observations are batched so cloud feeds show useful activity without flooding admins with many same-second entries.
+- **Upgrade feedback is clearer:** CLI downloads now show stable progress, desktop upgrades preserve useful log output, and retry attempts keep the intended target version.
+- **Installer and diagnostics output is cleaner:** Install scripts avoid misleading terminal errors, hide stale system-extension rows, and diagnostics better report certificate trust and relevant logs.
+
+### Fixed
+
+- **In-app upgrades now verify the installed version.** AgenShield no longer reports “Upgrade complete” when the requested version was not actually installed.
+- **Upgrade cutover is more reliable.** Upgrades now better handle launchd timing so the daemon is not left unloaded after replacing an installed version.
+- **Installed agents are detected correctly.** Agents that are installed but idle no longer appear as “not detected,” and filesystem rules no longer incorrectly change whether an agent is allowed to run.
+- **Security hardening:** AgenShield now detects pressure from macOS code-signing checks and backs off safely, preventing enforcement sweeps from stalling host login or normal process launches.
+- **MCP reports reach the cloud after startup.** MCP detections and resource reports seen before cloud sync is ready are queued and flushed instead of being dropped.
+- **MCP inventory no longer merges distinct servers.** Servers that share a URL but differ by configuration or credentials remain separate, and multiple source locations are preserved.
+- **MCP and workspace scans cover more layouts.** AgenShield now finds MCP configs and skills in more workspace roots, including sibling repos and parent folders that do not use git markers.
+- **Certificate handling is safer.** Concurrent certificate authority loading no longer risks mismatched certificate/key pairs that could break inspected TLS connections.
+- **False enforcement on AgenShield’s own checks is avoided.** The enforcer no longer kills daemon-spawned agent version probes under root-scoped rules.
+- **Agent filters and UI controls behave better.** The Agents page no longer shows a false “No agents match” while detection is still loading, and banners, buttons, sidebar text, and window dragging have been polished.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.0 - 2026-07-01
 
 
