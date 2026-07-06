@@ -9,6 +9,34 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.3 - 2026-07-06
+
+
+### New
+
+- **Background update checks and install prompts.** AgenShield now checks for new releases while the dashboard is closed, shows update availability in the menu bar, and lets users start installation from the notification or popover.
+- **Admin-driven endpoint updates.** Endpoints now support automatic updates and signed cloud-initiated update commands, including version-pinned rollout or rollback workflows.
+- **Richer menu bar status.** The menu bar popover now shows protection posture, cloud and daemon state, open alerts, detected agents, protected resources, and live system metrics in one view.
+
+### Improved
+
+- **Granular monitor-mode controls.** Security admins can move specific enforcement actions into observe-only mode while still seeing what would have been denied or killed.
+- **Enforcement actions are easier to audit.** Endpoint denies and kills now create structured alerts with appropriate severity instead of appearing only in local logs.
+- **Activity views load faster on busy endpoints.** Profile-specific activity history now scales with the selected profile rather than the full activity table.
+- **More resilient managed installs.** MDM and first-login activation flows are better at completing system extension setup and recovering the network protection layer when macOS reports an incomplete or stale extension state.
+
+### Fixed
+
+- **Managed Macs no longer show a generic “sh” background item.** AgenShield’s certificate-trust helper is now attributed to the signed AgenShield binary, so Login Items and background-item prompts identify it as AgenShield.
+- **Fewer false positives on source-code filenames.** Files such as code or documentation with names containing words like “token” or “password” are no longer treated as secrets solely because of the filename, while exact secret files, key files, sensitive folders, and configured sensitive patterns remain protected.
+- **Security hardening.** Network filtering now keeps the last known good protected-user configuration after a failed or tampered reload, and configuration signature handling is stricter.
+- **Long-lived network sessions survive policy refreshes more reliably.** Reused connections such as streaming HTTP and MCP traffic are no longer dropped simply because one direction of the flow completed.
+- **Update preferences now persist correctly.** The auto-update setting is saved reliably instead of being hidden behind older duplicate configuration rows.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.2 - 2026-07-04
 
 
