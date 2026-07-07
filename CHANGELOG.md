@@ -9,6 +9,28 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.4 - 2026-07-07
+
+
+### New
+
+- **Lightweight MDM deployment package:** Admins can now push a small bootstrap installer instead of the full AgenShield installer. The endpoint downloads and verifies the full package itself, supports pinned versions from managed preferences, refuses downgrades, and runs headlessly for MDM installs.
+- **MDM inventory correlation:** Enrollment now reports the device hardware serial number and whether AgenShield was provisioned by MDM or installed manually, helping admins match AgenShield installs to Intune or Jamf device records.
+- **First-party release downloads:** AgenShield release artifacts can now be served from a first-party download endpoint with GitHub Releases as a fallback, making enterprise egress allowlisting easier.
+
+### Improved
+
+- **Update progress is more accurate:** Dashboard-initiated upgrades now receive structured progress with real download percentages and clearer lifecycle phases, so the update experience is less dependent on log-message guessing.
+- **Upgrade failures are surfaced correctly:** Upgrade flows now report failed update steps and background-service restart failures as real failures instead of appearing successful.
+
+### Fixed
+
+- **Hardware serials backfill reliably:** macOS health reporting now reads serial numbers from a source that includes them, so existing enrolled devices can report serials on heartbeat without re-enrollment.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.3 - 2026-07-06
 
 
