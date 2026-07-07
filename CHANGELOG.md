@@ -9,6 +9,17 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.6 - 2026-07-07
+
+
+### Fixed
+
+- **TLS inspection setup is more reliable after install or login.** AgenShield now retries a transient macOS helper launch failure during CA generation, reducing cases where trusted certificate setup was delayed until a later policy refresh.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.4 - 2026-07-07
 
 
