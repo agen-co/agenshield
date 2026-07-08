@@ -9,6 +9,17 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.7 - 2026-07-08
+
+
+### Fixed
+
+- **Certificate and keychain setup is more reliable on macOS 26.5 and later.** AgenShield now runs certificate-authority and Keychain operations through the signed app bundle, preventing macOS from terminating them during certificate generation, updates, and uninstall cleanup; transient launch failures during setup are retried automatically.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.6 - 2026-07-07
 
 
