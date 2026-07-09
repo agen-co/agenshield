@@ -9,6 +9,21 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.8 - 2026-07-09
+
+
+### Fixed
+
+- **Monitor mode now observes agent network activity without blocking it.** Agent process protection no longer forces network enforcement when a policy bundle is set to monitor, so admins can build and review network envelopes without unexpectedly cutting off agent traffic.
+
+- **Observe-only network handling is more reliable during startup and reloads.** If AgenShield loses track of an in-flight connection during startup, reload, or provider recovery, monitor mode now allows the flow to continue instead of treating it as a block.
+
+- **The desktop dashboard no longer gets stuck as unauthorized on first launch.** After installation, the desktop app now waits for the daemon to finish starting and connects automatically instead of requiring a manual app restart.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.7 - 2026-07-08
 
 
