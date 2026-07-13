@@ -9,6 +9,32 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.9 - 2026-07-13
+
+
+### New
+
+- **Remote MCP server visibility.** AgenShield can now detect remote MCP servers used over the network, report their tool inventories to the dashboard, and mark servers that cannot be inspected because they reject inspection certificates.
+
+### Improved
+
+- **Faster, more reliable upgrades.** `agenshield install` and `agenshield upgrade` now download the signed macOS package from the AgenShield asset CDN first, verify it, and fall back automatically if needed.
+- **Stronger policy integrity checks.** Policy bundles are now signature-verified before macOS enforcement components use them, with downgrade protection to prevent older unsigned policy data from being accepted.
+- **More reliable process attribution.** AgenShield now tracks agent and network activity more accurately when macOS process IDs are reused, parent processes exit, or agents were already running before AgenShield started.
+
+### Fixed
+
+- **MCP tool inventories appear correctly.** Fixed several issues that could show MCP servers in the dashboard with empty tool lists, including large tool responses and both JSON and event-stream MCP transports.
+- **MCP inspection no longer breaks TLS connections.** Fixed certificate generation and hostname recovery issues that could cause certificate-name errors, reset inspected MCP traffic, or require users to restart terminal sessions.
+- **Existing TLS connections no longer hang during inspection.** Connections that cannot safely be inspected now pass through promptly instead of waiting around 30 seconds for handshake data that will never arrive.
+- **Denied host agents are enforced.** Explicit host-scoped deny policies now block matching agents launched directly on the host, including root launches, and stop already-running matching agents while preserving system-process protections.
+- **Inspection certificates stay trusted for spawned agents.** Fixed a race that could leave an agent with a stale AgenShield inspection CA file and cause certificate verification failures.
+- **Process enforcement events are accurate.** AgenShield no longer reports a process as killed when macOS refused the termination or the process continued running.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.8 - 2026-07-09
 
 
