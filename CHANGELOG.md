@@ -9,6 +9,22 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.11 - 2026-07-14
+
+<!-- CURSOR_SUMMARY -->
+> [!NOTE]
+> **Medium Risk**
+> Weakens a release safety gate that was meant to block RSS/cold-start regressions; releases can ship while the perf job is red, though the documented failure is artifact-related not product-related.
+> 
+> **Overview**
+> **Unblocks releases** by decoupling `daemon-perf-gate` from publish jobs: `finalize` and `npm-publish` no longer list it in `needs:`, and the explicit `needs.daemon-perf-gate.result == 'success'` check was removed from `npm-publish`'s `always()` condition.
+> 
+> The **daemon perf job still runs** and can fail red for visibility; only the hard release block is lifted. Workflow comments document this as **temporary (2026-07-14)**: the gate is failing on a **CI harness gap** (the `dist-cli` tarball omits `native/better_sqlite3.node`, so the staged daemon cannot load SQLite—not a shipped `.pkg` regression). **Fix forward** is to bundle the native module (or set `BETTER_SQLITE3_BINDING` in staging), then restore `daemon-perf-gate` on `finalize`/`npm-publish` `needs:` and the npm `if:` clause.
+> 
+> <sup>Reviewed by [Cursor Bugbot](https://cursor.com/bugbot) for commit f953d7b7cbd6ef8dd36ca0b3a43f3eb0cb262900. Bugbot is set up for automated code reviews on this repo. Configure [here](https://www.cursor.com/dashboard/bugbot).</sup>
+<!-- /CURSOR_SUMMARY -->
+
+
 ## v2026.7.9 - 2026-07-13
 
 
