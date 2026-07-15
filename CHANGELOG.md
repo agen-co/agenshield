@@ -9,6 +9,32 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.13 - 2026-07-15
+
+
+### New
+
+- **Release notes review before upgrades.** In-app updates now show the target version’s release notes and require approval before AgenShield starts the upgrade.
+- **Security hardening:** Cloud-managed network inspection controls for SNI binding, QUIC/UDP handling, DNS fast-allow behavior, IP-literal diversion, and no-ClientHello traffic now reach the signed macOS network configuration. DNS resolver allowlists are derived locally from macOS, so cloud policy cannot spoof a device’s resolver list.
+
+### Improved
+
+- **Daemon resilience under heavy activity.** High-volume endpoint and network event bursts are now processed in bounded batches with backpressure, reducing the chance that the daemon, desktop app, or status checks become unresponsive during large agent workloads.
+- **Support diagnostics are more actionable.** Support bundles now include process resource usage, short-timeout daemon status, runtime queue counters, and memory attribution by worker so admins can diagnose slowdowns or high memory use faster.
+- **Policies are easier to scan.** The Policies view now shows readable rule summaries, action labels, disabled state, and inline patterns while keeping raw JSON available for deeper inspection.
+- **Full Disk Access guidance is more precise.** AgenShield now opens the macOS Full Disk Access settings only when it has positive evidence that permission is actually missing.
+
+### Fixed
+
+- **Network targets are attributed more accurately.** QUIC/UDP and fallback TCP observations are now correlated so network telemetry avoids duplicate bare-IP targets when the hostname is known, while ambiguous DNS matches remain safely reported as IPs.
+- **Update checks stay on the correct release path.** Stable installs are no longer offered pre-releases, and alpha, beta, or release-candidate installs can move forward to a newer stable release when one is available.
+- **Endpoint health messages no longer mislabel generic failures as Full Disk Access issues.** When the Endpoint Security extension is not running or cannot be verified, AgenShield now reports that condition directly instead of sending admins to fix a permission that may already be granted.
+- **Packaged daemon builds include all required worker assets.** The standalone daemon now validates that every embedded worker is present before release, preventing packaged builds from failing at startup because of missing worker files.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.11 - 2026-07-14
 
 <!-- CURSOR_SUMMARY -->
