@@ -9,6 +9,31 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.14 - 2026-07-15
+
+
+### New
+
+- **Emergency disable now covers network inspection.** When an admin engages emergency disable, AgenShield now stops intercepting new inspected connections and releases already claimed connections so apps can reconnect directly while recovery is active.
+
+### Improved
+
+- **Recovery resumes enforcement with fresh process state.** Clearing emergency disable now rebuilds process attribution before enforcement resumes, reducing stale policy decisions after a recovery window.
+- **Better resilience during event spikes.** AgenShield now avoids blocking enforcement on slow macOS identity checks, coalesces high-churn process updates, and reduces background scan pressure during busy agent sessions.
+- **Faster self-healing for stalled enforcement.** If enforcement work stalls, AgenShield now recycles the affected enforcement client automatically before macOS deadlines are missed.
+- **More reliable remote recovery.** Emergency-disable engage and clear commands now retry until AgenShield confirms they actually took effect, reducing false “recovered” states in admin workflows.
+
+### Fixed
+
+- **Crash alerts are no longer repeated after restarts.** AgenShield now remembers already reported enforcement crashes, ignores reports from previous boots or older builds, and only marks crash reports handled after telemetry accepts them.
+- **Security hardening:** AgenShield now honors emergency-disable only when the legitimate root-owned recovery marker is present and rejects stale or invalid markers consistently.
+- **Policy reloads are less likely to block enforcement.** Cache clearing and reload work now run through bounded background paths instead of competing with live enforcement decisions.
+- **Workspace security scans no longer overlap.** Full scans are serialized and fallback polling is rate-limited, reducing duplicate quarantine errors and CPU or disk spikes in large workspaces.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.13 - 2026-07-15
 
 
