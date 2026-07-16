@@ -9,6 +9,27 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.15 - 2026-07-16
+
+
+### New
+
+- **Guided activation:** `agenshield activate` now walks users through Endpoint Security, Network Extension, and Full Disk Access approval, then verifies that protection is actually enforcing before calling activation complete.
+
+### Improved
+
+- **Faster agent attribution under load:** AgenShield now uses a lower-overhead process attribution path for enforcement and telemetry, reducing churn during busy agent sessions and improving accuracy for short-lived child processes.
+- **Security hardening:** Production installs now keep the daemon’s diagnostic inspector closed by default, reducing local exposure of sensitive daemon memory and credentials.
+
+### Fixed
+
+- **Endpoint Security enforcement stays armed after upgrades:** In-place upgrades no longer leave host/root execution enforcement silently unarmed if configuration is briefly unavailable during restart, and status now reports enforcement only after the extension is truly ready.
+- **Certificate trust repair on newer macOS versions:** When the network inspection certificate is installed but not trusted, AgenShield can now complete trust through an interactive admin approval flow, retry after login, and surface a menubar “Trust Certificate” action.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.14 - 2026-07-15
 
 
