@@ -9,6 +9,29 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.7.16 - 2026-07-17
+
+
+### New
+
+- **Richer support diagnostics.** Support snapshots now include detailed memory attribution and extension-readiness counters, giving admins and support clearer evidence when investigating resource use or macOS protection state.
+
+### Improved
+
+- **Lower daemon memory use.** The packaged daemon now uses a smaller release build and loads worker code only when needed, reducing validated cold-start memory by about 45 MB and loaded-session memory by about 59 MB.
+- **Better responsiveness under load.** More disk, keychain, policy, audit, storage, settings, MCP, and workspace-permission work now runs asynchronously, reducing stalls during telemetry upload, policy refresh, and active enforcement.
+- **More accurate system-extension health.** Transient macOS probe failures are now reported as unknown instead of being mistaken for missing extensions, FDA problems, or provider failures.
+
+### Fixed
+
+- **Host enforcement no longer flaps during temporary macOS probe failures.** Brief probe timeouts no longer cause AgenShield to rewrite extension configuration, churn extension reloads, or temporarily disarm host/root enforcement after a session is confirmed.
+- **Cleaner agent activity timelines.** AgenShield no longer records its own housekeeping commands as agent activity when the daemon is restarted from an agent-owned terminal.
+- **Fewer false-positive secret findings.** Secrets sent to their cataloged expected origin are no longer flagged as exposed; blocked secrets and wrong-destination secrets still surface as critical findings.
+
+_macOS (Apple Silicon / arm64) only._
+
+
+
 ## v2026.7.15 - 2026-07-16
 
 
