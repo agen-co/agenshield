@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/images/logo.png" alt="AgenShield" width="88" height="88" />
+<img src="docs/images/agenshield-logo.svg" alt="AgenShield" width="88" height="88" />
 
 # AgenShield
 
@@ -66,9 +66,10 @@ verifies it against the published `checksums.sha256`. Requires macOS 14 or later
 
 Guides live in [`docs/`](./docs):
 
-- [Installation](./docs/installation.md) — install, enroll, and uninstall on macOS
-- [Usage](./docs/usage.md) — start the daemon, sign in, and what gets enforced
-- [CLI reference](./docs/cli.md) — every `agenshield` command
+- [Quickstart](./docs/getting-started/quickstart.md) — install, sign in, and see enforcement live
+- [Install and uninstall](./docs/getting-started/install-and-uninstall.md) — every install method, upgrade, and removal
+- [CLI reference](./docs/reference/cli.md) — every `agenshield` command
+- [Network inspection CA](./docs/reference/mitm-ca-for-end-users.md) — what the certificate is and how to verify it
 
 ## Releases
 

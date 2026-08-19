@@ -6,7 +6,7 @@ description: Diagnose the problems that actually happen — protection not activ
 ---
 
 Start here before collecting a diagnostics bundle. The
-[Overview page in the app](/using/the-app) names what needs attention, and two
+[Overview page in the app](../using/the-app.mdx) names what needs attention, and two
 commands resolve most problems:
 
 ```bash
@@ -35,7 +35,7 @@ Nothing is being protected yet. Work through these in order:
   <Accordion title="No agent has been protected yet">
     The service is running and agents are listed as `○ Not protected`. Open the
     AgenShield menubar, choose the agent, and confirm with your system password.
-    See [How AgenShield works](/how-it-works) for what protecting an agent does.
+    See [How AgenShield works](../how-it-works.mdx) for what protecting an agent does.
   </Accordion>
 
   <Accordion title="The macOS approvals were never granted">
@@ -46,7 +46,7 @@ Nothing is being protected yet. Work through these in order:
     ```
 
     and grant all three — system extensions, Full Disk Access, and network
-    filtering. [What gets installed](/components) walks through each one.
+    filtering. [What gets installed](../components.mdx) walks through each one.
 
   </Accordion>
 </AccordionGroup>
@@ -72,7 +72,7 @@ AgenShield security extension, then restart the Mac.
 
 If enforcement is still not happening, check whether your organization is in
 **monitor** mode — in monitor nothing is blocked by design. See
-[Enforcement modes](/configuration/enforcement-modes).
+[Enforcement modes](../configuration/enforcement-modes.mdx).
 
 ## Network rules have no effect
 
@@ -82,7 +82,7 @@ in **System Settings → Network → Filters**.
 
 If your organization has enabled traffic inspection, also confirm the inspection
 certificate is present and trusted — see
-[Network inspection certificate](/reference/mitm-ca-for-end-users).
+[Network inspection certificate](../reference/mitm-ca-for-end-users.md).
 
 ## Policy is stale or never synced
 
@@ -104,7 +104,7 @@ gets the policy fixed.
 
 Send your administrator what you were doing, roughly when, and the error the
 agent reported. See
-[Working with a protected agent](/using/protected-agents).
+[Working with a protected agent](../using/protected-agents.mdx).
 
 ## AgenShield says enforcement is paused
 
@@ -112,7 +112,7 @@ The security extension carries a safety circuit-breaker: if it restarts several
 times in a short window it stands **itself** down rather than risk making the
 Mac unusable. AgenShield is then installed and running but **not enforcing**.
 
-See [Enforcement paused](/troubleshoot/extension-self-disabled) for how to
+See [Enforcement paused](../troubleshoot/extension-self-disabled.mdx) for how to
 confirm it and restore enforcement.
 
 ## Status says DEGRADED
@@ -135,12 +135,12 @@ system extensions do not load and the Mac becomes usable again:
 Shut down, hold the **power button** until "Loading startup options" appears,
 select the disk, hold **Shift**, and choose **Continue in Safe Mode**.
 
-Then [collect a diagnostics bundle](/troubleshoot/collecting-diagnostics)
+Then [collect a diagnostics bundle](../troubleshoot/collecting-diagnostics.mdx)
 **before** uninstalling — uninstalling removes the evidence.
 
 If the machine is responsive but the **network** feels slow, that is a different
 problem with a different answer — see
-[Network Feels Slower](/troubleshoot/network-performance).
+[Network Feels Slower](../troubleshoot/network-performance.mdx).
 
 ## AgenShield is writing a lot to disk
 
@@ -208,6 +208,6 @@ restart before everything reports healthy.
 
 ## Still stuck
 
-[Collect a diagnostics bundle](/troubleshoot/collecting-diagnostics) and send it
+[Collect a diagnostics bundle](../troubleshoot/collecting-diagnostics.mdx) and send it
 to support with what you were doing, when it started, whether it followed an
 upgrade, and the output of `agenshield status`.

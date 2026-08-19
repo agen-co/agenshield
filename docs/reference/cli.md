@@ -6,7 +6,7 @@ description: The agenshield command — setup, protection status, working inside
 ---
 
 <img
-  src="/images/page-heroes/reference-cli.svg"
+  src="../images/page-heroes/reference-cli.svg"
   alt="CLI Reference diagram: Setup, Status, Diagnostics, Lifecycle."
   noZoom
 />
@@ -37,7 +37,7 @@ suppress progress display, which is what you want in MDM scripts and CI.
 | `agenshield doctor --cleanup-extensions` | Purge stale extension versions macOS has left waiting to uninstall on reboot. |
 
 `agenshield status` reports one of `SECURE`, `PARTIAL`, `UNPROTECTED`,
-`DEGRADED`, or `CRITICAL`. [Common issues](/troubleshoot/common-issues) covers
+`DEGRADED`, or `CRITICAL`. [Common issues](../troubleshoot/common-issues.mdx) covers
 each one.
 
 ## Working with protected agents
@@ -64,7 +64,7 @@ a wrapper command.
 | `agenshield logs --level warn` | Raise the threshold: `trace` … `fatal`. |
 
 For a full support bundle, see
-[Collecting diagnostics](/troubleshoot/collecting-diagnostics).
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
 
 ## Lifecycle
 
@@ -84,16 +84,16 @@ For a full support bundle, see
   </Step>
   <Step title="agenshield doctor">
     Names the failing component. Most first-install issues are an ungranted
-    approval — see [What gets installed](/components).
+    approval — see [What gets installed](../components.mdx).
   </Step>
   <Step title="agenshield logs">
     Reproduce the problem while this is streaming.
   </Step>
   <Step title="Collect a bundle">
     If the above did not resolve it — see
-    [Collecting diagnostics](/troubleshoot/collecting-diagnostics).
+    [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
   </Step>
 </Steps>
 
 For install and removal detail, see
-[Install and uninstall](/getting-started/install-and-uninstall).
+[Install and uninstall](../getting-started/install-and-uninstall.md).

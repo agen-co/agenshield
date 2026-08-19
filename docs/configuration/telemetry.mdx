@@ -12,7 +12,7 @@ which rules are worth writing.
 <Note>
   This page is about **reading** telemetry. What is collected, what leaves the
   device, and how secrets are stripped before anything is sent is covered in
-  [Privacy and data handling](/configuration/privacy-and-data).
+  [Privacy and data handling](../configuration/privacy-and-data.mdx).
 </Note>
 
 ## What an event is
@@ -21,7 +21,7 @@ Each row is one action a protected agent took, plus the decision made on it.
 
 <Frame caption="The telemetry feed — one row per action, with the verdict on each.">
   <img
-    src="/images/console/telemetry-feed.png"
+    src="../images/console/telemetry-feed.png"
     alt="Telemetry page in the AgenShield console showing a live feed of observed and allowed events, with one allowed row for an agent connecting to a model API and a callout reading: allowed, model API call."
   />
 </Frame>
@@ -80,7 +80,7 @@ read, the request it made, and the decision at each step.
 
 <Frame caption="An event opened — the destination, the agent, the device, and the user, with the trace one click away.">
   <img
-    src="/images/console/event-detail.png"
+    src="../images/console/event-detail.png"
     alt="Event detail drawer for an allowed connection showing the destination, agent, device hostname, and user identity, a View trace button, and a callout reading: device and identity on every event."
   />
 </Frame>
@@ -104,7 +104,7 @@ The workflow that produces good policy:
     Confirm the chain before you decide anything.
   </Step>
   <Step title="Write the narrowest rule that covers it">
-    Scoped to that agent, that path, that operation. See [Rules and policy](/configuration/policies).
+    Scoped to that agent, that path, that operation. See [Rules and policy](../configuration/policies.mdx).
   </Step>
   <Step title="Leave it in monitor and come back">
     Check that it matches what you expected and nothing else, then pin it to enforce.
@@ -145,16 +145,16 @@ scrolling.
 ## Next
 
 <Columns cols={2}>
-  <Card title="Rules and policy" icon="list-checks" href="/configuration/policies">
+  <Card title="Rules and policy" icon="list-checks" href="../configuration/policies.mdx">
     Turn what you have seen into narrowly scoped rules.
   </Card>
-  <Card title="Agent resources" icon="puzzle" href="/configuration/agent-resources">
+  <Card title="Agent resources" icon="puzzle" href="../configuration/agent-resources.mdx">
     The skills and connectors behind a lot of what you will see here.
   </Card>
-  <Card title="Privacy and data handling" icon="lock" href="/configuration/privacy-and-data">
+  <Card title="Privacy and data handling" icon="lock" href="../configuration/privacy-and-data.mdx">
     What is recorded, what leaves the device, and what it never sees.
   </Card>
-  <Card title="Rollout playbook" icon="map" href="/deployment/rollout-playbook">
+  <Card title="Rollout playbook" icon="map" href="../deployment/rollout-playbook.mdx">
     How long to watch before you start blocking.
   </Card>
 </Columns>

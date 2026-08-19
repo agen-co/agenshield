@@ -6,7 +6,7 @@ description: Take one Mac from nothing to a protected AI agent — install, gran
 ---
 
 <img
-  src="/images/page-heroes/getting-started-quickstart.svg"
+  src="../images/page-heroes/getting-started-quickstart.svg"
   alt="Quickstart diagram: Install, Enroll, Verify, Shield."
   noZoom
 />
@@ -16,9 +16,9 @@ will have one AI coding agent running under AgenShield, with its activity visibl
 in your console.
 
 <Note>
-  New to the product? [How AgenShield works](/how-it-works) explains protected
+  New to the product? [How AgenShield works](../how-it-works.mdx) explains protected
   agents and enforcement modes in five minutes. Rolling out to a fleet? Use the
-  [MDM guide](/deployment/mdm/overview) instead — it pre-approves
+  [MDM guide](../deployment/mdm/overview.mdx) instead — it pre-approves
   everything below so nobody is prompted.
 </Note>
 
@@ -46,7 +46,7 @@ your password once.
 
 <Tip>
   No install link? An administrator creates one in the AgenShield console as an
-  [**install campaign**](/deployment/campaigns). The link embeds an enrollment
+  [**install campaign**](../deployment/campaigns.mdx). The link embeds an enrollment
   token, so nothing has to be typed in by hand and no admin credentials touch the
   endpoint.
 </Tip>
@@ -104,7 +104,7 @@ not protecting it yet. That is the next step.
 
 <Tip>
   The menubar icon shows the same at a glance, and opens the AgenShield
-  dashboard — see [The AgenShield app](/using/the-app).
+  dashboard — see [The AgenShield app](../using/the-app.mdx).
 </Tip>
 
 ## 4. Protect an agent
@@ -152,8 +152,8 @@ What you notice from here depends on the mode your administrator chose:
 - **audit** or **enforce** — activity outside policy fails with a permission
   error, and the block is recorded with the rule that caused it.
 
-See [Working with a protected agent](/using/protected-agents) for what changes
-day to day, and [Enforcement modes](/configuration/enforcement-modes) for what
+See [Working with a protected agent](../using/protected-agents.mdx) for what changes
+day to day, and [Enforcement modes](../configuration/enforcement-modes.mdx) for what
 each mode means.
 
 ## If something is not right
@@ -165,7 +165,7 @@ agenshield doctor
 `doctor` checks each component and names what is failing; `agenshield doctor --fix`
 attempts a repair. Almost every first-install problem is one of the three
 approvals in step 2. If it persists, see
-[Common issues](/troubleshoot/common-issues).
+[Common issues](../troubleshoot/common-issues.mdx).
 
 ## Removing it
 
@@ -173,16 +173,16 @@ approvals in step 2. If it persists, see
 sudo agenshield uninstall
 ```
 
-See [Install and uninstall](/getting-started/install-and-uninstall) for the full
+See [Install and uninstall](../getting-started/install-and-uninstall.md) for the full
 removal path and how to verify nothing is left behind.
 
 ## Next
 
 <Columns cols={2}>
-  <Card title="Rollout playbook" icon="map" href="/deployment/rollout-playbook">
+  <Card title="Rollout playbook" icon="map" href="../deployment/rollout-playbook.mdx">
     Take this from one Mac to a fleet without breaking developer workflows.
   </Card>
-  <Card title="Working with a protected agent" icon="terminal" href="/using/protected-agents">
+  <Card title="Working with a protected agent" icon="terminal" href="../using/protected-agents.mdx">
     What changes for the developer, and what a block looks like.
   </Card>
 </Columns>

@@ -11,7 +11,7 @@ to block the right things. This is the sequence that works.
 
 <Note>
   This page is for whoever owns AgenShield for the organization. Developers
-  should read [Working with a protected agent](/using/protected-agents).
+  should read [Working with a protected agent](../using/protected-agents.mdx).
 </Note>
 
 ## The five phases
@@ -46,7 +46,7 @@ Decide these in the console first. None of them touch an endpoint.
 | Network inspection       | Leave **off** initially. Turn it on later if you need to see request contents.           |
 | Skill governance         | Start in observe-only; move to approval once you know what is in use.                    |
 
-Then create an [**install campaign**](/deployment/campaigns). It produces the
+Then create an [**install campaign**](../deployment/campaigns.mdx). It produces the
 install link your rollout channel distributes, plus the ready-made configuration
 profile and installer package for a managed fleet. The token only authorizes
 enrollment, is revocable, and is not an admin credential — so it is safe to hand
@@ -57,8 +57,8 @@ to a device management system or an onboarding doc.
 Pick 3–5 developers who use AI agents heavily and will tell you when something
 feels wrong.
 
-Follow the [Quickstart](/getting-started/quickstart) on each, or the
-[MDM guide](/deployment/mdm/overview) if the fleet is managed. What
+Follow the [Quickstart](../getting-started/quickstart.md) on each, or the
+[MDM guide](../deployment/mdm/overview.mdx) if the fleet is managed. What
 you are proving:
 
 - the install completes and the Mac enrols
@@ -85,8 +85,8 @@ What you are collecting:
 | Which skills and connectors are loaded?           | The extension surface you did not know you had            |
 | Does inspected traffic carry credential patterns? | Where secrets are actually leaking                        |
 
-[Telemetry](/configuration/telemetry) is where all of that is collected, and
-[Enrolled devices](/deployment/devices) tells you whether the fleet is actually
+[Telemetry](../configuration/telemetry.mdx) is where all of that is collected, and
+[Enrolled devices](../deployment/devices.mdx) tells you whether the fleet is actually
 reporting. Resist the urge to write rules during this phase — incomplete
 evidence produces brittle rules.
 
@@ -110,13 +110,13 @@ usually enough to tell "legitimate" from "worth blocking" at a glance.
 
 <Frame caption="A trace — one agent run as a tree of process, file, and network events, each with its decision.">
   <img
-    src="/images/console/trace.png"
+    src="../images/console/trace.png"
     alt="Trace view in the AgenShield console showing a single agent run as a nested timeline of process, filesystem, and network events, with an allowed network row highlighted and a callout reading: network egress inside the run."
   />
 </Frame>
 
-[Rules and policy](/configuration/policies) covers how a rule is built from
-grants; [Agent resources](/configuration/agent-resources) covers the skills and
+[Rules and policy](../configuration/policies.mdx) covers how a rule is built from
+grants; [Agent resources](../configuration/agent-resources.mdx) covers the skills and
 connectors, which are approved rather than ruled on.
 
 ## Phase 5 — Promote to enforcement
@@ -136,7 +136,7 @@ Once a cluster of rules is stable, consider moving the fleet default from
 Move to `enforce`, where only explicitly permitted activity is allowed, only when
 your allow rules genuinely cover normal work.
 
-See [Enforcement modes](/configuration/enforcement-modes) for the exact
+See [Enforcement modes](../configuration/enforcement-modes.mdx) for the exact
 semantics of each mode.
 
 ## Keeping it running
@@ -167,16 +167,16 @@ The loop does not stop after the first enforced rule.
 ## Next
 
 <Columns cols={2}>
-  <Card title="Enforcement modes" icon="shield-check" href="/configuration/enforcement-modes">
+  <Card title="Enforcement modes" icon="shield-check" href="../configuration/enforcement-modes.mdx">
     Exact semantics of monitor, audit, and enforce.
   </Card>
-  <Card title="MDM deployment" icon="building-2" href="/deployment/mdm/overview">
+  <Card title="MDM deployment" icon="building-2" href="../deployment/mdm/overview.mdx">
     Zero-touch rollout with no prompts on the endpoint.
   </Card>
-  <Card title="Rules and policy" icon="list-checks" href="/configuration/policies">
+  <Card title="Rules and policy" icon="list-checks" href="../configuration/policies.mdx">
     Building a rule out of grants, and getting it to the fleet.
   </Card>
-  <Card title="Telemetry" icon="activity" href="/configuration/telemetry">
+  <Card title="Telemetry" icon="activity" href="../configuration/telemetry.mdx">
     The evidence every phase above depends on.
   </Card>
 </Columns>

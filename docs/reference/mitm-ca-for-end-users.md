@@ -6,7 +6,7 @@ description: End-user explanation of the AgenShield CA, what it can inspect, how
 ---
 
 <img
-  src="/images/page-heroes/reference-mitm-ca-for-end-users.svg"
+  src="../images/page-heroes/reference-mitm-ca-for-end-users.svg"
   alt="AgenShield Certificate diagram: Why it appears, What it can see, Who controls it, How to remove."
   noZoom
 />
@@ -161,9 +161,9 @@ The private key cannot be exported — that is by design.
 
 ## Related
 
-- [Privacy and data handling](/configuration/privacy-and-data) — what is recorded
+- [Privacy and data handling](../configuration/privacy-and-data.mdx) — what is recorded
   and what leaves the device, inspection on or off.
-- [How AgenShield works](/how-it-works) — why only protected agents are
+- [How AgenShield works](../how-it-works.mdx) — why only protected agents are
   inspected.
-- [Common issues](/troubleshoot/common-issues) — when network rules appear to
+- [Common issues](../troubleshoot/common-issues.mdx) — when network rules appear to
   have no effect.

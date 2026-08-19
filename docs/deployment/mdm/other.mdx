@@ -9,7 +9,7 @@ AgenShield does not require a specific MDM. If yours can push a **custom macOS
 configuration profile** on the device channel and install a **signed package**,
 it can deploy AgenShield with no user interaction.
 
-Get both artifacts from your [install campaign](/deployment/campaigns) first.
+Get both artifacts from your [install campaign](../../deployment/campaigns.mdx) first.
 
 ## The generic recipe
 
@@ -83,7 +83,7 @@ installs the signed package. You still push the profile for silent approvals.
   Apple restricts the extension-approval and Full Disk Access payloads to MDM
   delivery. Any path that does not involve your MDM pushing a profile will
   prompt the user for those approvals — see the
-  [Quickstart](/getting-started/quickstart) for what that looks like.
+  [Quickstart](../../getting-started/quickstart.md) for what that looks like.
 </Note>
 
 ## Verify
@@ -96,15 +96,15 @@ agenshield status                           # service running, device enrolled
 
 The device appears under **Devices** in your console within a minute of the
 package installing. If it does not, work through the
-[MDM troubleshooting table](/deployment/mdm/overview#troubleshooting).
+[MDM troubleshooting table](../../deployment/mdm/overview.mdx#troubleshooting).
 
 ## Next
 
 <Columns cols={2}>
-  <Card title="MDM enrollment reference" icon="building-2" href="/deployment/mdm/overview">
+  <Card title="MDM enrollment reference" icon="building-2" href="../../deployment/mdm/overview.mdx">
     What each profile payload does and which prompt it removes.
   </Card>
-  <Card title="Enrolled devices" icon="laptop" href="/deployment/devices">
+  <Card title="Enrolled devices" icon="laptop" href="../../deployment/devices.mdx">
     Reading fleet health once devices land.
   </Card>
 </Columns>

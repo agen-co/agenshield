@@ -7,7 +7,7 @@ description: Deploy AgenShield to a managed Mac fleet with two pushes — a read
 
 Deploying AgenShield by MDM is **two pushes**: one configuration profile and
 one installer package. Both come ready-made from your
-[install campaign](/deployment/campaigns) — nothing to edit, script, or sign.
+[install campaign](../../deployment/campaigns.mdx) — nothing to edit, script, or sign.
 Devices enroll silently and are fully protecting at the first login.
 
 <Steps>
@@ -18,8 +18,8 @@ Devices enroll silently and are fully protecting at the first login.
   </Step>
   <Step title="Push both to the same device group">
     In any order — every dependency self-heals. Exact clicks for your MDM:
-    [Microsoft Intune](/deployment/mdm/intune), [Jamf](/deployment/mdm/jamf),
-    or [Kandji, JumpCloud, Mosyle, and others](/deployment/mdm/other).
+    [Microsoft Intune](../../deployment/mdm/intune.mdx), [Jamf](../../deployment/mdm/jamf.mdx),
+    or [Kandji, JumpCloud, Mosyle, and others](../../deployment/mdm/other.mdx).
   </Step>
   <Step title="Verify one device">
     It appears under **Devices** in your console within a minute of the package
@@ -37,7 +37,7 @@ something does not land.
 | -------------------------------------------- | ------------------------------------------------ |
 | macOS 14 or later                            | Apple silicon                                    |
 | Devices enrolled in your MDM                 | User-Approved MDM or Automated Device Enrollment |
-| An [install campaign](/deployment/campaigns) | Both artifacts are generated from it             |
+| An [install campaign](../../deployment/campaigns.mdx) | Both artifacts are generated from it             |
 
 ## Why nobody on the endpoint is prompted
 
@@ -173,16 +173,16 @@ Most rollouts need none of these. Each exists for one specific situation.
 ## Next
 
 <Columns cols={2}>
-  <Card title="Microsoft Intune" icon="plug" href="/deployment/mdm/intune">
+  <Card title="Microsoft Intune" icon="plug" href="../../deployment/mdm/intune.mdx">
     The connected integration — push campaigns straight from the console.
   </Card>
-  <Card title="Jamf" icon="server" href="/deployment/mdm/jamf">
+  <Card title="Jamf" icon="server" href="../../deployment/mdm/jamf.mdx">
     Jamf Pro and Jamf Now.
   </Card>
-  <Card title="Other MDMs" icon="boxes" href="/deployment/mdm/other">
+  <Card title="Other MDMs" icon="boxes" href="../../deployment/mdm/other.mdx">
     Kandji, JumpCloud, Mosyle, and anything that accepts a custom profile.
   </Card>
-  <Card title="Enrolled devices" icon="laptop" href="/deployment/devices">
+  <Card title="Enrolled devices" icon="laptop" href="../../deployment/devices.mdx">
     Reading fleet health once devices land, and how to offboard cleanly.
   </Card>
 </Columns>

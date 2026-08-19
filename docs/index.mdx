@@ -6,7 +6,7 @@ description: Endpoint security for AI coding agents on macOS — see what your a
 ---
 
 <img
-  src="/images/page-heroes/index.svg"
+  src="./images/page-heroes/index.svg"
   alt="AgenShield Overview diagram: Control plane, Endpoint stack, Agent runtime, Evidence loop."
   noZoom
 />
@@ -50,31 +50,31 @@ That loop — **observe, decide, enforce, repeat** — is the whole product.
 ## Where to go next
 
 <Columns cols={2}>
-  <Card title="How AgenShield works" icon="lightbulb" href="/how-it-works">
+  <Card title="How AgenShield works" icon="lightbulb" href="./how-it-works.mdx">
     The model behind the loop above: protected agents, policy, the three enforcement modes, and what AgenShield deliberately never touches. Read this before deploying.
   </Card>
 
-  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+  <Card title="Quickstart" icon="rocket" href="./getting-started/quickstart.md">
     Take one Mac from nothing to a protected agent in about ten minutes.
   </Card>
 
-  <Card title="What gets installed" icon="boxes" href="/components">
+  <Card title="What gets installed" icon="boxes" href="./components.mdx">
     Every component that lands on the Mac, what each is responsible for, where it lives, and how to confirm it is healthy.
   </Card>
 
-  <Card title="Deploy to a fleet" icon="building-2" href="/deployment/mdm/overview">
+  <Card title="Deploy to a fleet" icon="building-2" href="./deployment/mdm/overview.mdx">
     Zero-touch rollout through Jamf, Kandji, Mosyle, JumpCloud, or Intune — no prompts on the endpoint.
   </Card>
 
-  <Card title="Rollout playbook" icon="map" href="/deployment/rollout-playbook">
+  <Card title="Rollout playbook" icon="map" href="./deployment/rollout-playbook.mdx">
     The recommended path from first pilot Mac to enforced policy, and how to avoid breaking developer workflows on the way.
   </Card>
 
-  <Card title="Working with a protected agent" icon="terminal" href="/using/protected-agents">
+  <Card title="Working with a protected agent" icon="terminal" href="./using/protected-agents.mdx">
     For developers: what changes day to day, and what to do when something is blocked.
   </Card>
 
-  <Card title="The AgenShield app" icon="app-window" href="/using/the-app">
+  <Card title="The AgenShield app" icon="app-window" href="./using/the-app.mdx">
     The menubar icon and the dashboard — status, activity, the policy in force, and one-click diagnostics.
   </Card>
 </Columns>
@@ -86,24 +86,24 @@ page hands off to the next.
 
 | #   | Step                                                         | You end up with                                              |
 | --- | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| 1   | [Create an install campaign](/deployment/campaigns)          | An enrollment token and ready-made deployment artifacts      |
-| 2   | [Enrol devices](/deployment/mdm/overview)                    | Macs reporting in, with no prompts on a managed fleet        |
-| 3   | [Read the fleet](/deployment/devices)                        | Health, coverage, and which policy revision is actually live |
-| 4   | [Watch telemetry](/configuration/telemetry)                  | Evidence of what your agents really do                       |
-| 5   | [Write rules](/configuration/policies)                       | Narrow, agent-scoped policy built on that evidence           |
-| 6   | [Set the enforcement mode](/configuration/enforcement-modes) | Monitor first, then one rule at a time                       |
-| 7   | [Govern agent resources](/configuration/agent-resources)     | Reviewed skills and connectors instead of whatever appeared  |
+| 1   | [Create an install campaign](./deployment/campaigns.mdx)          | An enrollment token and ready-made deployment artifacts      |
+| 2   | [Enrol devices](./deployment/mdm/overview.mdx)                    | Macs reporting in, with no prompts on a managed fleet        |
+| 3   | [Read the fleet](./deployment/devices.mdx)                        | Health, coverage, and which policy revision is actually live |
+| 4   | [Watch telemetry](./configuration/telemetry.mdx)                  | Evidence of what your agents really do                       |
+| 5   | [Write rules](./configuration/policies.mdx)                       | Narrow, agent-scoped policy built on that evidence           |
+| 6   | [Set the enforcement mode](./configuration/enforcement-modes.mdx) | Monitor first, then one rule at a time                       |
+| 7   | [Govern agent resources](./configuration/agent-resources.mdx)     | Reviewed skills and connectors instead of whatever appeared  |
 
 ## Who each section is for
 
 | You are…                            | Start with                                                                                               |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Evaluating AgenShield               | [How AgenShield works](/how-it-works), then [Privacy and data handling](/configuration/privacy-and-data) |
-| Rolling it out to a fleet           | [Install campaigns](/deployment/campaigns), then [MDM deployment](/deployment/mdm/overview)              |
-| Planning the rollout sequence       | [Rollout playbook](/deployment/rollout-playbook)                                                         |
-| Setting up your own Mac             | [Quickstart](/getting-started/quickstart)                                                                |
-| A developer using a protected agent | [Working with a protected agent](/using/protected-agents)                                                |
-| Supporting someone else             | [Common issues](/troubleshoot/common-issues)                                                             |
+| Evaluating AgenShield               | [How AgenShield works](./how-it-works.mdx), then [Privacy and data handling](./configuration/privacy-and-data.mdx) |
+| Rolling it out to a fleet           | [Install campaigns](./deployment/campaigns.mdx), then [MDM deployment](./deployment/mdm/overview.mdx)              |
+| Planning the rollout sequence       | [Rollout playbook](./deployment/rollout-playbook.mdx)                                                         |
+| Setting up your own Mac             | [Quickstart](./getting-started/quickstart.md)                                                                |
+| A developer using a protected agent | [Working with a protected agent](./using/protected-agents.mdx)                                                |
+| Supporting someone else             | [Common issues](./troubleshoot/common-issues.mdx)                                                             |
 
 ## Good to know up front
 
@@ -119,9 +119,9 @@ page hands off to the next.
   access to the device.
 - **macOS 14 or later, Apple silicon.** Intel Macs are not supported yet. Intel
   and Linux support are in development. Windows has a one-line install today
-  (see [Install and uninstall](/getting-started/install-and-uninstall)), but
+  (see [Install and uninstall](./getting-started/install-and-uninstall.md)), but
   enforcement is not yet at full parity with macOS — see
-  [Windows install warnings](/troubleshoot/windows-install-warnings) for two
+  [Windows install warnings](./troubleshoot/windows-install-warnings.mdx) for two
   known limitations (an unsigned installer that triggers a Windows SmartScreen
   warning, and the command-line enrollment token method — not the install link
   or a Group Policy/Intune push — not completing on non-English Windows

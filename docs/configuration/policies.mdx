@@ -8,13 +8,13 @@ description: Author policy in the AgenShield console — how a rule is built fro
 Policy in AgenShield is a set of **rules**, each attached to one or more AI
 agents. A rule says what that agent may run, read, write, and connect to. The
 fleet's default posture decides how strictly rules are applied — see
-[Enforcement modes](/configuration/enforcement-modes).
+[Enforcement modes](../configuration/enforcement-modes.mdx).
 
 <Note>
   Write rules **after** you have telemetry, not before. Two weeks of monitor-mode
   evidence produces rules that fit how your developers actually work; guessing
   produces rules you will spend a month relaxing. The
-  [Rollout playbook](/deployment/rollout-playbook) sequences this.
+  [Rollout playbook](../deployment/rollout-playbook.mdx) sequences this.
 </Note>
 
 ## How a rule is built
@@ -114,8 +114,8 @@ Publishing a rule does not mean it is live. Devices pull policy on their own
 cadence, so:
 
 1. Publish the change.
-2. Watch the **Bundle** column on [Devices](/deployment/devices) converge.
-3. Confirm in [Telemetry](/configuration/telemetry) that the rule is matching
+2. Watch the **Bundle** column on [Devices](../deployment/devices.mdx) converge.
+3. Confirm in [Telemetry](../configuration/telemetry.mdx) that the rule is matching
    what you expected — while it is still in monitor.
 4. Only then pin it to enforce.
 
@@ -126,16 +126,16 @@ policy it received rather than falling open.
 ## Next
 
 <Columns cols={2}>
-  <Card title="Enforcement modes" icon="shield-check" href="/configuration/enforcement-modes">
+  <Card title="Enforcement modes" icon="shield-check" href="../configuration/enforcement-modes.mdx">
     Monitor, audit, enforce — and how a per-rule mode overrides the fleet default.
   </Card>
-  <Card title="Telemetry" icon="activity" href="/configuration/telemetry">
+  <Card title="Telemetry" icon="activity" href="../configuration/telemetry.mdx">
     The evidence a good rule is built from.
   </Card>
-  <Card title="Agent resources" icon="puzzle" href="/configuration/agent-resources">
+  <Card title="Agent resources" icon="puzzle" href="../configuration/agent-resources.mdx">
     Governing the skills and connectors agents load, which rules do not cover.
   </Card>
-  <Card title="Rollout playbook" icon="map" href="/deployment/rollout-playbook">
+  <Card title="Rollout playbook" icon="map" href="../deployment/rollout-playbook.mdx">
     The order to do all of this in.
   </Card>
 </Columns>

@@ -9,7 +9,7 @@ Jamf deploys AgenShield with the same two objects as every other MDM: the
 campaign's configuration profile and the signed installer package. Jamf Pro and
 Jamf Now differ only in how those are grouped and scoped.
 
-Get both artifacts from your [install campaign](/deployment/campaigns) first.
+Get both artifacts from your [install campaign](../../deployment/campaigns.mdx) first.
 
 ## Jamf Pro
 
@@ -46,7 +46,7 @@ campaign.
    - Scope: the same group as the profile.
 
 Push order does not matter — see
-[what happens on the device](/deployment/mdm/overview#what-happens-on-the-device).
+[what happens on the device](../../deployment/mdm/overview.mdx#what-happens-on-the-device).
 
 ### 3. Scope with a smart group
 
@@ -108,15 +108,15 @@ You should also see:
 | Policy never runs                                     | The Mac already ran a **Once per computer** policy. Use **Flush** on the policy log for that computer, then re-check in.           |
 | Enforcement stays off although the device is healthy  | Full Disk Access payload missing — most often because a hand-rebuilt profile omitted it. Re-upload the campaign profile.           |
 
-Everything else is on the [MDM enrollment reference](/deployment/mdm/overview#troubleshooting).
+Everything else is on the [MDM enrollment reference](../../deployment/mdm/overview.mdx#troubleshooting).
 
 ## Next
 
 <Columns cols={2}>
-  <Card title="Enrolled devices" icon="laptop" href="/deployment/devices">
+  <Card title="Enrolled devices" icon="laptop" href="../../deployment/devices.mdx">
     Reading fleet health once devices land.
   </Card>
-  <Card title="Rollout playbook" icon="map" href="/deployment/rollout-playbook">
+  <Card title="Rollout playbook" icon="map" href="../../deployment/rollout-playbook.mdx">
     Monitor first, then promote rules one at a time.
   </Card>
 </Columns>

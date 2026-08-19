@@ -41,7 +41,7 @@ own device group. Split them the way you would split a rollout wave:
 | `Contractors` | Different offboarding cadence, revoked more often     |
 
 A device belongs to exactly one campaign. With a connected MDM, that is enforced
-for you — see [Microsoft Intune](/deployment/mdm/intune).
+for you — see [Microsoft Intune](../deployment/mdm/intune.mdx).
 
 ## What a campaign gives you
 
@@ -49,7 +49,7 @@ Once created, the campaign detail view carries everything a rollout needs.
 
 <Frame caption="The campaign detail view — the install command, install URL, and enrollment token, ready to copy.">
   <img
-    src="/images/console/campaign-created.png"
+    src="../images/console/campaign-created.png"
     alt="Campaign created panel in the AgenShield console showing a copyable install command, install URL, and enrollment token, with a callout reading: one command enrolls a device."
   />
 </Frame>
@@ -58,7 +58,7 @@ Once created, the campaign detail view carries everything a rollout needs.
 
 | Artifact              | Use it for                                                                              |
 | --------------------- | --------------------------------------------------------------------------------------- |
-| **Install command**   | Paste-and-run, one Mac. This is what the [Quickstart](/getting-started/quickstart) uses |
+| **Install command**   | Paste-and-run, one Mac. This is what the [Quickstart](../getting-started/quickstart.md) uses |
 | **Enrollment token**  | Scripted installs and testing, where you supply the token yourself                      |
 | **Uninstall command** | Removing AgenShield. Carries no token, so it is safe to hand to any end user            |
 
@@ -80,7 +80,7 @@ https://<your-console>/resources/campaigns/v1/<campaign-token>/agenshield.mobile
 | **Bootstrap package**                  | A tiny (under 1 MB) alternative `.pkg` that downloads and verifies the full installer on the device                           |
 
 Push the profile and one of the two packages, and the rollout is done. See
-[MDM enrollment](/deployment/mdm/overview) for what each payload does, and the
+[MDM enrollment](../deployment/mdm/overview.mdx) for what each payload does, and the
 per-MDM pages for the exact clicks.
 
 <Tip>
@@ -112,7 +112,7 @@ The campaign detail view has an events timeline that tells you where a rollout i
 
 Seeing `Script fetched` but never `Registration` is the classic MDM symptom: the
 package reached the device but the profile did not, so there was no token to
-enroll with. [MDM enrollment](/deployment/mdm/overview) covers how to confirm.
+enroll with. [MDM enrollment](../deployment/mdm/overview.mdx) covers how to confirm.
 
 ## Revoke a campaign
 
@@ -125,7 +125,7 @@ Revoking invalidates the token. Precisely:
 
 So revoking is _closing the door_, not _removing the software_. To actually take
 AgenShield off a machine, offboard the device — see
-[Enrolled devices](/deployment/devices).
+[Enrolled devices](../deployment/devices.mdx).
 
 Revoke a campaign when a pilot ends, when an onboarding document with the link
 in it has gone stale, or any time you would rotate a shared link.
@@ -133,16 +133,16 @@ in it has gone stale, or any time you would rotate a shared link.
 ## Next
 
 <Columns cols={2}>
-  <Card title="MDM enrollment" icon="building-2" href="/deployment/mdm/overview">
+  <Card title="MDM enrollment" icon="building-2" href="../deployment/mdm/overview.mdx">
     Push the campaign's profile and package to a managed fleet — no user interaction.
   </Card>
-  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+  <Card title="Quickstart" icon="rocket" href="../getting-started/quickstart.md">
     Use the install command on a single Mac instead.
   </Card>
-  <Card title="Enrolled devices" icon="laptop" href="/deployment/devices">
+  <Card title="Enrolled devices" icon="laptop" href="../deployment/devices.mdx">
     What appears once devices start reporting, and how to read fleet health.
   </Card>
-  <Card title="Rollout playbook" icon="map" href="/deployment/rollout-playbook">
+  <Card title="Rollout playbook" icon="map" href="../deployment/rollout-playbook.mdx">
     The phased path from pilot to enforcement.
   </Card>
 </Columns>

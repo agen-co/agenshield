@@ -6,7 +6,7 @@ description: How AgenShield is installed, enrolled, laid out on disk, started at
 ---
 
 <img
-  src="/images/page-heroes/getting-started-install-and-uninstall.svg"
+  src="../images/page-heroes/getting-started-install-and-uninstall.svg"
   alt="Install And Uninstall diagram: Campaign, Install layout, Boot behavior, Uninstall."
   noZoom
 />
@@ -16,20 +16,20 @@ disk, and how to remove it completely.
 
 <Note>
   Setting up one Mac for the first time? Follow the
-  [Quickstart](/getting-started/quickstart) instead — it covers install, the
+  [Quickstart](../getting-started/quickstart.md) instead — it covers install, the
   macOS approvals, and protecting your first agent in order. Deploying to a
-  fleet? Use the [MDM guide](/deployment/mdm/overview).
+  fleet? Use the [MDM guide](../deployment/mdm/overview.mdx).
 </Note>
 
 Installing does **not** protect anything on its own. It enrols the Mac and starts
 the service; you then grant the macOS approvals and choose which agents to
-protect. See [How AgenShield works](/how-it-works).
+protect. See [How AgenShield works](../how-it-works.mdx).
 
 ## Installation
 
 AgenShield ships as the signed `AgenShield.app` bundle plus the `agenshield`
 command-line tool, packaged as a signed, Apple-notarized macOS `.pkg`. See
-[What gets installed](/components) for what each part is responsible for. The `.pkg` is published as a **GitHub Release
+[What gets installed](../components.mdx) for what each part is responsible for. The `.pkg` is published as a **GitHub Release
 asset** on [`agen-co/agenshield`](https://github.com/agen-co/agenshield). The
 `agenshield` npm package is a thin wrapper that bootstraps the installer from
 that release — no large binaries ship through npm.
@@ -118,7 +118,7 @@ your user, team, or group.
 Windows may show a publisher warning the first time you run the installer,
 and an unattended install that passes the enrollment token directly on the
 install command can fail to enroll on some non-English Windows editions — see
-[Windows install warnings](/troubleshoot/windows-install-warnings) if you hit
+[Windows install warnings](../troubleshoot/windows-install-warnings.mdx) if you hit
 either.
 
 ### What a macOS install does
@@ -137,7 +137,7 @@ performs these steps:
 
 3. **Installs the app and its extensions.** `/Applications/AgenShield.app` is
    installed; launching it activates the two system extensions. See
-   [What gets installed](/components) for what each is responsible for.
+   [What gets installed](../components.mdx) for what each is responsible for.
 
 4. **Starts the background service.** The service is registered to run at boot,
    and a per-user item starts the menubar app at login. The service begins
@@ -171,7 +171,7 @@ or the installer package directly:
    background service runs, but no organization policy has been pulled and
    nothing is protected until enrollment completes — either by supplying a
    token afterward, or automatically once a managed policy push arrives. See
-   [Windows install warnings](/troubleshoot/windows-install-warnings) if an
+   [Windows install warnings](../troubleshoot/windows-install-warnings.mdx) if an
    unattended install did not enroll.
 
 3. **Installs the background service and the tray app.** The service is
@@ -353,10 +353,10 @@ then they may show `[terminated waiting to uninstall on reboot]`.
 - `agenshield doctor --cleanup-extensions` — purges stale system extensions.
 - `agenshield uninstall` — the authoritative removal path.
 
-Full list: [CLI reference](/reference/cli).
+Full list: [CLI reference](../reference/cli.md).
 
 ## Next
 
-After installing, grant the [three macOS approvals](/components) and protect an
-agent — see the [Quickstart](/getting-started/quickstart). For a fleet, follow
-the [rollout playbook](/deployment/rollout-playbook).
+After installing, grant the [three macOS approvals](../components.mdx) and protect an
+agent — see the [Quickstart](../getting-started/quickstart.md). For a fleet, follow
+the [rollout playbook](../deployment/rollout-playbook.mdx).
