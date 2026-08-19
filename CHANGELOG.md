@@ -9,6 +9,59 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.8.2 - 2026-08-19
+
+
+### New
+
+- **MCP server controls:** Admins can now allow, deny, monitor, and enforce MCP server usage across the fleet, including default-deny posture, native Claude Code settings lockdown, gateway provisioning, and blocked-tool hiding.
+
+- **Duplicate network filter repair:** AgenShield now detects duplicate macOS Network Filter entries, reports the condition in device health and the desktop app, and offers a guided repair path. Upgrades also attempt a safe automatic cleanup when the duplicate state is definitive.
+
+### Improved
+
+- **Network inspection coverage:** Body inspection now handles compressed request and response bodies, supports larger inspected uploads, and bounds expensive parsing so large or unusual traffic does not stall inspection.
+
+- **MCP inspection compatibility:** AgenShield recognizes newer stateless MCP traffic and can enforce MCP policy without relying only on older session-handshake behavior.
+
+- **Settings compliance visibility:** Settings enforcement now reports compliant, applied, and failed states to fleet telemetry with sensitive values redacted, so admins can distinguish a healthy control from a silent endpoint.
+
+- **CA trust visibility:** Device health now reports when the AgenShield inspection CA is present but not trusted system-wide, allowing admins to spot certificate trust installation problems from fleet health data.
+
+- **Installation and upgrade flow:** The guided macOS approval flow now separates Endpoint Security, Full Disk Access, Network Filter, and Transparent Proxy steps more reliably, avoids racing macOS network-extension saves, and keeps the dashboard available after install attempts.
+
+- **Performance under network load:** Network policy evaluation now does more rule preparation ahead of time, reducing per-flow work on the macOS network path.
+
+### Fixed
+
+- **Security hardening:** Decrypted inspected request bodies are no longer sent in telemetry by default, inspected HTTPS certificates are reissued before cached leaf certificates expire, uninstall removes only AgenShield-issued trust roots, and JWT secret detection better avoids false positives for legitimate vendor-bound tokens.
+
+- **Policy updates keep applying during signature upgrades.** Adding newly protected policy fields no longer causes already-released endpoints to reject policy bundles. AgenShield now verifies the strongest available bundle signature while preserving compatibility with older clients, so fleets continue receiving policy updates without weakening tamper protection.
+
+- **Automatic shielding now takes effect.** A policy that requires an agent to be shielded could fail immediately after being triggered, leaving the agent unprotected. Required shielding is now applied correctly, and a refusal is reported distinctly from a slow attempt.
+
+- **Admin sessions no longer expire while the service is running.** Local credentials are now refreshed before they expire, so CLI commands and agent launches keep working after AgenShield has been running for a long period.
+
+- **Rejected credentials are reported accurately.** A rejected credential refresh no longer silently falls back to the credential that was just rejected, and now returns a clear, retryable error.
+
+- **Approved MCP servers load correctly:** Claude Code managed settings are now written in the format Claude Code accepts, so approved MCP servers are no longer accidentally blocked by an empty effective allowlist.
+
+- **Policy changes are retained correctly:** Local policy saves, edits, resource limits, and corrupt policy rows are handled more defensively so one failed or malformed rule cannot silently drop unrelated enforcement.
+
+- **Agent sessions are detected more reliably:** Running Claude Code sessions are now found even when the process title differs from the binary name, improving shielding and policy attribution.
+
+- **Expired sessions are clearer:** When a dashboard session expires, the app now says that directly and records the authentication rejection without exposing tokens.
+
+- **Resource usage rankings are more accurate:** Workspace resource counts no longer treat agent startup enumeration as real usage, making "most-used resources" less inflated.
+
+- **Deny notifications are less noisy:** Repeated blocked network attempts are throttled and summarized so enforcement remains visible without flooding the desktop.
+
+- **Agent operational access is preserved under tighter policies:** Built-in access needed for supported agents to authenticate and update is preserved when network policy is narrowed, while telemetry-style endpoints remain governed by policy.
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.7.16 - 2026-07-17
 
 
