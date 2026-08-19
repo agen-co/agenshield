@@ -1,0 +1,11 @@
+{
+  "$schema_description": "Copy this file to tmp/dev-frontegg.json (gitignored) and replace adminJwt with a fresh Frontegg stg-portal admin JWT. Used by tools/dev-enroll.mts so campaign creation is a genuine Frontegg-authenticated admin call (real-world onboarding parity) instead of a synthetic rubber-stamp.",
+
+  "$howto_adminJwt": "Open https://portal.stg.frontegg.com → sign in → open DevTools → Network tab → click any authed request (e.g. a GET to /api/...) → Headers → copy the value of 'Authorization' header (strip the leading 'Bearer ' prefix). JWTs expire after ~24h.",
+
+  "adminJwt": "<PASTE JWT HERE>",
+
+  "$howto_fronteggEnvironmentId": "Optional. If omitted, dev-enroll auto-extracts customClaims.accountEnvironments[environment=='development'].id from the JWT. Override when you want to enrol against a different environment (e.g. your personal dev environment).",
+
+  "fronteggEnvironmentId": "9f082d7f-33b3-43ad-a050-947d34778599"
+}

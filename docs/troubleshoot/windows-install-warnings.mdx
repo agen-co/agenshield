@@ -1,0 +1,105 @@
+---
+title: 'A Windows install did not enroll, or shows a publisher warning'
+sidebarTitle: 'Windows install warnings'
+icon: 'app-window'
+description: 'An unattended Windows install completes but the device never enrolls, or Windows warns about an unrecognized publisher when the installer runs.'
+---
+
+## What you are seeing
+
+One of two things, both during or shortly after installing AgenShield on
+Windows:
+
+- An unattended install (for example, an install run silently from a script
+  or an IT deployment tool, with the organization token passed directly on the
+  install command) finishes without an error, but the device never shows up
+  as enrolled in your AgenShield console.
+- Windows shows a "Windows protected your PC" or unrecognized-publisher
+  warning when you run the installer.
+
+## Unattended install completed, but the device is not enrolled
+
+### What it means
+
+Passing your organization's enrollment token directly on the install command
+line is one of several ways to enroll a Windows device — a Group Policy or
+Intune-managed push, and the install script from your organization's install
+link, are the other two. On some non-English editions of Windows, the
+command-line method cannot safely confirm that the folder it needs to write
+your token into is protected from other users on the machine. Rather than
+risk writing a sensitive token somewhere another local account could read it,
+it skips that step entirely and moves on — so the install itself finishes
+normally, but enrollment does not happen.
+
+**Nothing else about the install is affected.** The software is installed
+correctly; only the enrollment handoff for this one method is skipped, and it
+skips safely (nothing is written insecurely) rather than failing loudly.
+
+### Affected versions
+
+This affects the command-line token method only, and only on non-English
+Windows language editions. It does not depend on the AgenShield version.
+
+### What to do
+
+Use either of the other two enrollment methods instead — neither has this
+limitation:
+
+<Steps>
+  <Step title="Use the install link from your organization">
+    Run the install command from your AgenShield console's deployment page
+    (the one that starts with `irm` and ends with `| iex`) in a PowerShell
+    window, rather than passing the token as a command-line property to the
+    installer package — the script requests administrator approval itself.
+    This method enrolls the device the same way, through a different
+    mechanism that is not affected by Windows language settings.
+  </Step>
+  <Step title="Or push enrollment through Group Policy or Intune">
+    If you are deploying to a fleet, set the enrollment token as a managed
+    policy (Group Policy or an Intune configuration profile) instead of as an
+    installer command-line property. See your organization's deployment guide
+    for the policy key to set.
+  </Step>
+  <Step title="Confirm enrollment">
+    After using either method, confirm the device shows as enrolled — check
+    `agenshield status` on the machine, or look for the device in your
+    AgenShield console.
+  </Step>
+</Steps>
+
+## Windows warns about an unrecognized publisher
+
+### What it means
+
+The Windows installer package is not yet code-signed the way the macOS
+installer is. Until that is in place, Windows SmartScreen may warn that the
+publisher is unrecognized when you run it. This is expected on current
+Windows builds and does not mean the file was tampered with — the installer
+independently verifies the file's integrity against AgenShield's release
+records before installing anything, and refuses to proceed if that check
+fails.
+
+### What to do
+
+- If SmartScreen shows "Windows protected your PC," choose **More info**,
+  then **Run anyway** — only when you obtained the installer from your
+  organization's official install link or console.
+- If your organization's security policy blocks unsigned installers outright
+  (for example, via Application Control or Defender policy), deploy through
+  Group Policy or Intune instead, which can allowlist the specific installer
+  by its file hash.
+- If the installer itself reports a checksum or integrity failure and stops,
+  do not bypass it — that is a different, more serious problem. Contact
+  support instead of proceeding.
+
+## When to escalate
+
+Contact support if:
+
+- You used the install link or a Group Policy/Intune push (not the
+  command-line token method) and the device still does not enroll.
+- The installer reports a checksum or signature verification failure.
+- Anything above does not match what you are seeing.
+
+Include a diagnostic bundle — see
+[Collecting diagnostics](/troubleshoot/collecting-diagnostics).

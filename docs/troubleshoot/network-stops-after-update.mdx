@@ -1,0 +1,90 @@
+---
+title: Network Stops After an Update
+sidebarTitle: Network Stops After Update
+icon: wifi-off
+description: "What to do when every application loses network access immediately after an AgenShield update — including AI tools reporting certificate or connection errors — and how to restore connectivity in seconds."
+---
+
+In rare cases, replacing the network extension during an AgenShield update can
+leave it in a stuck state: it keeps receiving new network connections but never
+finishes answering macOS about them. macOS holds every connection while it
+waits for that answer, so from the moment of the update **the whole Mac loses
+network access** — not just AI tools.
+
+Typical signs, starting at the exact minute the update ran:
+
+- Browsers spin forever; nothing loads in any application.
+- AI coding tools show connection or certificate errors — for example
+  `Unable to connect to API (UNKNOWN_CERTIFICATE_VERIFICATION_ERROR)` with
+  endless retries.
+- Wi-Fi shows connected and the network itself is fine — connections open but
+  no data ever moves.
+
+<Warning>
+  A Mac in this state looks healthy almost everywhere: the network extension
+  shows as enabled, the background service is running, and the AgenShield
+  status looks green. Do not rule AgenShield out because its own health checks
+  pass — go by the symptom and the timing.
+</Warning>
+
+## What state the product is in
+
+Nothing has been blocked by your organization's policy, and nothing is wrong
+with your network. The network extension is running but stuck: it is not
+issuing allow or block decisions at all, and macOS keeps holding every
+connection that is waiting for one. Because the stuck component sits in the
+path of **all** traffic, every application is affected equally — including
+AgenShield's own connection to your AgenShield console.
+
+## Confirm it
+
+Three things together make this diagnosis near-certain:
+
+1. **Timing** — connectivity died at the moment an AgenShield update ran, not
+   gradually.
+2. **Scope** — every application is affected, on every network destination,
+   while Wi-Fi or Ethernet still shows connected.
+3. **The toggle test** — turn the AgenShield network extension off (next
+   section). If connectivity returns immediately, this was the cause.
+
+## Restore connectivity now
+
+Open **System Settings → General → Login Items & Extensions → Network
+Extensions**, and turn **AgenShield** off.
+
+Connectivity returns within seconds. No restart is needed.
+
+## After you recover
+
+1. Update AgenShield to the latest release.
+2. Turn the network extension back on in the same System Settings pane.
+3. If the problem returns as soon as you re-enable it, leave it off and
+   [collect a diagnostics bundle](/troubleshoot/collecting-diagnostics), then
+   contact support.
+
+While the network extension is off, network monitoring and network policy are
+not applied on this Mac. Re-enable it as soon as you are on a fixed version.
+
+## Affected versions
+
+- **Affected:** the 2026.8.2 alpha line. The stuck state is rare and tied to
+  the moment an update replaces the network extension — most updates on these
+  versions complete normally.
+- **Fixed:** the next release detects this state automatically, restarts the
+  network filtering once to clear it, and — if AgenShield's emergency stop is
+  engaged — now stands down the network filtering layer itself, so this
+  situation no longer requires a trip to System Settings.
+
+## When to escalate
+
+Contact support with a [diagnostics
+bundle](/troubleshoot/collecting-diagnostics) if:
+
+- turning the network extension off does **not** restore connectivity — the
+  cause is then something other than AgenShield;
+- the stuck state returns on a version newer than the 2026.8.2 alpha line; or
+- you run other endpoint-security or VPN products alongside AgenShield and hit
+  this repeatedly — the combination is exactly what support will want to see.
+
+The bundle records what the network extension was doing at the time, which
+determines the answer.

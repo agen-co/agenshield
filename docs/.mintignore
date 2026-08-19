@@ -1,0 +1,30 @@
+# Mintlify publishes EVERY .md under this content root, whether or not it is in
+# docs.json navigation. A page absent from the sidebar is still reachable by
+# direct URL. "Not in the navigation" is not a privacy boundary — this file is.
+#
+# Internal documentation lives in the sibling `docs-internal/` root, which
+# Mintlify never sees. These patterns are the second line of defence: if
+# internal content lands here by mistake, it must not publish.
+#
+# Syntax is .gitignore syntax. See https://mintlify.com/docs/organize/mintignore
+
+# Internal trees — must never exist under docs/, and must never publish if they do
+next/
+superpowers/
+security/
+drafts/
+wip-docs/
+
+# Incident write-ups and in-flight proposals belong in docs-internal/architecture/
+architecture/incident-*.md
+**/*-proposal.md
+
+# Explicit opt-out marker for a single file
+**/*.internal.md
+**/*.internal.mdx
+
+# Agent-tool variants of public pages (e.g. known-issues.claude.md).
+# Mintlify auto-ignores the `.claude` DIRECTORY, not a `.claude.md` FILE.
+**/*.claude.md
+**/*.codex.md
+**/*.agent.md

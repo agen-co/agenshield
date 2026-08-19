@@ -1,0 +1,206 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "AgenShield",
+  "theme": "mint",
+  "description": "Production developer documentation for AgenShield, an endpoint security and policy enforcement platform for AI coding agents.",
+  "appearance": {
+    "default": "system",
+    "strict": false
+  },
+  "favicon": "/images/agenshield-favicon.svg",
+  "logo": {
+    "light": "/images/agenshield-logo.svg",
+    "dark": "/images/agenshield-logo.svg"
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "colors": {
+    "primary": "#0F766E",
+    "light": "#14B8A6",
+    "dark": "#115E59"
+  },
+  "contextual": {
+    "options": ["copy", "chatgpt", "cursor", "mcp", "view"]
+  },
+  "interaction": {
+    "drilldown": true
+  },
+  "seo": {
+    "indexing": "navigable",
+    "metatags": {
+      "charset": "UTF-8",
+      "viewport": "width=device-width, initial-scale=1.0",
+      "keywords": "agenshield, endpoint security, ai agent security, claude code, macos endpoint security, network extension, policy enforcement, mcp security, ai coding agents"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "href": "https://github.com/agen-co/agenshield",
+        "icon": "github",
+        "label": "GitHub"
+      }
+    ]
+  },
+  "search": {
+    "prompt": "Search AgenShield docs..."
+  },
+  "styling": {
+    "codeblocks": {
+      "theme": {
+        "dark": "dark-plus",
+        "light": "snazzy-light"
+      }
+    }
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get started",
+        "icon": "rocket",
+        "pages": ["index", "how-it-works", "components", "getting-started/quickstart"]
+      },
+      {
+        "group": "Deploy",
+        "icon": "package",
+        "pages": [
+          "deployment/campaigns",
+          "getting-started/install-and-uninstall",
+          {
+            "group": "MDM deployment",
+            "icon": "building-2",
+            "pages": ["deployment/mdm/overview", "deployment/mdm/intune", "deployment/mdm/jamf", "deployment/mdm/other"]
+          },
+          "deployment/devices",
+          "deployment/rollout-playbook"
+        ]
+      },
+      {
+        "group": "Daily use",
+        "icon": "app-window",
+        "pages": ["using/the-app", "using/protected-agents"]
+      },
+      {
+        "group": "Configure",
+        "icon": "settings",
+        "pages": [
+          "configuration/enforcement-modes",
+          "configuration/policies",
+          "configuration/agent-resources",
+          "configuration/mcp-restrictions",
+          "configuration/telemetry",
+          "configuration/privacy-and-data"
+        ]
+      },
+      {
+        "group": "Troubleshoot",
+        "icon": "wrench",
+        "pages": [
+          "troubleshoot/common-issues",
+          "troubleshoot/extension-self-disabled",
+          "troubleshoot/network-stops-after-update",
+          "troubleshoot/network-performance",
+          "troubleshoot/certificate-prompt-after-upgrade",
+          "troubleshoot/certificate-expired-connections",
+          "troubleshoot/claude-code-settings-warning",
+          "troubleshoot/duplicate-filter-entries",
+          "troubleshoot/token-has-expired",
+          "troubleshoot/windows-install-warnings",
+          "troubleshoot/collecting-diagnostics"
+        ]
+      },
+      {
+        "group": "Reference",
+        "icon": "book-open",
+        "pages": ["reference/cli", "reference/mitm-ca-for-end-users"]
+      }
+    ]
+  },
+  "redirects": [
+    {
+      "source": "/getting-started/mdm-deployment-guide",
+      "destination": "/deployment/mdm/overview"
+    },
+    {
+      "source": "/mdm-deployment-guide",
+      "destination": "/deployment/mdm/overview"
+    },
+    {
+      "source": "/backend/:slug*",
+      "destination": "/"
+    },
+    {
+      "source": "/operations/:slug*",
+      "destination": "/"
+    },
+    {
+      "source": "/windows/:slug*",
+      "destination": "/"
+    },
+    {
+      "source": "/product/:slug*",
+      "destination": "/"
+    },
+    {
+      "source": "/architecture/:slug*",
+      "destination": "/"
+    },
+    {
+      "source": "/flows/:slug*",
+      "destination": "/"
+    },
+    {
+      "source": "/reference/repository-map",
+      "destination": "/components"
+    },
+    {
+      "source": "/reference/claude-rules-and-skills",
+      "destination": "/"
+    },
+    {
+      "source": "/reference/documentation-index",
+      "destination": "/"
+    },
+    {
+      "source": "/reference/known-issues",
+      "destination": "/"
+    },
+    {
+      "source": "/architecture",
+      "destination": "/"
+    },
+    {
+      "source": "/overview",
+      "destination": "/"
+    },
+    {
+      "source": "/getting-started/overview",
+      "destination": "/"
+    },
+    {
+      "source": "/install-and-uninstall",
+      "destination": "/getting-started/install-and-uninstall"
+    },
+    {
+      "source": "/mitm-ca-for-end-users",
+      "destination": "/reference/mitm-ca-for-end-users"
+    },
+    {
+      "source": "/verification",
+      "destination": "/getting-started/quickstart"
+    },
+    {
+      "source": "/uninstall-macos",
+      "destination": "/getting-started/install-and-uninstall"
+    },
+    {
+      "source": "/roadmap",
+      "destination": "/"
+    },
+    {
+      "source": "/manual-shield-claude-code",
+      "destination": "/troubleshoot/common-issues"
+    }
+  ]
+}

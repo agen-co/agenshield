@@ -1,0 +1,129 @@
+---
+title: "Restricting MCP Servers"
+sidebarTitle: MCP Restrictions
+icon: server-cog
+description: Decide which MCP servers your agents may use — approve individual servers, block specific tools, or allow only the servers you have approved — and have it hold even when an agent connects without declaring the server in its config.
+---
+
+MCP servers extend what an AI agent can do: read your ticketing system, query a
+database, call an internal API. Each one widens what the agent can reach, and
+most arrive because a single developer added a few lines to a config file.
+
+AgenShield lets you decide, for the whole fleet, which MCP servers are
+acceptable.
+
+## Choosing a posture
+
+MCP restrictions use the same three modes as every other part of your policy,
+set per fleet in your AgenShield console:
+
+| Mode        | A server you blocked   | A server nobody approved |
+| ----------- | ---------------------- | ------------------------ |
+| **Monitor** | Reported, still usable | Reported, still usable   |
+| **Audit**   | Blocked                | Reported, still usable   |
+| **Enforce** | Blocked                | Blocked                  |
+
+**Monitor never changes anything on a developer's machine.** It reports what
+_would_ be blocked so you can see the impact before committing. This is where
+a rollout should start.
+
+**Enforce is approve-only.** Any MCP server that is not explicitly approved is
+refused — which is what you want if your goal is "our agents use our approved
+servers and nothing else". Move to it once Monitor shows you the real
+inventory.
+
+<Note>
+Move one step at a time and read the reported activity between steps. Going
+straight to Enforce on a fleet you have not inventoried will block servers
+developers are actively using.
+</Note>
+
+## Approving and blocking individual servers
+
+Your console lists every MCP server seen across the fleet, with where it was
+found and which agent used it. From there you can approve a server, block it,
+or block individual tools inside a server that is otherwise fine — useful when
+one destructive tool is the only problem.
+
+You can also approve a server before anyone has used it, so an approved server
+is ready on day one rather than being blocked the first time someone tries it.
+
+A blocked tool call is answered with an error the agent shows to the user,
+rather than a dropped connection. Agents retry dropped connections and report
+them as network flakiness; an error tells the developer what actually happened.
+
+## Using only your organization's MCP gateway
+
+If your organization runs an MCP gateway, you can require the fleet to use it:
+
+- **Allow** adds the gateway to the approved list. Developers point their
+  agents at it themselves.
+- **Provision** also writes the gateway into the agents' managed configuration,
+  so a newly set-up machine has a working approved server without anyone
+  configuring anything.
+
+Either way the gateway is always permitted, so turning on approve-only mode can
+never block the gateway you told everyone to use.
+
+## Servers that are not in any config file
+
+An agent can reach an MCP server without that server appearing in a config file
+— for example, by making the requests directly. Restrictions that only read
+config files miss exactly this case.
+
+When restrictions are enforcing, AgenShield inspects the agent's own network
+traffic and recognizes MCP conversations wherever they occur, including to
+servers it has never seen before. This requires network inspection to be set
+up for your organization; without it, restrictions still apply to servers
+declared in configuration files.
+
+<Warning>
+Some servers cannot be inspected — a server that rejects inspection (for
+example, one that pins its own certificate) is allowed through rather than
+having its connection broken, and only the destination name is recorded. A
+server reached that way is reported but **not blocked**. If you need certainty
+for a specific destination, restrict it with a network policy as well.
+</Warning>
+
+Two things are deliberately left alone:
+
+- **Anything that is not an MCP conversation.** Agents fetch documentation,
+  install packages, and talk to source control over the same connections. Only
+  requests recognized as MCP calls to a server you have not approved are
+  refused; ordinary traffic to the same destination is untouched.
+- **The agent's own required services.** An agent's model endpoint and its
+  update and sign-in services are never blocked by MCP restrictions, even if
+  an MCP server happens to be hosted on the same destination.
+
+<Note>
+An agent's built-in web search and page fetching are performed by the agent
+vendor's service, not by the agent on your machine, so MCP restrictions do not
+affect them.
+</Note>
+
+## Preventing developers from adding unapproved servers
+
+Restrictions can also be applied to the agent's own configuration. When
+enabled, AgenShield keeps the agent's managed settings aligned with your
+policy, so the agent itself declines to load servers you have not approved —
+rather than the server loading and being removed afterwards.
+
+When a developer adds a server that is not approved and enforcement is on, the
+entry is removed from the configuration and the event is reported in your
+console, so you can see who is asking for what and approve it if it is
+reasonable.
+
+## What you will see
+
+- **A report for every MCP server found**, including which machine and which
+  agent, and whether any credentials were embedded in its configuration.
+- **A record of blocked attempts**, so a developer's "it stopped working" has
+  an answer.
+- **Would-be blocks while in Monitor**, which is your rollout preview.
+
+## Related
+
+- [Enforcement Modes](/configuration/enforcement-modes) — how Monitor, Audit,
+  and Enforce work across your policy.
+- [Agent Resources and MCP Servers](/configuration/agent-resources) — the
+  review queue and risk analysis behind approvals.

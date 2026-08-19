@@ -1,0 +1,213 @@
+---
+title: "Common Issues"
+sidebarTitle: Common Issues
+icon: wrench
+description: Diagnose the problems that actually happen — protection not active, an agent that will not protect, blocked work, stale policy, and what to do about each.
+---
+
+Start here before collecting a diagnostics bundle. The
+[Overview page in the app](/using/the-app) names what needs attention, and two
+commands resolve most problems:
+
+```bash
+agenshield status     # is protection active, and what is protected
+agenshield doctor     # check every component and name what is failing
+```
+
+`agenshield doctor --fix` attempts a repair for anything it can fix on its own.
+
+## Status says UNPROTECTED
+
+Nothing is being protected yet. Work through these in order:
+
+<AccordionGroup>
+  <Accordion title="The background service is not running">
+    `agenshield status` shows `Daemon: ✗ Not running`.
+
+    ```bash
+    agenshield start
+    ```
+
+    If it will not stay running, `agenshield doctor` reports why.
+
+  </Accordion>
+
+  <Accordion title="No agent has been protected yet">
+    The service is running and agents are listed as `○ Not protected`. Open the
+    AgenShield menubar, choose the agent, and confirm with your system password.
+    See [How AgenShield works](/how-it-works) for what protecting an agent does.
+  </Accordion>
+
+  <Accordion title="The macOS approvals were never granted">
+    The most common cause on a Mac that is not MDM-managed. Run:
+
+    ```bash
+    agenshield activate
+    ```
+
+    and grant all three — system extensions, Full Disk Access, and network
+    filtering. [What gets installed](/components) walks through each one.
+
+  </Accordion>
+</AccordionGroup>
+
+## An extension shows as not active
+
+macOS will not enable a system extension without explicit approval.
+
+| Situation             | What to do                                                                                                              |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Unmanaged Mac         | **System Settings → General → Login Items & Extensions**, approve both AgenShield extensions                            |
+| MDM-managed Mac       | The configuration profile did not land — check the device in your MDM console                                           |
+| Approved but inactive | A stale version from a previous release may be blocking it: `sudo agenshield doctor --cleanup-extensions`, then restart |
+| Recently upgraded     | macOS finalizes extension changes on reboot — restart the Mac and re-check                                              |
+
+## Protection is on, but nothing is being enforced
+
+Almost always **Full Disk Access**. Without it the security extension cannot
+evaluate file access, and it stays inert even though it looks approved.
+
+**System Settings → Privacy & Security → Full Disk Access** → enable the
+AgenShield security extension, then restart the Mac.
+
+If enforcement is still not happening, check whether your organization is in
+**monitor** mode — in monitor nothing is blocked by design. See
+[Enforcement modes](/configuration/enforcement-modes).
+
+## Network rules have no effect
+
+The **"Filter Network Content"** prompt was dismissed. Re-run
+`agenshield activate` and approve it, or approve the AgenShield network extension
+in **System Settings → Network → Filters**.
+
+If your organization has enabled traffic inspection, also confirm the inspection
+certificate is present and trusted — see
+[Network inspection certificate](/reference/mitm-ca-for-end-users).
+
+## Policy is stale or never synced
+
+The Mac cannot reach your AgenShield console.
+
+1. Confirm general connectivity, then check for a proxy or VPN that blocks it.
+2. `agenshield logs` shows the sync attempts and the error.
+3. If the Mac was never enrolled, re-run the install link from your
+   administrator.
+
+Protection continues on the last policy received while offline — a stale policy
+is a visibility problem, not an unprotected machine.
+
+## Something my agent needs is being blocked
+
+Expected when your organization is in `audit` or `enforce`. Do not work around
+it: every block is recorded with the rule that caused it, and that record is what
+gets the policy fixed.
+
+Send your administrator what you were doing, roughly when, and the error the
+agent reported. See
+[Working with a protected agent](/using/protected-agents).
+
+## AgenShield says enforcement is paused
+
+The security extension carries a safety circuit-breaker: if it restarts several
+times in a short window it stands **itself** down rather than risk making the
+Mac unusable. AgenShield is then installed and running but **not enforcing**.
+
+See [Enforcement paused](/troubleshoot/extension-self-disabled) for how to
+confirm it and restore enforcement.
+
+## Status says DEGRADED
+
+The background service failed repeatedly and has parked itself rather than
+crash-looping. **Enforcement continues on the last signed policy** — the Mac is
+not unprotected.
+
+```bash
+agenshield doctor
+```
+
+## The Mac is slow or unresponsive
+
+Not expected — decisions are cached and should be unnoticeable.
+
+If the machine is badly degraded, boot into **Safe Mode**, where third-party
+system extensions do not load and the Mac becomes usable again:
+
+Shut down, hold the **power button** until "Loading startup options" appears,
+select the disk, hold **Shift**, and choose **Continue in Safe Mode**.
+
+Then [collect a diagnostics bundle](/troubleshoot/collecting-diagnostics)
+**before** uninstalling — uninstalling removes the evidence.
+
+If the machine is responsive but the **network** feels slow, that is a different
+problem with a different answer — see
+[Network Feels Slower](/troubleshoot/network-performance).
+
+## AgenShield is writing a lot to disk
+
+Versions **2026.7.22 and earlier** recorded activity to disk far less
+efficiently than intended, which on a machine running an active agent produced
+sustained background disk writes. macOS notes this internally but does not act
+on it, so there is **no error, no alert, and nothing stops working** — the only
+real cost is unnecessary wear on the SSD and some battery on laptops.
+
+Fixed in **2026.7.23**, which reduced the write volume by roughly 5x. If you are
+on an older build, upgrade:
+
+```bash
+agenshield upgrade
+agenshield status --install    # confirm the version actually installed
+```
+
+There is nothing to clean up afterwards and no data is affected — the stored
+activity history is unchanged either way.
+
+## The installer says the device is already registered
+
+On an MDM-managed Mac, versions **2026.7.24 and earlier** can print this during
+an install or upgrade:
+
+```
+⚠ Device already registered on the cloud side
+  This device is already enrolled on the cloud but local credentials are missing
+```
+
+On a managed Mac this message is almost always **spurious**: the enrollment
+token is re-supplied automatically on every run, and the device is in fact
+enrolled and healthy. Check before acting:
+
+```bash
+agenshield status
+```
+
+If it reports connected and enrolled, **no action is needed** — ignore the
+banner and continue.
+
+<Warning>
+  Do **not** follow the older banner's suggestion to re-run with `--force`, and
+  do not deregister the device from the console, unless `agenshield status`
+  actually shows cloud sync broken. On a healthy device, forcing re-registration
+  desyncs its identity and the only recovery is uninstall and reinstall.
+</Warning>
+
+Newer releases no longer print the message when the device is already enrolled,
+and the remedy text leads with the status check instead of `--force`.
+
+## After an upgrade something broke
+
+```bash
+agenshield status --install    # what version is actually installed
+agenshield doctor
+```
+
+If the upgrade summary listed warnings, or the app's Updates card shows
+**Action needed**, start with what those name — they are written from the
+verification the upgrade just ran.
+
+macOS finalizes system-extension changes on reboot, so an upgrade often needs one
+restart before everything reports healthy.
+
+## Still stuck
+
+[Collect a diagnostics bundle](/troubleshoot/collecting-diagnostics) and send it
+to support with what you were doing, when it started, whether it followed an
+upgrade, and the output of `agenshield status`.

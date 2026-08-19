@@ -1,0 +1,166 @@
+---
+title: "How AgenShield Works"
+sidebarTitle: How It Works
+icon: lightbulb
+description: The model behind AgenShield — protected agents, centrally managed policy, the three enforcement modes, and the boundaries the product deliberately never crosses.
+---
+
+Read this before deploying. Everything else in these docs assumes the model on
+this page.
+
+## The problem
+
+An AI coding agent is an ordinary process running as the developer. It inherits
+everything they can reach: the whole home directory, every credential file,
+every internal service, the shell. It acts continuously, at speed, on
+instructions that may have come from a web page, a dependency, or a file it was
+asked to read.
+
+Traditional endpoint tooling does not help much here, because nothing the agent
+does is unusual on its own. Reading a file is normal. Running `curl` is normal.
+The question is whether _this agent_ should be doing it.
+
+## The model
+
+AgenShield answers that question in three parts.
+
+<CardGroup cols={3}>
+  <Card title="Detect" icon="radar">
+    Every supported AI agent on the Mac is found automatically and governed as
+    its own actor — separate from you and from your other applications.
+  </Card>
+  <Card title="Decide" icon="scale">
+    Every program the agent runs, file it opens, and destination it reaches is
+    checked against policy your organization defines centrally.
+  </Card>
+  <Card title="Record" icon="activity">
+    Every decision — allowed, blocked, or merely observed — is recorded, with
+    credentials removed before anything leaves the Mac.
+  </Card>
+</CardGroup>
+
+### Targets: the agents AgenShield knows about
+
+AgenShield scans the Mac for supported AI coding agents and lists each one as a
+**target**. `agenshield status` shows them:
+
+```text
+Targets:
+  claudecode:
+    Protection:   ✓ Protected
+    Status:       running
+  cursor:
+    Protection:   ○ Not protected
+```
+
+A target that is **not protected** is untouched — AgenShield is not watching it
+and not restricting it. Protection is a per-agent decision, so you can start
+with one agent on one machine.
+
+### Protecting an agent
+
+Protecting a target registers it with the security extensions. From then on the
+kernel itself asks AgenShield about that agent's activity.
+
+You can protect an agent in two ways:
+
+| How                                                                  | When to use it                                       |
+| -------------------------------------------------------------------- | ---------------------------------------------------- |
+| The AgenShield menubar — click the agent, confirm with your password | A single Mac, interactively                          |
+| Your organization's policy                                           | Fleet rollout — protection applies as devices enroll |
+
+The developer keeps launching the agent the same way — nothing about their
+workflow changes.
+
+### Policy comes from your console
+
+Rules are authored once in your AgenShield console and delivered to each
+enrolled Mac as a **signed** policy. The device verifies the signature before
+applying it, and keeps enforcing the last policy it received when offline.
+
+Policy covers what an agent may **run**, **read and write**, **connect to**, and
+which **skills, extensions, and connectors** it may load.
+
+## The three enforcement modes
+
+This is the part most worth understanding, because it decides how disruptive a
+rollout feels.
+
+| Mode        | Behavior                                                                           | Think of it as |
+| ----------- | ---------------------------------------------------------------------------------- | -------------- |
+| **monitor** | Nothing is blocked. Activity is recorded, including what _would_ have been denied. | A dry run      |
+| **audit**   | Rules that say "deny" block. Anything with no matching rule is allowed.            | A blocklist    |
+| **enforce** | Only what policy explicitly permits is allowed. Everything else is denied.         | An allowlist   |
+
+Your organization sets a **default mode** for the fleet, and **an individual rule
+can override it**.
+
+That override is the whole rollout strategy: keep the fleet in `monitor`, then
+promote one well-understood rule at a time to `enforce`. It also means "we are in
+monitor mode" does not guarantee nothing is ever blocked — a rule your
+administrator promoted still blocks. The console shows which rules are enforcing.
+
+<Note>
+  Start in `monitor`. It is not a weak setting — it is how you find out what your
+  agents genuinely need before you risk breaking someone's workflow. See the
+  [rollout playbook](/deployment/rollout-playbook).
+</Note>
+
+## What AgenShield does not do
+
+Just as important as the model is where it stops.
+
+| Not in scope                                              | Why                                                   |
+| --------------------------------------------------------- | ----------------------------------------------------- |
+| Your own activity                                         | Enforcement is scoped to protected agents, not to you |
+| Applications that are not AI agents                       | Your browser, editor, and mail are untouched          |
+| Keystrokes, screen contents, camera, microphone, location | Never collected                                       |
+| Your personal files                                       | Only what a protected agent touches is recorded       |
+| Locking you out of your Mac                               | Structurally prevented — see below                    |
+
+### It cannot lock you out
+
+A security product that can lock someone out of their own computer is a bigger
+risk than the one it was installed to manage. Three things prevent it:
+
+- The processes and system paths macOS needs to function can never be denied.
+  Those limits are compiled into the signed security extension — there is no
+  configuration file, API, or policy field that can change them.
+- Enforcement applies to protected agents. Your own account is not subject to
+  the agent policy envelope.
+- If AgenShield ever starts denying an unexpected volume of ordinary system
+  activity, it stands itself down automatically and allows everything for a
+  cooling-off period.
+
+Changing any of that would require shipping a newly signed release.
+
+## The operating loop
+
+<Steps>
+  <Step title="Observe">
+    Deploy in monitor mode. Let real work happen. The console fills with what
+    your agents actually run, read, and reach.
+  </Step>
+  <Step title="Decide">
+    Approve what is legitimate — the package registries, the vendor APIs, the
+    shared skills. Write rules for what is not.
+  </Step>
+  <Step title="Enforce">
+    Promote those rules to blocking, one at a time, and watch for fallout.
+  </Step>
+  <Step title="Repeat">
+    Agents, tools, and connectors change constantly. New activity shows up as
+    new evidence, and the loop runs again.
+  </Step>
+</Steps>
+
+## Next
+
+<Columns cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+    Put this into practice on one Mac.
+  </Card>
+  <Card title="Rollout playbook" icon="map" href="/deployment/rollout-playbook">
+    Take it to a fleet without breaking anyone's day.
+  </Card>
+</Columns>

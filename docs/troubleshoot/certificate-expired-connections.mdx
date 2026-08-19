@@ -1,0 +1,60 @@
+---
+title: 'Agent connections fail with "certificate has expired"'
+sidebarTitle: 'Expired certificate errors'
+icon: 'calendar-x'
+description: 'A protected agent fails to connect to inspected sites with a certificate-expired error (for example CERT_HAS_EXPIRED), even though the sites themselves are fine. This is a fixed defect in how the per-site certificate was renewed.'
+---
+
+## What you are seeing
+
+A protected agent (an AI coding assistant, an MCP client, or similar) fails to
+connect to sites over HTTPS with a certificate-expired error such as
+`CERT_HAS_EXPIRED`. Typically it fails for **every** inspected destination at
+once, while the same sites open normally in a browser or a tool that is not
+being inspected.
+
+## What is actually happening
+
+For the connections it inspects, AgenShield presents its own certificate for the
+destination, issued under the AgenShield root your organization installed. Those
+per-site certificates are short-lived and normally re-issued automatically.
+
+In affected versions, the background service could keep re-using a **previously
+issued** per-site certificate after it had expired, instead of renewing it. After
+about a week of continuous uptime those certificates aged out, so the agent
+received an expired certificate for every inspected destination and every
+connection failed the same way.
+
+Two things confirm this is the cause rather than a problem with the destination:
+
+- The **destination's own certificate is valid** — the site opens fine in a
+  browser or in any tool that AgenShield is not inspecting.
+- The **AgenShield root certificate is valid** — it has a normal multi-month
+  lifetime and is unchanged.
+
+Only the short-lived per-site certificate is expired.
+
+## How to recover now
+
+Restart the background service (or restart the machine). That discards the
+stored per-site certificates, and the next connection is issued a fresh one, so
+inspected connections work again immediately.
+
+This is a temporary measure — on an affected version the problem can return after
+about a week of continuous uptime. Upgrading is the durable fix.
+
+## The fix
+
+AgenShield now checks a stored per-site certificate's expiry before re-using it
+and issues a fresh certificate instead of presenting an expired one.
+
+**Affected versions:** releases before `2026.8.2`. **Fixed in:** `2026.8.2` and
+later. Update AgenShield to resolve this permanently; no configuration change is
+needed.
+
+## When to escalate
+
+If inspected connections still fail with a certificate-expired error **after**
+updating to the latest version and restarting, collect a diagnostics bundle (see
+[Collecting diagnostics](/troubleshoot/collecting-diagnostics)) and contact
+support with the exact error text and the destination host.

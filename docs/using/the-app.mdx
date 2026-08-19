@@ -1,0 +1,88 @@
+---
+title: "The AgenShield App"
+sidebarTitle: The App
+icon: app-window
+description: The menubar icon and the AgenShield dashboard — where to see protection status, which agents are protected, what they have been doing, and how to get support.
+---
+
+AgenShield installs one app with two faces: a **menubar icon** for at-a-glance
+status and quick actions, and a **dashboard** for detail. Everything it shows is
+read-only reporting of this Mac — policy itself is managed centrally.
+
+## The menubar icon
+
+Always present once AgenShield is installed. The icon is the fastest answer to
+"am I protected right now?":
+
+| Icon         | Meaning                                                        |
+| ------------ | -------------------------------------------------------------- |
+| Solid shield | Protected — service running, extensions active, policy current |
+| Outlined     | Action needed — an approval is pending in System Settings      |
+| Slashed      | Not protecting — the service or an extension is not running    |
+
+Click it to see the agents AgenShield found on this Mac and **protect one** —
+you will be asked for your system password, because enabling protection is an
+administrative change to the Mac.
+
+## The dashboard
+
+Open it from the menubar. The sidebar follows the shape of the product:
+
+| Page                 | What it shows                                                                      |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Overview**         | Live status of this Mac — protection state, what needs attention, inventory counts |
+| **Agents**           | Every AI agent detected, and whether each is protected                             |
+| **Agent resources**  | Skills, extensions, and other resources your agents load, and their approval state |
+| **MCP servers**      | Connectors your agents have configured, and whether each is permitted              |
+| **Managed policies** | The policy currently in force on this Mac, as delivered by your organization       |
+| **Workspaces**       | The project directories your agents work in                                        |
+| **Activity**         | Live feed of what protected agents are doing, and the decision made on each action |
+| **Support**          | Diagnostics download, update status, and links to report an issue                  |
+
+### Overview
+
+Start here. It answers whether the Mac is healthy and, when it is not, what needs
+to happen — usually an approval macOS is still waiting on. See
+[What gets installed](/components) for the three approvals.
+
+### Activity
+
+The most useful page day to day. It shows what your protected agents actually
+did — the programs, files, and destinations — and whether each was allowed,
+blocked, or merely recorded.
+
+If something your agent needed was blocked, this is where you find the entry to
+send your administrator. See
+[Working with a protected agent](/using/protected-agents).
+
+### Managed policies
+
+Shows the policy this Mac received, so you can see the rules being applied
+rather than guessing. It is **read-only by design** — there is no local override.
+To change what an agent may do, the change is made in your organization's
+AgenShield console.
+
+### Support
+
+Two things worth knowing about:
+
+- **Download diagnostics (.zip)** — one click collects every log plus the current
+  permission and health status into a single archive to send to support. See
+  [Collecting diagnostics](/troubleshoot/collecting-diagnostics).
+- **Updates** — shows the installed version and whether a newer release is
+  available.
+
+## What the app does not do
+
+- It does not make policy decisions — it reports what the enforcement components
+  decided.
+- It cannot turn enforcement off, or relax a rule. That is central by design.
+- It shows only this Mac. Fleet-wide views live in your organization's AgenShield
+  console.
+
+## Related
+
+- [Working with a protected agent](/using/protected-agents) — what changes day to
+  day for a developer.
+- [Common issues](/troubleshoot/common-issues) — when the app reports something
+  is wrong.

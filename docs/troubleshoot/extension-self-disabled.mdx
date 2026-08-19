@@ -1,0 +1,112 @@
+---
+title: Enforcement Paused
+sidebarTitle: Enforcement Paused
+icon: shield-off
+description: What it means when AgenShield reports that enforcement is paused or that the Endpoint Security extension stood itself down, how to confirm it, and how to restore protection.
+---
+
+AgenShield's Endpoint Security extension carries a safety circuit-breaker. If it
+restarts several times in a short window, it stands **itself** down rather than
+risk making the Mac unusable, and shows:
+
+> Enforcement paused — protection is OFF
+>
+> The Endpoint Security extension stood itself down after restarting several
+> times…
+
+<Note>
+  On **2026.7.23 and earlier** the same situation was reported as "The Endpoint
+  Security extension self-disabled after repeated crashes (safety
+  circuit-breaker). Reopen AgenShield; if it persists on this build, reinstall."
+  That wording was misleading: the extension has usually not crashed at all, and
+  neither reopening nor reinstalling the app clears the breaker. Follow this page
+  instead.
+</Note>
+
+## What this actually means
+
+While the breaker is engaged, AgenShield is **installed and running but not
+enforcing**. Both halves stand down together:
+
+| Layer                    | Behaviour while the breaker is engaged |
+| ------------------------ | -------------------------------------- |
+| Process enforcement      | Every process launch is allowed        |
+| Network enforcement      | Every network flow is allowed          |
+| Monitoring and telemetry | Continue normally                      |
+
+This is deliberate. The breaker exists so a misbehaving extension can never lock
+a person out of their own Mac — it fails **open**, never closed. Nothing is
+blocked or quarantined while it is engaged.
+
+<Warning>
+  A machine in this state looks healthy in most places — the extensions show as
+  active, the background service is running, the dashboard is green. Only `agenshield
+  status` and `agenshield doctor` report that enforcement is suspended. Treat
+  the banner as authoritative.
+</Warning>
+
+## Confirm it
+
+```bash
+agenshield doctor
+```
+
+Look for `emergency-disabled` in the enforcement section. `agenshield status`
+shows the same posture as `Enforceable: NO`.
+
+## Restore enforcement
+
+```bash
+agenshield doctor --fix
+```
+
+This clears the breaker and restarts the extension's enforcement path. It takes
+a few seconds; re-run `agenshield doctor` to confirm `Enforceable: YES`.
+
+From **2026.7.24** onward the background service also clears the breaker on its own once the
+extension has run for ten minutes without restarting, so an isolated glitch
+recovers without anyone intervening. `doctor --fix` is still the way to recover
+immediately.
+
+<Note>
+  Reopening or reinstalling the AgenShield app does **not** clear the breaker —
+  it is a separate, system-level safety flag. Use `doctor --fix`, or simply wait
+  for the automatic recovery.
+</Note>
+
+## If it comes back
+
+A breaker that re-engages within seconds of being cleared means the underlying
+fault is still present. AgenShield deliberately stops retrying at that point
+rather than restarting the extension in a loop.
+
+Most commonly this is one of:
+
+- **An outdated build.** Upgrade first — a known issue in **2026.7.23 and
+  earlier** could trip the breaker during a routine upgrade on Macs running
+  other endpoint-security products alongside AgenShield. Fixed in **2026.7.24**.
+- **Heavy contention on the Mac.** Very low free memory or several security
+  products competing for macOS's signature-validation service can slow the
+  extension's startup enough to trip the breaker.
+
+Upgrade to the current release, then:
+
+```bash
+agenshield doctor --fix
+```
+
+If it still re-engages, [collect a diagnostics
+bundle](/troubleshoot/collecting-diagnostics) and contact support. The bundle
+records why the breaker tripped and what the extension was doing at the time.
+
+## What support will look at
+
+You do not need to gather these yourself — the diagnostics bundle includes them
+— but they are what determines the answer:
+
+| Signal                                        | Tells us                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------ |
+| Whether any crash reports exist               | Whether the extension truly crashed or shut itself down on purpose |
+| How many times it restarted, and how fast     | A genuine fault versus a one-off glitch                            |
+| Whether other security products are installed | Whether contention for macOS services is a factor                  |
+| Free memory and system load at the time       | Whether the Mac was under pressure                                 |

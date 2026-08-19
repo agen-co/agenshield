@@ -1,0 +1,64 @@
+---
+title: 'An agent fails with "Token has expired"'
+sidebarTitle: 'Token has expired'
+icon: 'clock-alert'
+description: 'A protected agent stops working with a "Token has expired" message roughly half an hour after the machine or AgenShield starts, and recovers when a component is restarted.'
+---
+
+## What the message means
+
+A protected agent could not authenticate to AgenShield on your machine. The
+credential it presents is short-lived, and on affected versions it was not being
+renewed — so it aged out while everything else kept running normally.
+
+This is a local authentication problem only. It does not mean your session with
+your AgenShield console expired, your enrollment lapsed, or your policy was
+revoked.
+
+## What state your machine is actually in
+
+Your policy is intact and still applied, and AgenShield is still running and still
+enforcing. The failure is confined to agents that need to talk to AgenShield while
+the credential is stale — those agents will not start or will fail partway through
+a request.
+
+The tell is the timing:
+
+- Everything works for roughly the first half hour after the machine starts, or
+  after AgenShield restarts.
+- After that, agents begin failing with `Token has expired`.
+- Restarting AgenShield (or the affected agent) makes it work again — for about
+  another half hour.
+
+If your symptom does not follow that pattern, it is a different problem; see
+[Common issues](/troubleshoot/common-issues).
+
+## How to recover now
+
+Restart AgenShield. On Windows, restart the AgenShield service; on macOS, quit and
+reopen AgenShield from the menu bar. Then start your agent again.
+
+This is a workaround, not a fix — the credential will age out again after about
+half an hour of uptime.
+
+## The fix
+
+Upgrade to **2026.8.2 or later**. From that version the credential is renewed
+automatically well before it expires, and every copy of it is rewritten on each
+renewal, so a copy that failed to update once corrects itself on the next pass
+instead of staying out of step.
+
+After upgrading, no periodic restart is needed. If an agent still reports
+`Token has expired` on 2026.8.2 or later, collect diagnostics
+([Collecting diagnostics](/troubleshoot/collecting-diagnostics)) and contact
+support — the renewal is logged, so the report will show whether it ran.
+
+## When to escalate
+
+Contact support if:
+
+- The message persists on 2026.8.2 or later.
+- Restarting AgenShield does not restore agent access even briefly, which points
+  to a different authentication problem rather than an aged-out credential.
+- Agents fail immediately after a restart rather than after a period of working
+  normally.

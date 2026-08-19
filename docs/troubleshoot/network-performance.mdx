@@ -1,0 +1,99 @@
+---
+title: Network Feels Slower
+sidebarTitle: Network Feels Slower
+icon: gauge
+description: What AgenShield does and does not add to network performance, how to tell whether a slowdown comes from AgenShield or from your network, and what to send support if it is us.
+---
+
+If your Mac's network feels slower after installing AgenShield — pages loading
+sluggishly, remote desktop or screen sharing lagging, file transfers dragging —
+this page helps you tell the two apart, because they have very different causes
+and very different fixes.
+
+## What AgenShield adds, and what it does not
+
+The network extension inspects each **new** connection to apply your
+organization's policy. That check costs a few milliseconds per connection.
+
+It does **not** sit in the path of the data itself. Once a connection is
+allowed, the traffic on it is handled by the operating system directly, so
+AgenShield adds nothing per packet and nothing to sustained transfer speed.
+
+That distinction is the whole diagnosis:
+
+| Symptom                                                                    | Consistent with AgenShield?                |
+| -------------------------------------------------------------------------- | ------------------------------------------ |
+| Apps feel slow to _start_ talking; pages with many resources feel sluggish | Possibly — a few ms per connection adds up |
+| Screen sharing / remote desktop lags **during** a session                  | No — that is a per-packet cost             |
+| Large file transfers are slow                                              | No — that is a throughput cost             |
+| Video calls stutter                                                        | No — that is a per-packet cost             |
+
+A laggy remote-desktop session is the most common report, and it is almost
+never AgenShield. A session opens a handful of connections and then streams;
+a few milliseconds paid once at setup cannot produce lag you feel minutes in.
+
+## Confirm it in about two minutes
+
+<Steps>
+  <Step title="Measure the round trip to the machine you are connecting to">
+    In Terminal, replacing the address with the other machine's:
+
+    ```bash
+    ping -c 50 192.0.2.10
+    ```
+
+    Look at the summary line. On a local network this should be a small number
+    of milliseconds with little variation. Tens of milliseconds, or a large
+    standard deviation, means the network path itself is unstable.
+
+    This is the key test because `ping` does not go through connection
+    filtering at all. **If `ping` is slow or erratic, the problem is the
+    network, not AgenShield** — and no change to AgenShield will improve it.
+
+  </Step>
+
+  <Step title="Check your Wi-Fi link quality">
+    ```bash
+    system_profiler SPAirPortDataType | grep -iE "Signal|PHY Mode|Channel|Transmit Rate"
+    ```
+
+    A weak signal, a narrow or crowded channel, or a low transmit rate all
+    produce exactly the lag described above. Check this on **both** machines —
+    when two computers on Wi-Fi talk to each other, every packet crosses the
+    air twice, so the weaker of the two links governs the experience.
+
+  </Step>
+
+  <Step title="Try a wired connection">
+    Connect either machine to the network by cable and repeat the activity that
+    felt slow. If it improves, the cause was Wi-Fi. This single test resolves
+    the large majority of reports.
+  </Step>
+</Steps>
+
+## Other endpoint-security products on the same Mac
+
+Most organizations run more than one security product, and each one that
+inspects network connections adds its own per-connection check. The effects
+add up, and no single vendor's console shows you the total.
+
+If your Mac runs other endpoint-security software alongside AgenShield, factor
+that in before attributing a slowdown to any one product. Your IT team can see
+the full list of installed security extensions.
+
+## When to escalate
+
+Contact support if, after the checks above:
+
+- `ping` to the other machine is **fast and stable**, but connections still
+  feel slow to establish; or
+- the slowdown appeared immediately after an AgenShield upgrade and nothing
+  else on the network changed; or
+- a specific application stopped working rather than merely slowing down —
+  that is a policy question, not a performance one, and is covered by
+  [Common Issues](/troubleshoot/common-issues).
+
+Include the output of the two commands above and a
+[diagnostic bundle](/troubleshoot/collecting-diagnostics). The bundle contains
+the connection timing AgenShield records, which lets support separate our cost
+from the network's without guessing.

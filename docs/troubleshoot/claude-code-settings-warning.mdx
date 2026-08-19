@@ -1,0 +1,65 @@
+---
+title: 'Claude Code shows a Settings Warning and MCP servers stop loading'
+sidebarTitle: 'Claude Code settings warning'
+icon: 'triangle-alert'
+description: 'Claude Code warns "allowedMcpServers[]: Invalid entry was ignored: failed validation" on launch, and MCP servers may stop loading. This is a fixed defect in how the MCP allowlist was written.'
+---
+
+## What you are seeing
+
+When launching Claude Code, a warning appears:
+
+```
+Settings Warning
+/Library/Application Support/ClaudeCode/managed-settings.json
+└ allowedMcpServers[]: Invalid entry was ignored: failed validation
+```
+
+If your organization enabled MCP restriction, MCP servers — including approved
+ones — may also fail to load.
+
+## What is actually happening
+
+When your organization turns on MCP restriction, AgenShield writes an allowlist
+of approved MCP servers into Claude Code's managed settings file. In affected
+versions, the entries were written in a format Claude Code does not accept, so
+Claude Code ignored **every** entry. An ignored allowlist behaves as an empty
+allowlist — with restriction on, that blocks **all** MCP servers, not just
+unapproved ones.
+
+The warning is Claude Code reporting the rejected entries; the rest of the file
+still works.
+
+**Affected versions:** releases before `2026.8.2`. **Fixed in:** `2026.8.2` and
+later — updating writes the allowlist in the format Claude Code accepts on the
+next policy sync.
+
+## How to recover now
+
+1. Ask your administrator to briefly turn MCP restriction off and back on in the
+   AgenShield console (this recompiles the policy), or simply update AgenShield
+   to the latest version — the corrected format is applied automatically on the
+   next policy sync.
+2. If the warning persists after the policy has updated, remove the stale file
+   and let AgenShield rewrite it:
+
+   ```bash
+   sudo rm '/Library/Application Support/ClaudeCode/managed-settings.json'
+   ```
+
+3. Relaunch Claude Code. The warning is gone and approved MCP servers load
+   normally.
+
+## The fix
+
+AgenShield now writes MCP allowlist and denylist entries in the exact format
+Claude Code validates, and automatically repairs a settings file that still
+carries the old format. Update AgenShield to the latest version; no
+configuration change is needed.
+
+## When to escalate
+
+If the warning persists after updating AgenShield and removing the stale file,
+collect a diagnostics bundle (see
+[Collecting diagnostics](/troubleshoot/collecting-diagnostics)) and contact
+support with the warning text.

@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1080" viewBox="0 0 760 1080" role="img" aria-labelledby="title-architecture-redaction-pipeline desc-architecture-redaction-pipeline">
+  <title id="title-architecture-redaction-pipeline">Endpoint-First Redaction Pipeline</title>
+  <desc id="desc-architecture-redaction-pipeline">Secret patterns are curated in the cloud but applied before endpoint telemetry leaves the device.</desc>
+  
+  <defs>
+    <linearGradient id="prod-bg-architecture-redaction-pipeline" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#020617" />
+      <stop offset="62%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#3730a3" stop-opacity="0.82" />
+    </linearGradient>
+    <radialGradient id="prod-glow-architecture-redaction-pipeline" cx="16%" cy="12%" r="80%">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.28" />
+      <stop offset="58%" stop-color="#6366f1" stop-opacity="0.07" />
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0" />
+    </radialGradient>
+    <pattern id="prod-grid-architecture-redaction-pipeline" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="rgba(226,232,240,0.065)" stroke-width="1" />
+    </pattern>
+    <filter id="prod-shadow-architecture-redaction-pipeline" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#020617" flood-opacity="0.24" />
+    </filter>
+    <marker id="prod-arrow-architecture-redaction-pipeline" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L12 6 L0 12 Z" fill="#6366f1" />
+    </marker>
+    <style><![CDATA[
+      .wire-architecture-redaction-pipeline {
+        stroke-dasharray: 14 12;
+        animation: wire-dash-architecture-redaction-pipeline 3.6s linear infinite;
+      }
+      .packet-architecture-redaction-pipeline {
+        filter: drop-shadow(0 0 8px #6366f1);
+      }
+      .pulse-architecture-redaction-pipeline {
+        animation: pulse-architecture-redaction-pipeline 2.8s ease-in-out infinite;
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+      @keyframes wire-dash-architecture-redaction-pipeline {
+        to { stroke-dashoffset: -52; }
+      }
+      @keyframes pulse-architecture-redaction-pipeline {
+        0%, 100% { opacity: 0.86; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.035); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .wire-architecture-redaction-pipeline { animation: none; }
+        .packet-architecture-redaction-pipeline { display: none; }
+        .pulse-architecture-redaction-pipeline { animation: none; }
+      }
+    ]]></style>
+  </defs>
+  <rect width="760" height="1080" rx="34" fill="url(#prod-bg-architecture-redaction-pipeline)" />
+  <rect width="760" height="1080" rx="34" fill="url(#prod-grid-architecture-redaction-pipeline)" opacity="0.72" />
+  <rect width="760" height="1080" rx="34" fill="url(#prod-glow-architecture-redaction-pipeline)" />
+  
+  <g filter="url(#prod-shadow-architecture-redaction-pipeline)">
+    <rect x="44" y="44" width="672" height="190" rx="28" fill="rgba(15,23,42,0.76)" stroke="rgba(226,232,240,0.18)" />
+  </g>
+  <rect x="72" y="70" width="118" height="32" rx="16" fill="#eef2ff" />
+  <text x="131" y="91" text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="10.5" font-weight="900" letter-spacing="1.4" fill="#3730a3">ARCHITECTURE</text>
+  <rect x="204" y="70" width="132" height="32" rx="16" fill="rgba(255,255,255,0.08)" stroke="rgba(226,232,240,0.16)" />
+  <text x="270" y="91" text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="10.5" font-weight="850" letter-spacing="1.1" fill="#e2e8f0">PIPELINE</text>
+  <text x="72" y="142" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="950" fill="#ffffff">
+<tspan x="72" dy="0">Endpoint-First Redaction Pipeline</tspan>
+</text>
+  <text x="72" y="188" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="14" font-weight="600" fill="#dbeafe">
+<tspan x="72" dy="0">Secret patterns are curated in the cloud but applied before endpoint</tspan>
+<tspan x="72" dy="19">telemetry leaves the device.</tspan>
+</text>
+  
+  
+  <rect x="40" y="260" width="680" height="690" rx="30" fill="rgba(2,6,23,0.30)" stroke="rgba(226,232,240,0.13)" />
+  <text x="72" y="296" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="950" letter-spacing="1.5" fill="#eef2ff">CONTROL PATH</text>
+  
+      <g>
+        
+  <g filter="url(#prod-shadow-architecture-redaction-pipeline)">
+    <rect class="" x="88" y="340" width="584" height="135" rx="22" fill="rgba(15,23,42,0.86)" stroke="rgba(226,232,240,0.18)" />
+    <clipPath id="architecture-redaction-pipeline-clip-0-88-340">
+      <rect x="106" y="356" width="548" height="107" rx="14" />
+    </clipPath>
+    <g clip-path="url(#architecture-redaction-pipeline-clip-0-88-340)">
+      <circle cx="119" cy="370" r="16" fill="#eef2ff" stroke="#6366f1" stroke-width="2.6" />
+      <text x="119" y="376" text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="14" font-weight="950" fill="#3730a3">1</text>
+      
+    <rect x="144" y="358" width="92" height="24" rx="12" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5" />
+    <text x="190" y="374" text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="9.5" font-weight="900" letter-spacing="0.7" fill="#075985">CLOUD</text>
+      <text x="108" y="412" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="17" font-weight="900" fill="#ffffff">
+<tspan x="108" dy="0">Curate patterns</tspan>
+</text>
+      <text x="108" y="442" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="620" fill="#cbd5e1">
+<tspan x="108" dy="0">Validate origins</tspan>
+</text>
+    </g>
+  </g>
+        
+  <g>
+    <path id="architecture-redaction-pipeline-pipe-0" class="wire-architecture-redaction-pipeline" d="M380 475 L380 522" fill="none" stroke="#6366f1" stroke-width="3.2" stroke-linecap="round" marker-end="url(#prod-arrow-architecture-redaction-pipeline)" opacity="0.8" />
+    <circle class="packet-architecture-redaction-pipeline" r="5" fill="#eef2ff">
+      <animateMotion dur="3.2s" repeatCount="indefinite">
+        <mpath href="#architecture-redaction-pipeline-pipe-0" />
+      </animateMotion>
+    </circle>
+    <rect x="386" y="489" width="92" height="28" rx="14" fill="rgba(2,6,23,0.92)" stroke="rgba(226,232,240,0.12)" />
+           <text x="432" y="508" text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11" font-weight="800" fill="#dbeafe">publish</text>
+  </g>
+      </g>
+
+      <g>
+        
+  <g filter="url(#prod-shadow-architecture-redaction-pipeline)">
+    <rect class="pulse-architecture-redaction-pipeline" x="88" y="530" width="584" height="135" rx="22" fill="rgba(15,23,42,0.86)" stroke="rgba(226,232,240,0.18)" />
+    <clipPath id="architecture-redaction-pipeline-clip-1-88-530">
+      <rect x="106" y="546" width="548" height="107" rx="14" />
+    </clipPath>
+    <g clip-path="url(#architecture-redaction-pipeline-clip-1-88-530)">
+      <circle cx="119" cy="560" r="16" fill="#eef2ff" stroke="#6366f1" stroke-width="2.6" />
+      <text x="119" y="566" text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="14" font-weight="950" fill="#3730a3">2</text>
+      
+    <rect x="144" y="548" width="92" height="24" rx="12" fill="#f8fafc" stroke="#64748b" stroke-width="1.5" />
+    <text x="190" y="564" text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="9.5" font-weight="900" letter-spacing="0.7" fill="#334155">DATA</text>
+      <text x="108" y="602" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="17" font-weight="900" fill="#ffffff">
+<tspan x="108" dy="0">Compile bundle section</tspan>
+</text>
+      <text x="108" y="632" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="620" fill="#cbd5e1">
+<tspan x="108" dy="0">Apply catalog</tspan>
+</text>
+    </g>
+  </g>
+        
+  <g>
+    <path id="architecture-redaction-pipeline-pipe-1" class="wire-architecture-redaction-pipeline" d="M380 665 L380 712" fill="none" stroke="#6366f1" stroke-width="3.2" stroke-linecap="round" marker-end="url(#prod-arrow-architecture-redaction-pipeline)" opacity="0.8" />
+    <circle class="packet-architecture-redaction-pipeline" r="5" fill="#eef2ff">
+      <animateMotion dur="3.2s" repeatCount="indefinite">
+        <mpath href="#architecture-redaction-pipeline-pipe-1" />
+      </animateMotion>
+    </circle>
+    <rect x="386" y="679" width="92" height="28" rx="14" fill="rgba(2,6,23,0.92)" stroke="rgba(226,232,240,0.12)" />
+           <text x="432" y="698" text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="11" font-weight="800" fill="#dbeafe">apply</text>
+  </g>
+      </g>
+
+      <g>
+        
+  <g filter="url(#prod-shadow-architecture-redaction-pipeline)">
+    <rect class="" x="88" y="720" width="584" height="135" rx="22" fill="rgba(15,23,42,0.86)" stroke="rgba(226,232,240,0.18)" />
+    <clipPath id="architecture-redaction-pipeline-clip-2-88-720">
+      <rect x="106" y="736" width="548" height="107" rx="14" />
+    </clipPath>
+    <g clip-path="url(#architecture-redaction-pipeline-clip-2-88-720)">
+      <circle cx="119" cy="750" r="16" fill="#eef2ff" stroke="#6366f1" stroke-width="2.6" />
+      <text x="119" y="756" text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="14" font-weight="950" fill="#3730a3">3</text>
+      
+    <rect x="144" y="738" width="92" height="24" rx="12" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5" />
+    <text x="190" y="754" text-anchor="middle" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="9.5" font-weight="900" letter-spacing="0.7" fill="#14532d">SAFETY</text>
+      <text x="108" y="792" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="17" font-weight="900" fill="#ffffff">
+<tspan x="108" dy="0">Scrub payloads</tspan>
+</text>
+      <text x="108" y="822" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="620" fill="#cbd5e1">
+<tspan x="108" dy="0">Ingest evidence</tspan>
+</text>
+    </g>
+  </g>
+        
+      </g>
+  
+      <g>
+        <rect x="52" y="980" width="322" height="76" rx="20" fill="rgba(255,255,255,0.08)" stroke="rgba(226,232,240,0.16)" />
+        <circle cx="78" cy="1018" r="8" fill="#eef2ff" />
+        <text x="98" y="1011" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="13" font-weight="720" fill="#e2e8f0">
+<tspan x="98" dy="0">No bundle section means bootstrap</tspan>
+<tspan x="98" dy="17">patterns stay active.</tspan>
+</text>
+      </g>
+
+      <g>
+        <rect x="386" y="980" width="322" height="76" rx="20" fill="rgba(255,255,255,0.08)" stroke="rgba(226,232,240,0.16)" />
+        <circle cx="412" cy="1018" r="8" fill="#eef2ff" />
+        <text x="432" y="1011" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="13" font-weight="720" fill="#e2e8f0">
+<tspan x="432" dy="0">Already-queued events are not</tspan>
+<tspan x="432" dy="17">re-redacted after catalog changes.</tspan>
+</text>
+      </g>
+</svg>

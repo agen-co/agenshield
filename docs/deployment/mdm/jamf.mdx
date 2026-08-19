@@ -1,0 +1,122 @@
+---
+title: "Jamf"
+sidebarTitle: Jamf
+icon: server
+description: Deploy AgenShield with Jamf Pro or Jamf Now — uploading the campaign configuration profile, packaging the installer, scoping to smart groups, and verifying a managed Mac.
+---
+
+Jamf deploys AgenShield with the same two objects as every other MDM: the
+campaign's configuration profile and the signed installer package. Jamf Pro and
+Jamf Now differ only in how those are grouped and scoped.
+
+Get both artifacts from your [install campaign](/deployment/campaigns) first.
+
+## Jamf Pro
+
+### 1. Upload the configuration profile
+
+**Computers → Configuration Profiles → Upload**, and select
+`agenshield.mobileconfig`.
+
+- Level: **Computer Level**.
+- Jamf re-signs uploaded profiles. That is expected and fine.
+- Scope it to the smart or static group you are rolling out to.
+
+<Note>
+  Upload the file as-is — it already carries all six payloads, correctly
+  paired to the extension identifiers, so there is nothing to rebuild in
+  Jamf-native payload editors. If your organization manages privacy
+  preferences and extension policy in dedicated blueprints, push the
+  campaign's **split profiles** instead — one variant or the other, never
+  both.
+</Note>
+
+If you do recreate the enrollment half natively, it is an **Application &
+Custom Settings** payload with preference domain `com.frontegg.AgenShield` and
+two string keys: `CampaignToken` and `CloudUrl`. Both values come from your
+campaign.
+
+### 2. Deploy the package
+
+1. **Settings → Computer Management → Packages** — upload the campaign's `.pkg`.
+2. **Computers → Policies → New**:
+   - Triggers: **Enrollment Complete** and **Recurring Check-in**.
+   - Execution Frequency: **Once per computer**.
+   - Packages payload: add the AgenShield package, action **Install**.
+   - Scope: the same group as the profile.
+
+Push order does not matter — see
+[what happens on the device](/deployment/mdm/overview#what-happens-on-the-device).
+
+### 3. Scope with a smart group
+
+A smart group keyed on the AgenShield application makes both the rollout and the
+reporting self-maintaining:
+
+| Criteria          | Operator | Value            |
+| ----------------- | -------- | ---------------- |
+| Application Title | is       | `AgenShield.app` |
+
+Invert it (`is not`) to get "managed Macs still missing AgenShield" — a useful
+scope for the install policy and a useful dashboard for the rollout.
+
+## Jamf Now
+
+Jamf Now groups everything into a **Blueprint**.
+
+<Steps>
+  <Step title="Add the installer">
+    **Apps → Add App → Custom App** — upload the campaign's `.pkg` and enable
+    automatic installation.
+  </Step>
+  <Step title="Add the profile">
+    In the Blueprint, add a **Custom Profile** and upload
+    `agenshield.mobileconfig`.
+  </Step>
+  <Step title="Assign the Blueprint">
+    Assign it to the Macs you are enrolling. Jamf Now applies both objects on the
+    next check-in.
+  </Step>
+</Steps>
+
+Jamf Now reports **Settings applied** on the device row once the Blueprint has
+landed.
+
+## Verify
+
+On a managed Mac:
+
+```bash
+profiles list | grep -i agenshield          # the profile installed
+systemextensionsctl list | grep frontegg    # both extensions, after first login
+agenshield status                           # service running, device enrolled
+```
+
+You should also see:
+
+- **System Settings → General → Device Management** lists the AgenShield profile.
+- `AgenShield.app` in `/Applications`.
+- The device under **Devices** in your AgenShield console, within a minute of
+  the package installing — before anyone logs in.
+
+## Troubleshooting
+
+| Symptom                                               | Cause and fix                                                                                                                      |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Profile shows as installed, extensions still prompt   | The profile was scoped at user level. Re-upload at **Computer Level**.                                                             |
+| Package installs, device never appears in the console | The profile did not land, so there was no campaign token. Confirm with `profiles list`, then check `/Library/Managed Preferences`. |
+| Policy never runs                                     | The Mac already ran a **Once per computer** policy. Use **Flush** on the policy log for that computer, then re-check in.           |
+| Enforcement stays off although the device is healthy  | Full Disk Access payload missing — most often because a hand-rebuilt profile omitted it. Re-upload the campaign profile.           |
+
+Everything else is on the [MDM enrollment reference](/deployment/mdm/overview#troubleshooting).
+
+## Next
+
+<Columns cols={2}>
+  <Card title="Enrolled devices" icon="laptop" href="/deployment/devices">
+    Reading fleet health once devices land.
+  </Card>
+  <Card title="Rollout playbook" icon="map" href="/deployment/rollout-playbook">
+    Monitor first, then promote rules one at a time.
+  </Card>
+</Columns>

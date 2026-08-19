@@ -1,0 +1,141 @@
+---
+title: "Rules and Policy"
+sidebarTitle: Rules and Policy
+icon: list-checks
+description: Author policy in the AgenShield console — how a rule is built from grants, where an agent is allowed to run, how priority and scope resolve, and how a change reaches the fleet.
+---
+
+Policy in AgenShield is a set of **rules**, each attached to one or more AI
+agents. A rule says what that agent may run, read, write, and connect to. The
+fleet's default posture decides how strictly rules are applied — see
+[Enforcement modes](/configuration/enforcement-modes).
+
+<Note>
+  Write rules **after** you have telemetry, not before. Two weeks of monitor-mode
+  evidence produces rules that fit how your developers actually work; guessing
+  produces rules you will spend a month relaxing. The
+  [Rollout playbook](/deployment/rollout-playbook) sequences this.
+</Note>
+
+## How a rule is built
+
+**Rules → New.** Two steps.
+
+### 1. Pick the agents
+
+Which AI agents the rule applies to — Claude Code, Cursor, Codex CLI, and
+whatever else has been detected on your fleet. One rule can cover several agents;
+it fans out to one rule per agent when saved, so you can tune them individually
+afterwards.
+
+Rules are scoped to an agent on purpose. A global command ban breaks somebody's
+unrelated workflow; the same restriction attached to one agent does not.
+
+### 2. Add grants
+
+A **grant** is one permission statement. A rule carries as many as it needs, and
+each grant has its own audience, scope, and enforcement:
+
+| Grant type      | Governs                                  | You supply                                                 |
+| --------------- | ---------------------------------------- | ---------------------------------------------------------- |
+| **Network**     | Where the agent may connect              | Host and port patterns                                     |
+| **Filesystem**  | What it may read, write, or delete       | Path patterns plus the operations they cover               |
+| **Command**     | What it may execute                      | Command patterns                                           |
+| **Sub-command** | What a program the agent launched may do | A chain of hops, each with its own network and file access |
+
+**Sub-command grants** are the ones worth understanding. Agents rarely act
+directly — they run a build tool, which runs a package manager, which reaches
+the network. A sub-command grant lets you permit exactly that chain (agent →
+build tool → registry) without granting the agent unrestricted network access.
+
+## Where an agent is allowed to run
+
+Separate from rules, and coarser: **agent run-control** decides which kind of
+account each agent may run under at all.
+
+| Role     | Meaning                     |
+| -------- | --------------------------- |
+| **Root** | Administrative privileges   |
+| **Host** | The developer's own account |
+
+Turning a role **off** writes a fleet-wide deny for that agent in that role.
+Turning off **Root** for every agent is the highest-value, lowest-friction
+control available — almost no legitimate agent workflow requires it, and it is a
+single switch.
+
+## Reading the rules table
+
+| Column          | What it tells you                                                  |
+| --------------- | ------------------------------------------------------------------ |
+| **Agent**       | Who the rule applies to                                            |
+| **Rule**        | Its name                                                           |
+| **Domain**      | Network, filesystem, command, or process                           |
+| **Enforcement** | Whether it inherits the fleet default or is pinned to its own mode |
+| **Scope**       | How narrowly it is targeted                                        |
+| **Priority**    | Which rule wins when two match the same action                     |
+
+The **Enforcement** column is the one to read carefully. A rule that _inherits_
+follows whatever the fleet default is set to. A rule that is _pinned_ keeps its
+own mode regardless — which is exactly how you promote one rule to blocking
+while the rest of the fleet stays in monitor.
+
+<Warning>
+  Because a pinned rule keeps its own mode, "the fleet is in monitor" does not
+  guarantee nothing is blocked. A deny rule someone pinned to enforce still
+  blocks. Filter the table by Enforcement to see every rule that is currently
+  enforcing.
+</Warning>
+
+## Priority and conflicts
+
+When two rules match the same action, priority decides. Practical guidance:
+
+- Keep **deny** rules narrow and high priority. A narrow deny is easy to reason
+  about; a broad one generates tickets.
+- Keep **allow** rules as specific as the evidence supports. Widening an allow
+  to silence noise is how an allowlist quietly stops meaning anything.
+- When the console warns about a conflict while you are authoring, resolve it
+  then. A conflict you ship is a conflict someone else debugs later.
+
+If you see a lot of harmless denials in telemetry, the fix is almost always to
+**narrow the rule's scope**, not to widen the allow.
+
+## Prebuilt policies
+
+The console ships prebuilt rule sets for common postures — blocking credential
+file access, restricting registries to approved mirrors, keeping agents off
+administrative privileges. Start from one and adjust rather than authoring from
+an empty rule; they encode the scoping mistakes you would otherwise make once
+each.
+
+## Getting a change to the fleet
+
+Publishing a rule does not mean it is live. Devices pull policy on their own
+cadence, so:
+
+1. Publish the change.
+2. Watch the **Bundle** column on [Devices](/deployment/devices) converge.
+3. Confirm in [Telemetry](/configuration/telemetry) that the rule is matching
+   what you expected — while it is still in monitor.
+4. Only then pin it to enforce.
+
+Devices that are offline apply the change when they next check in. Policy is
+applied locally, so a Mac that loses connectivity keeps enforcing the last
+policy it received rather than falling open.
+
+## Next
+
+<Columns cols={2}>
+  <Card title="Enforcement modes" icon="shield-check" href="/configuration/enforcement-modes">
+    Monitor, audit, enforce — and how a per-rule mode overrides the fleet default.
+  </Card>
+  <Card title="Telemetry" icon="activity" href="/configuration/telemetry">
+    The evidence a good rule is built from.
+  </Card>
+  <Card title="Agent resources" icon="puzzle" href="/configuration/agent-resources">
+    Governing the skills and connectors agents load, which rules do not cover.
+  </Card>
+  <Card title="Rollout playbook" icon="map" href="/deployment/rollout-playbook">
+    The order to do all of this in.
+  </Card>
+</Columns>

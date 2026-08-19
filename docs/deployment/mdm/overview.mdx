@@ -1,0 +1,188 @@
+---
+title: "MDM Enrollment"
+sidebarTitle: Overview
+icon: building-2
+description: Deploy AgenShield to a managed Mac fleet with two pushes — a ready-made configuration profile and a signed installer package — with no prompts and no manual steps on any device.
+---
+
+Deploying AgenShield by MDM is **two pushes**: one configuration profile and
+one installer package. Both come ready-made from your
+[install campaign](/deployment/campaigns) — nothing to edit, script, or sign.
+Devices enroll silently and are fully protecting at the first login.
+
+<Steps>
+  <Step title="Get the two artifacts from your campaign">
+    The campaign page carries the configuration profile
+    (`agenshield.mobileconfig`) and the signed, Apple-notarized installer
+    package. Both already contain your enrollment token and console URL.
+  </Step>
+  <Step title="Push both to the same device group">
+    In any order — every dependency self-heals. Exact clicks for your MDM:
+    [Microsoft Intune](/deployment/mdm/intune), [Jamf](/deployment/mdm/jamf),
+    or [Kandji, JumpCloud, Mosyle, and others](/deployment/mdm/other).
+  </Step>
+  <Step title="Verify one device">
+    It appears under **Devices** in your console within a minute of the package
+    installing. See [Verify a device](#verify-a-device).
+  </Step>
+</Steps>
+
+That is the whole deployment. Everything below is reference: what happens on
+the device, how to verify, what the profile contains, and what to check if
+something does not land.
+
+## Before you start
+
+| Requirement                                  | Notes                                            |
+| -------------------------------------------- | ------------------------------------------------ |
+| macOS 14 or later                            | Apple silicon                                    |
+| Devices enrolled in your MDM                 | User-Approved MDM or Automated Device Enrollment |
+| An [install campaign](/deployment/campaigns) | Both artifacts are generated from it             |
+
+## Why nobody on the endpoint is prompted
+
+On an unmanaged Mac, macOS asks a person to approve the security extensions,
+Full Disk Access, and network filtering. The configuration profile grants those
+approvals ahead of time, so a managed device skips every dialog.
+
+Apple accepts these approval payloads **only from an MDM** — a profile someone
+double-clicks is refused. That restriction works in your favor: only a device
+your organization manages can be silently approved, so "silent" never means
+"unaccountable".
+
+## What happens on the device
+
+<Steps>
+  <Step title="The profile lands">
+    Silently, on the device channel. Nothing is user-visible.
+  </Step>
+  <Step title="The package installs">
+    It reads the campaign token from managed preferences and **enrolls the
+    device immediately** — even with nobody logged in. The background service
+    starts at boot and begins syncing policy. If the profile arrives *after*
+    the package, the token is picked up within five minutes.
+  </Step>
+  <Step title="The first user logs in">
+    The AgenShield menubar app launches and activates both system extensions.
+    Because the profile pre-approved them, activation completes silently — no
+    dialogs, no System Settings trip, no admin password.
+  </Step>
+</Steps>
+
+One Apple-imposed constraint: system-extension activation needs a real login
+session — macOS ignores activation requests from background contexts. So a
+freshly imaged Mac is **enrolled and syncing immediately**, and becomes **fully
+enforcing at the first login**. No user ever clicks anything.
+
+## Verify a device
+
+On a target Mac:
+
+```bash
+profiles list | grep -i agenshield          # the profile installed
+systemextensionsctl list | grep frontegg    # both extensions, after first login
+agenshield status                           # service running, device enrolled
+```
+
+In the console, the device appears under **Devices** within a minute of the
+package installing — before any user logs in. The campaign's events timeline
+shows the matching `Registration` entry.
+
+## Reference: what the profile contains
+
+You do not need this section to deploy — it is here for security review. One
+file, six payloads, each of which removes exactly one manual step:
+
+| Payload                        | What it does                                                             | Prompt it removes                           |
+| ------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------- |
+| **Managed preferences**        | Delivers the campaign token and console URL, so the device enrols itself | —                                           |
+| **System extension policy**    | Pre-approves the AgenShield security and network extensions              | Extension approval dialogs                  |
+| **Web content filter**         | Pre-approves the AgenShield network filter                               | The "Filter Network Content" consent dialog |
+| **Privacy preferences (PPPC)** | Grants Full Disk Access to the security extension                        | The Full Disk Access toggle                 |
+| **Notification settings**      | Pre-enables AgenShield alerts                                            | Notification-permission prompt              |
+| **Service management**         | Manages the AgenShield background items so they cannot be switched off   | "Background Items Added" notice             |
+
+<Note>
+  The Full Disk Access payload is the one never to trim: without it a device
+  enrols and reports health but cannot enforce file policy until someone
+  toggles the grant by hand — the manual step MDM deployment exists to avoid.
+  The campaign profile always includes it; this only matters if you rebuild
+  profiles yourself.
+</Note>
+
+## Options you may need
+
+Most rollouts need none of these. Each exists for one specific situation.
+
+<AccordionGroup>
+  <Accordion title="Bootstrap package — if your MDM caps upload sizes">
+    The campaign offers the installer in two forms. Pick one; they install the
+    same thing.
+
+    | Package       | Size       | Choose it when                                                                       |
+    | ------------- | ---------- | ------------------------------------------------------------------------------------ |
+    | **Full**      | Tens of MB | Default. Everything is in the package; devices need no extra download                |
+    | **Bootstrap** | Under 1 MB | Your MDM is slow or size-capped on app uploads. It downloads and verifies the full installer on the device |
+
+    The bootstrap package always installs the version your campaign asks for —
+    a pinned campaign delivers its pin through the profile, so the bootstrap
+    URL never changes when you pin or unpin.
+
+  </Accordion>
+
+  <Accordion title="Split profiles — if you manage PPPC or extension policy in dedicated blueprints">
+    The campaign also offers the same payloads as three separate files —
+    `enrollment.mobileconfig`, `approval.mobileconfig`, `pppc.mobileconfig` —
+    for organizations that keep privacy preferences or extension policy in
+    their own blueprints.
+
+    Push the all-in-one profile **or** the split set, not both — macOS handles
+    duplicate payloads (especially the content filter) unpredictably. Unless
+    you have this specific need, use the all-in-one; it is the path the
+    per-MDM pages describe.
+
+  </Accordion>
+
+  <Accordion title="Testing enrollment without an MDM">
+    You can simulate the enrollment half on a test Mac. The approval payloads
+    genuinely require MDM, so those prompts will still appear:
+
+    ```bash
+    sudo defaults write "/Library/Managed Preferences/com.frontegg.AgenShield" \
+      CampaignToken -string "<campaign-token>"
+    sudo defaults write "/Library/Managed Preferences/com.frontegg.AgenShield" \
+      CloudUrl -string "https://<your-console>"
+    sudo installer -pkg AgenShield-<version>-arm64.pkg -target /
+    ```
+
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+| Symptom                                                                 | Cause and fix                                                                                                                                                                                     |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Profile install fails: "must originate from a user-approved MDM server" | The profile was opened by hand or pushed outside MDM. These payloads only install through MDM.                                                                                                    |
+| Extensions stuck "waiting for user approval" after login                | Profile missing, or pushed on the **user** channel. Confirm with `profiles list`, then re-push on the device channel.                                                                             |
+| Device enrolled but nothing is ever blocked                             | Full Disk Access payload missing. On split-profile setups, push `pppc.mobileconfig`.                                                                                                              |
+| Device never appears in the console                                     | No token reached the device. Check `sudo cat "/Library/Managed Preferences/com.frontegg.AgenShield.plist"` — it must carry the campaign token and console URL. Retries happen every five minutes. |
+| Campaign shows `Script fetched` but no `Registration`                   | The package installed but the profile did not land. Same check as above.                                                                                                                          |
+| Pushed the package before the profile                                   | Fine. Order does not matter — the token is picked up when the profile arrives, and extensions activate at the next login.                                                                         |
+| Pushed the all-in-one **and** the split profiles                        | Remove one variant — duplicate payloads behave unpredictably.                                                                                                                                     |
+
+## Next
+
+<Columns cols={2}>
+  <Card title="Microsoft Intune" icon="plug" href="/deployment/mdm/intune">
+    The connected integration — push campaigns straight from the console.
+  </Card>
+  <Card title="Jamf" icon="server" href="/deployment/mdm/jamf">
+    Jamf Pro and Jamf Now.
+  </Card>
+  <Card title="Other MDMs" icon="boxes" href="/deployment/mdm/other">
+    Kandji, JumpCloud, Mosyle, and anything that accepts a custom profile.
+  </Card>
+  <Card title="Enrolled devices" icon="laptop" href="/deployment/devices">
+    Reading fleet health once devices land, and how to offboard cleanly.
+  </Card>
+</Columns>

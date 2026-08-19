@@ -1,0 +1,110 @@
+---
+title: "Kandji, JumpCloud, and other MDMs"
+sidebarTitle: Other MDMs
+icon: boxes
+description: Deploy AgenShield from Kandji, JumpCloud, Mosyle, or any MDM that accepts a custom macOS configuration profile and a signed installer package.
+---
+
+AgenShield does not require a specific MDM. If yours can push a **custom macOS
+configuration profile** on the device channel and install a **signed package**,
+it can deploy AgenShield with no user interaction.
+
+Get both artifacts from your [install campaign](/deployment/campaigns) first.
+
+## The generic recipe
+
+Whatever the console calls them, you are creating two objects:
+
+<Steps>
+  <Step title="A custom configuration profile">
+    Upload `agenshield.mobileconfig` unmodified. It must be delivered on the
+    **device (system) channel**, not the user channel. Many MDMs re-sign
+    uploaded profiles — that is fine.
+  </Step>
+  <Step title="A package deployment">
+    Upload the campaign's `.pkg` and set it to install once on the same set of
+    devices.
+  </Step>
+  <Step title="Assign both to the same group">
+    Push order does not matter.
+  </Step>
+</Steps>
+
+<Note>
+  Upload the profile as-is rather than rebuilding it in your MDM's native
+  payload editors — it already pairs every payload with the correct extension
+  identifiers, including the Full Disk Access grant. That grant is the one that
+  matters: a device without it enrols and looks healthy but cannot enforce
+  file policy.
+</Note>
+
+## Kandji
+
+| Step | Where                                                                                             |
+| ---- | ------------------------------------------------------------------------------------------------- |
+| 1    | **Library → Add → Custom Profile** — upload `agenshield.mobileconfig`, assign via Blueprints      |
+| 2    | **Library → Add → Custom App** — upload the `.pkg`, install type **Install once**, same Blueprint |
+
+Kandji also has native System Extension and PPPC library items. If you prefer to
+mirror the payloads there, use the campaign's split profiles as the reference —
+and push either the native items or the uploaded profile, never both.
+
+## JumpCloud
+
+| Step | Where                                                                                                         |
+| ---- | ------------------------------------------------------------------------------------------------------------- |
+| 1    | **Device Management → Policies → macOS → MDM Custom Configuration Profile** — upload the profile              |
+| 2    | **Software Management → macOS** — add the `.pkg` as a managed software app, bind it to the same device groups |
+
+Devices must be enrolled in **JumpCloud MDM** (not only the agent) for the
+approval payloads to apply. JumpCloud re-signs profiles.
+
+## Mosyle
+
+| Step | Where                                                                                             |
+| ---- | ------------------------------------------------------------------------------------------------- |
+| 1    | **Management → macOS → Custom Settings / Profiles** — upload the profile, scope to a device group |
+| 2    | **Management → macOS → Custom Commands or Apps & Books** — deploy the `.pkg` to the same group    |
+
+## Anything else
+
+Ask your MDM two questions:
+
+1. **Can it push an unmodified custom `.mobileconfig` on the device channel?**
+   If yes, AgenShield's approvals will be silent.
+2. **Can it install a signed, notarized `.pkg`?** If yes, the install is silent
+   too.
+
+If the answer to the second is no, but it can run a root shell script, use the
+campaign's install command instead — it is a one-line script that downloads and
+installs the signed package. You still push the profile for silent approvals.
+
+<Note>
+  Apple restricts the extension-approval and Full Disk Access payloads to MDM
+  delivery. Any path that does not involve your MDM pushing a profile will
+  prompt the user for those approvals — see the
+  [Quickstart](/getting-started/quickstart) for what that looks like.
+</Note>
+
+## Verify
+
+```bash
+profiles list | grep -i agenshield          # the profile installed
+systemextensionsctl list | grep frontegg    # both extensions, after first login
+agenshield status                           # service running, device enrolled
+```
+
+The device appears under **Devices** in your console within a minute of the
+package installing. If it does not, work through the
+[MDM troubleshooting table](/deployment/mdm/overview#troubleshooting).
+
+## Next
+
+<Columns cols={2}>
+  <Card title="MDM enrollment reference" icon="building-2" href="/deployment/mdm/overview">
+    What each profile payload does and which prompt it removes.
+  </Card>
+  <Card title="Enrolled devices" icon="laptop" href="/deployment/devices">
+    Reading fleet health once devices land.
+  </Card>
+</Columns>
