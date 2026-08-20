@@ -9,6 +9,37 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.8.3 - 2026-08-20
+
+
+### New
+
+- **Network lockout detection and recovery.** AgenShield now detects a rare macOS network-filter dead session where traffic could be held without reaching the filter, then escalates through bounded recovery steps to restore connectivity while preserving protection whenever possible.
+- **MDM policy-block detection.** On managed Macs, AgenShield now detects when organization policy blocks the required system extensions before approval can appear, stops waiting on System Settings, and shows clear remediation in the app, installer, doctor output, diagnostics, and troubleshooting docs.
+- **Richer alert triage in the desktop app.** The Alerts card now shows readable alert rows with severity, description, affected agent, and time, opens a detailed side panel with the originating event context, and supports dismissing one alert or all alerts at once.
+- **System-wide CLI status report.** `agenshield status` now gives admins a read-only endpoint report covering daemon health, crash reports, policy bundle, enrollment, signed-in user, extension and network enforcement checks, worker health, and installed AI agents. For scripted consumers, `status --json` now emits the new system-report shape.
+
+### Improved
+
+- **Fewer macOS background-item notifications during upgrades.** Install and background-service updates now avoid rewriting unchanged launch items and reduce unnecessary launch restarts, cutting down on macOS “Background Items Added” churn.
+- **Safer network-filter healing.** AgenShield now waits for a sustained healthy period before re-arming filter restarts and spaces restart attempts apart, reducing interruptions to long-running network sessions.
+- **Clearer troubleshooting signals.** Diagnostics and the desktop app now better identify when the network filter may be holding traffic, making support investigations faster when connectivity stops after an update.
+- **Public docs match the current policy model.** The documentation now describes policy-governed agents, Frontegg Portal workflows, current app status indicators, install and uninstall behavior, MITM CA handling, emergency-disable recovery, and practical policy examples.
+
+### Fixed
+
+- **Rare network loss after an update.** A fresh install or upgrade no longer toggles the macOS network filter too early during its fail-open health gate, avoiding a dead filter session that could temporarily block all network traffic.
+- **Duplicate network-filter consent prompts.** AgenShield now coordinates consent-triggering filter changes across app processes so users should see only one prompt at a time.
+- **Update retry churn.** Automatic update attempts now keep their retry guard across daemon restarts, preventing repeated non-converging upgrade attempts from cycling background services.
+- **Policy updates after fresh publishes.** A forced cloud sync now reaches the authenticated control plane even when an edge-cached policy pointer briefly lags behind, reducing delays after new policy changes and during post-upgrade checks.
+- **More accurate status and doctor output.** Status and doctor checks no longer report healthy results when cloud connectivity, worker status, crash-report access, or enforcement state is actually unavailable or unknown, and `doctor --json` now emits JSON correctly.
+- **Security hardening:** Equal-priority policy rules now resolve deterministically across enforcement engines, with enforcing rules taking precedence over audit or monitor twins, so a stale monitor rule cannot weaken an enforce rule. The CLI also refuses to send local admin authorization to non-local daemon hosts.
+
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.8.2 - 2026-08-19
 
 
