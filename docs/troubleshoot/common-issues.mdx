@@ -2,27 +2,36 @@
 title: "Common Issues"
 sidebarTitle: Common Issues
 icon: wrench
-description: Diagnose the problems that actually happen — protection not active, an agent that will not protect, blocked work, stale policy, and what to do about each.
+description: Diagnose the problems that actually happen — the service not running, a degraded system report, blocked work, stale policy, and what to do about each.
 ---
+
+<img
+  src="../images/page-heroes/troubleshoot-common-issues.png"
+  alt="Common Issues cover — triage without panic."
+  noZoom
+/>
 
 Start here before collecting a diagnostics bundle. The
 [Overview page in the app](../using/the-app.mdx) names what needs attention, and two
 commands resolve most problems:
 
 ```bash
-agenshield status     # is protection active, and what is protected
+agenshield status     # the system report — service, policy, enforcement, agents
 agenshield doctor     # check every component and name what is failing
 ```
 
+`agenshield status` ends in one verdict line — `✅ Healthy`,
+`○ Running, not enrolled`, `⚠ Degraded`, `⛔ Boot-locked`, or `✗ Not running` —
+and a degraded report names its reasons right on that line.
 `agenshield doctor --fix` attempts a repair for anything it can fix on its own.
 
-## Status says UNPROTECTED
+## Status says Not running or Degraded
 
-Nothing is being protected yet. Work through these in order:
+Work through these in order:
 
 <AccordionGroup>
   <Accordion title="The background service is not running">
-    `agenshield status` shows `Daemon: ✗ Not running`.
+    `agenshield status` ends in `Status: ✗ Not running`.
 
     ```bash
     agenshield start
@@ -32,14 +41,10 @@ Nothing is being protected yet. Work through these in order:
 
   </Accordion>
 
-  <Accordion title="No agent has been protected yet">
-    The service is running and agents are listed as `○ Not protected`. Open the
-    AgenShield menubar, choose the agent, and confirm with your system password.
-    See [How AgenShield works](../how-it-works.mdx) for what protecting an agent does.
-  </Accordion>
-
   <Accordion title="The macOS approvals were never granted">
-    The most common cause on a Mac that is not MDM-managed. Run:
+    The report is `⚠ Degraded` with the Enforcement checklist showing
+    `not approved` rows — the most common cause on a Mac that is not
+    MDM-managed. Run:
 
     ```bash
     agenshield activate
@@ -49,18 +54,24 @@ Nothing is being protected yet. Work through these in order:
     filtering. [What gets installed](../components.mdx) walks through each one.
 
   </Accordion>
+
+  <Accordion title="The device is not enrolled">
+    The report is `○ Running, not enrolled` — the software runs but no
+    organization policy has been received. Re-run the install link from your
+    administrator, or sign in from the AgenShield menubar.
+  </Accordion>
 </AccordionGroup>
 
 ## An extension shows as not active
 
 macOS will not enable a system extension without explicit approval.
 
-| Situation             | What to do                                                                                                              |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Unmanaged Mac         | **System Settings → General → Login Items & Extensions**, approve both AgenShield extensions                            |
-| MDM-managed Mac       | The configuration profile did not land — check the device in your MDM console                                           |
-| Approved but inactive | A stale version from a previous release may be blocking it: `sudo agenshield doctor --cleanup-extensions`, then restart |
-| Recently upgraded     | macOS finalizes extension changes on reboot — restart the Mac and re-check                                              |
+| Situation             | What to do                                                                                                                                                                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unmanaged Mac         | **System Settings → General → Login Items & Extensions**, approve both AgenShield extensions                                                                                                                                                  |
+| MDM-managed Mac       | Either the configuration profile did not land (check the device in your MDM console), or the MDM System Extensions policy blocks AgenShield outright — see [Extension approval never appears](../troubleshoot/extension-approval-never-appears.mdx) |
+| Approved but inactive | A stale version from a previous release may be blocking it: `agenshield doctor --cleanup-extensions`, then restart                                                                                                                            |
+| Recently upgraded     | macOS finalizes extension changes on reboot — restart the Mac and re-check                                                                                                                                                                    |
 
 ## Protection is on, but nothing is being enforced
 
@@ -86,7 +97,7 @@ certificate is present and trusted — see
 
 ## Policy is stale or never synced
 
-The Mac cannot reach your AgenShield console.
+The Mac cannot reach your organization's AgenShield backend.
 
 1. Confirm general connectivity, then check for a proxy or VPN that blocks it.
 2. `agenshield logs` shows the sync attempts and the error.
@@ -104,7 +115,7 @@ gets the policy fixed.
 
 Send your administrator what you were doing, roughly when, and the error the
 agent reported. See
-[Working with a protected agent](../using/protected-agents.mdx).
+[Working with your agents](../using/working-with-agents.mdx).
 
 ## AgenShield says enforcement is paused
 
@@ -115,7 +126,7 @@ Mac unusable. AgenShield is then installed and running but **not enforcing**.
 See [Enforcement paused](../troubleshoot/extension-self-disabled.mdx) for how to
 confirm it and restore enforcement.
 
-## Status says DEGRADED
+## Status says Boot-locked
 
 The background service failed repeatedly and has parked itself rather than
 crash-looping. **Enforcement continues on the last signed policy** — the Mac is
@@ -184,7 +195,7 @@ banner and continue.
 
 <Warning>
   Do **not** follow the older banner's suggestion to re-run with `--force`, and
-  do not deregister the device from the console, unless `agenshield status`
+  do not deregister the device from the Frontegg Portal, unless `agenshield status`
   actually shows cloud sync broken. On a healthy device, forcing re-registration
   desyncs its identity and the only recovery is uninstall and reinstall.
 </Warning>

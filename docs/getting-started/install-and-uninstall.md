@@ -6,8 +6,8 @@ description: How AgenShield is installed, enrolled, laid out on disk, started at
 ---
 
 <img
-  src="../images/page-heroes/getting-started-install-and-uninstall.svg"
-  alt="Install And Uninstall diagram: Campaign, Install layout, Boot behavior, Uninstall."
+  src="../images/page-heroes/getting-started-install-and-uninstall.png"
+  alt="Install and Uninstall cover — as cleanly removed as installed."
   noZoom
 />
 
@@ -17,13 +17,13 @@ disk, and how to remove it completely.
 <Note>
   Setting up one Mac for the first time? Follow the
   [Quickstart](../getting-started/quickstart.md) instead — it covers install, the
-  macOS approvals, and protecting your first agent in order. Deploying to a
+  macOS approvals, and confirming the Mac is healthy, in order. Deploying to a
   fleet? Use the [MDM guide](../deployment/mdm/overview.mdx).
 </Note>
 
-Installing does **not** protect anything on its own. It enrols the Mac and starts
-the service; you then grant the macOS approvals and choose which agents to
-protect. See [How AgenShield works](../how-it-works.mdx).
+Installing does **not** enforce anything on its own. It enrolls the Mac and
+starts the service; enforcement begins once the macOS approvals are granted and
+your organization's policy arrives. See [How AgenShield works](../how-it-works.mdx).
 
 ## Installation
 
@@ -36,9 +36,11 @@ that release — no large binaries ship through npm.
 
 ### Campaign install (the normal path)
 
-A security admin creates a deployment **campaign** in your AgenShield console. The campaign
-produces an install URL that carries an enrollment token. The endpoint user
-runs:
+A security admin creates a deployment **campaign** in the
+[Frontegg Portal](https://portal.frontegg.com), on the **Devices** page
+(`https://portal.frontegg.com/<environment>/agen/shielded/devices`). The
+campaign produces an install URL that carries an enrollment token. The endpoint
+user runs:
 
 ```bash
 curl -fsSL '<CAMPAIGN_INSTALL_URL>' | bash
@@ -74,19 +76,19 @@ to their team, role, or group.
 ```bash
 npx agenshield install --cloud-url <CLOUD_URL> --token <TOKEN>
 agenshield start
-agenshield login   # optional: link your user account (OAuth device code flow)
+agenshield login   # optional — or sign in later from the AgenShield menubar
 ```
 
 `npx agenshield install` bootstraps a self-managed installation. On macOS it
 downloads the signed `.pkg` from the `agen-co/agenshield` GitHub Release and runs
-it. Given a console URL and token, it enrols the Mac exactly as the campaign
+it. Given a backend URL and token, it enrolls the Mac exactly as the campaign
 install does.
 
 ### Windows
 
-A security admin creates a deployment **campaign** in your AgenShield console the
-same way as for macOS. The campaign produces an install link; on Windows, run
-it from a PowerShell window:
+A security admin creates a deployment **campaign** in the
+[Frontegg Portal](https://portal.frontegg.com) the same way as for macOS. The
+campaign produces an install link; on Windows, run it from a PowerShell window:
 
 ```powershell
 irm '<CAMPAIGN_INSTALL_URL>' | iex
@@ -131,9 +133,9 @@ performs these steps:
 
 2. **Enrolls the Mac with your organization.** The device generates its own
    cryptographic identity locally and registers against your organization's
-   console using the enrollment token from the install link. The private half of
-   that identity never leaves the machine, and every later request to the console
-   is signed with it rather than with a shared secret or bearer token.
+   AgenShield backend using the enrollment token from the install link. The
+   private half of that identity never leaves the machine, and every later
+   request is signed with it rather than with a shared secret or bearer token.
 
 3. **Installs the app and its extensions.** `/Applications/AgenShield.app` is
    installed; launching it activates the two system extensions. See
@@ -217,19 +219,20 @@ damaged.
 ### CLI-driven teardown (preferred)
 
 ```bash
-sudo agenshield uninstall        # add --yes for scripted, non-interactive runs
+agenshield uninstall        # add --yes for scripted, non-interactive runs
 ```
 
+No `sudo` needed — the command asks for your administrator password itself.
 `agenshield uninstall` performs a complete, ordered rollback: it stops
-protecting every agent, removes the services and configuration AgenShield
-created, deactivates the system extensions, removes the AgenShield certificate
-from the system trust store, and forgets the installer receipts.
+enforcement, removes the services and configuration AgenShield created,
+deactivates the system extensions, removes the AgenShield certificate from the
+system trust store, and forgets the installer receipts.
 
 To also purge stale extension versions that macOS has marked "waiting to
 uninstall on reboot":
 
 ```bash
-sudo agenshield doctor --cleanup-extensions
+agenshield doctor --cleanup-extensions
 ```
 
 ### Campaign-served uninstall.sh
@@ -246,77 +249,82 @@ completes if the CLI has been partially torn down.
 
 ### Manual fallback
 
-Use this when the `agenshield` binary is missing or broken. Run in order.
+A last resort, not a routine path — use it only when the `agenshield` binary is
+missing or broken. On macOS, `npx agenshield uninstall` performs these steps
+**automatically** when the binary is gone but files remain (it removes them
+directly instead of bootstrapping the installer). Open the steps below only if
+that also fails.
 
-On macOS, `npx agenshield uninstall` performs these steps **automatically**
-when the binary is gone but files remain (it removes them directly instead of
-bootstrapping the installer). Run the steps by hand only if that path fails.
+<AccordionGroup>
+  <Accordion title="Manual removal steps — advanced, run in order">
+    **Stop running services:**
 
-**Stop running services:**
+    ```bash
+    sudo launchctl bootout system/com.frontegg.AgenShield.daemon 2>/dev/null || true
+    sudo launchctl bootout system/com.frontegg.AgenShield.privilege-helper 2>/dev/null || true
+    launchctl bootout "gui/$(id -u)/com.frontegg.AgenShield.menubar" 2>/dev/null || true
+    ```
 
-```bash
-sudo launchctl bootout system/com.frontegg.AgenShield.daemon 2>/dev/null || true
-sudo launchctl bootout system/com.frontegg.AgenShield.privilege-helper 2>/dev/null || true
-launchctl bootout "gui/$(id -u)/com.frontegg.AgenShield.menubar" 2>/dev/null || true
-```
+    **Deactivate the system extensions** (the signed app bundle is what
+    deactivates the extensions it activated):
 
-**Deactivate the system extensions** (the signed app bundle is what
-deactivates the extensions it activated):
+    ```bash
+    sudo /Applications/AgenShield.app/Contents/MacOS/AgenShield --uninstall-all 2>/dev/null || true
+    ```
 
-```bash
-sudo /Applications/AgenShield.app/Contents/MacOS/AgenShield --uninstall-all 2>/dev/null || true
-```
+    **Remove the CA trust and the node-ca-trust env.** A leftover AgenShield root in
+    the System keychain is a security risk, and the stale `NODE_EXTRA_CA_CERTS` points at
+    a CA file that is about to be deleted:
 
-**Remove the CA trust and the node-ca-trust env.** A leftover AgenShield root in
-the System keychain is a security risk, and the stale `NODE_EXTRA_CA_CERTS` points at
-a CA file that is about to be deleted:
+    ```bash
+    # Delete every AgenShield root from the System keychain by SHA-1 — the CN
+    # varies ("AgenShield CA", "AgenShield Dev CA", "AgenShield MITM CA (…)"), so a
+    # fixed -c name misses variants. This mirrors what `agenshield uninstall` does.
+    security find-certificate -a -Z -c "AgenShield" /Library/Keychains/System.keychain 2>/dev/null \
+      | awk '/^SHA-1/ {print $3}' \
+      | while read -r SHA; do sudo security delete-certificate -Z "$SHA" /Library/Keychains/System.keychain 2>/dev/null || true; done
 
-```bash
-# Delete every AgenShield root from the System keychain by SHA-1 — the CN
-# varies ("AgenShield CA", "AgenShield Dev CA", "AgenShield MITM CA (…)"), so a
-# fixed -c name misses variants. This mirrors what `agenshield uninstall` does.
-security find-certificate -a -Z -c "AgenShield" /Library/Keychains/System.keychain 2>/dev/null \
-  | awk '/^SHA-1/ {print $3}' \
-  | while read -r SHA; do sudo security delete-certificate -Z "$SHA" /Library/Keychains/System.keychain 2>/dev/null || true; done
+    # Drop the node-ca-trust LaunchAgent and clear the env it set.
+    launchctl bootout "gui/$(id -u)/com.frontegg.AgenShield.node-ca-trust" 2>/dev/null || true
+    launchctl unsetenv NODE_EXTRA_CA_CERTS 2>/dev/null || true
+    ```
 
-# Drop the node-ca-trust LaunchAgent and clear the env it set.
-launchctl bootout "gui/$(id -u)/com.frontegg.AgenShield.node-ca-trust" 2>/dev/null || true
-launchctl unsetenv NODE_EXTRA_CA_CERTS 2>/dev/null || true
-```
+    `launchctl unsetenv` only affects new launches — fully quit and reopen your
+    terminal and GUI apps (Cursor, Claude Desktop, VS Code) so they drop the stale
+    value, or `unset NODE_EXTRA_CA_CERTS` in any open shell.
 
-`launchctl unsetenv` only affects new launches — fully quit and reopen your
-terminal and GUI apps (Cursor, Claude Desktop, VS Code) so they drop the stale
-value, or `unset NODE_EXTRA_CA_CERTS` in any open shell.
+    **Remove plists and directories:**
 
-**Remove plists and directories:**
+    ```bash
+    sudo rm -f /Library/LaunchDaemons/com.frontegg.AgenShield.*.plist
+    rm -f ~/Library/LaunchAgents/com.frontegg.AgenShield.*.plist
 
-```bash
-sudo rm -f /Library/LaunchDaemons/com.frontegg.AgenShield.*.plist
-rm -f ~/Library/LaunchAgents/com.frontegg.AgenShield.*.plist
+    sudo rm -rf /Library/AgenShield \
+                /opt/agenshield \
+                /Applications/AgenShield.app \
+                /etc/agenshield
+    sudo rm -f /usr/local/bin/agenshield
+    ```
 
-sudo rm -rf /Library/AgenShield \
-            /opt/agenshield \
-            /Applications/AgenShield.app \
-            /etc/agenshield
-sudo rm -f /usr/local/bin/agenshield
-```
+    **Remove user state.** When installed via `.pkg`, the background service runs as root and
+    its files in `~/.agenshield/` are root-owned, so `sudo` is required:
 
-**Remove user state.** When installed via `.pkg`, the background service runs as root and
-its files in `~/.agenshield/` are root-owned, so `sudo` is required:
+    ```bash
+    sudo rm -rf ~/.agenshield
+    ```
 
-```bash
-sudo rm -rf ~/.agenshield
-```
+    **Forget pkg receipts:**
 
-**Forget pkg receipts:**
+    ```bash
+    for RECEIPT in com.frontegg.agenshield.core \
+                   com.frontegg.agenshield.app \
+                   com.frontegg.agenshield.bootstrap; do
+      sudo pkgutil --forget "$RECEIPT" 2>/dev/null || true
+    done
+    ```
 
-```bash
-for RECEIPT in com.frontegg.agenshield.core \
-               com.frontegg.agenshield.app \
-               com.frontegg.agenshield.bootstrap; do
-  sudo pkgutil --forget "$RECEIPT" 2>/dev/null || true
-done
-```
+  </Accordion>
+</AccordionGroup>
 
 ### Verify a clean removal
 
@@ -357,6 +365,6 @@ Full list: [CLI reference](../reference/cli.md).
 
 ## Next
 
-After installing, grant the [three macOS approvals](../components.mdx) and protect an
-agent — see the [Quickstart](../getting-started/quickstart.md). For a fleet, follow
-the [rollout playbook](../deployment/rollout-playbook.mdx).
+After installing, grant the [three macOS approvals](../components.mdx) and confirm
+the Mac is healthy — see the [Quickstart](../getting-started/quickstart.md). For a
+fleet, follow the [rollout playbook](../deployment/rollout-playbook.mdx).

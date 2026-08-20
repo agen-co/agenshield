@@ -5,6 +5,12 @@ icon: shield-off
 description: What it means when AgenShield reports that enforcement is paused or that the Endpoint Security extension stood itself down, how to confirm it, and how to restore protection.
 ---
 
+<img
+  src="../images/page-heroes/troubleshoot-extension-self-disabled.png"
+  alt="Enforcement Paused cover — a deliberate stand-down, not a failure."
+  noZoom
+/>
+
 AgenShield's Endpoint Security extension carries a safety circuit-breaker. If it
 restarts several times in a short window, it stands **itself** down rather than
 risk making the Mac unusable, and shows:
@@ -52,7 +58,8 @@ agenshield doctor
 ```
 
 Look for `emergency-disabled` in the enforcement section. `agenshield status`
-shows the same posture as `Enforceable: NO`.
+shows the same posture: a `⚠ Degraded` verdict with `emergency-disabled` among
+its reasons.
 
 ## Restore enforcement
 

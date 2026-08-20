@@ -5,6 +5,12 @@ icon: server
 description: Deploy AgenShield with Jamf Pro or Jamf Now — uploading the campaign configuration profile, packaging the installer, scoping to smart groups, and verifying a managed Mac.
 ---
 
+<img
+  src="../../images/page-heroes/deployment-mdm-jamf.png"
+  alt="Jamf Pro cover — two pushes, one result."
+  noZoom
+/>
+
 Jamf deploys AgenShield with the same two objects as every other MDM: the
 campaign's configuration profile and the signed installer package. Jamf Pro and
 Jamf Now differ only in how those are grouped and scoped.
@@ -96,17 +102,17 @@ You should also see:
 
 - **System Settings → General → Device Management** lists the AgenShield profile.
 - `AgenShield.app` in `/Applications`.
-- The device under **Devices** in your AgenShield console, within a minute of
+- The device under **Devices** in the [Frontegg Portal](https://portal.frontegg.com) (`https://portal.frontegg.com/<environment>/agen/shielded/devices`), within a minute of
   the package installing — before anyone logs in.
 
 ## Troubleshooting
 
-| Symptom                                               | Cause and fix                                                                                                                      |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Profile shows as installed, extensions still prompt   | The profile was scoped at user level. Re-upload at **Computer Level**.                                                             |
-| Package installs, device never appears in the console | The profile did not land, so there was no campaign token. Confirm with `profiles list`, then check `/Library/Managed Preferences`. |
-| Policy never runs                                     | The Mac already ran a **Once per computer** policy. Use **Flush** on the policy log for that computer, then re-check in.           |
-| Enforcement stays off although the device is healthy  | Full Disk Access payload missing — most often because a hand-rebuilt profile omitted it. Re-upload the campaign profile.           |
+| Symptom                                                       | Cause and fix                                                                                                                      |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Profile shows as installed, extensions still prompt           | The profile was scoped at user level. Re-upload at **Computer Level**.                                                             |
+| Package installs, device never appears in the Frontegg Portal | The profile did not land, so there was no campaign token. Confirm with `profiles list`, then check `/Library/Managed Preferences`. |
+| Policy never runs                                             | The Mac already ran a **Once per computer** policy. Use **Flush** on the policy log for that computer, then re-check in.           |
+| Enforcement stays off although the device is healthy          | Full Disk Access payload missing — most often because a hand-rebuilt profile omitted it. Re-upload the campaign profile.           |
 
 Everything else is on the [MDM enrollment reference](../../deployment/mdm/overview.mdx#troubleshooting).
 

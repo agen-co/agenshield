@@ -5,6 +5,12 @@ icon: lock
 description: What AgenShield observes on a managed Mac, what leaves the device, how secrets are removed before anything is sent, and what your administrator can and cannot see.
 ---
 
+<img
+  src="../images/page-heroes/configuration-privacy-and-data.png"
+  alt="Privacy and Data cover — agent activity on the left, your life on the right."
+  noZoom
+/>
+
 AgenShield is installed on machines people work on, so it is fair to ask exactly
 what it watches and what leaves the device. This page answers that. If you are
 evaluating AgenShield for a fleet, this is also the page to share with your
@@ -12,28 +18,32 @@ privacy or works-council reviewers.
 
 ## What AgenShield observes
 
-AgenShield's scope is **protected AI agents and the processes they start** —
-agents someone has explicitly chosen to protect on this Mac. It records what
-those agents execute, which files they read and write, and which destinations
-they connect to.
+AgenShield's scope is **AI agents and the processes they start** — the
+execution tree behind each agent, as defined by your organization's policy. It
+records what those agents execute, which files they read and write, and which
+destinations they connect to.
 
 | Observed                                                 | Not observed                                                 |
 | -------------------------------------------------------- | ------------------------------------------------------------ |
-| Programs a protected agent runs                          | Programs you run yourself                                    |
-| Files a protected agent reads or writes                  | Your documents, mail, photos, browsing                       |
-| Destinations a protected agent connects to               | Your own network traffic                                     |
+| Programs an agent runs                                   | Programs you run yourself                                    |
+| Files an agent reads or writes                           | Your documents, mail, photos, browsing                       |
+| Destinations an agent connects to                        | Your own network traffic                                     |
 | Which AI tools, extensions, and connectors are installed | Keystrokes, screen contents, camera, microphone, or location |
 
-An agent that has **not** been protected is not observed at all — AgenShield
-knows it exists, and nothing more. `agenshield status` shows which agents are
-protected on this Mac. See [How AgenShield works](../how-it-works.mdx).
+Anything unrelated to your AI agents is not observed at all — programs and
+tools an agent starts are within its observed scope, everything else on the
+Mac is not. `agenshield status` lists the agents AgenShield has detected on
+this Mac. See [How AgenShield works](../how-it-works.mdx).
 
-AgenShield does not record keystrokes, capture the screen, or read your personal
-files. It has no view into applications that are not AI agents.
+AgenShield does not record keystrokes, capture the screen, or browse your files
+on its own. A personal file appears in its records only when an AI agent reads
+or writes it — that access is the event being recorded. It has no view into
+applications unrelated to your AI agents.
 
 ## What leaves the device
 
-Activity records are sent to your organization's AgenShield console. Records are
+Activity records are sent to your organization's AgenShield backend and are
+visible in the [Frontegg Portal](https://portal.frontegg.com). Records are
 signed by the device and sent over TLS. Your administrator chooses how much
 detail is included; the maximum available is:
 
@@ -95,7 +105,7 @@ the bundle contains and what it never contains.
 
 ## Related
 
-- [How AgenShield works](../how-it-works.mdx) — what "protected" means and what
-  AgenShield never touches.
+- [How AgenShield works](../how-it-works.mdx) — what AgenShield governs and what
+  it never touches.
 - [Enforcement modes](../configuration/enforcement-modes.mdx) — whether activity is
   merely recorded or also blocked.

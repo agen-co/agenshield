@@ -6,8 +6,8 @@ description: Endpoint security for AI coding agents on macOS — see what your a
 ---
 
 <img
-  src="./images/page-heroes/index.svg"
-  alt="AgenShield Overview diagram: Control plane, Endpoint stack, Agent runtime, Evidence loop."
+  src="./images/page-heroes/index.png"
+  alt="AgenShield Overview cover — one boundary between your agents and everything they touch."
   noZoom
 />
 
@@ -23,17 +23,17 @@ Developers keep using Claude Code, Cursor, or Codex the way they already do.
 
 <Steps>
   <Step title="AgenShield finds the AI agents on the Mac">
-    Installed agents are detected automatically and listed as **targets**. Each
-    one is either protected or not.
-  </Step>
-  <Step title="You protect an agent">
-    Protecting an agent registers it with the security extensions. From then
-    on, everything it runs, reads, and connects to passes through AgenShield
-    first.
+    Every installed agent — Claude Code, Cursor, Codex CLI, Gemini CLI, and
+    many more — is detected automatically and governed as its own actor.
   </Step>
   <Step title="Policy arrives from your organization">
-    The Mac receives a signed policy from your AgenShield console and applies it
+    The Mac receives a signed policy from the Frontegg Portal and applies it
     locally — including while offline.
+  </Step>
+  <Step title="Every action is evaluated against that policy">
+    AgenShield follows each agent's **execution tree** — the agent, the tools
+    it runs, and their subprocesses — and checks everything they run, read,
+    and connect to. No per-agent setup, no new commands for developers.
   </Step>
   <Step title="You start by watching, not blocking">
     In **monitor** mode nothing is blocked; activity is simply recorded. That
@@ -51,11 +51,11 @@ That loop — **observe, decide, enforce, repeat** — is the whole product.
 
 <Columns cols={2}>
   <Card title="How AgenShield works" icon="lightbulb" href="./how-it-works.mdx">
-    The model behind the loop above: protected agents, policy, the three enforcement modes, and what AgenShield deliberately never touches. Read this before deploying.
+    The model behind the loop above: policy-governed agents, the execution tree, the three enforcement modes, and what AgenShield deliberately never touches. Read this before deploying.
   </Card>
 
   <Card title="Quickstart" icon="rocket" href="./getting-started/quickstart.md">
-    Take one Mac from nothing to a protected agent in about ten minutes.
+    Take one Mac from nothing to governed agents in about ten minutes.
   </Card>
 
   <Card title="What gets installed" icon="boxes" href="./components.mdx">
@@ -70,7 +70,7 @@ That loop — **observe, decide, enforce, repeat** — is the whole product.
     The recommended path from first pilot Mac to enforced policy, and how to avoid breaking developer workflows on the way.
   </Card>
 
-  <Card title="Working with a protected agent" icon="terminal" href="./using/protected-agents.mdx">
+  <Card title="Working with your agents" icon="terminal" href="./using/working-with-agents.mdx">
     For developers: what changes day to day, and what to do when something is blocked.
   </Card>
 
@@ -79,15 +79,16 @@ That loop — **observe, decide, enforce, repeat** — is the whole product.
   </Card>
 </Columns>
 
-## The console workflow, end to end
+## The Frontegg Portal workflow, end to end
 
-If you are the person setting AgenShield up, this is the order to do it in. Each
-page hands off to the next.
+If you are the person setting AgenShield up, this is the order to do it in —
+all of it in the [Frontegg Portal](https://portal.frontegg.com). Each page
+hands off to the next.
 
 | #   | Step                                                         | You end up with                                              |
 | --- | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | 1   | [Create an install campaign](./deployment/campaigns.mdx)          | An enrollment token and ready-made deployment artifacts      |
-| 2   | [Enrol devices](./deployment/mdm/overview.mdx)                    | Macs reporting in, with no prompts on a managed fleet        |
+| 2   | [Enroll devices](./deployment/mdm/overview.mdx)                   | Macs reporting in, with no prompts on a managed fleet        |
 | 3   | [Read the fleet](./deployment/devices.mdx)                        | Health, coverage, and which policy revision is actually live |
 | 4   | [Watch telemetry](./configuration/telemetry.mdx)                  | Evidence of what your agents really do                       |
 | 5   | [Write rules](./configuration/policies.mdx)                       | Narrow, agent-scoped policy built on that evidence           |
@@ -96,27 +97,30 @@ page hands off to the next.
 
 ## Who each section is for
 
-| You are…                            | Start with                                                                                               |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Evaluating AgenShield               | [How AgenShield works](./how-it-works.mdx), then [Privacy and data handling](./configuration/privacy-and-data.mdx) |
-| Rolling it out to a fleet           | [Install campaigns](./deployment/campaigns.mdx), then [MDM deployment](./deployment/mdm/overview.mdx)              |
-| Planning the rollout sequence       | [Rollout playbook](./deployment/rollout-playbook.mdx)                                                         |
-| Setting up your own Mac             | [Quickstart](./getting-started/quickstart.md)                                                                |
-| A developer using a protected agent | [Working with a protected agent](./using/protected-agents.mdx)                                                |
-| Supporting someone else             | [Common issues](./troubleshoot/common-issues.mdx)                                                             |
+| You are…                              | Start with                                                                                               |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Evaluating AgenShield                 | [How AgenShield works](./how-it-works.mdx), then [Privacy and data handling](./configuration/privacy-and-data.mdx) |
+| Rolling it out to a fleet             | [Install campaigns](./deployment/campaigns.mdx), then [MDM deployment](./deployment/mdm/overview.mdx)              |
+| Planning the rollout sequence         | [Rollout playbook](./deployment/rollout-playbook.mdx)                                                         |
+| Setting up your own Mac               | [Quickstart](./getting-started/quickstart.md)                                                                |
+| A developer whose agents are governed | [Working with your agents](./using/working-with-agents.mdx)                                                   |
+| Supporting someone else               | [Common issues](./troubleshoot/common-issues.mdx)                                                             |
 
 ## Good to know up front
 
-- **Policy is managed centrally.** There is no local override on the device — a
-  developer cannot turn enforcement off. Changes go through your AgenShield
-  console.
+- **Policy is managed centrally.** Developers cannot change policy or turn
+  enforcement off locally — changes go through the
+  [Frontegg Portal](https://portal.frontegg.com). (The one local exception is
+  the administrator-only emergency recovery below.)
 - **Protection survives being offline.** The last policy the Mac received stays
   in force, and activity is recorded locally and uploaded when connectivity
   returns.
 - **It cannot lock you out of your Mac.** The limits that protect your own
   account and macOS itself are built into the signed security extension and are
   not configurable — not by policy, not by an administrator, not by anyone with
-  access to the device.
+  access to the device. If AgenShield ever misfires it heals itself
+  automatically, and an administrator can always
+  [emergency-disable enforcement locally](./how-it-works.mdx#it-cannot-lock-you-out).
 - **macOS 14 or later, Apple silicon.** Intel Macs are not supported yet. Intel
   and Linux support are in development. Windows has a one-line install today
   (see [Install and uninstall](./getting-started/install-and-uninstall.md)), but

@@ -5,6 +5,12 @@ icon: building-2
 description: Deploy AgenShield to a managed Mac fleet with two pushes — a ready-made configuration profile and a signed installer package — with no prompts and no manual steps on any device.
 ---
 
+<img
+  src="../../images/page-heroes/deployment-mdm-overview.png"
+  alt="MDM Deployment cover — a profile and a package, pushed in parallel."
+  noZoom
+/>
+
 Deploying AgenShield by MDM is **two pushes**: one configuration profile and
 one installer package. Both come ready-made from your
 [install campaign](../../deployment/campaigns.mdx) — nothing to edit, script, or sign.
@@ -14,7 +20,7 @@ Devices enroll silently and are fully protecting at the first login.
   <Step title="Get the two artifacts from your campaign">
     The campaign page carries the configuration profile
     (`agenshield.mobileconfig`) and the signed, Apple-notarized installer
-    package. Both already contain your enrollment token and console URL.
+    package. Both already contain your enrollment token and backend URL.
   </Step>
   <Step title="Push both to the same device group">
     In any order — every dependency self-heals. Exact clicks for your MDM:
@@ -22,7 +28,7 @@ Devices enroll silently and are fully protecting at the first login.
     or [Kandji, JumpCloud, Mosyle, and others](../../deployment/mdm/other.mdx).
   </Step>
   <Step title="Verify one device">
-    It appears under **Devices** in your console within a minute of the package
+    It appears under **Devices** in the Frontegg Portal within a minute of the package
     installing. See [Verify a device](#verify-a-device).
   </Step>
 </Steps>
@@ -84,7 +90,7 @@ systemextensionsctl list | grep frontegg    # both extensions, after first login
 agenshield status                           # service running, device enrolled
 ```
 
-In the console, the device appears under **Devices** within a minute of the
+In the Frontegg Portal, the device appears under **Devices** within a minute of the
 package installing — before any user logs in. The campaign's events timeline
 shows the matching `Registration` entry.
 
@@ -93,18 +99,18 @@ shows the matching `Registration` entry.
 You do not need this section to deploy — it is here for security review. One
 file, six payloads, each of which removes exactly one manual step:
 
-| Payload                        | What it does                                                             | Prompt it removes                           |
-| ------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------- |
-| **Managed preferences**        | Delivers the campaign token and console URL, so the device enrols itself | —                                           |
-| **System extension policy**    | Pre-approves the AgenShield security and network extensions              | Extension approval dialogs                  |
-| **Web content filter**         | Pre-approves the AgenShield network filter                               | The "Filter Network Content" consent dialog |
-| **Privacy preferences (PPPC)** | Grants Full Disk Access to the security extension                        | The Full Disk Access toggle                 |
-| **Notification settings**      | Pre-enables AgenShield alerts                                            | Notification-permission prompt              |
-| **Service management**         | Manages the AgenShield background items so they cannot be switched off   | "Background Items Added" notice             |
+| Payload                        | What it does                                                              | Prompt it removes                           |
+| ------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------- |
+| **Managed preferences**        | Delivers the campaign token and backend URL, so the device enrolls itself | —                                           |
+| **System extension policy**    | Pre-approves the AgenShield security and network extensions               | Extension approval dialogs                  |
+| **Web content filter**         | Pre-approves the AgenShield network filter                                | The "Filter Network Content" consent dialog |
+| **Privacy preferences (PPPC)** | Grants Full Disk Access to the security extension                         | The Full Disk Access toggle                 |
+| **Notification settings**      | Pre-enables AgenShield alerts                                             | Notification-permission prompt              |
+| **Service management**         | Manages the AgenShield background items so they cannot be switched off    | "Background Items Added" notice             |
 
 <Note>
   The Full Disk Access payload is the one never to trim: without it a device
-  enrols and reports health but cannot enforce file policy until someone
+  enrolls and reports health but cannot enforce file policy until someone
   toggles the grant by hand — the manual step MDM deployment exists to avoid.
   The campaign profile always includes it; this only matters if you rebuild
   profiles yourself.
@@ -151,7 +157,7 @@ Most rollouts need none of these. Each exists for one specific situation.
     sudo defaults write "/Library/Managed Preferences/com.frontegg.AgenShield" \
       CampaignToken -string "<campaign-token>"
     sudo defaults write "/Library/Managed Preferences/com.frontegg.AgenShield" \
-      CloudUrl -string "https://<your-console>"
+      CloudUrl -string "https://<your-backend-url>"
     sudo installer -pkg AgenShield-<version>-arm64.pkg -target /
     ```
 
@@ -165,7 +171,7 @@ Most rollouts need none of these. Each exists for one specific situation.
 | Profile install fails: "must originate from a user-approved MDM server" | The profile was opened by hand or pushed outside MDM. These payloads only install through MDM.                                                                                                    |
 | Extensions stuck "waiting for user approval" after login                | Profile missing, or pushed on the **user** channel. Confirm with `profiles list`, then re-push on the device channel.                                                                             |
 | Device enrolled but nothing is ever blocked                             | Full Disk Access payload missing. On split-profile setups, push `pppc.mobileconfig`.                                                                                                              |
-| Device never appears in the console                                     | No token reached the device. Check `sudo cat "/Library/Managed Preferences/com.frontegg.AgenShield.plist"` — it must carry the campaign token and console URL. Retries happen every five minutes. |
+| Device never appears in the Frontegg Portal                             | No token reached the device. Check `sudo cat "/Library/Managed Preferences/com.frontegg.AgenShield.plist"` — it must carry the campaign token and backend URL. Retries happen every five minutes. |
 | Campaign shows `Script fetched` but no `Registration`                   | The package installed but the profile did not land. Same check as above.                                                                                                                          |
 | Pushed the package before the profile                                   | Fine. Order does not matter — the token is picked up when the profile arrives, and extensions activate at the next login.                                                                         |
 | Pushed the all-in-one **and** the split profiles                        | Remove one variant — duplicate payloads behave unpredictably.                                                                                                                                     |
@@ -174,7 +180,7 @@ Most rollouts need none of these. Each exists for one specific situation.
 
 <Columns cols={2}>
   <Card title="Microsoft Intune" icon="plug" href="../../deployment/mdm/intune.mdx">
-    The connected integration — push campaigns straight from the console.
+    The connected integration — push campaigns straight from the Frontegg Portal.
   </Card>
   <Card title="Jamf" icon="server" href="../../deployment/mdm/jamf.mdx">
     Jamf Pro and Jamf Now.

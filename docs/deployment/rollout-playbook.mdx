@@ -5,20 +5,26 @@ icon: map
 description: The recommended path from a pilot Mac to enforced policy across a fleet — what to do in each phase, what evidence to look for, and how to promote rules without breaking developer workflows.
 ---
 
+<img
+  src="../images/page-heroes/deployment-rollout-playbook.png"
+  alt="Rollout Playbook cover — observe first, enforce when quiet."
+  noZoom
+/>
+
 A rollout that starts with blocking generates a queue of angry tickets and gets
 switched off. A rollout that starts with watching produces the evidence you need
 to block the right things. This is the sequence that works.
 
 <Note>
   This page is for whoever owns AgenShield for the organization. Developers
-  should read [Working with a protected agent](../using/protected-agents.mdx).
+  should read [Working with your agents](../using/working-with-agents.mdx).
 </Note>
 
 ## The five phases
 
 <Steps>
   <Step title="Prepare the tenant">
-    Configure posture in the console **before** any Mac enrolls.
+    Configure posture in the Frontegg Portal **before** any Mac enrolls.
   </Step>
   <Step title="Pilot on a handful of Macs">
     Prove install, approvals, and protection work in your environment.
@@ -36,15 +42,16 @@ to block the right things. This is the sequence that works.
 
 ## Phase 1 — Prepare the tenant
 
-Decide these in the console first. None of them touch an endpoint.
+Decide these in the [Frontegg Portal](https://portal.frontegg.com) first. None
+of them touch an endpoint.
 
-| Decision                 | Recommendation for a first rollout                                                       |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| Default enforcement mode | **`monitor`.** Change this only when you have evidence.                                  |
-| Which agents to govern   | Start with the one your team actually uses most — Claude Code, Cursor, Codex CLI.        |
-| Redaction patterns       | Add any organization-specific credential formats now, so they are stripped from day one. |
-| Network inspection       | Leave **off** initially. Turn it on later if you need to see request contents.           |
-| Skill governance         | Start in observe-only; move to approval once you know what is in use.                    |
+| Decision                 | Recommendation for a first rollout                                                                                                 |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Default enforcement mode | **`monitor`.** Change this only when you have evidence.                                                                            |
+| Which agents to govern   | Start with the one your team actually uses most — Claude Code, Cursor, Codex CLI, Gemini CLI, or any other agent from the catalog. |
+| Redaction patterns       | Add any organization-specific credential formats now, so they are stripped from day one.                                           |
+| Network inspection       | Leave **off** initially. Turn it on later if you need to see request contents.                                                     |
+| Skill governance         | Start in observe-only; move to approval once you know what is in use.                                                              |
 
 Then create an [**install campaign**](../deployment/campaigns.mdx). It produces the
 install link your rollout channel distributes, plus the ready-made configuration
@@ -61,10 +68,10 @@ Follow the [Quickstart](../getting-started/quickstart.md) on each, or the
 [MDM guide](../deployment/mdm/overview.mdx) if the fleet is managed. What
 you are proving:
 
-- the install completes and the Mac enrols
+- the install completes and the Mac enrolls
 - the three macOS approvals land — pre-approved by MDM, or granted by hand
-- an agent can be protected and still works normally afterwards
-- activity from that Mac appears in the console
+- the agents on the Mac work normally under the received policy
+- activity from that Mac appears in the Frontegg Portal
 
 Fix anything that surfaces here. It is far cheaper than fixing it across 200
 machines.
@@ -110,8 +117,8 @@ usually enough to tell "legitimate" from "worth blocking" at a glance.
 
 <Frame caption="A trace — one agent run as a tree of process, file, and network events, each with its decision.">
   <img
-    src="../images/console/trace.png"
-    alt="Trace view in the AgenShield console showing a single agent run as a nested timeline of process, filesystem, and network events, with an allowed network row highlighted and a callout reading: network egress inside the run."
+    src="../images/portal/trace.png"
+    alt="Trace view in the Frontegg Portal showing a single agent run as a nested timeline of process, filesystem, and network events, with an allowed network row highlighted and a callout reading: network egress inside the run."
   />
 </Frame>
 
@@ -126,9 +133,9 @@ you can leave everything in `monitor` and turn on exactly one rule.
 
 For each rule:
 
-1. Promote it to `enforce` in the console.
+1. Promote it to `enforce` in the Frontegg Portal.
 2. Wait a full working day.
-3. Check the console for blocks against that rule.
+3. Check the Frontegg Portal for blocks against that rule.
 4. Legitimate blocks mean the rule is too broad — narrow it and repeat.
 
 Once a cluster of rules is stable, consider moving the fleet default from
@@ -148,7 +155,7 @@ The loop does not stop after the first enforced rule.
 | Open alerts           | New alert, or a daily security review                | Acknowledge, resolve, or convert into a rule       |
 | New or changed skills | A skill appears or its content changes               | Approve, block, or ask for a re-review             |
 | Network outliers      | An unexpected host, a volume spike, a secret pattern | Allow, deny, inspect, or extend redaction          |
-| Endpoint health       | Missing check-in, inactive extension, stale policy   | Repair the endpoint, or re-enrol it                |
+| Endpoint health       | Missing check-in, inactive extension, stale policy   | Repair the endpoint, or re-enroll it               |
 | Policy impact         | High denial counts, or a developer complaint         | Narrow the rule's scope or step it back to monitor |
 
 ## Common mistakes

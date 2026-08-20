@@ -5,6 +5,12 @@ icon: 'app-window'
 description: 'An unattended Windows install completes but the device never enrolls, or Windows warns about an unrecognized publisher when the installer runs.'
 ---
 
+<img
+  src="../images/page-heroes/troubleshoot-windows-install-warnings.png"
+  alt="Windows Install Warnings cover — a speed bump, sign-posted."
+  noZoom
+/>
+
 ## What you are seeing
 
 One of two things, both during or shortly after installing AgenShield on
@@ -13,7 +19,7 @@ Windows:
 - An unattended install (for example, an install run silently from a script
   or an IT deployment tool, with the organization token passed directly on the
   install command) finishes without an error, but the device never shows up
-  as enrolled in your AgenShield console.
+  as enrolled in the Frontegg Portal.
 - Windows shows a "Windows protected your PC" or unrecognized-publisher
   warning when you run the installer.
 
@@ -47,7 +53,7 @@ limitation:
 
 <Steps>
   <Step title="Use the install link from your organization">
-    Run the install command from your AgenShield console's deployment page
+    Run the install command from your campaign page in the Frontegg Portal
     (the one that starts with `irm` and ends with `| iex`) in a PowerShell
     window, rather than passing the token as a command-line property to the
     installer package — the script requests administrator approval itself.
@@ -62,8 +68,8 @@ limitation:
   </Step>
   <Step title="Confirm enrollment">
     After using either method, confirm the device shows as enrolled — check
-    `agenshield status` on the machine, or look for the device in your
-    AgenShield console.
+    `agenshield status` on the machine, or look for the device in the
+    Frontegg Portal.
   </Step>
 </Steps>
 
@@ -83,7 +89,7 @@ fails.
 
 - If SmartScreen shows "Windows protected your PC," choose **More info**,
   then **Run anyway** — only when you obtained the installer from your
-  organization's official install link or console.
+  organization's official install link or the Frontegg Portal.
 - If your organization's security policy blocks unsigned installers outright
   (for example, via Application Control or Defender policy), deploy through
   Group Policy or Intune instead, which can allowlist the specific installer

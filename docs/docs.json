@@ -79,7 +79,7 @@
       {
         "group": "Daily use",
         "icon": "app-window",
-        "pages": ["using/the-app", "using/protected-agents"]
+        "pages": ["using/the-app", "using/working-with-agents"]
       },
       {
         "group": "Configure",
@@ -98,6 +98,7 @@
         "icon": "wrench",
         "pages": [
           "troubleshoot/common-issues",
+          "troubleshoot/extension-approval-never-appears",
           "troubleshoot/extension-self-disabled",
           "troubleshoot/network-stops-after-update",
           "troubleshoot/network-performance",
@@ -105,6 +106,7 @@
           "troubleshoot/certificate-expired-connections",
           "troubleshoot/claude-code-settings-warning",
           "troubleshoot/duplicate-filter-entries",
+          "troubleshoot/background-items-notification",
           "troubleshoot/token-has-expired",
           "troubleshoot/windows-install-warnings",
           "troubleshoot/collecting-diagnostics"
@@ -201,6 +203,10 @@
     {
       "source": "/manual-shield-claude-code",
       "destination": "/troubleshoot/common-issues"
+    },
+    {
+      "source": "/using/protected-agents",
+      "destination": "/using/working-with-agents"
     }
   ]
 }

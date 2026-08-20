@@ -5,6 +5,12 @@ icon: puzzle
 description: Govern what your AI agents load — skills, rules files, subagents, commands, hooks, plugins, and MCP connectors — with automated risk analysis, a review queue, and fleet-wide approve or deny.
 ---
 
+<img
+  src="../images/page-heroes/configuration-agent-resources.png"
+  alt="Agent Resources cover — everything an agent loads gets looked at once."
+  noZoom
+/>
+
 An AI agent is not just its binary. It loads **skills**, instruction files,
 subagents, slash commands, hooks, plugins, and **MCP connectors** at runtime —
 each of which changes what the agent does, and most of which arrive without
@@ -12,12 +18,14 @@ anyone reviewing them.
 
 Policy rules do not cover this. An agent can be perfectly scoped by rules and
 still load a skill that tells it to do something you would never have approved.
-**Agent resources** is the surface that closes that gap.
+**Agent resources** is the surface that closes that gap — **AgenShield →
+Skills** in the [Frontegg Portal](https://portal.frontegg.com)
+(`https://portal.frontegg.com/<environment>/agen/shielded/skills`).
 
 <Frame caption="The resource catalog — everything agents load across the fleet, with risk score, review state, and reach.">
   <img
-    src="../images/console/agent-resources.png"
-    alt="Agent resources page in the AgenShield console: stat tiles for total, pending review, and approved resources, above a table of skills with risk scores, and a callout reading: 110 awaiting review."
+    src="../images/portal/agent-resources.png"
+    alt="Agent resources page in the Frontegg Portal: stat tiles for total, pending review, and approved resources, above a table of skills with risk scores, and a callout reading: 110 awaiting review."
   />
 </Frame>
 
@@ -83,7 +91,7 @@ on one machine last week deserve different treatment.
 
 <Frame caption="A resource open for review — each finding points at the exact line that triggered it, next to Approve and Deny.">
   <img
-    src="../images/console/resource-findings.png"
+    src="../images/portal/resource-findings.png"
     alt="Resource detail view for a skill pending review, showing a critical finding with the offending line of SKILL.md highlighted, Deny and Approve buttons, and a callout reading: critical finding blocks the run."
   />
 </Frame>
@@ -94,7 +102,7 @@ requires hunting the file down on an endpoint:
 
 <Frame caption="The Files tab — every file the resource ships, inspectable in place.">
   <img
-    src="../images/console/resource-files.png"
+    src="../images/portal/resource-files.png"
     alt="Resource detail Files tab listing the four files of a skill with the full contents of a plist file displayed, and a callout reading: every file, verbatim."
   />
 </Frame>
@@ -130,8 +138,8 @@ fleet, with their transport, version, reach, and risk score.
 
 <Frame caption="The MCP server inventory — transport, risk, and review state per connector. Credentials found inline in a config are redacted at discovery.">
   <img
-    src="../images/console/mcp-servers.png"
-    alt="MCP servers page in the AgenShield console listing connectors with transport badges and risk scores; one server is flagged for inline credentials with a callout reading: credentials redacted at discovery."
+    src="../images/portal/mcp-servers.png"
+    alt="MCP servers page in the Frontegg Portal listing connectors with transport badges and risk scores; one server is flagged for inline credentials with a callout reading: credentials redacted at discovery."
   />
 </Frame>
 

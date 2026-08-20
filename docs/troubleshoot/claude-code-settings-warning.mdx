@@ -5,6 +5,12 @@ icon: 'triangle-alert'
 description: 'Claude Code warns "allowedMcpServers[]: Invalid entry was ignored: failed validation" on launch, and MCP servers may stop loading. This is a fixed defect in how the MCP allowlist was written.'
 ---
 
+<img
+  src="../images/page-heroes/troubleshoot-claude-code-settings-warning.png"
+  alt="Settings Warning cover — loud label, quiet reality."
+  noZoom
+/>
+
 ## What you are seeing
 
 When launching Claude Code, a warning appears:
@@ -37,7 +43,7 @@ next policy sync.
 ## How to recover now
 
 1. Ask your administrator to briefly turn MCP restriction off and back on in the
-   AgenShield console (this recompiles the policy), or simply update AgenShield
+   Frontegg Portal (this recompiles the policy), or simply update AgenShield
    to the latest version — the corrected format is applied automatically on the
    next policy sync.
 2. If the warning persists after the policy has updated, remove the stale file

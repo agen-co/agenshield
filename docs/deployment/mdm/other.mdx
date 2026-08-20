@@ -5,6 +5,12 @@ icon: boxes
 description: Deploy AgenShield from Kandji, JumpCloud, Mosyle, or any MDM that accepts a custom macOS configuration profile and a signed installer package.
 ---
 
+<img
+  src="../../images/page-heroes/deployment-mdm-other.png"
+  alt="Other MDMs cover — same profile, same package, any vendor."
+  noZoom
+/>
+
 AgenShield does not require a specific MDM. If yours can push a **custom macOS
 configuration profile** on the device channel and install a **signed package**,
 it can deploy AgenShield with no user interaction.
@@ -13,7 +19,7 @@ Get both artifacts from your [install campaign](../../deployment/campaigns.mdx) 
 
 ## The generic recipe
 
-Whatever the console calls them, you are creating two objects:
+Whatever your MDM console calls them, you are creating two objects:
 
 <Steps>
   <Step title="A custom configuration profile">
@@ -34,7 +40,7 @@ Whatever the console calls them, you are creating two objects:
   Upload the profile as-is rather than rebuilding it in your MDM's native
   payload editors — it already pairs every payload with the correct extension
   identifiers, including the Full Disk Access grant. That grant is the one that
-  matters: a device without it enrols and looks healthy but cannot enforce
+  matters: a device without it enrolls and looks healthy but cannot enforce
   file policy.
 </Note>
 
@@ -94,7 +100,7 @@ systemextensionsctl list | grep frontegg    # both extensions, after first login
 agenshield status                           # service running, device enrolled
 ```
 
-The device appears under **Devices** in your console within a minute of the
+The device appears under **Devices** in the Frontegg Portal within a minute of the
 package installing. If it does not, work through the
 [MDM troubleshooting table](../../deployment/mdm/overview.mdx#troubleshooting).
 

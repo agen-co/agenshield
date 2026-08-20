@@ -5,6 +5,12 @@ icon: 'copy'
 description: 'System Settings → Network → Filters & Proxies shows two or more AgenShield "Content Filter" rows. The extra row is a stale configuration entry, not a second installation.'
 ---
 
+<img
+  src="../images/page-heroes/troubleshoot-duplicate-filter-entries.png"
+  alt="Duplicate Filter Entries cover — keep one, discard the shadow."
+  noZoom
+/>
+
 ## What you are seeing
 
 In **System Settings → Network → Filters & Proxies**, the list shows AgenShield
@@ -70,8 +76,8 @@ the list.
 ## If it comes back or won't remove
 
 - An entry that cannot be removed is usually owned by a company profile. Ask
-  your IT admin to review the AgenShield profile in your device-management
-  console — removing and re-pushing it replaces its entry cleanly. AgenShield
+  your IT admin to review the AgenShield profile in your MDM console —
+  removing and re-pushing it replaces its entry cleanly. AgenShield
   detects this case and stops re-trying automatically on later updates, so it
   will not keep asking for your password; the dashboard card explains what is
   left to do.

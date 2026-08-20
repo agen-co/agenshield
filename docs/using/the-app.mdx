@@ -2,27 +2,43 @@
 title: "The AgenShield App"
 sidebarTitle: The App
 icon: app-window
-description: The menubar icon and the AgenShield dashboard — where to see protection status, which agents are protected, what they have been doing, and how to get support.
+description: The menubar icon and the AgenShield dashboard — where to see system status, which agents were detected, what they have been doing, and how to sign in and get support.
 ---
+
+<img
+  src="../images/page-heroes/using-the-app.png"
+  alt="The AgenShield App cover — the dot answers before the window opens."
+  noZoom
+/>
 
 AgenShield installs one app with two faces: a **menubar icon** for at-a-glance
 status and quick actions, and a **dashboard** for detail. Everything it shows is
-read-only reporting of this Mac — policy itself is managed centrally.
+read-only reporting of this Mac — policy itself is managed centrally in the
+[Frontegg Portal](https://portal.frontegg.com).
 
 ## The menubar icon
 
-Always present once AgenShield is installed. The icon is the fastest answer to
-"am I protected right now?":
+Always present once AgenShield is installed. The shield icon itself never
+changes — a small **status dot** next to it is the fastest answer to "is
+everything working right now?":
 
-| Icon         | Meaning                                                        |
-| ------------ | -------------------------------------------------------------- |
-| Solid shield | Protected — service running, extensions active, policy current |
-| Outlined     | Action needed — an approval is pending in System Settings      |
-| Slashed      | Not protecting — the service or an extension is not running    |
+| Dot       | Meaning                                                                                                               |
+| --------- | --------------------------------------------------------------------------------------------------------------------- |
+| 🟢 Green  | Healthy — signed in, enforcement active, policy current                                                               |
+| 🟠 Orange | Attention needed — a macOS approval is pending, enforcement is paused, or the connection to your organization is down |
+| 🔴 Red    | Not signed in — click the icon and use **Log in**                                                                     |
+| ⚪ Gray   | The background service is not running                                                                                 |
 
-Click it to see the agents AgenShield found on this Mac and **protect one** —
-you will be asked for your system password, because enabling protection is an
-administrative change to the Mac.
+Click the icon to see the detail behind the dot: the status of each component,
+the agents AgenShield found on this Mac, a **Log in** button when you are
+signed out, and **Open Dashboard**.
+
+## Signing in
+
+The menubar is also where you sign in: click the icon, then **Log in** — it
+opens your organization's sign-in page in the browser. The dashboard shows the
+same button when you are signed out. (From the terminal, `agenshield login`
+starts the same browser sign-in.)
 
 ## The dashboard
 
@@ -30,13 +46,13 @@ Open it from the menubar. The sidebar follows the shape of the product:
 
 | Page                 | What it shows                                                                      |
 | -------------------- | ---------------------------------------------------------------------------------- |
-| **Overview**         | Live status of this Mac — protection state, what needs attention, inventory counts |
-| **Agents**           | Every AI agent detected, and whether each is protected                             |
+| **Overview**         | Live status of this Mac — health, what needs attention, inventory counts           |
+| **Agents**           | Every AI agent detected on this Mac, with the policy posture applied to each       |
 | **Agent resources**  | Skills, extensions, and other resources your agents load, and their approval state |
 | **MCP servers**      | Connectors your agents have configured, and whether each is permitted              |
 | **Managed policies** | The policy currently in force on this Mac, as delivered by your organization       |
 | **Workspaces**       | The project directories your agents work in                                        |
-| **Activity**         | Live feed of what protected agents are doing, and the decision made on each action |
+| **Activity**         | Live feed of what your agents are doing, and the decision made on each action      |
 | **Support**          | Diagnostics download, update status, and links to report an issue                  |
 
 ### Overview
@@ -47,20 +63,20 @@ to happen — usually an approval macOS is still waiting on. See
 
 ### Activity
 
-The most useful page day to day. It shows what your protected agents actually
-did — the programs, files, and destinations — and whether each was allowed,
-blocked, or merely recorded.
+The most useful page day to day. It shows what your agents actually did — the
+programs, files, and destinations — and whether each was allowed, blocked, or
+merely recorded.
 
 If something your agent needed was blocked, this is where you find the entry to
 send your administrator. See
-[Working with a protected agent](../using/protected-agents.mdx).
+[Working with your agents](../using/working-with-agents.mdx).
 
 ### Managed policies
 
 Shows the policy this Mac received, so you can see the rules being applied
 rather than guessing. It is **read-only by design** — there is no local override.
-To change what an agent may do, the change is made in your organization's
-AgenShield console.
+To change what an agent may do, the change is made in the
+[Frontegg Portal](https://portal.frontegg.com).
 
 ### Support
 
@@ -77,12 +93,12 @@ Two things worth knowing about:
 - It does not make policy decisions — it reports what the enforcement components
   decided.
 - It cannot turn enforcement off, or relax a rule. That is central by design.
-- It shows only this Mac. Fleet-wide views live in your organization's AgenShield
-  console.
+- It shows only this Mac. Fleet-wide views live in the
+  [Frontegg Portal](https://portal.frontegg.com).
 
 ## Related
 
-- [Working with a protected agent](../using/protected-agents.mdx) — what changes day to
+- [Working with your agents](../using/working-with-agents.mdx) — what changes day to
   day for a developer.
 - [Common issues](../troubleshoot/common-issues.mdx) — when the app reports something
   is wrong.

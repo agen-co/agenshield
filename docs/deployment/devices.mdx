@@ -2,11 +2,19 @@
 title: "Enrolled Devices"
 sidebarTitle: Enrolled Devices
 icon: laptop
-description: Read fleet health in the AgenShield console — what each device state means, what a device detail view tells you, and the difference between revoking a device and offboarding it.
+description: Read fleet health in the Frontegg Portal — what each device state means, what a device detail view tells you, and the difference between revoking a device and offboarding it.
 ---
 
-Once a campaign starts producing enrollments, **Devices** is where the fleet
-lives. Every Mac that completed enrollment appears here, whichever way it was
+<img
+  src="../images/page-heroes/deployment-devices.png"
+  alt="Enrolled Devices cover — one glance, one outlier."
+  noZoom
+/>
+
+Once a campaign starts producing enrollments, **Devices** in the
+[Frontegg Portal](https://portal.frontegg.com)
+(`https://portal.frontegg.com/<environment>/agen/shielded/devices`) is where
+the fleet lives. Every Mac that completed enrollment appears here, whichever way it was
 installed — MDM push or install command.
 
 ## Device states
@@ -50,7 +58,7 @@ without being offboarded.
 **Bundle** is the column to watch during a policy change: it tells you whether a
 rule you just published has actually reached the fleet, rather than whether you
 published it. A device stuck on an old revision is not enforcing your latest
-rules, no matter what the console shows centrally.
+rules, no matter what the Frontegg Portal shows centrally.
 
 **Endpoint** is the column to watch during an upgrade — mixed versions here are
 normal mid-rollout and should converge.
@@ -63,7 +71,7 @@ it healthy?":
 | Tab           | What you get                                                                                                         |
 | ------------- | -------------------------------------------------------------------------------------------------------------------- |
 | **Overview**  | Health, versions, extension status, the campaign it enrolled through, and — with a connected MDM — its Intune record |
-| **Activity**  | Everything this Mac's protected agents did, and the decision on each action                                          |
+| **Activity**  | Everything this Mac's agents did, and the decision on each action                                                    |
 | **Policies**  | The rules currently in force on this device                                                                          |
 | **Resources** | The skills, connectors, and other resources its agents have loaded                                                   |
 
@@ -74,10 +82,10 @@ Activity tab shows the exact action and the rule that decided it.
 
 These do different things and are not interchangeable.
 
-| Action       | Effect on the device                                      | Effect on the software                   |
-| ------------ | --------------------------------------------------------- | ---------------------------------------- |
-| **Revoke**   | Stops receiving policy. Marked quarantined in the console | **Still installed.** Nothing is removed  |
-| **Offboard** | Removed from the campaign group in your MDM               | **Uninstalled** at the next MDM check-in |
+| Action       | Effect on the device                                              | Effect on the software                   |
+| ------------ | ----------------------------------------------------------------- | ---------------------------------------- |
+| **Revoke**   | Stops receiving policy. Marked quarantined in the Frontegg Portal | **Still installed.** Nothing is removed  |
+| **Offboard** | Removed from the campaign group in your MDM                       | **Uninstalled** at the next MDM check-in |
 
 Revoke is the containment action — a lost or compromised Mac you want cut off
 from your policy immediately. Offboard is the lifecycle action — someone left,
@@ -87,8 +95,8 @@ or the machine is being reassigned.
   With a connected MDM, removing a device from its group by hand in Intune or
   Entra does **neither** of these cleanly. MDMs run scripts when a device is
   added to a group, never when it is removed — so a manual removal leaves
-  AgenShield installed and merely unmanaged. Use **Offboard** in the AgenShield
-  console. See [Microsoft Intune](../deployment/mdm/intune.mdx#offboard-a-device).
+  AgenShield installed and merely unmanaged. Use **Offboard** in the Frontegg
+  Portal. See [Microsoft Intune](../deployment/mdm/intune.mdx#offboard-a-device).
 </Warning>
 
 On an unmanaged Mac, the end user can remove AgenShield with the campaign's
@@ -99,7 +107,7 @@ uninstall command, which carries no token and is safe to hand out — see
 
 <Steps>
   <Step title="Enrollments match your MDM group">
-    Endpoints in the console should converge on the size of the group you
+    Endpoints in the Frontegg Portal should converge on the size of the group you
     assigned. A persistent gap is usually a profile that never landed.
   </Step>
   <Step title="Syncing is draining">

@@ -2,13 +2,19 @@
 title: "Microsoft Intune"
 sidebarTitle: Microsoft Intune
 icon: plug
-description: Connect your Microsoft Entra tenant to AgenShield and push install campaigns to Intune device groups from the console — group creation, profile assignment, installer app, rollout progress, and clean offboarding.
+description: Connect your Microsoft Entra tenant to AgenShield and push install campaigns to Intune device groups from the Frontegg Portal — group creation, profile assignment, installer app, rollout progress, and clean offboarding.
 ---
 
+<img
+  src="../../images/page-heroes/deployment-mdm-intune.png"
+  alt="Microsoft Intune cover — a firm handshake from tenant to device group."
+  noZoom
+/>
+
 Intune is the one MDM AgenShield connects to directly. Connect your Microsoft
-Entra tenant once, and every campaign afterwards deploys from the AgenShield
-console: no downloading profiles, no uploading packages, no keeping two consoles
-in sync by hand.
+Entra tenant once, and every campaign afterwards deploys from the Frontegg Portal:
+no downloading profiles, no uploading packages, no keeping two systems in
+sync by hand.
 
 <Columns cols={2}>
   <Card title="Connected (recommended)" icon="plug">
@@ -25,7 +31,7 @@ in sync by hand.
 
 You do four things once — register an app, hand over two IDs, upload a
 certificate, grant permissions — and from then on every campaign deploys with
-one click from the AgenShield console.
+one click from the Frontegg Portal.
 
 ## What AgenShield does on your behalf
 
@@ -40,7 +46,7 @@ tenant:
 | **Uninstall script + group** | Shared across the connection. Offboarding moves a member here to remove AgenShield cleanly |
 
 Your side of the deal is one thing: **put devices or users in the group.** You
-can do that from the AgenShield console or from Intune — both work.
+can do that from the Frontegg Portal or from Intune — both work.
 
 ## Connect your tenant
 
@@ -51,8 +57,8 @@ secret.
 
 <Frame caption="Settings → Integrations — where the connection starts and where its health is reported afterwards.">
   <img
-    src="../../images/console/intune-integrations.png"
-    alt="Integrations page in the AgenShield console showing the Connect Microsoft Intune starting point, with a callout reading: push enrollment to the fleet."
+    src="../../images/portal/intune-integrations.png"
+    alt="Integrations page in the Frontegg Portal showing the Connect Microsoft Intune starting point, with a callout reading: push enrollment to the fleet."
   />
 </Frame>
 
@@ -67,7 +73,7 @@ In the Entra admin center: **Entra ID → App registrations → New registration
 
 <Frame caption="The wizard mirrors the Entra steps as you go — register once, then hand the two IDs back.">
   <img
-    src="../../images/console/intune-wizard.png"
+    src="../../images/portal/intune-wizard.png"
     alt="Connect Microsoft Intune wizard, step one of four, showing the Entra path — Entra ID, App registrations, New registration — with a callout reading: register once in Entra."
   />
 </Frame>
@@ -113,14 +119,14 @@ failure tells you exactly which one is missing.
 | `DeviceManagementScripts.ReadWrite.All`       | Creates the uninstall script used for offboarding                                            |
 | `Group.ReadWrite.All`                         | Creates the campaign and offboarding groups and manages their membership                     |
 
-<Accordion title="Optional permissions — three console conveniences, each addable later">
+<Accordion title="Optional permissions — three Frontegg Portal conveniences, each addable later">
   Each unlocks one specific feature and nothing else. To add one later, append
   the permission and re-run **Grant admin consent** — no reconnection needed.
 
 | Permission                                | Enables                                                              | If you skip it                                                                     |
 | ----------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `Device.Read.All`                         | Browsing your device directory from the AgenShield console           | Add devices to the group from Intune or Entra instead                              |
-| `User.Read.All`                           | Browsing your users from the AgenShield console                      | Manage user-group membership from Intune or Entra instead                          |
+| `Device.Read.All`                         | Browsing your device directory from the Frontegg Portal              | Add devices to the group from Intune or Entra instead                              |
+| `User.Read.All`                           | Browsing your users from the Frontegg Portal                         | Manage user-group membership from Intune or Entra instead                          |
 | `DeviceManagementManagedDevices.Read.All` | Rollout progress, and matching enrolled Macs to their Intune records | Pushes and offboarding still work; the rollout view reports the missing permission |
 
 </Accordion>

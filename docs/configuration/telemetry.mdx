@@ -5,9 +5,17 @@ icon: activity
 description: Read what your AI agents actually do — event categories, verdicts, traces, and the filters that turn a fleet-wide feed into the evidence a policy rule is built from.
 ---
 
-Telemetry is the evidence layer. Every protected agent on every enrolled Mac
-reports what it did and what AgenShield decided, and that feed is what tells you
-which rules are worth writing.
+<img
+  src="../images/page-heroes/configuration-telemetry.png"
+  alt="Telemetry cover — every decision, a legible line."
+  noZoom
+/>
+
+Telemetry is the evidence layer — **AgenShield → Telemetry** in the
+[Frontegg Portal](https://portal.frontegg.com)
+(`https://portal.frontegg.com/<environment>/agen/shielded/telemetry`). Every
+governed agent on every enrolled Mac reports what it did and what AgenShield
+decided, and that feed is what tells you which rules are worth writing.
 
 <Note>
   This page is about **reading** telemetry. What is collected, what leaves the
@@ -17,12 +25,12 @@ which rules are worth writing.
 
 ## What an event is
 
-Each row is one action a protected agent took, plus the decision made on it.
+Each row is one action an agent took, plus the decision made on it.
 
 <Frame caption="The telemetry feed — one row per action, with the verdict on each.">
   <img
-    src="../images/console/telemetry-feed.png"
-    alt="Telemetry page in the AgenShield console showing a live feed of observed and allowed events, with one allowed row for an agent connecting to a model API and a callout reading: allowed, model API call."
+    src="../images/portal/telemetry-feed.png"
+    alt="Telemetry page in the Frontegg Portal showing a live feed of observed and allowed events, with one allowed row for an agent connecting to a model API and a callout reading: allowed, model API call."
   />
 </Frame>
 
@@ -80,7 +88,7 @@ read, the request it made, and the decision at each step.
 
 <Frame caption="An event opened — the destination, the agent, the device, and the user, with the trace one click away.">
   <img
-    src="../images/console/event-detail.png"
+    src="../images/portal/event-detail.png"
     alt="Event detail drawer for an allowed connection showing the destination, agent, device hostname, and user identity, a View trace button, and a callout reading: device and identity on every event."
   />
 </Frame>

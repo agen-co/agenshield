@@ -5,13 +5,20 @@ icon: wifi-off
 description: "What to do when every application loses network access immediately after an AgenShield update — including AI tools reporting certificate or connection errors — and how to restore connectivity in seconds."
 ---
 
-In rare cases, replacing the network extension during an AgenShield update can
-leave it in a stuck state: it keeps receiving new network connections but never
-finishes answering macOS about them. macOS holds every connection while it
-waits for that answer, so from the moment of the update **the whole Mac loses
-network access** — not just AI tools.
+<img
+  src="../images/page-heroes/troubleshoot-network-stops-after-update.png"
+  alt="Network Stops After Update cover — held, not severed."
+  noZoom
+/>
 
-Typical signs, starting at the exact minute the update ran:
+In rare cases, replacing or re-enabling the network extension during an
+AgenShield update **or a fresh install** can leave it in a stuck state: macOS
+keeps holding every new connection for the extension's answer, but the answers
+never come — in the worst variant the extension is not even handed the
+connections it is supposed to answer. Either way, from that moment **the whole
+Mac loses network access** — not just AI tools.
+
+Typical signs, starting at the exact minute the update or install ran:
 
 - Browsers spin forever; nothing loads in any application.
 - AI coding tools show connection or certificate errors — for example
@@ -34,7 +41,7 @@ with your network. The network extension is running but stuck: it is not
 issuing allow or block decisions at all, and macOS keeps holding every
 connection that is waiting for one. Because the stuck component sits in the
 path of **all** traffic, every application is affected equally — including
-AgenShield's own connection to your AgenShield console.
+AgenShield's own connection to your organization's AgenShield backend.
 
 ## Confirm it
 
@@ -65,15 +72,36 @@ Connectivity returns within seconds. No restart is needed.
 While the network extension is off, network monitoring and network policy are
 not applied on this Mac. Re-enable it as soon as you are on a fixed version.
 
+Two harmless quirks you may notice on the way back:
+
+- **A stale "Disabled" row in System Settings.** After the off/on cycle, the
+  **VPN & Filters** pane can keep showing an AgenShield row — often the
+  transparent proxy — as _Disabled_, and toggling that row does nothing. The
+  pane is rendering a configuration that no longer exists; AgenShield already
+  recreated and enabled a fresh one. Fully quit System Settings and reopen it
+  (or reboot) and the row shows its real state.
+- **Two "Allow" dialogs during re-enable.** Older versions could show the
+  content-filter consent dialog twice in quick succession, the newer dialog
+  replacing the older one. Approving the one that remains is sufficient; the
+  fixed versions only ever show one.
+
 ## Affected versions
 
-- **Affected:** the 2026.8.2 alpha line. The stuck state is rare and tied to
-  the moment an update replaces the network extension — most updates on these
-  versions complete normally.
-- **Fixed:** the next release detects this state automatically, restarts the
-  network filtering once to clear it, and — if AgenShield's emergency stop is
-  engaged — now stands down the network filtering layer itself, so this
-  situation no longer requires a trip to System Settings.
+- **Affected:** the 2026.8.2 alpha line, and 2026.8.2 when installed over an
+  earlier install that was itself unhealthy. The stuck state is rare and tied
+  to the moment the network extension is replaced or re-enabled — most updates
+  and installs on these versions complete normally.
+- **Fixed:** releases after 2026.8.2 close this from three directions. The
+  install flow no longer restarts the network filtering while the installer's
+  temporary safety hold is active (the restart was what created the stuck
+  state). If the stuck state ever occurs anyway, AgenShield now detects it
+  within about two minutes — including the silent variant its earlier checks
+  could not see — using a built-in connectivity probe that tells "stuck" apart
+  from "offline", and recovers on its own: it restarts the network filtering,
+  then replaces the network extension entirely, and as a last resort stands
+  the network filtering down so the Mac stays online. The stuck state also
+  shows plainly in the AgenShield status and diagnostics instead of reporting
+  healthy.
 
 ## When to escalate
 

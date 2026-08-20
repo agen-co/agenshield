@@ -2,8 +2,14 @@
 title: "Install Campaigns"
 sidebarTitle: Install Campaigns
 icon: megaphone
-description: Create an install campaign in the AgenShield console — the enrollment token, the install command, and the ready-made MDM artifacts every rollout starts from.
+description: Create an install campaign in the Frontegg Portal — the enrollment token, the install command, and the ready-made MDM artifacts every rollout starts from.
 ---
+
+<img
+  src="../images/page-heroes/deployment-campaigns.png"
+  alt="Install Campaigns cover — one enrollment token, every machine in the fleet."
+  noZoom
+/>
 
 Every AgenShield rollout starts with an **install campaign**. A campaign is a
 named enrollment channel: it mints a token, and everything a device needs to
@@ -11,14 +17,16 @@ join your fleet — the install command, the configuration profile, the installe
 package — is generated from that token.
 
 <Note>
-  A campaign is the first of five things you set up. The whole console journey
+  A campaign is the first of five things you set up. The whole Frontegg Portal journey
   is: **campaign → devices → rules → telemetry → agent resources.** Each page
   below links to the next.
 </Note>
 
 ## Create one
 
-**Devices → New campaign.** There are only two fields:
+In the [Frontegg Portal](https://portal.frontegg.com), open **AgenShield →
+Devices** (`https://portal.frontegg.com/<environment>/agen/shielded/devices`),
+then **New campaign.** There are only two fields:
 
 | Field              | Required | What it does                                                                                                                         |
 | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -49,8 +57,8 @@ Once created, the campaign detail view carries everything a rollout needs.
 
 <Frame caption="The campaign detail view — the install command, install URL, and enrollment token, ready to copy.">
   <img
-    src="../images/console/campaign-created.png"
-    alt="Campaign created panel in the AgenShield console showing a copyable install command, install URL, and enrollment token, with a callout reading: one command enrolls a device."
+    src="../images/portal/campaign-created.png"
+    alt="Campaign created panel in the Frontegg Portal showing a copyable install command, install URL, and enrollment token, with a callout reading: one command enrolls a device."
   />
 </Frame>
 
@@ -66,11 +74,11 @@ Once created, the campaign detail view carries everything a rollout needs.
 
 The campaign's **MDM artifacts** section carries per-campaign download URLs. The
 configuration-profile URL is generated from the campaign token, so the profile
-you download already contains your campaign token and console URL — there is
+you download already contains your campaign token and backend URL — there is
 nothing to hand-edit:
 
 ```text
-https://<your-console>/resources/campaigns/v1/<campaign-token>/agenshield.mobileconfig
+https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/agenshield.mobileconfig
 ```
 
 | Artifact                               | What it is                                                                                                                    |
@@ -94,7 +102,7 @@ No — and this matters, because you will be pasting it into an MDM console and
 possibly an onboarding document.
 
 - It authorizes **enrollment only**. It cannot read policy, read telemetry, or
-  change anything in your console.
+  change anything in the Frontegg Portal.
 - It is **revocable** at any time.
 - The device's real, long-lived identity is a keypair generated **on the device**
   during enrollment. The token is not that identity, and does not grant it.

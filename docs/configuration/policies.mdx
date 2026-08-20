@@ -2,8 +2,14 @@
 title: "Rules and Policy"
 sidebarTitle: Rules and Policy
 icon: list-checks
-description: Author policy in the AgenShield console — how a rule is built from grants, where an agent is allowed to run, how priority and scope resolve, and how a change reaches the fleet.
+description: Author policy in the Frontegg Portal — how a rule is built from grants, where an agent is allowed to run, how priority and scope resolve, and how a change reaches the fleet.
 ---
+
+<img
+  src="../images/page-heroes/configuration-policies.png"
+  alt="Rules and Policy cover — allow the chain, not the shortcut."
+  noZoom
+/>
 
 Policy in AgenShield is a set of **rules**, each attached to one or more AI
 agents. A rule says what that agent may run, read, write, and connect to. The
@@ -19,6 +25,8 @@ fleet's default posture decides how strictly rules are applied — see
 
 ## How a rule is built
 
+In the [Frontegg Portal](https://portal.frontegg.com), under **AgenShield →
+Policies** (`https://portal.frontegg.com/<environment>/agen/shielded/policies`):
 **Rules → New.** Two steps.
 
 ### 1. Pick the agents
@@ -94,15 +102,55 @@ When two rules match the same action, priority decides. Practical guidance:
   about; a broad one generates tickets.
 - Keep **allow** rules as specific as the evidence supports. Widening an allow
   to silence noise is how an allowlist quietly stops meaning anything.
-- When the console warns about a conflict while you are authoring, resolve it
-  then. A conflict you ship is a conflict someone else debugs later.
+- When the Frontegg Portal warns about a conflict while you are authoring,
+  resolve it then. A conflict you ship is a conflict someone else debugs later.
 
 If you see a lot of harmless denials in telemetry, the fix is almost always to
 **narrow the rule's scope**, not to widen the allow.
 
+## Worked examples
+
+Two rules that show why the [execution tree](../how-it-works.mdx#the-execution-tree)
+matters — neither can be expressed with a flat allow/deny list, because the
+answer depends on **how** the agent reaches the resource, not just **whether**
+it does.
+
+### GitHub only through the `gh` CLI
+
+Goal: the agent may work with GitHub, but only through the audited `gh` CLI —
+never by hitting `github.com` with `curl`, `wget`, or its own HTTP client.
+
+| Grant           | Applies to       | What you enter                                                                           |
+| --------------- | ---------------- | ---------------------------------------------------------------------------------------- |
+| **Network**     | The agent        | Deny `github.com` and `api.github.com`                                                   |
+| **Sub-command** | The agent → `gh` | Allow the `gh` hop, and grant that hop network access to `github.com` / `api.github.com` |
+
+Result: `gh pr list` works, because the GitHub access belongs to the `gh` hop
+of the chain. A `curl https://api.github.com/...` run by the agent — or by a
+script the agent wrote — is denied: the agent itself holds no GitHub grant.
+Roll it out the standard way: watch both paths appear in telemetry under
+`monitor`, then promote the rule to `enforce` once the `gh`-only pattern is
+confirmed.
+
+### Protect `.npmrc` without breaking installs
+
+Goal: the registry token in `~/.npmrc` must not be readable by the agent
+itself — but `yarn install` and `npm install`, which legitimately need it for
+private registries, must keep working.
+
+| Grant           | Applies to                 | What you enter                                         |
+| --------------- | -------------------------- | ------------------------------------------------------ |
+| **Filesystem**  | The agent                  | Deny read on `~/.npmrc`                                |
+| **Sub-command** | The agent → `yarn` / `npm` | Allow the install hop, and grant it read on `~/.npmrc` |
+
+Result: when the agent runs `yarn install`, the install authenticates to your
+private registry exactly as before — the read happens inside the `yarn` hop.
+The agent opening the file directly (`cat ~/.npmrc`, or "let me check your npm
+config") is denied and recorded, with the rule that caused it.
+
 ## Prebuilt policies
 
-The console ships prebuilt rule sets for common postures — blocking credential
+The Frontegg Portal ships prebuilt rule sets for common postures — blocking credential
 file access, restricting registries to approved mirrors, keeping agents off
 administrative privileges. Start from one and adjust rather than authoring from
 an empty rule; they encode the scoping mistakes you would otherwise make once

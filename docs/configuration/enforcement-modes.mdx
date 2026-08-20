@@ -5,6 +5,12 @@ icon: shield-check
 description: What monitor, audit, and enforce mean on a managed Mac, how a per-rule mode overrides the fleet default, and what a developer sees when a rule blocks an agent.
 ---
 
+<img
+  src="../images/page-heroes/configuration-enforcement-modes.png"
+  alt="Enforcement Modes cover — a dial, not a switch: monitor, audit, enforce."
+  noZoom
+/>
+
 Your organization chooses how strictly AgenShield acts on what it observes.
 There are three modes, and the difference between them decides how a rollout
 feels.
@@ -30,7 +36,7 @@ allow rules failed to anticipate. Get there via evidence, not on day one.
 
 ## Mode is set per rule, not only per fleet
 
-Your organization sets a **default mode** for the fleet — shown in the console as
+Your organization sets a **default mode** for the fleet — shown in the Frontegg Portal as
 **Bundle mode** on the Rules page — and **an individual rule can override it**.
 
 ```text
@@ -45,13 +51,13 @@ in `enforce`, which is useful for trialling a new rule.
 
 <Warning>
   Because of this, "the fleet is in monitor mode" does **not** guarantee nothing
-  is ever blocked. A rule your administrator promoted still blocks. The console
+  is ever blocked. A rule your administrator promoted still blocks. The Frontegg Portal
   shows which rules are currently enforcing.
 </Warning>
 
 ## Where to see the active mode
 
-The console is the authoritative view: the Rules page shows the fleet default
+The [Frontegg Portal](https://portal.frontegg.com) is the authoritative view — under **AgenShield → Enforcement** (`https://portal.frontegg.com/<environment>/agen/shielded/enforcement`) — where the Rules page shows the fleet default
 (**Bundle mode**) and flags every rule that is pinned to its own mode — filter
 the table by Enforcement to see exactly what is blocking today.
 
@@ -98,7 +104,7 @@ Regardless of mode or policy:
   compiled into the signed security extension — no configuration file, API,
   policy field, or administrator can change them.
 - Your own account is not subject to the agent policy envelope. Enforcement is
-  scoped to protected agents.
+  scoped to AI agents.
 - If AgenShield starts denying an unexpected volume of ordinary system activity,
   it stands itself down automatically and allows everything for a cooling-off
   period.
@@ -111,7 +117,7 @@ a bigger risk than the one it was installed to manage.
 
 Enforcement is managed centrally — there is no local override on the device, by
 design. To get a rule relaxed or an agent approved, send whoever administers
-AgenShield the blocked-activity record from the console.
+AgenShield the blocked-activity record from the Frontegg Portal.
 
 ## Next
 

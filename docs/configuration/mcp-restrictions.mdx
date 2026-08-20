@@ -5,6 +5,12 @@ icon: server-cog
 description: Decide which MCP servers your agents may use — approve individual servers, block specific tools, or allow only the servers you have approved — and have it hold even when an agent connects without declaring the server in its config.
 ---
 
+<img
+  src="../images/page-heroes/configuration-mcp-restrictions.png"
+  alt="MCP Restrictions cover — connectors by permission, not by default."
+  noZoom
+/>
+
 MCP servers extend what an AI agent can do: read your ticketing system, query a
 database, call an internal API. Each one widens what the agent can reach, and
 most arrive because a single developer added a few lines to a config file.
@@ -15,7 +21,9 @@ acceptable.
 ## Choosing a posture
 
 MCP restrictions use the same three modes as every other part of your policy,
-set per fleet in your AgenShield console:
+set per fleet in the [Frontegg Portal](https://portal.frontegg.com), under
+**AgenShield → MCP servers**
+(`https://portal.frontegg.com/<environment>/agen/shielded/mcps`):
 
 | Mode        | A server you blocked   | A server nobody approved |
 | ----------- | ---------------------- | ------------------------ |
@@ -40,7 +48,7 @@ developers are actively using.
 
 ## Approving and blocking individual servers
 
-Your console lists every MCP server seen across the fleet, with where it was
+The Frontegg Portal lists every MCP server seen across the fleet, with where it was
 found and which agent used it. From there you can approve a server, block it,
 or block individual tools inside a server that is otherwise fine — useful when
 one destructive tool is the only problem.
@@ -109,8 +117,8 @@ policy, so the agent itself declines to load servers you have not approved —
 rather than the server loading and being removed afterwards.
 
 When a developer adds a server that is not approved and enforcement is on, the
-entry is removed from the configuration and the event is reported in your
-console, so you can see who is asking for what and approve it if it is
+entry is removed from the configuration and the event is reported in the
+Frontegg Portal, so you can see who is asking for what and approve it if it is
 reasonable.
 
 ## What you will see

@@ -2,8 +2,14 @@
 title: "How AgenShield Works"
 sidebarTitle: How It Works
 icon: lightbulb
-description: The model behind AgenShield — protected agents, centrally managed policy, the three enforcement modes, and the boundaries the product deliberately never crosses.
+description: The model behind AgenShield — agents governed by centrally managed policy, the execution tree behind every decision, the three enforcement modes, and the boundaries the product deliberately never crosses.
 ---
+
+<img
+  src="./images/page-heroes/how-it-works.png"
+  alt="How It Works cover — a policy tree decides every tool call before it runs."
+  noZoom
+/>
 
 Read this before deploying. Everything else in these docs assumes the model on
 this page.
@@ -26,12 +32,12 @@ AgenShield answers that question in three parts.
 
 <CardGroup cols={3}>
   <Card title="Detect" icon="radar">
-    Every supported AI agent on the Mac is found automatically and governed as
-    its own actor — separate from you and from your other applications.
+    Every AI agent on the Mac is found automatically and governed as its own
+    actor — separate from you and from your other applications.
   </Card>
   <Card title="Decide" icon="scale">
-    Every program the agent runs, file it opens, and destination it reaches is
-    checked against policy your organization defines centrally.
+    Every program an agent runs, file it opens, and destination it reaches is
+    evaluated against the policy your organization defines centrally.
   </Card>
   <Card title="Record" icon="activity">
     Every decision — allowed, blocked, or merely observed — is recorded, with
@@ -39,47 +45,52 @@ AgenShield answers that question in three parts.
   </Card>
 </CardGroup>
 
-### Targets: the agents AgenShield knows about
+There is no per-agent switch to flip. From the moment AgenShield is installed
+and your organization's policy arrives, every agent it detects is governed by
+that policy automatically.
 
-AgenShield scans the Mac for supported AI coding agents and lists each one as a
-**target**. `agenshield status` shows them:
+### The agents AgenShield knows about
+
+AgenShield recognizes a broad, growing catalog of AI agents — Claude Code,
+Cursor, Codex CLI, Gemini CLI, GitHub Copilot, Windsurf, Aider, Claude
+Desktop, and more. The catalog is delivered alongside policy, so new agents
+become known to the fleet without reinstalling anything.
+
+`agenshield status` shows what was found on this Mac:
 
 ```text
-Targets:
-  claudecode:
-    Protection:   ✓ Protected
-    Status:       running
-  cursor:
-    Protection:   ○ Not protected
+Installed agents
+  claude-code   v1.4.2   ● running (2 processes)
+  cursor        v0.51.1  ○ installed
+  gemini-cli    v0.9.0   ○ installed
 ```
 
-A target that is **not protected** is untouched — AgenShield is not watching it
-and not restricting it. Protection is a per-agent decision, so you can start
-with one agent on one machine.
-
-### Protecting an agent
-
-Protecting a target registers it with the security extensions. From then on the
-kernel itself asks AgenShield about that agent's activity.
-
-You can protect an agent in two ways:
-
-| How                                                                  | When to use it                                       |
-| -------------------------------------------------------------------- | ---------------------------------------------------- |
-| The AgenShield menubar — click the agent, confirm with your password | A single Mac, interactively                          |
-| Your organization's policy                                           | Fleet rollout — protection applies as devices enroll |
-
-The developer keeps launching the agent the same way — nothing about their
+Developers keep launching their agents the same way — nothing about their
 workflow changes.
 
-### Policy comes from your console
+### The execution tree
 
-Rules are authored once in your AgenShield console and delivered to each
-enrolled Mac as a **signed** policy. The device verifies the signature before
-applying it, and keeps enforcing the last policy it received when offline.
+Agents rarely act directly. They run a build tool, which runs a package
+manager, which opens a network connection. AgenShield follows that chain — the
+**execution tree** — so an action taken three processes deep is still
+attributed to the agent that started it, and evaluated against that agent's
+policy.
 
-Policy covers what an agent may **run**, **read and write**, **connect to**, and
-which **skills, extensions, and connectors** it may load.
+The tree is what makes precise rules possible: "this agent may reach GitHub,
+but only through the `gh` CLI" or "installs may read the registry credentials
+file, the agent itself may not" are statements about the chain, not about a
+single process. See [Rules and policy](./configuration/policies.mdx) for worked
+examples.
+
+### Policy comes from the Frontegg Portal
+
+Rules are authored once in the [Frontegg Portal](https://portal.frontegg.com)
+and delivered to each enrolled Mac as a **signed** policy. The device verifies
+the signature before applying it, and keeps enforcing the last policy it
+received when offline.
+
+Policy covers what an agent may **run**, **read and write**, **connect to**,
+and which **skills, extensions, and connectors** it may load.
 
 ## The three enforcement modes
 
@@ -98,7 +109,8 @@ can override it**.
 That override is the whole rollout strategy: keep the fleet in `monitor`, then
 promote one well-understood rule at a time to `enforce`. It also means "we are in
 monitor mode" does not guarantee nothing is ever blocked — a rule your
-administrator promoted still blocks. The console shows which rules are enforcing.
+administrator promoted still blocks. The Frontegg Portal shows which rules are
+enforcing.
 
 <Note>
   Start in `monitor`. It is not a weak setting — it is how you find out what your
@@ -106,17 +118,14 @@ administrator promoted still blocks. The console shows which rules are enforcing
   [rollout playbook](./deployment/rollout-playbook.mdx).
 </Note>
 
-## What AgenShield does not do
+## Where it stops
 
-Just as important as the model is where it stops.
-
-| Not in scope                                              | Why                                                   |
-| --------------------------------------------------------- | ----------------------------------------------------- |
-| Your own activity                                         | Enforcement is scoped to protected agents, not to you |
-| Applications that are not AI agents                       | Your browser, editor, and mail are untouched          |
-| Keystrokes, screen contents, camera, microphone, location | Never collected                                       |
-| Your personal files                                       | Only what a protected agent touches is recorded       |
-| Locking you out of your Mac                               | Structurally prevented — see below                    |
+AgenShield governs AI agents — not you. Your own commands, files, browsing,
+and applications are outside its scope, and it never collects keystrokes,
+screen contents, camera, microphone, or location. What it records is limited
+to what governed agents do, with credentials removed on the device before
+anything is sent. [Privacy and data handling](./configuration/privacy-and-data.mdx)
+spells out exactly what leaves the Mac.
 
 ### It cannot lock you out
 
@@ -126,20 +135,32 @@ risk than the one it was installed to manage. Three things prevent it:
 - The processes and system paths macOS needs to function can never be denied.
   Those limits are compiled into the signed security extension — there is no
   configuration file, API, or policy field that can change them.
-- Enforcement applies to protected agents. Your own account is not subject to
-  the agent policy envelope.
+- Enforcement applies to AI agents. Your own account is outside the agent
+  policy envelope.
 - If AgenShield ever starts denying an unexpected volume of ordinary system
   activity, it stands itself down automatically and allows everything for a
-  cooling-off period.
+  cooling-off period, then re-arms itself. No one has to notice for the Mac to
+  recover.
 
 Changing any of that would require shipping a newly signed release.
+
+And should you ever find the host account blocked anyway, there is a local
+kill-switch that needs no network and no support ticket — an administrator on
+the Mac can disable enforcement immediately:
+
+```bash
+sudo touch /var/db/com.frontegg.AgenShield/emergency-disable
+```
+
+Enforcement stops within about a second. Once the machine is healthy again,
+clear it with `agenshield doctor --fix`.
 
 ## The operating loop
 
 <Steps>
   <Step title="Observe">
-    Deploy in monitor mode. Let real work happen. The console fills with what
-    your agents actually run, read, and reach.
+    Deploy in monitor mode. Let real work happen. The Frontegg Portal fills
+    with what your agents actually run, read, and reach.
   </Step>
   <Step title="Decide">
     Approve what is legitimate — the package registries, the vendor APIs, the

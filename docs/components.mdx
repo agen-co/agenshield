@@ -5,6 +5,12 @@ icon: boxes
 description: Every AgenShield component that lands on a Mac, what each one is responsible for, where it lives, the approvals macOS requires, and how to confirm it is healthy.
 ---
 
+<img
+  src="./images/page-heroes/components.png"
+  alt="What Gets Installed cover — five pieces, one alignment axis."
+  noZoom
+/>
+
 Installing AgenShield puts a small, fixed set of components on the Mac. Nothing
 here needs configuring by hand — the installer places it all — but security and
 IT teams reviewing the software should know exactly what is present, and support
@@ -14,39 +20,45 @@ needs a shared vocabulary for it.
 
 <CardGroup cols={2}>
   <Card title="AgenShield app" icon="app-window">
-    The menubar app and dashboard. Shows protection status, lets you protect an agent, and surfaces the approvals macOS needs a person to grant.
+    The menubar app and dashboard. Shows system status, the agents detected on
+    this Mac, sign-in, and the approvals macOS needs a person to grant.
   </Card>
   <Card title="Background service" icon="server-cog">
-    Always on. Applies the policy your organization publishes, keeps the record of what agents did, and reports device health to your console.
+    Always on. Applies the policy your organization publishes in the Frontegg
+    Portal, keeps the record of what agents did, and reports device health.
   </Card>
   <Card title="Security extension" icon="shield-check">
-    An Apple Endpoint Security extension. Decides whether a protected agent may run a program or open a file.
+    An Apple Endpoint Security extension. Decides whether an agent may run a
+    program or open a file, following the agent's execution tree.
   </Card>
   <Card title="Network extension" icon="route">
-    An Apple Network Extension. Decides which destinations a protected agent may reach, and — if your organization enables inspection — records what it sent.
+    An Apple Network Extension hosting two providers: a **content filter** that
+    decides which destinations agents may reach, and a **transparent proxy**
+    that carries the connections selected for network inspection.
   </Card>
   <Card title="Command-line tool" icon="square-terminal">
     The `agenshield` command: setup, status, diagnostics, upgrade, uninstall.
   </Card>
   <Card title="Managed configuration" icon="file-badge">
-    Your organization's signed policy, delivered from the console. Administrator-only on the device.
+    Your organization's signed policy, delivered from the Frontegg Portal.
+    Administrator-only on the device.
   </Card>
 </CardGroup>
 
 ## Responsibilities
 
-| Component          | Responsible for                                                                | Not responsible for                            |
-| ------------------ | ------------------------------------------------------------------------------ | ---------------------------------------------- |
-| AgenShield app     | Showing status; protecting an agent; surfacing approvals macOS requires        | Making policy decisions                        |
-| Background service | Fetching and applying policy; recording activity; reporting device health      | Deciding individual file or network operations |
-| Security extension | Allowing or blocking what a **protected agent** executes and reads             | Anything you or your other applications do     |
-| Network extension  | Allowing or blocking where a **protected agent** connects; optional inspection | Your own browsing or non-agent traffic         |
-| Command-line tool  | Setup, status, diagnostics, lifecycle                                          | Running in the background                      |
+| Component          | Responsible for                                                                                                                              | Not responsible for                            |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| AgenShield app     | Showing status; sign-in; surfacing approvals macOS requires                                                                                  | Making policy decisions                        |
+| Background service | Fetching and applying policy; recording activity; reporting device health                                                                    | Deciding individual file or network operations |
+| Security extension | Allowing or blocking what an **AI agent** executes and reads                                                                                 | Anything you or your other applications do     |
+| Network extension  | Allowing or blocking where an **AI agent** connects — its content filter makes the decision, its transparent proxy carries inspected traffic | Your own browsing or non-agent traffic         |
+| Command-line tool  | Setup, status, diagnostics, lifecycle                                                                                                        | Running in the background                      |
 
 <Note>
-  Enforcement applies to **protected AI agents** and the processes they start —
-  not to you as the person using the Mac. AgenShield deliberately cannot block
-  the system processes macOS needs to function; that limit is compiled into the
+  Enforcement applies to **AI agents** and the processes they start — not to
+  you as the person using the Mac. AgenShield deliberately cannot block the
+  system processes macOS needs to function; that limit is compiled into the
   signed security extension and cannot be changed by policy, by an administrator,
   or by anyone with access to the device. See
   [How AgenShield works](./how-it-works.mdx).
@@ -64,7 +76,7 @@ needs a shared vocabulary for it.
 | `/var/log/agenshield/`         | Service logs                                             |
 
 Both extensions ship **inside** the app bundle. That is why the app must stay in
-`/Applications` — moving or renaming it stops protection.
+`/Applications` — moving or renaming it stops enforcement.
 
 <Warning>
   `~/.agenshield/` holds this device's enrollment credentials. It is created
@@ -75,24 +87,12 @@ Both extensions ship **inside** the app bundle. That is why the app must stay in
 ## The three approvals macOS requires
 
 macOS will not let any security product enable itself silently. On a Mac that is
-**not** MDM-managed, someone with administrator rights must grant these once.
-`agenshield activate` walks through them and detects each as you grant it.
-
-<Steps>
-  <Step title="Allow the system extensions">
-    **System Settings → General → Login Items & Extensions.** Approve both
-    AgenShield extensions. Until this is done, nothing is enforced.
-  </Step>
-  <Step title="Grant Full Disk Access">
-    **System Settings → Privacy & Security → Full Disk Access.** Enable the
-    AgenShield security extension. Without it the extension cannot evaluate file
-    access and protection stays off — even though it may look approved.
-  </Step>
-  <Step title="Allow network filtering">
-    Approve the **"Filter Network Content"** prompt. Without it, network rules
-    have no effect.
-  </Step>
-</Steps>
+**not** MDM-managed, someone with administrator rights must grant three
+approvals, once: the **system extensions**, **Full Disk Access** for the
+security extension, and the **"Filter Network Content"** prompt.
+`agenshield activate` walks through all three and detects each as you grant
+it — the [Quickstart](./getting-started/quickstart.md#2-grant-the-three-macos-approvals)
+shows the exact System Settings paths.
 
 On MDM-managed Macs your administrator pre-approves all three and nobody is
 prompted — see the
@@ -104,18 +104,13 @@ prompted — see the
 agenshield status
 ```
 
-A healthy Mac reports the service running, both extensions active, a recent
-successful policy sync, and each agent you chose to protect reporting as
-protected.
+A healthy Mac reports `Status: ✅ Healthy` — the background service running,
+your organization's policy received and recently synced, both extensions
+enforcing, and the AI agents found on this Mac listed in the inventory.
 
-The menubar icon shows the same at a glance — see
-[The AgenShield app](./using/the-app.mdx) for the dashboard behind it:
-
-| Menubar icon | Meaning                                                        |
-| ------------ | -------------------------------------------------------------- |
-| Solid shield | Protected — service running, extensions active, policy current |
-| Outlined     | Action needed — an approval is pending in System Settings      |
-| Slashed      | Not protecting — the service or an extension is not running    |
+The menubar icon shows the same at a glance as a colored status dot — see
+[The AgenShield app](./using/the-app.mdx#the-menubar-icon) for what each color
+means and for the dashboard behind it.
 
 If something is not right, start with
 [Common issues](./troubleshoot/common-issues.mdx).
@@ -123,9 +118,10 @@ If something is not right, start with
 ## Removing AgenShield
 
 ```bash
-sudo agenshield uninstall
+agenshield uninstall
 ```
 
+No `sudo` needed — the command asks for your administrator password itself.
 This removes every component above, including the extensions and the managed
 configuration. See
 [Install and uninstall](./getting-started/install-and-uninstall.md) for what is left

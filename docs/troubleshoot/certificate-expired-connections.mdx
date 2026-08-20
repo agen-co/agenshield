@@ -2,12 +2,18 @@
 title: 'Agent connections fail with "certificate has expired"'
 sidebarTitle: 'Expired certificate errors'
 icon: 'calendar-x'
-description: 'A protected agent fails to connect to inspected sites with a certificate-expired error (for example CERT_HAS_EXPIRED), even though the sites themselves are fine. This is a fixed defect in how the per-site certificate was renewed.'
+description: 'An AI agent fails to connect to inspected sites with a certificate-expired error (for example CERT_HAS_EXPIRED), even though the sites themselves are fine. This is a fixed defect in how the per-site certificate was renewed.'
 ---
+
+<img
+  src="../images/page-heroes/troubleshoot-certificate-expired-connections.png"
+  alt="Certificate Expired Errors cover — rotation, resolved."
+  noZoom
+/>
 
 ## What you are seeing
 
-A protected agent (an AI coding assistant, an MCP client, or similar) fails to
+An AI agent (an AI coding assistant, an MCP client, or similar) fails to
 connect to sites over HTTPS with a certificate-expired error such as
 `CERT_HAS_EXPIRED`. Typically it fails for **every** inspected destination at
 once, while the same sites open normally in a browser or a tool that is not
