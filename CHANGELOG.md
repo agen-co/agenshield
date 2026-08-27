@@ -9,6 +9,47 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.8.4 - 2026-08-27
+
+
+### New
+
+- **Removed devices recover in place.** When an administrator removes a Mac from the organization, AgenShield now stands down safely, shows a clear removed-device state in the dashboard and menubar, and lets the user re-enroll with a fresh enrollment token after the current policy is applied — no uninstall or reinstall required.
+
+### Improved
+
+- **MDM deployment is easier to validate.** Fresh configuration profiles are more compatible with Workspace ONE, and the deployment docs now include Workspace ONE steps, clearer profile checks, macOS requirements, and safer troubleshooting commands that avoid exposing enrollment tokens.
+- **Fleet views handle removed devices more cleanly.** Removed-device records are retained for audit and recovery, but no longer clutter the normal device list by default.
+- **Status reports are more useful under load.** `agenshield status` and `agenshield doctor` now report worker health correctly, preserve partial health details when the local service is busy, and explain high-load timeouts instead of suggesting the service is simply broken.
+- **Troubleshooting coverage expanded.** New public guidance explains removed-device recovery, MDM profile installation failures, and agent helper blocks caused by policy scope.
+- **Troubleshooting now covers missing sign-in links.** New public guidance explains what it means when the menubar cannot return a sign-in link, how to confirm the Mac is not enrolled, and how an administrator can recover it by revoking the stale device record and reinstalling.
+- **Support diagnostics explain memory pressure more clearly.** Diagnostic bundles and support snapshots now distinguish live memory, reserved-but-unused capacity, native memory, and process-tree size, making high-load investigations more accurate.
+
+### Fixed
+
+- **Security hardening: Enrollment tokens are protected from unsafe destinations.** AgenShield now refuses invalid server URLs, remote cleartext enrollment, URLs with embedded credentials, and redirects that could replay an enrollment token to an unexpected host.
+- **Security hardening: Active devices cannot be displaced by forced re-registration.** A still-syncing device now rejects forced registration attempts, so a campaign token cannot be used to knock a healthy device offline; administrators should remove the device first when re-enrollment is intentional.
+- **Security hardening: Local admin credentials are better protected.** The daemon now keeps its full admin token root-owned, rejects untrusted token files and unsafe token-write targets, and lets local AgenShield components authenticate through the daemon’s local socket instead of reading the token from disk.
+- **Security hardening: Device revocation checks no longer follow unsafe redirects.** Cloud check-ins that can stand a device down now fail closed on redirects instead of carrying device-authenticated traffic to an unexpected destination.
+- **Removed Macs no longer keep enforcing stale policy forever.** A removed device now fails open instead of continuing to apply the last policy it received with no way to update or clear it.
+- **Removed Macs stand down sooner after revocation.** When an administrator removes a device, AgenShield now recognizes the revoked state through regular health and sync check-ins, reducing the worst-case stale-policy window from about 30 minutes to a few minutes when the Mac is online.
+- **Removed Macs no longer silently re-enroll from old MDM state.** Recovery now requires an explicit fresh enrollment token, preventing a removed device from rejoining unexpectedly through a previously installed profile.
+- **Enrollment failures are no longer hidden behind successful install messages.** If the cloud already holds a record for a Mac that no longer has its local identity, the installer now fails clearly, avoids writing a false setup-complete state, and tells administrators to revoke the stale device record before reinstalling.
+- **Uninstall now reports cloud deregistration failures accurately.** If AgenShield cannot release the Mac’s cloud record during uninstall, it warns that an administrator must revoke the device in the portal instead of saying deregistration succeeded.
+- **Re-allowed managed settings are cleared from disk.** If an administrator turns a managed agent setting back to Allow, AgenShield now removes the previously enforced key from the agent’s managed settings file, including when the surrounding policy is in monitor mode.
+- **In-app upgrades recover on MDM-installed Macs.** Approving an update from the desktop app no longer fails with “AgenShield has not been set up yet” when setup state was created by a root or MDM install, and the macOS password prompt now clearly identifies the AgenShield update being installed.
+- **Notifications now open the right place in AgenShield.** Clicking a macOS notification now opens the desktop dashboard and focuses the relevant Activity, agent resource, or Workspaces detail instead of sending the user to a broken localhost browser tab.
+- **Notifications are less noisy and safer to read.** Packaged macOS installs no longer show duplicate security banners for the same event, and blocked network, file, and command notifications now use concise descriptions that avoid leaving full URLs, paths, or command arguments in Notification Center.
+- **Agent resource catalogs self-heal after drift.** If the cloud no longer has a resource record that the Mac still tracks, AgenShield now detects the mismatch, relinks known entries, and re-sends only missing resources so approvals and reviews do not stay stale indefinitely.
+- **High process churn no longer leaves unbounded trace state behind.** During large agent process storms, AgenShield now caps and reclaims process-attribution state so daemon memory and persisted trace data stay bounded.
+- **Healthy Macs no longer appear Drifted just because policy is quiet.** The Devices view now uses the latest health, heartbeat, or policy check-in signal, so Macs that are reporting normally stay Online even when policy has not changed; new troubleshooting guidance explains how to distinguish a genuinely stale device from the former false positive.
+- **Enrollment status is more accurate when setup is incomplete.** AgenShield now distinguishes an unenrolled device from one that is enrolled and waiting for policy, and avoids reporting storage-read failures as definite enrollment failures.
+
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.8.3 - 2026-08-20
 
 
