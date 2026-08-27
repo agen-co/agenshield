@@ -2,7 +2,7 @@
 title: "Kandji, JumpCloud, and other MDMs"
 sidebarTitle: Other MDMs
 icon: boxes
-description: Deploy AgenShield from Kandji, JumpCloud, Mosyle, or any MDM that accepts a custom macOS configuration profile and a signed installer package.
+description: Deploy AgenShield from Kandji, JumpCloud, Mosyle, Workspace ONE, or any MDM that accepts a custom macOS configuration profile and a signed installer package.
 ---
 
 <img
@@ -72,6 +72,32 @@ approval payloads to apply. JumpCloud re-signs profiles.
 | 1    | **Management → macOS → Custom Settings / Profiles** — upload the profile, scope to a device group |
 | 2    | **Management → macOS → Custom Commands or Apps & Books** — deploy the `.pkg` to the same group    |
 
+## Workspace ONE (Omnissa)
+
+| Step | Where                                                                                                             |
+| ---- | ----------------------------------------------------------------------------------------------------------------- |
+| 1    | **Resources → Profiles & Baselines → Profiles → Add → Upload Profile → macOS** — upload `agenshield.mobileconfig` |
+| 2    | Set the profile's context to **Device Profile**, deployment **Managed**, and assign a smart group                 |
+| 3    | **Resources → Apps → Native → Internal** — upload the `.pkg` and assign it to the same smart group                |
+
+<Warning>
+  **Upload a freshly downloaded profile.** Workspace ONE cannot parse
+  `.mobileconfig` files carrying a `<!DOCTYPE ...>` line — it reports an error
+  like `3840 Encountered unexpected character` and the profile reaches the
+  device corrupted, or not at all. Campaign profiles no longer include that
+  line, but an older download or a hand-rebuilt profile may. Check with
+  `head -2 agenshield.mobileconfig`; if line 2 is a `<!DOCTYPE ...>` line
+  rather than `<plist version="1.0">`, delete that DOCTYPE line (keep the rest
+  of the file) and re-upload. Full steps:
+  [Profile fails to install](../../troubleshoot/mdm-profile-fails-to-install.mdx).
+</Warning>
+
+Workspace ONE fixes a profile's channel when it is **created**, so a profile
+made as a User Profile cannot be switched to Device afterwards — delete it and
+create it again. Upload the profile unsigned — signing it yourself grants no
+additional permissions and turns the profile into an opaque binary the
+MDM console may no longer be able to read.
+
 ## Anything else
 
 Ask your MDM two questions:
@@ -95,9 +121,9 @@ installs the signed package. You still push the profile for silent approvals.
 ## Verify
 
 ```bash
-profiles list | grep -i agenshield          # the profile installed
-systemextensionsctl list | grep frontegg    # both extensions, after first login
-agenshield status                           # service running, device enrolled
+sudo profiles show -type configuration | grep -i agenshield   # the profile installed
+systemextensionsctl list | grep frontegg                     # both extensions, after first login
+agenshield status                                            # service running, device enrolled
 ```
 
 The device appears under **Devices** in the Frontegg Portal within a minute of the

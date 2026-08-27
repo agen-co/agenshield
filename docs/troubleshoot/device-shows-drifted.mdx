@@ -1,0 +1,121 @@
+---
+title: A Device Shows as Drifted
+sidebarTitle: Device Shows Drifted
+icon: activity
+description: What Drifted means on the Devices list, how to tell a genuinely stale device from a healthy one that is only reporting a stale timestamp, and what to check before you act on it.
+---
+
+On the **Devices** surface in the Frontegg Portal, a device can be labelled
+**Drifted** with a last check-in age of anywhere from 15 minutes to 24 hours.
+
+Drifted means one thing only: **the Portal has not heard from this device
+recently enough** — counting whichever of its regular signals arrived most
+recently, whether that was a health report, a heartbeat, or a policy check-in. It
+does not mean the device is offline, unprotected, or misbehaving.
+
+The label used to be derived from policy check-ins alone, which is why a
+completely healthy Mac could read as Drifted while it was reporting in every few
+seconds. That has since been corrected in the Portal — there is no version to
+check and nothing to upgrade on the Mac. The section below on telling a real one
+from a false positive is still worth keeping to hand, because a genuinely stale
+device looks different.
+
+## What state the device is actually in
+
+A Drifted device is still enrolled and still enforcing whatever policy it last
+received. Nothing on the Mac changes when the label appears, and the person
+using it sees nothing at all.
+
+| Layer                      | Behaviour while a device reads Drifted     |
+| -------------------------- | ------------------------------------------ |
+| Process enforcement        | Unchanged — still applying the last policy |
+| Network enforcement        | Unchanged — still applying the last policy |
+| Your organization's policy | Applied; may not be the newest version     |
+
+The only real risk a genuinely drifted device carries is that a **policy change
+you made recently may not have reached it yet.**
+
+## Telling a real one from a false positive
+
+Check these three, in order. If the first two look healthy, the device is fine
+and the label is the stale part.
+
+<Steps>
+  <Step title="Open the device and look at its health reporting">
+    A healthy device reports its health continuously — far more often than it
+    confirms a policy check-in. If the device's health information is current
+    (seconds or a couple of minutes old) while its check-in age is 18, 25, or 40
+    minutes, the device is alive and talking. That combination is the signature
+    of the false positive.
+  </Step>
+  <Step title="Check whether the device's activity is still arriving">
+    Open the device's recent activity. If events are still landing from it, it
+    is connected. A device that genuinely stopped checking in stops producing
+    activity too.
+  </Step>
+  <Step title="Check the KPI tiles against the row">
+    The tiles above the list and the row itself count the same devices. If the
+    tiles say every device is online while a row reads Drifted, that
+    disagreement is the bug, not a device problem.
+  </Step>
+</Steps>
+
+If health reporting is _also_ stale and no activity is arriving, it is a real
+one — see below.
+
+## Why a healthy device could read as Drifted
+
+Devices confirm a policy check-in only when there is something to confirm. When
+your organization's policy has not changed, a device deliberately stays quiet to
+avoid pointless traffic, and it reports its health on a separate, much more
+frequent channel instead.
+
+The Devices list used to derive the Drifted label from the quiet channel alone.
+A device on unchanged policy could therefore go past the 15-minute mark and be
+labelled Drifted while it was, on every other measure, perfectly healthy — and
+any policy edit you made would immediately flip it back to Online, because a
+policy change is exactly the thing that produces a check-in.
+
+<Note>
+  If you have found yourself editing a rule to "wake up" a device, this was why.
+  It was never necessary — the device was already connected.
+</Note>
+
+The label is now derived from the most recent of **all** the ways a device
+reports in, so a device that is reporting health is counted as online whether or
+not policy has changed. This is a change in the Frontegg Portal — there is
+nothing to upgrade or restart on the Mac, and no action to take on devices that
+were mislabelled.
+
+## What to do about a genuinely drifted device
+
+<Steps>
+  <Step title="Give it time if the Mac may be asleep or away">
+    A closed laptop, a Mac on a captive Wi-Fi portal, or one behind a VPN that
+    is not yet up will drift and then recover by itself. Under 24 hours with no
+    other symptom is usually this.
+  </Step>
+  <Step title="Confirm the Mac can reach your organization">
+    On the Mac, open the AgenShield dashboard. If it reports that it cannot
+    reach your organization, the problem is network reachability — a proxy,
+    firewall, or captive portal between the Mac and the internet.
+  </Step>
+  <Step title="Check for a different message on the Mac">
+    If the Mac reports that it was removed from your organization, that is a
+    different situation with a different fix — see
+    [This Device Was Removed](../troubleshoot/device-removed.mdx).
+  </Step>
+</Steps>
+
+A device that stays Drifted for more than 24 hours moves to **Offline**. At that
+point treat it as a device that needs attention rather than one that is merely
+quiet.
+
+## When to escalate
+
+Contact support if a device reads Drifted while its health reporting is current
+and its activity is still arriving — that is the false positive, and support
+will want to know which Portal build you are on. If a device is genuinely not
+checking in and the Mac reports no error of its own, collect diagnostics from
+the Mac and include the file: see
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).

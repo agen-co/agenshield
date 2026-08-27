@@ -1,0 +1,68 @@
+---
+title: Agent Helper Blocked
+sidebarTitle: Agent Helper Blocked
+icon: shield-x
+description: What it means when a component bundled with an AI coding agent — its updater, crash reporter, or another helper — is blocked from running, how to confirm which rule did it, and how to adjust the policy.
+---
+
+You may see a **blocked process** event for a component that ships _inside_ an
+AI coding agent's own application — typically its auto-updater, a crash
+reporter, or another bundled helper — even though nobody wrote a rule naming
+that component, and even though your organization's policy is set to monitor.
+The visible symptom is usually that the agent stops updating itself, or a
+red "blocked" entry appears in the activity view for a binary path inside the
+agent's application folder.
+
+## What this actually means
+
+AgenShield is enforcing a rule exactly as configured — two behaviors combine
+here:
+
+1. **A rule scoped to an agent matches everything that carries that agent's
+   identity.** When a blocking rule targets an agent by name, it is matched
+   using the vendor's code-signing identity and installation location. A
+   helper that is signed by the same vendor and lives inside the same
+   application matches the rule too, even though the rule never names it.
+2. **A rule-level "enforce" setting takes precedence over the overall policy
+   mode.** The policy mode is a default, not a cap — that is what makes
+   gradual rollouts possible (observe everything, then promote individual
+   rules to enforce). A rule carrying its own enforce setting blocks even
+   while the overall mode is monitor. Rules created with AI assistance may
+   have been given an explicit enforce setting without that being obvious at
+   the time.
+
+Nothing is malfunctioning, and no protection has failed — but the effective
+behavior may be stricter than you intended.
+
+## Confirm it
+
+In the activity view, open the blocked event and check:
+
+- The **blocked path** is inside the agent's own application (for example a
+  path under the application's `Contents/Frameworks/` folder).
+- The event is attributed to the agent, and names a **rule** — often a
+  generated name such as "Process deny".
+
+That combination means an agent-scoped blocking rule with a rule-level
+enforce setting matched a bundled helper.
+
+## Fix it
+
+In the Frontegg Portal, open the rule named in the blocked event, then either:
+
+- **Remove the rule-level enforce setting** so the rule inherits your overall
+  policy mode (recommended while you are in monitor), or
+- **Narrow the rule's scope** so it targets only what you intend to block, or
+- **Delete the rule** if it was created unintentionally.
+
+The change takes effect at the next policy sync (within a few minutes). The
+agent's helper will run normally afterwards; if the agent's self-update was
+blocked, trigger the update again or reinstall the agent's latest version.
+
+## When to escalate
+
+Contact support if you cannot find the rule named in the event, or if blocks
+continue for the same component after removing or adjusting the rule. An
+automatic safeguard that exempts an agent's own bundled helpers from
+agent-scoped blocking rules is planned; until it ships, the policy adjustment
+above is the resolution on all versions.

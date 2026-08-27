@@ -1,0 +1,120 @@
+---
+title: This Device Was Removed
+sidebarTitle: Device Removed
+icon: shield-off
+description: What it means when AgenShield reports that this device was removed from your organization, what state the Mac is actually in, and how to start protecting it again with an enrollment token.
+---
+
+AgenShield shows a full-screen message in the dashboard, and an attention state
+in the menubar:
+
+> This device was removed from your organization
+>
+> AgenShield is not protecting this Mac. Enter an enrollment token from your
+> administrator to start again.
+
+This is not an error and not a crash. This Mac's registration with your
+organization ended, and AgenShield responded by standing down. That normally
+means an administrator removed it in the Frontegg Portal. It can also mean this
+Mac was enrolled again from scratch — enrolling replaces the previous
+registration, and the older one stops working.
+
+## What state the Mac is in
+
+AgenShield is still installed, but it is **not protecting anything**:
+
+| Layer                      | Behaviour while the device is removed |
+| -------------------------- | ------------------------------------- |
+| Process enforcement        | Every process launch is allowed       |
+| Network enforcement        | Every network flow is allowed         |
+| Your organization's policy | No longer applied, and cannot update  |
+
+This is deliberate, and it is the safe direction. When a device loses its
+management relationship, the alternative would be to keep applying whichever
+policy happened to be in place at the time — a policy that can never be
+corrected again. Instead AgenShield gets out of the way entirely.
+
+<Note>
+  Nothing on the Mac is blocked, quarantined, or removed. Every AI coding agent
+  installed on it continues to work exactly as it did before AgenShield was
+  installed.
+</Note>
+
+The Mac also stops sending activity to your organization at this point.
+
+## How soon it takes effect
+
+Removing a device is not instant. The Mac finds out the next time it checks in
+with your organization, so expect **a few minutes** between removing it and
+seeing it stand down — and longer if the Mac is asleep or offline, in which case
+it stands down on its next connection.
+
+Until it stands down, the Mac keeps applying the policy it last received. It
+cannot receive a new one.
+
+<Note>
+  Versions before 2026.8.4 could take considerably longer — up to about half an
+  hour — to notice. If you are waiting on a removal, check the version first.
+</Note>
+
+## How to confirm it
+
+Open the AgenShield dashboard. If the device was removed, you will see the
+message above instead of the usual overview, with a field for an enrollment
+token. The menubar icon shows the attention state, and its panel carries the
+same message and field.
+
+If you see something different — a sign-in prompt, or a report that enforcement
+is paused — this page is not your situation. See
+[Enforcement Paused](../troubleshoot/extension-self-disabled.mdx) instead.
+
+## How to start protecting this Mac again
+
+You need a valid **enrollment token** from whoever administers AgenShield for
+your organization.
+
+<Steps>
+  <Step title="Ask your administrator for an enrollment token">
+    They generate it in the Frontegg Portal. It is a single long string of
+    letters and numbers.
+  </Step>
+  <Step title="Enter it">
+    Paste it into the field on the AgenShield dashboard, or into the menubar
+    panel — either works, and both do the same thing.
+  </Step>
+  <Step title="Wait for protection to come back">
+    AgenShield registers the Mac, downloads your organization's current policy,
+    and only then starts enforcing again. This usually takes a minute or two. You
+    do not need to restart anything, sign in, or reinstall.
+  </Step>
+</Steps>
+
+Once it finishes, the message clears on its own and the dashboard returns to its
+normal view.
+
+<Note>
+  If your organization uses a different AgenShield server than the default,
+  choose **Use a different server** on the dashboard and enter it alongside the
+  token. Most people will not need this — the address is remembered.
+</Note>
+
+## If it does not clear
+
+- **"Re-enrollment failed"** — the token is most likely expired or already used.
+  Ask your administrator for a fresh one.
+- **The message returns after a short time** — the device may have been removed
+  again, or removed from a different organization than the token belongs to.
+  Check with your administrator which organization the token was issued for.
+- **The dashboard cannot reach AgenShield at all** — that is a different
+  problem; see [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
+
+## When to escalate
+
+Contact support if a valid, freshly issued token is rejected, or if protection
+does not come back within a few minutes of a successful re-enrollment. Use
+**Download diagnostics (.zip)** — it is available on this screen for exactly this
+reason — and include the file.
+
+Available from **2026.8.4** onward. On earlier versions a removed device kept
+applying its last policy with no way to recover except uninstalling and
+reinstalling AgenShield.

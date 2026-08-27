@@ -85,9 +85,9 @@ enforcing at the first login**. No user ever clicks anything.
 On a target Mac:
 
 ```bash
-profiles list | grep -i agenshield          # the profile installed
-systemextensionsctl list | grep frontegg    # both extensions, after first login
-agenshield status                           # service running, device enrolled
+sudo profiles show -type configuration | grep -i agenshield   # the profile installed
+systemextensionsctl list | grep frontegg                     # both extensions, after first login
+agenshield status                                            # service running, device enrolled
 ```
 
 In the Frontegg Portal, the device appears under **Devices** within a minute of the
@@ -166,15 +166,20 @@ Most rollouts need none of these. Each exists for one specific situation.
 
 ## Troubleshooting
 
-| Symptom                                                                 | Cause and fix                                                                                                                                                                                     |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Profile install fails: "must originate from a user-approved MDM server" | The profile was opened by hand or pushed outside MDM. These payloads only install through MDM.                                                                                                    |
-| Extensions stuck "waiting for user approval" after login                | Profile missing, or pushed on the **user** channel. Confirm with `profiles list`, then re-push on the device channel.                                                                             |
-| Device enrolled but nothing is ever blocked                             | Full Disk Access payload missing. On split-profile setups, push `pppc.mobileconfig`.                                                                                                              |
-| Device never appears in the Frontegg Portal                             | No token reached the device. Check `sudo cat "/Library/Managed Preferences/com.frontegg.AgenShield.plist"` — it must carry the campaign token and backend URL. Retries happen every five minutes. |
-| Campaign shows `Script fetched` but no `Registration`                   | The package installed but the profile did not land. Same check as above.                                                                                                                          |
-| Pushed the package before the profile                                   | Fine. Order does not matter — the token is picked up when the profile arrives, and extensions activate at the next login.                                                                         |
-| Pushed the all-in-one **and** the split profiles                        | Remove one variant — duplicate payloads behave unpredictably.                                                                                                                                     |
+| Symptom                                                                 | Cause and fix                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Profile install fails: "must originate from a user-approved MDM server" | The profile was opened by hand or pushed outside MDM. These payloads only install through MDM.                                                                                                                                                                                   |
+| Profile is assigned but never installs (Workspace ONE)                  | An older download carries a `<!DOCTYPE ...>` line Workspace ONE cannot parse. Re-download the profile and re-upload. See [Profile fails to install](../../troubleshoot/mdm-profile-fails-to-install.mdx).                                                                                 |
+| Profile fails on some Macs, installs on others                          | The failing Macs are not **user-approved MDM**, or run macOS 12 or earlier. Check `profiles status -type enrollment` and `sw_vers`.                                                                                                                                              |
+| Extensions stuck "waiting for user approval" after login                | Profile missing, or pushed on the **user** channel. Confirm with `sudo profiles show -type configuration`, then re-push on the device channel.                                                                                                                                   |
+| Device enrolled but nothing is ever blocked                             | Full Disk Access payload missing. On split-profile setups, push `pppc.mobileconfig`.                                                                                                                                                                                             |
+| Device never appears in the Frontegg Portal                             | No token reached the device. Check `plutil -p "/Library/Managed Preferences/com.frontegg.AgenShield.plist" \| sed -E 's/=> ".*"/=> (set)/'` — both `CampaignToken` and `CloudUrl` must show `(set)`; never paste the raw plist into a ticket. Retries happen every five minutes. |
+| Campaign shows `Script fetched` but no `Registration`                   | The package installed but the profile did not land. Same check as above.                                                                                                                                                                                                         |
+| Pushed the package before the profile                                   | Fine. Order does not matter — the token is picked up when the profile arrives, and extensions activate at the next login.                                                                                                                                                        |
+| Pushed the all-in-one **and** the split profiles                        | Remove one variant — duplicate payloads behave unpredictably.                                                                                                                                                                                                                    |
+
+A profile installs **atomically** — one rejected payload discards all six. To
+find which one, see [Profile fails to install](../../troubleshoot/mdm-profile-fails-to-install.mdx).
 
 ## Next
 
@@ -186,7 +191,7 @@ Most rollouts need none of these. Each exists for one specific situation.
     Jamf Pro and Jamf Now.
   </Card>
   <Card title="Other MDMs" icon="boxes" href="../../deployment/mdm/other.mdx">
-    Kandji, JumpCloud, Mosyle, and anything that accepts a custom profile.
+    Workspace ONE, Kandji, JumpCloud, Mosyle, and anything that accepts a custom profile.
   </Card>
   <Card title="Enrolled devices" icon="laptop" href="../../deployment/devices.mdx">
     Reading fleet health once devices land, and how to offboard cleanly.

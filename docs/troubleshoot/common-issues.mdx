@@ -66,12 +66,12 @@ Work through these in order:
 
 macOS will not enable a system extension without explicit approval.
 
-| Situation             | What to do                                                                                                                                                                                                                                    |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unmanaged Mac         | **System Settings → General → Login Items & Extensions**, approve both AgenShield extensions                                                                                                                                                  |
-| MDM-managed Mac       | Either the configuration profile did not land (check the device in your MDM console), or the MDM System Extensions policy blocks AgenShield outright — see [Extension approval never appears](../troubleshoot/extension-approval-never-appears.mdx) |
-| Approved but inactive | A stale version from a previous release may be blocking it: `agenshield doctor --cleanup-extensions`, then restart                                                                                                                            |
-| Recently upgraded     | macOS finalizes extension changes on reboot — restart the Mac and re-check                                                                                                                                                                    |
+| Situation             | What to do                                                                                                                                                                                                                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unmanaged Mac         | **System Settings → General → Login Items & Extensions**, approve both AgenShield extensions                                                                                                                                                                                        |
+| MDM-managed Mac       | Either the configuration profile did not land (see [Profile fails to install](../troubleshoot/mdm-profile-fails-to-install.mdx)), or the MDM System Extensions policy blocks AgenShield outright — see [Extension approval never appears](../troubleshoot/extension-approval-never-appears.mdx) |
+| Approved but inactive | A stale version from a previous release may be blocking it: `agenshield doctor --cleanup-extensions`, then restart                                                                                                                                                                  |
+| Recently upgraded     | macOS finalizes extension changes on reboot — restart the Mac and re-check                                                                                                                                                                                                          |
 
 ## Protection is on, but nothing is being enforced
 

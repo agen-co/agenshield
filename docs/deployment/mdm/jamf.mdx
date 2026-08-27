@@ -93,9 +93,9 @@ landed.
 On a managed Mac:
 
 ```bash
-profiles list | grep -i agenshield          # the profile installed
-systemextensionsctl list | grep frontegg    # both extensions, after first login
-agenshield status                           # service running, device enrolled
+sudo profiles show -type configuration | grep -i agenshield   # the profile installed
+systemextensionsctl list | grep frontegg                     # both extensions, after first login
+agenshield status                                            # service running, device enrolled
 ```
 
 You should also see:
@@ -107,12 +107,12 @@ You should also see:
 
 ## Troubleshooting
 
-| Symptom                                                       | Cause and fix                                                                                                                      |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Profile shows as installed, extensions still prompt           | The profile was scoped at user level. Re-upload at **Computer Level**.                                                             |
-| Package installs, device never appears in the Frontegg Portal | The profile did not land, so there was no campaign token. Confirm with `profiles list`, then check `/Library/Managed Preferences`. |
-| Policy never runs                                             | The Mac already ran a **Once per computer** policy. Use **Flush** on the policy log for that computer, then re-check in.           |
-| Enforcement stays off although the device is healthy          | Full Disk Access payload missing — most often because a hand-rebuilt profile omitted it. Re-upload the campaign profile.           |
+| Symptom                                                       | Cause and fix                                                                                                                                               |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Profile shows as installed, extensions still prompt           | The profile was scoped at user level. Re-upload at **Computer Level**.                                                                                      |
+| Package installs, device never appears in the Frontegg Portal | The profile did not land, so there was no campaign token. Confirm with `sudo profiles show -type configuration`, then check `/Library/Managed Preferences`. |
+| Policy never runs                                             | The Mac already ran a **Once per computer** policy. Use **Flush** on the policy log for that computer, then re-check in.                                    |
+| Enforcement stays off although the device is healthy          | Full Disk Access payload missing — most often because a hand-rebuilt profile omitted it. Re-upload the campaign profile.                                    |
 
 Everything else is on the [MDM enrollment reference](../../deployment/mdm/overview.mdx#troubleshooting).
 

@@ -1,0 +1,112 @@
+---
+title: "The sign-in link never appears"
+sidebarTitle: 'No sign-in link'
+icon: unlink
+description: What it means when AgenShield says it could not return a sign-in link, why waiting does not help, and how to get the Mac registered with your organization again.
+---
+
+You try to sign in from the AgenShield menubar and see:
+
+```text
+The daemon didn't return a login link. It may still be connecting to the
+cloud — try again in a moment.
+```
+
+Or, when installing from a terminal:
+
+```text
+Login init failed: Not enrolled with agencloud
+```
+
+Despite the wording, **waiting does not help**. Signing in requires this Mac to
+have a registration with your organization, and in this state it does not have
+one. Retrying produces the same message every time.
+
+## What state the Mac is in
+
+AgenShield is installed and running, but it has no registration, so:
+
+| Layer                      | Behaviour                                    |
+| -------------------------- | -------------------------------------------- |
+| Process enforcement        | Every process launch is allowed              |
+| Network enforcement        | Every network flow is allowed                |
+| Your organization's policy | Never received, and cannot be received       |
+| Sign-in                    | Unavailable — there is nothing to sign in to |
+
+Nothing on the Mac is blocked, quarantined, or removed, and every AI coding
+agent on it works exactly as it did before AgenShield was installed. But the Mac
+is **not protected** and does not appear in your organization's fleet.
+
+## Why it happens
+
+Your organization already holds a registration for this specific Mac, and this
+Mac no longer holds the credentials for it. The two most common ways to get
+there:
+
+- The Mac was reinstalled, reimaged, or had AgenShield removed at a moment when
+  it could not reach your organization to release its registration.
+- The registration was replaced from elsewhere, which leaves the original
+  registration on the Mac pointing at something that no longer exists.
+
+Because releasing a registration requires the credentials that are now gone,
+this Mac cannot resolve the situation on its own. An administrator has to
+release it.
+
+<Note>
+  On affected versions the installer may have reported `Enrollment succeeded`
+  even though registration did not complete. Check the sign-in state rather than
+  the installer's summary.
+</Note>
+
+## How to confirm it
+
+Run:
+
+```bash
+agenshield status
+```
+
+Under `Cloud`, a Mac in this state reports **not enrolled**. If it reports
+`enrolled`, this page does not apply — see
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
+
+## How to recover
+
+An administrator needs to do the following:
+
+1. Open the Frontegg Portal and go to **Devices**.
+2. Find this Mac and **revoke** it. If the list looks empty, filter by the
+   revoked status — a revoked device is hidden from the default view.
+3. On the Mac, run the install command for your organization again.
+
+Registering after a revoke releases the old record automatically, so no other
+step is needed. Sign-in works normally once the Mac is registered.
+
+<Warning>
+  Do not use the `--force` option to work around this without revoking first. It
+  replaces whichever registration currently holds this Mac's slot — and if that
+  registration belongs to a healthy Mac, that other machine loses its connection
+  to your organization and needs a full reinstall to recover.
+</Warning>
+
+## When to escalate
+
+Contact support if, after revoking and reinstalling:
+
+- `agenshield status` still reports **not enrolled**, or
+- the install reports that the device is already registered.
+
+Attach a diagnostics bundle — see
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
+
+## Affected and fixed versions
+
+**Affected:** 2026.8.3 and 2026.8.4-beta.
+
+**Fixed:** not yet released. This page will name the first release carrying the
+fix once it ships.
+
+In the fixed versions the install fails loudly instead of reporting success, and
+names the revoke-then-reinstall remedy directly in the installer output. Where it
+cannot prove the device is healthy it says so rather than reporting a clean
+result.

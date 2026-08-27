@@ -1,0 +1,102 @@
+---
+title: A Setting Still Applies After You Set It to Allow
+sidebarTitle: Setting Still Applied
+icon: toggle-left
+description: What to do when a control reads Allow in the Frontegg Portal but the AI agent still behaves as though it is restricted, how to confirm which value the agent is actually reading, and how to clear it.
+---
+
+You set a control for an AI agent to **Allow** in the Frontegg Portal. The
+portal shows Allow. The agent keeps behaving as though the restriction is still
+in place — a command it should now accept is still refused, or a feature you
+re-enabled never comes back.
+
+## What this means
+
+The Portal shows what your organization's policy _says_. The agent reads its own
+configuration file on the Mac. Turning a control off removes it from your policy,
+and AgenShield is then supposed to take the matching value back out of that file.
+
+In affected versions it did not: the value was written when the control was on
+and then left behind when the control was turned off. The agent kept reading the
+old value, so it stayed restricted. Nothing is broken or in an error state — the
+Mac is simply acting on a leftover value.
+
+This is most visible when your organization is in **monitor** mode, but it also
+occurs in **enforce** mode.
+
+## Affected and fixed versions
+
+| Versions               | Behaviour                                           |
+| ---------------------- | --------------------------------------------------- |
+| `2026.8.5` and earlier | Turning a control off can leave the value in place  |
+| Later than `2026.8.5`  | The value is removed when the control is turned off |
+
+Upgrading is the complete fix. After upgrading, the leftover value is cleared on
+the next policy update — you do not have to re-apply anything.
+
+## How to confirm it
+
+Ask the person who uses the Mac to check the agent's own behaviour first: if the
+Portal reads Allow and the agent still refuses, that matches this issue.
+
+If you want to confirm before upgrading, look at the value the agent is reading.
+For Claude Code, that is:
+
+```
+/Library/Application Support/ClaudeCode/managed-settings.json
+```
+
+A setting you have already turned off in the Portal still being present in that
+file is the confirmation. Other agents keep an equivalent file in their own
+configuration directory.
+
+<Warning>
+  This file can also be managed directly by your MDM, independently of
+  AgenShield. If your organization deploys settings for this agent through MDM,
+  a value here may be intentional — check with whoever manages your MDM before
+  changing anything.
+</Warning>
+
+## How to recover
+
+**Upgrade AgenShield.**
+
+```bash
+sudo agenshield upgrade
+```
+
+After upgrading, a control you turn off is withdrawn from the Mac on the next
+policy update — this is the fix, and for almost every case it is all you need.
+
+**One case the upgrade cannot clean up on its own:** a value left behind by a
+control that was _already_ set to Allow before you upgraded. AgenShield only
+removes a value it can still tell is its own, and for a control your organization
+no longer describes, that link is gone. Clear it in whichever way suits you:
+
+- **Turn the control back on, then off again.** The Mac re-applies the value,
+  which re-establishes it as AgenShield's, and turning it off then removes it.
+  Allow a policy update between the two steps.
+- **Or remove just that one setting by hand** on the affected Mac. Edit the
+  agent's managed settings file (for Claude Code,
+  `/Library/Application Support/ClaudeCode/managed-settings.json`) and delete
+  only the leftover key, leaving every other value in place.
+
+<Warning>
+  Do not change your organization's enforcement mode to clear a leftover value.
+  Enforcement mode applies to your whole organization and every device in it, so
+  switching it to work around one stale setting on one Mac changes how every
+  other rule behaves everywhere. Either remedy above is scoped to the single
+  setting.
+</Warning>
+
+## When to escalate
+
+Contact support if, after upgrading:
+
+- the value is still present more than 15 minutes after a policy change, or
+- a control you never turned on appears to be applied on the Mac, or
+- the agent's behaviour and the Portal disagree in the opposite direction — the
+  Portal shows a restriction that the agent is not applying.
+
+Include a diagnostic bundle — see
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).

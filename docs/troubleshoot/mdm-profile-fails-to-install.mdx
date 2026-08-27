@@ -1,0 +1,207 @@
+---
+title: The MDM profile reaches the device but fails to install
+sidebarTitle: Profile fails to install
+icon: file-warning
+description: The AgenShield configuration profile is assigned in your MDM and shows against the device, but never installs. How to fix the Workspace ONE upload bug, confirm the device is eligible, and find the exact payload macOS rejected.
+---
+
+Your MDM shows the AgenShield profile assigned to a Mac — the device may even
+list it as pending — but it never installs, and the device never turns up in
+the Frontegg Portal.
+
+This page is for the IT admin pushing the profile. If the profile installed
+fine and the _extensions_ are the problem, use
+[Extension approval never appears](../troubleshoot/extension-approval-never-appears.mdx)
+instead.
+
+## Why one problem breaks the whole profile
+
+macOS installs a configuration profile **atomically**. The AgenShield profile
+carries six payloads, and if macOS refuses any single one, it discards the
+entire profile — including the five payloads it would have accepted.
+
+So a failure here is almost never "the profile is broken". It is one payload
+that this particular device, channel, or MDM console would not take.
+
+## Start here: Workspace ONE
+
+Workspace ONE cannot process uploaded `.mobileconfig` files that carry the
+standard XML document-type line (`<!DOCTYPE ...>`) near the top — line 2, right
+after the XML declaration. The MDM console fails to parse the file —
+reporting an error like `3840 Encountered unexpected character` — and what
+reaches the device is corrupted or rejected.
+
+Profiles downloaded from an install campaign **no longer contain that line**,
+so a freshly downloaded profile uploads cleanly. Older downloads and
+hand-rebuilt profiles still carry it.
+
+<Steps>
+  <Step title="Check the second line of your profile">
+    Open it in an editor that does not rewrite the file — VS Code, BBEdit,
+    `nano`:
+
+    ```bash
+    head -2 agenshield.mobileconfig
+    ```
+
+    If the second line is `<plist version="1.0">`, this is not your problem —
+    skip to [the prerequisites](#confirm-the-device-can-accept-these-payloads).
+
+  </Step>
+  <Step title="Delete the DOCTYPE line if it is there">
+    Remove it entirely:
+
+    ```xml
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    ```
+
+    The file should now begin with `<?xml version="1.0" encoding="UTF-8"?>`
+    followed directly by `<plist version="1.0">`. Simplest fix of all:
+    re-download the profile from the campaign.
+
+  </Step>
+  <Step title="Re-upload as a device profile">
+    **Resources → Profiles & Baselines → Profiles → Add → Upload Profile →
+    macOS**, assigned as a **Device Profile**.
+  </Step>
+</Steps>
+
+The line is optional in XML and macOS reads the profile identically without it.
+Confirm the file is still valid before uploading:
+
+```bash
+plutil -lint agenshield.mobileconfig     # expect: OK
+```
+
+<Warning>
+  Do not sign the profile to try to fix this. A signature grants no extra
+  permissions — MDM delivery is what authorizes these payloads — and on this
+  Workspace ONE upload path a signed file is no longer plain XML, so the same
+  upload parser that trips on the DOCTYPE line cannot read it either. Upload it
+  unsigned; an MDM that wants a signed profile signs it itself on delivery.
+</Warning>
+
+## Confirm the device can accept these payloads
+
+Four of the six payloads only install on the **device channel**, and three of
+those additionally require the Mac to be **user-approved MDM**. Supervision and
+Automated Device Enrollment are _not_ required — user-approved enrollment is
+enough.
+
+| Requirement                            | Why                                                                                  | What breaks without it                           |
+| -------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| Pushed on the **device** channel       | System extensions, content filter, PPPC and background items are device-channel only | Whole profile rejected                           |
+| **User-approved MDM** enrollment       | Apple gates extension policy, PPPC and background items behind it                    | Whole profile rejected                           |
+| **macOS 13 or later**                  | The managed background-items payload does not exist before 13                        | Whole profile rejected                           |
+| Not **Account-Driven User Enrollment** | Every Apple payload in this profile is forbidden under user enrollment               | Whole profile rejected                           |
+| Delivered by MDM, not opened by hand   | Three payloads cannot be installed manually at all                                   | "must originate from a user-approved MDM server" |
+
+<Note>
+  AgenShield itself needs **macOS 14 or later on Apple silicon**, which is
+  stricter than the profile's own macOS 13 floor. A Mac that is too old for
+  AgenShield may still install the profile and then never enroll.
+</Note>
+
+On an affected Mac:
+
+```bash
+profiles status -type enrollment   # want "MDM enrollment: Yes (User Approved)"
+sw_vers && uname -m                # want macOS 14+ and arm64
+```
+
+If the profile was created as a **User** profile, editing it is not enough —
+most MDM consoles, Workspace ONE and Intune included, fix the channel when the
+profile is created. Delete it and create it again as a device profile.
+
+## Find the exact payload macOS rejected
+
+Two sources name the culprit directly.
+
+**From the MDM.** Look at the failed `InstallProfile` command in the device's
+command history and read its `ErrorChain` — it names the payload that was
+refused.
+
+**From the Mac.** Retry the push, then immediately:
+
+```bash
+sudo log show --last 20m --style compact \
+  --predicate 'process == "mdmclient" OR subsystem == "com.apple.ManagedClient"'
+```
+
+Look for `ConfigProfilePluginDomain` errors — they quote the payload by name,
+for example `The 'Web Content Filter' payload could not be installed.`
+
+To see what actually made it onto the device:
+
+```bash
+sudo profiles show -type configuration | grep -i -B2 -A6 agenshield
+```
+
+<Note>
+  Use `profiles show -type configuration` rather than `profiles list`. Both
+  default to configuration profiles, but `profiles list` prints only profile
+  identifiers — `profiles show` expands each payload, which is what tells you
+  which ones landed. Run either with `sudo`, or device-channel profiles are
+  left out.
+</Note>
+
+## Still failing: isolate by splitting
+
+If the profile still fails and the log is not conclusive, push the payloads
+separately to find the one that is refused. The campaign already offers a split
+set — `enrollment.mobileconfig`, `approval.mobileconfig`, `pppc.mobileconfig` —
+which narrows six payloads down to three profiles in one pass.
+
+Push them one at a time, in this order. The first one that fails identifies the
+problem:
+
+1. `enrollment.mobileconfig` — managed preferences only; installs almost anywhere
+2. `pppc.mobileconfig` — needs user-approved MDM
+3. `approval.mobileconfig` — needs user-approved MDM **and** macOS 13+
+
+If `enrollment.mobileconfig` installs and the other two do not, the device is
+not user-approved MDM. If all three fail, the profile is not reaching the
+device intact — go back to the Workspace ONE step above.
+
+<Warning>
+  Once you have found the answer, remove the split profiles before pushing the
+  all-in-one profile again. Running both variants leaves two content-filter
+  payloads naming the same network extension, which macOS resolves
+  unpredictably.
+</Warning>
+
+## When to escalate
+
+If the profile installs cleanly and the device still never appears in the
+Frontegg Portal, the profile is no longer the problem — check that the token
+reached the device:
+
+```bash
+plutil -p "/Library/Managed Preferences/com.frontegg.AgenShield.plist" | sed -E 's/=> ".*"/=> (set)/'
+```
+
+Both `CampaignToken` and `CloudUrl` must show as `(set)`. The redaction in that
+command is what keeps the token out of your ticket — do not paste the raw plist
+into a ticket or chat. Retries happen every five minutes.
+
+<Note>
+  This file is readable by anyone signed in to the Mac — macOS stores managed
+  preferences that way so applications can read their own settings, and signing
+  the profile does not change it. Treat an enrollment token as shared, not
+  secret: revoke the campaign once your rollout finishes, and prefer a separate
+  short-lived campaign per rollout.
+</Note>
+
+If both are set and enrollment still does not happen, collect diagnostics and
+contact support — see [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
+
+## Related
+
+<Columns cols={2}>
+  <Card title="MDM deployment" icon="building-2" href="../deployment/mdm/overview.mdx">
+    What the profile contains and how the two-push deployment works.
+  </Card>
+  <Card title="Other MDMs" icon="boxes" href="../deployment/mdm/other.mdx">
+    Workspace ONE, Kandji, JumpCloud, Mosyle, and anything that accepts a custom profile.
+  </Card>
+</Columns>
