@@ -9,6 +9,34 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.8.5 - 2026-08-31
+
+
+### New
+
+- **Token-free MDM profile option:** Admins can now use a deployment profile that carries macOS approvals and cloud settings without embedding the campaign enrollment token in the profile stored on devices.
+- **More controlled scripted installs:** Scripted and MDM installs can explicitly target the intended local user account, making unattended deployments safer on shared, headless, or root-run Macs.
+
+### Improved
+
+- **Faster enforcement on busy Macs:** Agent ancestry checks now reuse cached results on the macOS authorization hot path, reducing repeated process lookups under large policy bundles and high agent activity.
+- **Smoother installs and upgrades:** Process discovery, fallback enforcement workers, shield-mode probes, and policy-apply handling now avoid several main-thread stall loops that could make a Mac feel slow immediately after install or upgrade.
+- **Clearer MDM rollout guidance:** The deployment docs now present one recommended MDM path, explain when to use the all-in-one profile, and add troubleshooting for installs that complete but do not enroll.
+
+### Fixed
+
+- **MDM script-runner enrollment no longer reports false success.** Root-run installs now stage enrollment for the account AgenShield actually uses, report the checked locations when no token is found, and fail unattended runs when enrollment or service startup did not complete.
+- **Certificate trust recovery is more reliable.** AgenShield now retries stalled CA preload work, always processes a successful late CA load, avoids races between trust checks, and no longer leaves traffic inspection disabled when a CA is already available.
+- **Policy sync recovers from slow bundle applies.** A policy bundle that outlives the apply watchdog no longer wedges future polling until a long forced refresh; AgenShield bounds the wait and resumes delivery correctly.
+- **Security hardening:** Install and postinstall paths now reject unsafe symlinked hand-off locations, avoid root writes through user-controlled paths, verify trusted enrollment-token ownership, and clean up consumed enrollment tokens instead of leaving stale credentials behind.
+- **Correct user targeting across root-run workflows.** CLI, keychain, managed-preference, MCP profile scanning, and install paths now share one account-resolution flow, reducing cases where state was written to one user's home and read from another.
+- **Managed enrollment names are normalized.** Organization names read from managed preferences are trimmed consistently, preventing the same tenant from appearing under slightly different names across enrollment channels.
+- **Managed settings are withdrawn cleanly.** When an admin removes the last managed agent setting, devices can receive an explicit empty settings roster instead of leaving previously written settings behind.
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.8.4 - 2026-08-27
 
 
