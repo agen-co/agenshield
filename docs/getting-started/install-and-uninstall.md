@@ -34,7 +34,7 @@ asset** on [`agen-co/agenshield`](https://github.com/agen-co/agenshield). The
 `agenshield` npm package is a thin wrapper that bootstraps the installer from
 that release — no large binaries ship through npm.
 
-### Campaign install (the normal path)
+### Campaign install
 
 A security admin creates a deployment **campaign** in the
 [Frontegg Portal](https://portal.frontegg.com), on the **Devices** page
@@ -70,6 +70,53 @@ anyone being signed in, so an unattended or overnight rollout works. The person
 using the Mac signs in **later from the AgenShield menubar**, or with
 `agenshield login`, to attach their account — that is what enables rules scoped
 to their team, role, or group.
+
+#### Running it unattended
+
+This same command is what a fleet deployment runs. If you are rolling out to
+managed Macs, start at [MDM enrollment](../deployment/mdm/overview.mdx) — it covers the
+profile you push alongside it. What follows is the mechanism.
+
+MDM script runners execute it directly — JumpCloud Commands, Kandji custom
+scripts, Mosyle custom commands, Jamf policy scripts, Intune shell scripts. Run
+it as `root`,
+which is what those runners do by default. It detects that no terminal is
+attached, works out which signed-in user the Mac belongs to, installs for that
+user, and hands the files back to them. No wrapper is required, and it exits
+non-zero if the device does not finish enrolling, so your MDM's result view is
+trustworthy.
+
+These variables tune that. All are optional; a normal rollout sets none.
+
+| Variable                      | Default            | What it does                                                                                                                                                              |
+| ----------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENSHIELD_TARGET_USER`      | the signed-in user | Names the account to install for, when the Mac has several and inference would be a guess                                                                                 |
+| `AGENSHIELD_INSTALL_HEADLESS` | auto-detected      | `1` forces unattended mode instead of letting the installer detect it                                                                                                     |
+| `AGENSHIELD_INSTALL_NO_START` | unset              | `1` skips the installer's own start step. On macOS the service still starts at the next boot, and on a package install it is already running by then — see the note below |
+| `AGENSHIELD_CLIENT_BETA`      | unset              | `true` installs from the beta channel                                                                                                                                     |
+| `AGENSHIELD_CLIENT_ALPHA`     | unset              | `true` installs from the alpha channel. Outranks the beta setting                                                                                                         |
+| `AGENSHIELD_PORT`             | `5200`             | The local port the health check probes                                                                                                                                    |
+
+```bash
+export AGENSHIELD_TARGET_USER='jdoe'
+curl -fsSL '<CAMPAIGN_INSTALL_URL>' | bash
+```
+
+<Note>
+  **On `AGENSHIELD_INSTALL_NO_START`.** It stops the installer from starting the
+  service itself. It does **not** hold the service back until you say so: the
+  background service is registered to start at boot, so on the next restart it
+  comes up regardless. And when the installer used the signed package — which it
+  does on any Mac that can reach the download — the service is already running by
+  the time the script would have checked the setting, so it changes nothing at
+  all. Use it when you do not want a service starting mid-provisioning; do not
+  rely on it to keep a Mac unprotected until a later step.
+</Note>
+
+A script cannot grant the extension approvals or Full Disk Access — Apple accepts
+those only from an MDM. Push your organization's configuration profile alongside
+the command, or somebody approves the extensions on each Mac by hand. See
+[MDM enrollment](../deployment/mdm/overview.mdx).
 
 ### Manual install
 
@@ -162,7 +209,7 @@ or the installer package directly:
 
 2. **Enrolls the device with your organization — if enrollment data is
    available.** A token can reach the installer three ways: the install
-   script's staged handoff (the normal path above), a Group Policy or
+   script's staged handoff (the campaign install above), a Group Policy or
    Intune-managed push, or a token passed directly on the installer's command
    line. Whichever supplies it, the device generates its own cryptographic
    identity locally and registers with that token — the same model as macOS,

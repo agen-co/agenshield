@@ -17,9 +17,10 @@ join your fleet — the install command, the configuration profile, the installe
 package — is generated from that token.
 
 <Note>
-  A campaign is the first of five things you set up. The whole Frontegg Portal journey
-  is: **campaign → devices → rules → telemetry → agent resources.** Each page
-  below links to the next.
+  A campaign is the first thing you set up. From here the path is: **campaign →
+  deploy to your fleet → devices → rules → telemetry.** Deploying to a managed
+  fleet is [MDM enrollment](../deployment/mdm/overview.mdx); a single Mac is the
+  [Quickstart](../getting-started/quickstart.md).
 </Note>
 
 ## Create one
@@ -64,11 +65,11 @@ Once created, the campaign detail view carries everything a rollout needs.
 
 ### For a single Mac, or a scripted rollout
 
-| Artifact              | Use it for                                                                              |
-| --------------------- | --------------------------------------------------------------------------------------- |
-| **Install command**   | Paste-and-run, one Mac. This is what the [Quickstart](../getting-started/quickstart.md) uses |
-| **Enrollment token**  | Scripted installs and testing, where you supply the token yourself                      |
-| **Uninstall command** | Removing AgenShield. Carries no token, so it is safe to hand to any end user            |
+| Artifact              | Use it for                                                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Install command**   | Paste-and-run, one Mac. This is what the [Quickstart](../getting-started/quickstart.md) uses                                   |
+| **Enrollment token**  | Scripted installs and testing, where you supply the token yourself                                                        |
+| **Uninstall command** | Removing AgenShield. Carries no token, so it is safe to hand to any end user, put in a runbook, or run from an MDM script |
 
 ### For a managed fleet
 
@@ -81,31 +82,82 @@ nothing to hand-edit:
 https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/agenshield.mobileconfig
 ```
 
-| Artifact                               | What it is                                                                                                                    |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **Configuration profile** (all-in-one) | One `.mobileconfig` carrying every payload AgenShield needs — enrollment, extension approval, Full Disk Access, notifications |
-| **Installer package**                  | The signed, Apple-notarized `.pkg`                                                                                            |
-| **Bootstrap package**                  | A tiny (under 1 MB) alternative `.pkg` that downloads and verifies the full installer on the device                           |
+| Artifact                                | What it is                                                                                                                                                       |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Configuration profile** (recommended) | `deployment.mobileconfig` — the approvals macOS requires, plus your backend URL. Carries **no enrollment token**, so you upload it once and never touch it again |
+| **All-in-one profile**                  | `agenshield.mobileconfig` — the same payloads plus the enrollment token, for fleets that cannot run a root script and need the profile to carry it               |
+| **Installer package**                   | The signed, Apple-notarized `.pkg`                                                                                                                               |
+| **Bootstrap package**                   | A tiny (under 1 MB) alternative `.pkg` that downloads and verifies the full installer on the device                                                              |
 
-Push the profile and one of the two packages, and the rollout is done. See
-[MDM enrollment](../deployment/mdm/overview.mdx) for what each payload does, and the
-per-MDM pages for the exact clicks.
+Push the recommended profile and run the install command, and the rollout is
+done. See [MDM enrollment](../deployment/mdm/overview.mdx) for the guided path and what
+each payload does, and the per-MDM pages for the exact clicks.
+
+#### Pinning a version
+
+Some MDMs want a package URL they can hold still, rather than an upload. Released
+versions live at stable, immutable addresses:
+
+```text
+https://assets.frontegg.com/agenshield/v<version>/AgenShield-<version>-arm64.pkg
+https://assets.frontegg.com/agenshield/v<version>/AgenShield-Bootstrap-<version>-arm64.pkg
+https://assets.frontegg.com/agenshield/v<version>/checksums.sha256
+```
+
+A published version never changes, so a group pointed at one stays there until
+you move it. To find the current version, read `latest.txt` in the same place:
+
+```bash
+curl -s https://assets.frontegg.com/agenshield/latest.txt
+```
+
+<Note>
+  There is no "latest" package address on purpose — `latest.txt` is a pointer you
+  read, not a file you deploy. Pinning is a deliberate act, so an MDM can never
+  quietly move a fleet onto a release you have not validated.
+</Note>
 
 <Tip>
-  Because the profile URL is campaign-specific, you never edit a profile by
-  hand. Need a different campaign? Download that campaign's URL instead.
+  You never edit a profile by hand. The recommended profile is the same for every
+  campaign, so rotating a campaign means changing the install command — not
+  re-uploading anything to your MDM.
 </Tip>
 
 ## Is the token a credential?
 
-No — and this matters, because you will be pasting it into an MDM console and
-possibly an onboarding document.
+Yes — a narrow one. It matters because you will be pasting it into an MDM console
+and possibly an onboarding document.
+
+What it **cannot** do:
 
 - It authorizes **enrollment only**. It cannot read policy, read telemetry, or
   change anything in the Frontegg Portal.
-- It is **revocable** at any time.
 - The device's real, long-lived identity is a keypair generated **on the device**
-  during enrollment. The token is not that identity, and does not grant it.
+  during enrollment. The token is not that identity, does not grant it, and
+  cannot be used to impersonate a Mac that has already enrolled.
+
+What it **can** do, and how to handle it:
+
+- Anyone holding it can **enroll a machine into your fleet**. It is a bearer
+  token: possession is the whole check.
+- It does **not expire**. It stays valid until you revoke it, which you can do at
+  any time — revoking is also how you "rotate" one, since a campaign's token
+  cannot be changed in place.
+- So scope it to the devices you mean to deploy to, and revoke and reissue the
+  campaign if it leaks.
+
+### Which artifacts carry it
+
+| Artifact                      | Carries the token | Notes                                                                                                                    |
+| ----------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| The **install command**       | Yes               | In the URL. Whoever can read the command can read the token                                                              |
+| **`agenshield.mobileconfig`** | Yes               | The all-in-one profile. The token is also written to each device's managed preferences, which are world-readable at rest |
+| **`deployment.mobileconfig`** | No                | The token-free profile — carries only the extension approvals and your cloud URL                                         |
+| The signed **`.pkg`**         | No                | Identical bytes for every campaign                                                                                       |
+
+If you would rather no token sat on the device at rest, push
+`deployment.mobileconfig` plus the install command instead of the all-in-one
+profile. Both shapes deploy the same product.
 
 ## Watch a campaign work
 

@@ -37,6 +37,26 @@ your password or dismissed the dialog.
 | Affected | `2026.7.24` and earlier |
 | Fixed in | `2026.7.25`             |
 
+## A related case: the update SAYS the certificate is not trusted
+
+In `2026.8.4` and earlier, an update could finish by warning that the network
+inspection certificate was not trusted and that inspected connections would
+fail — even though the certificate had just been installed and trusted seconds
+earlier. Two checks that run at the end of an update could interfere with each
+other, and the second one reported a failure that had not happened.
+
+**The warning was cosmetic. Network inspection kept working normally**, and no
+connection was affected.
+
+|          |                        |
+| -------- | ---------------------- |
+| Affected | `2026.8.4` and earlier |
+| Fixed in | `2026.8.5`             |
+
+To confirm your own Mac is fine, open AgenShield from the menu bar: if the
+certificate reads as installed and trusted, the warning was the false one and
+there is nothing to do.
+
 ## What to do
 
 <Steps>
@@ -69,9 +89,11 @@ deliberate event — not something that should accompany routine updates.
 
 ## When to escalate
 
-Contact support if, after updating to `2026.7.25` or later:
+Contact support if, after updating to `2026.8.5` or later:
 
 - the prompt still appears on every update, or
+- an update still reports the certificate as not trusted while the menu bar
+  reports it as trusted, or
 - the menu bar reports the certificate as missing or not trusted, or
 - applications report certificate or TLS errors.
 

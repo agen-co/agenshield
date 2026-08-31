@@ -1,0 +1,122 @@
+---
+title: Install Succeeds but the Device Never Enrolls
+sidebarTitle: Installed but Not Enrolled
+icon: user-x
+description: What to do when a scripted or MDM-driven install reports success but the Mac never appears in the Frontegg Portal, and the campaign timeline shows Script fetched with no Registration.
+---
+
+AgenShield installed. The Mac has the app, the service answers, `agenshield status`
+looks reasonable — and the device is nowhere in the Frontegg Portal. The campaign
+timeline shows **Script fetched** but never **Registration**.
+
+The software is installed. It just does not know which organization it belongs to.
+
+## Confirm it is this
+
+On the affected Mac:
+
+```bash
+agenshield status
+```
+
+Under **Cloud**, an enrolled device names your backend URL and shows a device
+identity. An unenrolled one reports that setup is incomplete or that no cloud
+credentials exist.
+
+The install log names every place it looked for your enrollment details:
+
+```bash
+sudo grep -A 7 'No enrollment tokens found' /var/log/agenshield/install.log
+```
+
+That block lists each source it checked and which user's home it checked against.
+If it names a home that is not the one the person actually signs in with — most
+often `/var/root` — you have this problem.
+
+## The usual cause: the install ran as `root`, for a different account
+
+AgenShield keeps per-user state in the signed-in user's home. Before release
+**2026.9**, the install command worked that directory out from the environment it
+happened to inherit. Run by a person in their own Terminal, that was right. Run by
+an MDM script runner — JumpCloud Commands, a Kandji custom script, a Mosyle custom
+command, a Jamf policy script, or over SSH — the environment belongs to `root`, so
+the enrollment details were staged into `root`'s home and the installer looked for
+them in the signed-in user's. Nothing matched, and nothing said so: the install
+reported success.
+
+Two other causes produce the same symptom:
+
+| Also check                    | What it looks like                                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **The profile never arrived** | Package-only MDM deployments take their enrollment details from the configuration profile. If it did not land, there was nothing to enroll with. |
+| **The campaign was revoked**  | A revoked campaign refuses new enrollments. Already-enrolled devices are unaffected, which is why only new machines show the symptom.            |
+
+## Fix it
+
+<Steps>
+  <Step title="Upgrade to 2026.9 or later">
+    Releases from 2026.9 resolve the signed-in user themselves, so an install run
+    as `root` with nobody at a terminal enrolls correctly with no wrapper. They
+    also **fail loudly** — the command exits non-zero — when a device does not
+    finish enrolling, so a green result in your MDM means the device is really on
+    your fleet.
+
+    ```bash
+    curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+    ```
+
+  </Step>
+  <Step title="Or enroll the machine in place">
+    The software is already installed and does not need reinstalling. Run this as
+    the person who signs in to the Mac, with the token from your campaign:
+
+    ```bash
+    agenshield setup --token <CAMPAIGN_TOKEN> --cloud-url https://<your-backend-url>
+    ```
+
+  </Step>
+  <Step title="Confirm">
+    The device appears under **Devices** in the Frontegg Portal within a minute,
+    and the campaign timeline gains a **Registration** entry.
+  </Step>
+</Steps>
+
+## If the Mac has several accounts
+
+Name the one AgenShield should install for, rather than letting the installer
+choose:
+
+```bash
+export AGENSHIELD_TARGET_USER='jdoe'
+curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+```
+
+## A Mac with nobody signed in is a different case
+
+On a freshly imaged Mac sitting at the login window there is no account to install
+for yet. That device still enrolls, and its extensions activate at the first
+login — the same as a package deployment. That is expected, not this problem. See
+[MDM enrollment](../deployment/mdm/overview.mdx#how-a-device-joins-your-fleet).
+
+## Escalate
+
+If enrollment still does not complete, collect a diagnostics bundle and open a
+ticket:
+
+```bash
+agenshield doctor --bundle
+```
+
+See [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx). Never paste a
+raw enrollment token into a ticket — reference the campaign by name instead.
+
+## Related
+
+<Columns cols={2}>
+  <Card title="MDM enrollment" icon="building-2" href="../deployment/mdm/overview.mdx">
+    What the profile delivers and how to verify a device landed.
+  </Card>
+  <Card title="Other MDMs" icon="boxes" href="../deployment/mdm/other.mdx">
+    Script-runner deployment, and the options for unattended installs.
+  </Card>
+</Columns>

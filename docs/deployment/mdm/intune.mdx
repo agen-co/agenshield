@@ -25,9 +25,7 @@ sync by hand.
   </Card>
 </Columns>
 
----
-
-# Connected integration
+## Connected integration
 
 You do four things once — register an app, hand over two IDs, upload a
 certificate, grant permissions — and from then on every campaign deploys with
@@ -41,12 +39,21 @@ tenant:
 | Object                       | Purpose                                                                                    |
 | ---------------------------- | ------------------------------------------------------------------------------------------ |
 | **Entra security group**     | One per campaign. Adding a device or user to it is what deploys AgenShield                 |
-| **Configuration profile**    | The campaign's profile, assigned to that group                                             |
+| **Configuration profile**    | The campaign's all-in-one profile, assigned to that group                                  |
 | **Installer app**            | The signed package, published once per connection and assigned to every campaign group     |
 | **Uninstall script + group** | Shared across the connection. Offboarding moves a member here to remove AgenShield cleanly |
 
 Your side of the deal is one thing: **put devices or users in the group.** You
 can do that from the Frontegg Portal or from Intune — both work.
+
+<Note>
+  The connected push deploys the **all-in-one profile and the package** — the
+  same two objects it has always created. If you would rather push the token-free
+  profile and the install command (see
+  [MDM enrollment](../../deployment/mdm/overview.mdx#what-you-are-actually-setting-up)),
+  use [Manual upload](#manual-upload) instead. The two shapes should not be
+  deployed to the same devices.
+</Note>
 
 ## Connect your tenant
 
@@ -220,18 +227,15 @@ and shared by every campaign group. After a new AgenShield release, re-publish
 it from the connection — every campaign picks up the new version without being
 re-pushed.
 
----
+## Manual upload
 
-# Manual upload
+No tenant connection, no app registration. Push the two objects yourself.
 
-No tenant connection, no app registration. Download the two artifacts from the
-campaign and push them yourself.
-
-### The configuration profile
+### 1. The configuration profile
 
 1. **Devices → Manage devices → Configuration → Create → New policy**.
 2. Platform **macOS**, profile type **Templates → Custom**.
-3. Name it, e.g. `AgenShield`, and upload `agenshield.mobileconfig`.
+3. Name it, e.g. `AgenShield`, and upload `deployment.mobileconfig`.
 4. **Deployment channel: Device channel.**
 5. Assign it to your target device group.
 
@@ -242,20 +246,40 @@ campaign and push them yourself.
   create a new one.
 </Warning>
 
-### The installer package
+### 2. The install command
 
-1. **Apps → macOS → Add → macOS app (PKG)**.
-2. Upload the campaign's package.
-3. Included app: bundle ID `com.frontegg.AgenShield`, and the package's version.
-4. Assign as **Required** to the same group.
+1. **Devices → macOS → Shell scripts → Add**.
+2. Upload a script containing the campaign's install command:
 
-Notes: the unmanaged-PKG app type installs through the Intune management agent
-(version 2308.006 or later), and devices need an active Intune license. If your
-tenant uses Multi-Admin Approval, the profile and app may sit in pending
-approval before they deploy.
+   ```bash
+   #!/bin/bash
+   curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+   ```
 
-Using the split profiles instead of the all-in-one? Repeat the profile steps for
-each file — device channel on all of them.
+3. **Run script as signed-in user: No** — it must run as root.
+4. Assign it to the same device group.
+
+Intune retries a failed script on later check-ins, and the script exits non-zero
+if the device does not finish enrolling — so the run status reflects whether the
+device actually joined your fleet.
+
+Shell scripts need the Intune management agent, which is installed automatically
+on enrolled Macs.
+
+<Tip>
+  **Prefer a package?** Use **Apps → macOS → Add → macOS app (PKG)** with the
+  campaign's package instead of the shell script, and upload
+  `agenshield.mobileconfig` in step 1 rather than `deployment.mobileconfig` —
+  without a script, the all-in-one profile is what delivers the enrollment token.
+  Included app: bundle ID `com.frontegg.AgenShield` and the package's version;
+  assign as **Required**. The unmanaged-PKG app type needs the management agent
+  at version 2308.006 or later. This is also the route to take if your Macs have
+  no outbound internet access. See
+  [If you cannot run a script](../../deployment/mdm/overview.mdx#if-you-cannot-run-a-script).
+</Tip>
+
+If your tenant uses Multi-Admin Approval, the profile and the script may sit in
+pending approval before they deploy.
 
 ## Next
 

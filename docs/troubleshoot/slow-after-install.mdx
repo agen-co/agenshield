@@ -1,0 +1,100 @@
+---
+title: 'Your Mac is slow for a while after installing or updating'
+sidebarTitle: 'Slow after install or update'
+icon: 'gauge'
+description: 'Apps take longer to launch and an update can take several minutes on a busy Mac. What is happening, how long it should last, and when it is a problem worth reporting.'
+---
+
+## What you are seeing
+
+During and shortly after AgenShield is installed — or while an update is
+applying — your Mac feels sluggish. Applications take longer to open, the
+update itself runs for several minutes, and the AgenShield dashboard is slow to
+respond.
+
+## What it means
+
+When AgenShield first starts, it takes an inventory of everything already
+running on your Mac so it knows what was there before it arrived. On a
+development machine that can be several hundred processes, and the inventory has
+to identify each one.
+
+On a busy Mac — many browser windows, several coding assistants open at once,
+other security software also installed — that inventory competes with the
+installer for the same machine, and both take longer.
+
+**Your Mac is not at risk during this period, and nothing is being blocked
+incorrectly.** Approving the extensions completes setup; until your
+organization's policy has been delivered and applied, AgenShield watches without
+blocking anything. Either way the slowdown is startup work, not enforcement.
+
+## How long it should last
+
+|                      |                                                         |
+| -------------------- | ------------------------------------------------------- |
+| A typical Mac        | Under a minute after the install finishes               |
+| A heavily loaded Mac | A few minutes                                           |
+| An update applying   | Usually under a minute; a few minutes on a busy machine |
+
+If things have not settled within about ten minutes, that is worth reporting.
+
+## Affected and fixed versions
+
+Versions up to `2026.8.4` could get stuck in this state much longer than they
+should: the startup inventory could repeat every thirty seconds instead of
+running once, and could keep running alongside a duplicate set of background
+checks that should have stopped as soon as the security extension came up.
+
+|          |                        |
+| -------- | ---------------------- |
+| Affected | `2026.8.4` and earlier |
+| Fixed in | `2026.8.5`             |
+
+## What to do
+
+<Steps>
+  <Step title="Give it a few minutes">
+    Let the install or update finish and wait a couple of minutes. Do not
+    restart the Mac mid-install — the extensions are still being approved.
+  </Step>
+  <Step title="Approve the extensions promptly">
+    The slowdown lasts longer while AgenShield is waiting for its security
+    extension to be approved, because it falls back to slower checks in the
+    meantime. Approving in System Settings shortens it.
+  </Step>
+  <Step title="Close what you do not need">
+    Quitting a few browser windows or idle coding assistants during the install
+    measurably shortens it on an already-loaded Mac.
+  </Step>
+  <Step title="Update to the fixed version">
+    On `2026.8.5` or later the startup inventory backs off instead of repeating,
+    and the duplicate background checks stop as soon as the security extension
+    is running.
+  </Step>
+</Steps>
+
+## How to confirm it has settled
+
+Open AgenShield from the menu bar. Once it reports the security extension and
+the network extension as active, and your organization's policy as applied,
+startup is complete and normal responsiveness should return.
+
+## A separate cause worth ruling out
+
+If your Mac is slow **all the time**, not just around an install or update, that
+is a different problem. Check whether the Mac is short on memory — open Activity
+Monitor, choose the Memory tab, and look at the Memory Pressure graph. A Mac
+that is consistently under memory pressure will feel slow regardless of what
+AgenShield is doing.
+
+## When to escalate
+
+Contact support if, on `2026.8.5` or later:
+
+- the slowdown lasts more than about ten minutes after an install or update, or
+- it returns every time the Mac wakes or restarts, or
+- an update takes longer than about five minutes to apply.
+
+Include a diagnostic bundle — see
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx). It captures the
+startup timing we need and saves a round trip.

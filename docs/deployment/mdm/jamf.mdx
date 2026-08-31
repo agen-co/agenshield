@@ -2,12 +2,12 @@
 title: "Jamf"
 sidebarTitle: Jamf
 icon: server
-description: Deploy AgenShield with Jamf Pro or Jamf Now — uploading the campaign configuration profile, packaging the installer, scoping to smart groups, and verifying a managed Mac.
+description: Deploy AgenShield with Jamf Pro or Jamf Now — uploading the campaign configuration profile, running the install command from a policy, scoping to smart groups, and verifying a managed Mac.
 ---
 
 <img
   src="../../images/page-heroes/deployment-mdm-jamf.png"
-  alt="Jamf Pro cover — two pushes, one result."
+  alt="Jamf Pro cover — one profile, one policy."
   noZoom
 />
 
@@ -22,37 +22,48 @@ Get both artifacts from your [install campaign](../../deployment/campaigns.mdx) 
 ### 1. Upload the configuration profile
 
 **Computers → Configuration Profiles → Upload**, and select
-`agenshield.mobileconfig`.
+`deployment.mobileconfig`.
 
 - Level: **Computer Level**.
 - Jamf re-signs uploaded profiles. That is expected and fine.
 - Scope it to the smart or static group you are rolling out to.
 
 <Note>
-  Upload the file as-is — it already carries all six payloads, correctly
-  paired to the extension identifiers, so there is nothing to rebuild in
-  Jamf-native payload editors. If your organization manages privacy
-  preferences and extension policy in dedicated blueprints, push the
-  campaign's **split profiles** instead — one variant or the other, never
-  both.
+  Upload the file as-is — it already pairs every payload with the correct
+  extension identifiers, so there is nothing to rebuild in Jamf-native payload
+  editors. Because it carries no enrollment token, you upload it once and it
+  stays valid across campaign rotations and new releases.
 </Note>
 
-If you do recreate the enrollment half natively, it is an **Application &
-Custom Settings** payload with preference domain `com.frontegg.AgenShield` and
-two string keys: `CampaignToken` and `CloudUrl`. Both values come from your
-campaign.
+### 2. Run the install command from a policy
 
-### 2. Deploy the package
+1. **Settings → Computer Management → Scripts → New** — paste the campaign's
+   install command as a shell script. Jamf runs scripts as `root`.
 
-1. **Settings → Computer Management → Packages** — upload the campaign's `.pkg`.
+   ```bash
+   #!/bin/bash
+   curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+   ```
+
 2. **Computers → Policies → New**:
    - Triggers: **Enrollment Complete** and **Recurring Check-in**.
    - Execution Frequency: **Once per computer**.
-   - Packages payload: add the AgenShield package, action **Install**.
+   - Scripts payload: add the script above.
    - Scope: the same group as the profile.
 
+The script exits non-zero if the device does not finish enrolling, so the policy
+log tells you the truth rather than just "script ran".
+
 Push order does not matter — see
-[what happens on the device](../../deployment/mdm/overview.mdx#what-happens-on-the-device).
+[how a device joins your fleet](../../deployment/mdm/overview.mdx#how-a-device-joins-your-fleet).
+
+<Tip>
+  Prefer Jamf's package workflow, or need Jamf to report install state from its
+  own inventory? Upload the campaign's `.pkg` to **Settings → Computer Management
+  → Packages** and use a Packages payload instead of the Scripts payload, with
+  the all-in-one profile in step 1. See
+  [If you cannot run a script](../../deployment/mdm/overview.mdx#if-you-cannot-run-a-script).
+</Tip>
 
 ### 3. Scope with a smart group
 
@@ -68,7 +79,9 @@ scope for the install policy and a useful dashboard for the rollout.
 
 ## Jamf Now
 
-Jamf Now groups everything into a **Blueprint**.
+Jamf Now groups everything into a **Blueprint**, and has no script object — so
+this is the package route, with the all-in-one profile that carries the
+enrollment token.
 
 <Steps>
   <Step title="Add the installer">
@@ -77,7 +90,8 @@ Jamf Now groups everything into a **Blueprint**.
   </Step>
   <Step title="Add the profile">
     In the Blueprint, add a **Custom Profile** and upload
-    `agenshield.mobileconfig`.
+    `agenshield.mobileconfig` — the all-in-one, because without a script there is
+    nothing else to deliver the enrollment token.
   </Step>
   <Step title="Assign the Blueprint">
     Assign it to the Macs you are enrolling. Jamf Now applies both objects on the
@@ -107,12 +121,12 @@ You should also see:
 
 ## Troubleshooting
 
-| Symptom                                                       | Cause and fix                                                                                                                                               |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Profile shows as installed, extensions still prompt           | The profile was scoped at user level. Re-upload at **Computer Level**.                                                                                      |
-| Package installs, device never appears in the Frontegg Portal | The profile did not land, so there was no campaign token. Confirm with `sudo profiles show -type configuration`, then check `/Library/Managed Preferences`. |
-| Policy never runs                                             | The Mac already ran a **Once per computer** policy. Use **Flush** on the policy log for that computer, then re-check in.                                    |
-| Enforcement stays off although the device is healthy          | Full Disk Access payload missing — most often because a hand-rebuilt profile omitted it. Re-upload the campaign profile.                                    |
+| Symptom                                                  | Cause and fix                                                                                                                                           |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Profile shows as installed, extensions still prompt      | The profile was scoped at user level. Re-upload at **Computer Level**.                                                                                  |
+| Policy runs, device never appears in the Frontegg Portal | Read the policy log's exit code — a non-zero result names the reason. On Jamf Now, it means the profile did not land, so there was no enrollment token. |
+| Policy never runs                                        | The Mac already ran a **Once per computer** policy. Use **Flush** on the policy log for that computer, then re-check in.                                |
+| Enforcement stays off although the device is healthy     | Full Disk Access payload missing — most often because a hand-rebuilt profile omitted it. Re-upload the campaign profile.                                |
 
 Everything else is on the [MDM enrollment reference](../../deployment/mdm/overview.mdx#troubleshooting).
 
