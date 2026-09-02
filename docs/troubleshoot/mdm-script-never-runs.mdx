@@ -1,0 +1,153 @@
+---
+title: The install script never runs
+sidebarTitle: Install script never runs
+icon: terminal
+description: Your MDM shows the AgenShield install script assigned, but the run status stays empty or the run fails immediately. How to tell a script that has not been delivered yet from one that ran and was refused, and how to fix each.
+---
+
+You assigned the AgenShield install command to a device group. The profile
+landed within minutes, but the script shows **no status at all** — no success,
+no failure, no device listed — or it reports a failure the moment it does run.
+
+This page is for the IT admin pushing the script. If the script ran and the Mac
+enrolled but something later went wrong, use
+[Install succeeds but the device never enrolls](../troubleshoot/install-succeeds-but-device-never-enrolls.mdx)
+instead.
+
+## Why the profile arrives and the script does not
+
+They travel on **different channels**, and only one of them is fast.
+
+A configuration profile is delivered by macOS device management itself. It
+arrives on the device's normal check-in — usually minutes.
+
+An install script is not. Your MDM's own scripting agent runs it, and on macOS
+that agent is a separate piece of software that has to be installed on the Mac
+first. Assigning your first script is what triggers that install. Once present,
+the agent checks in **on its own schedule, independently of device management**
+— in Microsoft Intune, up to 8 hours.
+
+So for some hours after you assign a script, "no status" is the normal, healthy
+state. It is not evidence that anything is wrong.
+
+<Warning>
+  A **Sync** action on the device refreshes device management only. It does not
+  pull scripts, and it does not make the scripting agent check in. Repeatedly
+  syncing a device will never make a pending script run.
+</Warning>
+
+## Decide which problem you have
+
+| What the run status shows                            | What it means                                                                 | Go to                                                       |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Nothing at all — no devices listed                   | The scripting agent has not checked in yet, or is not installed               | [Nothing has run yet](#nothing-has-run-yet)                 |
+| A failure, immediately, on every device              | The script ran and was refused — almost always because it was not run as root | [It runs and fails at once](#it-runs-and-fails-at-once)     |
+| Your MDM rejects the script when you open or save it | The script content is not round-tripping through the MDM console              | [Your MDM rejects the script](#your-mdm-rejects-the-script) |
+
+## Nothing has run yet
+
+<Steps>
+  <Step title="Give it the first check-in">
+    Wait out the agent's own check-in window — up to 8 hours on Intune — with
+    the Mac awake and online. Most fleets see the first run well before that.
+  </Step>
+
+  <Step title="Force a check-in on one test device">
+    On Intune, open **Company Portal** on the Mac, select the device, and choose
+    **Check status**. That triggers both a device-management check-in and an
+    agent check-in.
+
+    If Company Portal is not installed — common on Macs enrolled without a
+    primary user — restart the agent from Terminal instead:
+
+    ```bash
+    sudo killall IntuneMdmAgent
+    ```
+
+    It restarts immediately and checks in.
+
+  </Step>
+
+  <Step title="Confirm the agent is actually installed">
+    ```bash
+    ls -la "/Library/Intune/Microsoft Intune Agent.app"
+    pgrep -fl IntuneMdmAgent
+    ```
+
+    Missing means the agent never arrived. That is a device-management problem,
+    not an AgenShield one: confirm the Mac is still enrolled and managed, that
+    the script is assigned to a group this device is really in, and that the
+    device is not behind a proxy — Intune's agent requires a direct internet
+    connection.
+
+  </Step>
+
+  <Step title="Read the agent's own log">
+    ```bash
+    ls -lt /Library/Logs/Microsoft/Intune/
+    sudo tail -n 100 /Library/Logs/Microsoft/Intune/IntuneMDMAgent*.log
+    ```
+
+    This is the authoritative answer to "did this Mac receive the script".
+
+  </Step>
+</Steps>
+
+## It runs and fails at once
+
+The installer installs a signed package, so it **must run as root**.
+
+In Intune, open the script policy and check **Run script as signed-in user**.
+Its default is **No**, which is what you want — the script runs as root. Set to
+**Yes**, it runs as the signed-in user instead.
+
+Unless that account can already elevate without being prompted for a password,
+the installer stops before downloading anything and reports a failure — every
+device, every time. It checks first on purpose, so a run that was going to fail
+does not transfer several hundred megabytes to find out. On a Mac whose
+signed-in account _does_ have passwordless administrator rights the install
+still succeeds, which is why the setting can look inconsistent across a fleet:
+fix the setting rather than the devices that happen to work.
+
+On any other MDM, find the equivalent setting in your vendor's documentation and
+confirm the script runs with root privileges before looking further.
+
+<Note>
+  A script assigned as a signed-in-user script also reports its result under
+  **User status** rather than **Device status**. On a Mac enrolled without a
+  primary user there is no user for it to report against, so both views can look
+  empty even though the script did run.
+</Note>
+
+Fix the setting, then force a check-in as above. The installer exits non-zero
+whenever the Mac does not finish enrolling, so once it does run, a green result
+means the device genuinely joined your fleet.
+
+## Your MDM rejects the script
+
+If your MDM console shows a generic error when you open or save the script
+policy — with no useful detail, and a support identifier that is all zeros — the
+problem is the script content, not the device.
+
+Two things fix it:
+
+- **Assign the short install command, not the installer it downloads.** The
+  campaign gives you a two-line command; that is what belongs in the script
+  field. The full installer is long and contains formatting characters that
+  script editors do not reliably preserve.
+- **Create a new script policy rather than editing the broken one.** Editing
+  content resets the run state anyway, and a fresh policy avoids the record the
+  MDM console is failing on.
+
+## When to escalate
+
+Collect these before contacting support:
+
+- The script policy's run status, and how long ago it was assigned.
+- Whether the agent exists at `/Library/Intune/Microsoft Intune Agent.app`.
+- The last 100 lines of `/Library/Logs/Microsoft/Intune/IntuneMDMAgent*.log`.
+- Whether **Run script as signed-in user** is set to No.
+- If the script did run: `/var/log/agenshield-install.log` from the Mac.
+
+For everything AgenShield collects in one step, see
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).

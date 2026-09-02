@@ -48,11 +48,20 @@ can do that from the Frontegg Portal or from Intune — both work.
 
 <Note>
   The connected push deploys the **all-in-one profile and the package** — the
-  same two objects it has always created. If you would rather push the token-free
-  profile and the install command (see
-  [MDM enrollment](../../deployment/mdm/overview.mdx#what-you-are-actually-setting-up)),
-  use [Manual upload](#manual-upload) instead. The two shapes should not be
-  deployed to the same devices.
+  same two objects it has always created. To push things yourself instead, use
+  [Manual upload](#manual-upload).
+
+Mixing the two is what to avoid, and the rule is per device: **one profile and
+one installer.** Never both profiles (they carry the same payloads, and a
+duplicate network-filter payload resolves unpredictably), and never both the
+package and the install command.
+
+The pairing is not free in both directions. The **install command** works with
+either profile, because it carries the enrollment token itself. The **package**
+requires `agenshield.mobileconfig`: it has no other way to receive a token, and
+`deployment.mobileconfig` does not carry one — see
+[Choosing a profile](#choosing-a-profile).
+
 </Note>
 
 ## Connect your tenant
@@ -256,27 +265,69 @@ No tenant connection, no app registration. Push the two objects yourself.
    curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
    ```
 
-3. **Run script as signed-in user: No** — it must run as root.
+3. **Run script as signed-in user: No.**
 4. Assign it to the same device group.
+
+<Warning>
+  **Run script as signed-in user must be No.** The installer installs a signed
+  package, which requires root. Left at **Yes**, the script runs as a standard
+  user with no way to elevate: it stops immediately and the run is reported as
+  failed. **No** is the default and the correct setting.
+</Warning>
+
+Paste the two-line command above rather than the full installer it downloads.
+The command is stable across campaign edits and AgenShield releases, so you set
+it once; and there is nothing long or non-plain-text for the script editor to
+round-trip.
 
 Intune retries a failed script on later check-ins, and the script exits non-zero
 if the device does not finish enrolling — so the run status reflects whether the
 device actually joined your fleet.
 
-Shell scripts need the Intune management agent, which is installed automatically
-on enrolled Macs.
+<Note>
+  **Give the first run time.** Shell scripts are not delivered over the same
+  channel as profiles. They are run by the Intune management agent, which is
+  installed the first time you assign a script to a device, and which then checks
+  in **on its own schedule — up to 8 hours**, independently of the device's MDM
+  check-in. Until that first agent check-in the script reports no status at all,
+  which looks like nothing happening.
+
+The **Sync** device action refreshes MDM only; it does not pull scripts. To
+make a test device check in now, open **Company Portal** on it, select the
+device, and choose **Check status**. If a script has still not run after a day
+of the Mac being awake and online, see
+[The install script never runs](../../troubleshoot/mdm-script-never-runs.mdx).
+
+</Note>
 
 <Tip>
   **Prefer a package?** Use **Apps → macOS → Add → macOS app (PKG)** with the
-  campaign's package instead of the shell script, and upload
-  `agenshield.mobileconfig` in step 1 rather than `deployment.mobileconfig` —
-  without a script, the all-in-one profile is what delivers the enrollment token.
-  Included app: bundle ID `com.frontegg.AgenShield` and the package's version;
-  assign as **Required**. The unmanaged-PKG app type needs the management agent
-  at version 2308.006 or later. This is also the route to take if your Macs have
-  no outbound internet access. See
+  campaign's package instead of the shell script. Included app: bundle ID
+  `com.frontegg.AgenShield` and the package's version; assign as **Required**.
+  The unmanaged-PKG app type needs the management agent at version 2308.006 or
+  later. This is also the route to take if your Macs have no outbound internet
+  access, since nothing is downloaded at run time. See
   [If you cannot run a script](../../deployment/mdm/overview.mdx#if-you-cannot-run-a-script).
 </Tip>
+
+### Choosing a profile
+
+Both campaign profiles carry the macOS approvals. They differ only in whether
+they also carry the enrollment token, and that difference decides which
+installers each can be paired with.
+
+| Profile                   | Carries the token | Use it when                                                                                                                                                                                                                                        |
+| ------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deployment.mobileconfig` | No                | You want to upload the profile once and never touch it again. It survives campaign rotation, version pinning, and group changes, because none of those alter what macOS has to approve. Pair it with the install command, which carries the token. |
+| `agenshield.mobileconfig` | Yes               | You want the profile to be self-sufficient — the Mac can enroll from the profile alone. Required with the package, which has no other way to receive a token. Re-upload it whenever you rotate the campaign.                                       |
+
+So: the install command pairs with either profile, and the package pairs only
+with `agenshield.mobileconfig`. Pairing the all-in-one profile with the install
+command is fine and slightly belt-and-braces: the command's token is used, and
+the profile's is the fallback if the command has not run yet. Pairing the
+package with `deployment.mobileconfig` is the one combination that does not
+work — the Mac gets every approval and never enrolls. What you must not do is
+deploy **both** profiles, or **both** installers, to the same Mac.
 
 If your tenant uses Multi-Admin Approval, the profile and the script may sit in
 pending approval before they deploy.

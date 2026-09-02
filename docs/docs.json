@@ -79,7 +79,7 @@
       {
         "group": "Daily use",
         "icon": "app-window",
-        "pages": ["using/the-app", "using/working-with-agents"]
+        "pages": ["using/the-app", "using/working-with-agents", "using/fleet-setup-status"]
       },
       {
         "group": "Configure",
@@ -99,7 +99,9 @@
         "pages": [
           "troubleshoot/common-issues",
           "troubleshoot/mdm-profile-fails-to-install",
+          "troubleshoot/mdm-script-never-runs",
           "troubleshoot/extension-approval-never-appears",
+          "troubleshoot/shield-degraded-appears-briefly",
           "troubleshoot/extension-self-disabled",
           "troubleshoot/device-removed",
           "troubleshoot/device-shows-drifted",
@@ -108,7 +110,9 @@
           "troubleshoot/network-stops-after-update",
           "troubleshoot/network-performance",
           "troubleshoot/slow-after-install",
+          "troubleshoot/network-inspection-not-active-after-managed-install",
           "troubleshoot/certificate-prompt-after-upgrade",
+          "troubleshoot/certificate-not-trusted",
           "troubleshoot/certificate-expired-connections",
           "troubleshoot/claude-code-settings-warning",
           "troubleshoot/setting-still-applied-after-allow",

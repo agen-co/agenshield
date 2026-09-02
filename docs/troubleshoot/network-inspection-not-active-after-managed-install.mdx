@@ -1,0 +1,68 @@
+---
+title: 'Network inspection is not active after a managed install'
+sidebarTitle: 'Inspection inactive after deploy'
+icon: 'lock'
+description: 'After a managed deployment, network inspection stays inactive and the certificate is missing until someone signs in to the Mac. What is happening and when it resolves itself.'
+---
+
+## What you are seeing
+
+A Mac was enrolled through your MDM and AgenShield installed successfully, but:
+
+- the menubar shows **Root CA: finishing setup** (older versions said
+  _Not generated_), and there is no button to trust anything;
+- inspected connections are not being inspected;
+- everything else looks healthy — the device appears in the Frontegg Portal,
+  policy is syncing, and process controls are working normally.
+
+## What it means
+
+Network inspection uses a certificate that AgenShield creates on the Mac itself.
+That certificate is protected by the same hardware key store that protects your
+login, and macOS will not allow anything to use that key store **while the Mac is
+locked** — not even software running as an administrator.
+
+A managed deployment normally installs while nobody is at the machine. That is
+the point of zero-touch, and it is the one state in which this certificate cannot
+be created. So on a freshly deployed Mac the certificate is deferred, not failed.
+
+**Process and file controls are unaffected.** Only network inspection waits.
+
+## How it resolves
+
+**Sign in to the Mac.** AgenShield notices and finishes the setup within about a
+minute — you do not need to reinstall, re-enrol, or run anything.
+
+macOS will ask for an administrator password once, to add the new certificate to
+the system trust store. That prompt is expected and appears only the first time.
+
+If the Mac is normally used by someone, nothing else is needed: this resolves the
+first time they sit down at it.
+
+## How to confirm it worked
+
+Open the AgenShield menubar item. The root CA line should read **Trusted**.
+
+## Affected and fixed versions
+
+- **Affected:** `2026.8.5` and earlier. On these builds the deferred setup could
+  take up to an hour to complete after sign-in, and the menubar gave no
+  indication of what it was waiting for.
+- **Fixed in:** `2026.8.6`. Setup now completes within about a minute of signing
+  in, and the menubar says what it is waiting for.
+
+## When to escalate
+
+Contact support with a diagnostic bundle
+([Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx)) if:
+
+- the root CA line still does not read **Trusted** a few minutes after signing
+  in; or
+- it reverts to **Finishing setup** after having been trusted; or
+- you are prompted for the administrator password on more than one occasion for
+  the same Mac (see
+  [Certificate prompt after update](../troubleshoot/certificate-prompt-after-upgrade.mdx)).
+
+For Macs deployed to a shared or unattended role that nobody signs in to, tell
+support — network inspection needs a different arrangement on those, and we can
+advise.

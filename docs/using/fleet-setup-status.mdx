@@ -1,0 +1,92 @@
+---
+title: 'Seeing which devices have unfinished setup'
+sidebarTitle: 'Fleet setup status'
+icon: 'clipboard-check'
+description: 'A Mac can be enrolled, online, and in sync while still not protecting anything, because someone never finished setup. The Devices list in the Frontegg Portal shows which ones, and what each still needs.'
+---
+
+Installing AgenShield is not the last step on macOS. Several parts of setup need
+a person at the keyboard — approving a security extension, granting Full Disk
+Access, trusting the certificate that lets AgenShield inspect encrypted traffic.
+Until those are done, the device is enrolled and reporting in, but it is not
+enforcing everything your policy asks of it.
+
+The AgenShield app on each Mac has always shown its own remaining steps under
+**Finish protecting this device**. The Frontegg Portal now shows the same steps for
+every device, so you do not have to ask people one at a time.
+
+## Where to look
+
+**Devices → the Status column.** A device with unfinished setup reads
+**Degraded** instead of Online. Hover it and the tooltip names the step that is
+outstanding, and how many others there are.
+
+<Note>
+  A device only reports setup status while it is actually checking in. An
+  **Offline** device keeps the Offline label — the last thing it told us may no
+  longer be true, so the Portal does not present it as current.
+</Note>
+
+**Devices → the Setup filter.** Pick a step to narrow the list to just the
+devices that need it. This is the fastest way to answer "how many Macs are
+waiting on the certificate?" before an upgrade or an audit.
+
+**A device's detail view → Unfinished setup.** The full list for that one
+machine, worst first, with a sentence explaining what is off until it is fixed.
+
+## What the steps mean
+
+Some steps stop protection outright. Others switch off one capability and leave
+the rest working. The Portal shows the more serious kind in red and the rest in
+amber.
+
+| The device needs                                           | What is off until it is done                                                                              |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| The security extension turned on, installed, or reattached | Process and file protection. Nothing is being enforced on this Mac.                                       |
+| Full Disk Access granted                                   | Process and file protection — the extension is present but cannot read what it needs to make decisions.   |
+| Free Endpoint Security slots                               | Protection cannot start: another security product on this Mac is using all of macOS's available slots.    |
+| A device-management policy change                          | macOS is refusing to install AgenShield's extensions. Only an IT administrator can change this.           |
+| The network extension turned on or installed               | Network inspection. Connections are not being evaluated.                                                  |
+| The network filter enabled, or its provider restarted      | Network policy. The extension is present but no traffic reaches it.                                       |
+| A restart                                                  | The network extension is staged but not yet active.                                                       |
+| A duplicate filter entry removed                           | Nothing, immediately — but the extra entry is stale and can interfere with recovery and status reporting. |
+| The AgenShield certificate trusted                         | Inspection of encrypted (HTTPS) traffic.                                                                  |
+
+## Fixing them
+
+Every one of these is fixed on the device, not in the Portal, and the AgenShield
+app on that Mac gives the exact steps for its own macOS version — including a
+button that opens the right System Settings pane. Point the person at
+**Finish protecting this device** in the app rather than relaying steps yourself;
+the wording differs between macOS versions and the app already knows which one
+it is on.
+
+Two shortcuts worth knowing:
+
+- **Managed fleets can skip the approval prompts.** A configuration profile
+  pushed through your MDM pre-approves the extensions, so nobody has to click
+  anything. See [MDM deployment](../deployment/mdm/overview.mdx).
+- **The duplicate filter entry is removed automatically on upgrade**, and the app
+  offers a one-click **Remove duplicate now** button. See
+  [Duplicate filter entries](../troubleshoot/duplicate-filter-entries.mdx).
+
+## If a step will not clear
+
+The Portal reflects what the device reports, on a short delay — give it a minute
+after someone completes a step. If it persists:
+
+- **The step is done on the Mac but the Portal still shows it** — confirm the
+  device is Online, not Offline; a device that has stopped checking in cannot
+  update its status.
+- **The step keeps coming back** — the setting is being switched off again, either
+  by a person or by another management tool.
+- **Nothing changes and the app offers no way forward** — collect diagnostics from
+  that Mac and contact support. See
+  [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
+
+## Related
+
+- [Using the app](../using/the-app.mdx) — the **Finish protecting this device** card.
+- [Device shows drifted](../troubleshoot/device-shows-drifted.mdx) — a different signal:
+  the device is protecting, but its policy is behind.
+- [Extension approval never appears](../troubleshoot/extension-approval-never-appears.mdx)

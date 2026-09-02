@@ -1,0 +1,77 @@
+---
+title: "\"Shield Degraded\" Appears Briefly, Then Clears"
+sidebarTitle: Shield Degraded, Then Clears
+icon: activity
+description: What it means when a device reports "Shield degraded" for less than a minute and then recovers on its own, how to confirm protection was never actually interrupted, and when a degraded report is worth acting on.
+---
+
+## What you are seeing
+
+A device shows a `Shield degraded` warning in the Frontegg Portal, and by the
+time you open it the device reports healthy again. The warning covered well under
+a minute and nothing else changed.
+
+## What state the product is actually in
+
+Usually this is a **reporting** problem rather than a protection problem — but
+"usually" is the honest word, and the section below says how to tell.
+
+AgenShield periodically checks whether it is enforcing through the security and
+network extensions. When the Mac is under heavy load — a large build, a full
+type-check, a test suite, anything that opens tens of thousands of files a second
+— that check can run out of time and return **no answer at all**.
+
+No answer is not the same as "the extensions stopped working", and it is also not
+the same as "the extensions were fine". It means the status was **unknown** for
+that window. AgenShield is built to hold its previous conclusion across a short
+run of unanswered checks rather than react to one, and a brief degraded report
+means that holding period was exceeded while the answer was still unavailable. It
+clears as soon as one check completes.
+
+So a report that lasts seconds and clears by itself, on a machine that was busy at
+the time, is overwhelmingly a delayed status report. It is not proof that
+enforcement continued — nothing observed the extensions during the gap, which is
+exactly why the report was raised. Treat a brief report as low-risk and a
+persistent one as real, and use the escalation list at the end of this page rather
+than assuming either way.
+
+Versions before `2026.8.6` raised this more eagerly than intended when several
+parts of the product asked for the status at the same moment. Upgrading reduces
+these reports.
+
+## How to confirm it
+
+1. Open the device in the Frontegg Portal and read the reason on the degraded
+   event. A reason that says the status check could not be completed describes an
+   unanswered question — distinguish it from a reason that names a definite
+   problem, which the escalation list below covers.
+2. Check whether the device recovered by itself, and how long it took. A window
+   under a minute that ends without anyone touching the device is the pattern
+   described here.
+3. Look at what the device was doing at that moment. A build, test run or
+   full-repository search by a governed agent is a common cause.
+4. Confirm the current state is healthy — both extensions active and enforcing.
+
+## How to recover
+
+For a brief report that clears on its own, there is nothing to do.
+
+If you want fewer of them:
+
+- Upgrade to `2026.8.6` or later.
+- Restart the Mac if it has been through several product upgrades without one.
+  Superseded extension records accumulate until a restart, and a longer list
+  makes the check slower and more likely to run out of time.
+
+## When to escalate
+
+Treat it as a real problem, and contact support with the device identifier and
+the event, when any of these hold:
+
+- the degraded state **persists** rather than clearing within a minute or two;
+- it **repeats often** on an otherwise idle machine;
+- the reason names something other than an incomplete check — for example that an
+  extension is not approved, not registered, or that the network extension's
+  provider is not running. Those are genuine gaps and are covered by
+  [Approval Never Appears](../troubleshoot/extension-approval-never-appears.mdx);
+- the device reports degraded and **never** reports enforcing.

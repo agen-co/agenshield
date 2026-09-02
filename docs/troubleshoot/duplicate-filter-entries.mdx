@@ -58,6 +58,11 @@ Overview page shows a **"Remove the duplicate network filter entry"** card
 with a **Remove duplicate now** button. Click it, then enter your password
 when macOS asks — the card disappears once the duplicate is gone.
 
+If the extra entry was installed by your company's configuration profile,
+AgenShield cannot remove it and the card says so instead of offering the button:
+only your IT admin or MDM can remove that entry. Network filtering keeps working
+in the meantime.
+
 You can also run the repair from Terminal:
 
 ```bash
@@ -77,14 +82,35 @@ the list.
 
 - An entry that cannot be removed is usually owned by a company profile. Ask
   your IT admin to review the AgenShield profile in your MDM console —
-  removing and re-pushing it replaces its entry cleanly. AgenShield
-  detects this case and stops re-trying automatically on later updates, so it
-  will not keep asking for your password; the dashboard card explains what is
-  left to do.
-- If an update reports that the duplicate was removed but **no filter is
-  active**, the remaining entry is your company profile's and it is switched
-  off — your IT admin needs to enable it. AgenShield restores its own entry
-  by itself once the network extension is confirmed active.
+  removing and re-pushing it replaces its entry cleanly. AgenShield detects this
+  case and stops re-trying automatically on later updates, so it will not keep
+  asking for your password.
+
+  Once a repair has actually run and reported that it could not remove the
+  entry, the dashboard card replaces the Remove button with an explanation of
+  what is left to do. If the most recent thing that happened was an automatic
+  skip rather than a repair attempt, the button is still offered — clicking it
+  is harmless and gets you the same explanation.
+
+  In versions up to and including `2026.8.5` the card kept offering the button in
+  this situation and gave no feedback when it achieved nothing, so it looked as
+  though clicking it did nothing at all. Fixed in `2026.8.6`, which corrects the
+  reporting; the entry itself still has to be removed by your MDM.
+
+- If AgenShield reports that **no filter is active**, read which entry it names —
+  the two cases need opposite responses, and this is reported whether or not the
+  extra entry was removed, because an inactive filter is the more urgent fact.
+  - **"ask your IT admin to enable the remaining entry"** — the surviving entry
+    is your company profile's and it is switched off. Only your IT admin can
+    change that: a company entry that is switched off reads as a deliberate
+    choice, so AgenShield leaves it alone rather than overriding it.
+  - **"no action is needed"** — AgenShield removed the duplicate and is waiting
+    to re-create its own entry until it can confirm the network extension is
+    active. It restores filtering by itself, usually within a minute or two.
+    Turning a filter on before that confirmation can cut the Mac off the
+    network, so the wait is deliberate. Nothing is required from you or your IT
+    admin; if it has not cleared after a few minutes, collect diagnostics.
+
 - If the duplicate reappears after an update, collect diagnostics
   (see [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx)) and
   contact support with the screenshot of the Filters & Proxies list.

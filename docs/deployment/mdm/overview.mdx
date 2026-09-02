@@ -184,11 +184,23 @@ its own software inventory. Push the **all-in-one profile**
 | **Works with no network egress** | No                                          | Yes, with the full package                     |
 
 <Warning>
-  Push **one** shape, never two. The all-in-one profile and the recommended
-  profile both carry the extension-approval and Full Disk Access payloads, and
-  two installed copies naming the same extension behave unpredictably. If you are
-  moving from the split profiles, remove `pppc.mobileconfig` as you go.
+  Per Mac: **one profile and one installer.** Both profiles carry the
+  extension-approval and Full Disk Access payloads, and two installed copies
+  naming the same extension behave unpredictably — so never push both. Likewise
+  never push both the package and the install command. If you are moving from the
+  split profiles, remove `pppc.mobileconfig` as you go.
 </Warning>
+
+The table above pairs each profile with its usual installer, but the pairing is
+looser than that in one direction. What matters is that the enrollment token
+reaches the Mac by **at least one** route:
+
+- The **install command** carries a token, so it works with either profile. With
+  the all-in-one profile the command's token is used and the profile's is the
+  fallback — harmless, and slightly belt-and-braces.
+- The **package** carries no token, so it needs the all-in-one profile
+  (`agenshield.mobileconfig`) to supply one. Paired with the token-free profile
+  the Mac receives every approval and then never enrolls.
 
 ## Reference: what the profile contains
 
