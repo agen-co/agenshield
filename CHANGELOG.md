@@ -9,6 +9,39 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.9.0 - 2026-09-02
+
+
+### New
+
+- **Clearer “why flagged” context for JWT findings.** Secret-detection events now preserve the claim-check outcome and decoded hostnames needed to understand why a JWT was treated as unbound, without sending the token itself.
+- **Health and performance diagnostics carry cause details.** Shield-degraded events now keep their reason, and daemon stall diagnostics include memory and garbage-collection attribution so admins and support can triage endpoint load more precisely.
+- **Fleet-wide setup status for unfinished installs.** The Frontegg Portal can now show which devices still need setup steps such as extension approval, Full Disk Access, duplicate filter cleanup, or certificate trust, including status chips, setup filters, and per-device detail.
+
+### Improved
+
+- **Managed deployments recover network inspection after unlock.** When an MDM install lands on a locked Mac, AgenShield now recognizes the locked keybag condition and retries certificate setup as soon as the user unlocks the device instead of waiting for a long backoff timer.
+- **MDM script installs fail fast on incorrect privilege settings.** Non-interactive macOS installs now check for root before downloading the package and tell Intune admins to run the script as root when that setting is wrong.
+- **Dashboard connectivity is more resilient.** The dashboard now keeps its event stream active through sign-in, retries silent or stuck connections, refreshes after daemon restarts, and updates stale version information after upgrades.
+- **Lower daemon overhead on macOS.** AgenShield now caches repeated device probes, avoids duplicate system profile reads, bounds process reconciliation work, and increases the daemon worker pool used by managed installs and upgrades.
+- **Telemetry suppression is more consistent.** Suppression rules now apply to additional security, network, MCP, and enforcement event streams that previously bypassed the shared filtering path.
+- **Unfinished setup signals are more reliable for admins.** Setup issues are now reported using the same logic as the desktop app, send both problem and recovery updates, and stay present in health reports even when telemetry is trimmed.
+- **Certificate trust repair is quieter after unattended installs.** AgenShield now retries silent certificate-trust repair at boot and after unlock without showing surprise password prompts, while keeping the menu bar action available when administrator approval is still required.
+
+### Fixed
+
+- **Duplicate content-filter cleanup no longer reports false success.** If a duplicate filter entry is owned by an MDM profile and AgenShield cannot remove it, the installer and dashboard now explain that an admin or MDM must remove it while confirming filtering remains active.
+- **Fewer spurious “Shield degraded” alerts under load.** Concurrent status checks now share a single extension-health decision, so a burst of timed-out probes no longer spends the degradation tolerance all at once while enforcement is still running.
+- **Network-inspection setup failures are explained correctly.** Menubar and diagnostic messages now distinguish a locked keybag from a daemon problem, making post-install remediation clearer for managed Macs.
+- **Certificate trust state stays consistent after zero-touch installs.** The certificate file is now resolved through the signed-in user’s home directory instead of the root daemon’s environment, so the menu bar “Trust Certificate” action and HTTPS inspection status reflect the same device state.
+- **Setup prompts no longer disappear while platform details load.** The “Finish protecting this device” panel now updates when the host platform is known, so a half-installed Mac is not left without either the panel or the menu bar banner.
+- **Duplicate network-filter status is consistent across the app and console.** A Mac with duplicate content-filter entries now reports the same diagnosis locally and in fleet health, avoiding one surface saying healthy while another says action is needed.
+- **Security hardening:** Certificate-trust cleanup now retries restoration of temporary privilege changes, and troubleshooting guidance no longer recommends manually trusting a copied certificate file.
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.8.5 - 2026-08-31
 
 
