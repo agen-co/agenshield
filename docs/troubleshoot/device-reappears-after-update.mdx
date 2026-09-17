@@ -1,0 +1,80 @@
+---
+title: The Same Mac Appears as a New Device After an Update
+sidebarTitle: Device Reappears After Update
+icon: copy
+description: On Macs configured by a device-management profile, older versions could re-register the Mac on every in-place update, leaving a trail of duplicate entries on the Devices list and, in mixed setups, moving the Mac to the organization named by the profile. Fixed in 2026.9.1.
+---
+
+On a Mac that receives its AgenShield settings from a device-management (MDM)
+profile, you may see the **same physical machine appear more than once** on the
+Devices list in the Frontegg Portal — a new entry after each in-place update,
+with the older entries going quiet rather than disappearing.
+
+A related symptom on the machine itself: `agenshield status` reports a different
+organization than the one you enrolled it to.
+
+## What is happening
+
+Versions before **2026.9.1** re-ran enrollment on every install, including
+in-place updates. When the update did not carry enrollment details of its own —
+the normal case for an update, which has nothing to enroll — it fell back to the
+enrollment details in the device-management profile and registered the Mac
+again. Each registration produced a new device entry.
+
+Two consequences:
+
+- **Duplicate entries.** Each update adds one. Only the newest is reporting; the
+  rest are inert records of the same Mac.
+- **A mismatched organization name.** If the profile names a different
+  organization than the one the Mac was enrolled to, the Mac's own
+  status display switches to the profile's. This is a display change only —
+  protection is not interrupted, your policy continues to apply, and the Mac
+  keeps talking to the organization it was actually enrolled to.
+
+## How to confirm it
+
+On the affected Mac:
+
+```bash
+agenshield doctor --report
+```
+
+The report names the organization the Mac is enrolled to, whether a
+device-management profile is present, and which organization that profile points
+at. When the two disagree, the report says so explicitly rather than leaving you
+to compare them.
+
+## How to fix it
+
+**Update to 2026.9.1 or later.** An updated Mac that already has an enrollment
+no longer re-registers, so no new duplicates appear.
+
+Then tidy up the old entries:
+
+1. In the Frontegg Portal, open the **Devices** list and sort by last-seen.
+2. For the affected Mac, keep the entry that is currently reporting and remove
+   the older duplicates.
+
+Removing an inert duplicate does not affect the Mac. If you are unsure which
+entry is live, run `agenshield doctor --report` on the machine — it prints the
+device identifier the Mac is currently using.
+
+## If duplicates keep appearing after updating
+
+That points at something other than this issue. Collect a diagnostics bundle and
+contact support:
+
+```bash
+agenshield doctor --report
+```
+
+Include which version the Mac is running and whether its settings arrive from a
+device-management profile.
+
+<Note>
+  If you deliberately want a Mac to stay on an organization other than the one
+  your device-management profile names — a test or development machine inside a
+  managed fleet — ask your administrator about excluding it from the profile's
+  enrollment settings. The profile's other settings, including the approvals for
+  the security and network extensions, can stay in place.
+</Note>

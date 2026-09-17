@@ -92,9 +92,19 @@ read-only — in the AgenShield dashboard under **Managed policies**
 - **Everyday apps** — anything without a matching inspection rule.
 
 When AgenShield encounters a site it cannot inspect — because the site pins its
-own certificate or otherwise refuses substitute certificates — it automatically
-falls back to passing the traffic through untouched. The certificate chain you
-see in your browser for those sites is the real public one.
+own certificate or otherwise refuses substitute certificates — it falls back to
+passing the traffic through untouched, and the certificate chain you see in your
+browser for those sites is the real public one.
+
+That fallback is **learned, not predicted**: AgenShield discovers a site refuses
+substitute certificates by trying once. The first connection to such a site can
+therefore fail before the fallback takes over, and the site is remembered only
+for a few minutes, so it can be re-learned later. A tool that gives up on a
+single failed connection — many AI agents mark a server unreachable and stop
+retrying — may need to be restarted after that first attempt.
+
+If a tool cannot reach a server that used to work, check the certificate first:
+see [Certificate problems](../troubleshoot/certificate-issues.mdx).
 
 ## Where the private key lives
 

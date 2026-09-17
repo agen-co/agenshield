@@ -1,0 +1,82 @@
+---
+title: Enforcement Off After a Reinstall
+sidebarTitle: Enforcement Off After Reinstall
+icon: shield-alert
+description: After uninstalling and reinstalling AgenShield, the Mac reports that enforcement is not active even though both extensions are enabled. The security extension lost its Full Disk Access permission, and macOS re-created that permission already denied.
+---
+
+If you uninstall AgenShield and install it again, the Mac can end up in a state
+where everything looks installed and approved but nothing is enforced:
+
+> Effective shield mode: legacy
+>
+> Enforceable: NO
+
+This page covers that specific case. If AgenShield reports that enforcement was
+**paused** instead, see [Enforcement Paused](../troubleshoot/extension-self-disabled.mdx).
+
+## What it means
+
+The security extension needs **Full Disk Access** to do its job. Uninstalling
+AgenShield removes the extension, and removing it also removes the Full Disk
+Access permission that was attached to it — the permission belongs to that
+specific installed copy, not to the app by name.
+
+When you install again, macOS re-creates the permission entry **already set to
+denied**. Nothing turns it back on by itself. The extension activates, shows as
+enabled, and then retries about every 30 seconds for the whole session without
+ever being able to start.
+
+**Your Mac is not protected while this lasts.** The extension is running, but it
+cannot see the activity it is meant to govern.
+
+## How to confirm it
+
+1. Open **System Settings → Privacy & Security → Full Disk Access**.
+2. Look for the AgenShield security extension in the list.
+3. If it is present and switched **off**, this is the case described here.
+
+The network extension is unaffected and keeps working, which is why network
+activity can still look normal while process and file policy are not applied.
+
+## How to fix it
+
+Switch **Full Disk Access on** for the AgenShield security extension.
+
+No reinstall and no restart are needed. The extension retries on its own, so
+protection resumes within about 30 seconds of granting the permission.
+
+## How to stop it happening again
+
+On a Mac managed by your organization, a **Privacy Preferences Policy Control**
+profile grants this permission automatically, so a reinstall never lands in this
+state. If reinstalls keep turning enforcement off across your fleet, the profile
+is most likely missing.
+
+Ask whoever manages your Macs to confirm that both of these are deployed:
+
+- a Privacy Preferences Policy Control profile granting Full Disk Access to the
+  AgenShield security extension;
+- a System Extensions profile that includes AgenShield's team identifier.
+
+Both are supplied by AgenShield. A fleet that allows other endpoint-security
+products but not AgenShield will show this after every reinstall, and users will
+be prompted to approve the extensions by hand each time.
+
+<Note>
+  A message during installation that reads `Extensions: (none found)` is not
+  this problem, and usually not a problem at all — on a guided install the
+  extensions are listed only after you approve them, which happens later in the
+  flow. Newer versions say "approvals deferred" instead.
+</Note>
+
+## When to escalate
+
+Contact support if:
+
+- Full Disk Access is switched on and enforcement still reports `NO` after a
+  couple of minutes;
+- the AgenShield security extension does not appear in the Full Disk Access list
+  at all;
+- the Mac also reports that it is not enrolled — that is a separate problem, and
+  you can capture what support needs with `agenshield doctor`.

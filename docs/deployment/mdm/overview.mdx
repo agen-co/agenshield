@@ -111,6 +111,12 @@ enrollment.
 
 Push order does not matter. If the command runs before the profile lands, the
 device still enrolls — it just waits for the profile to activate its extensions.
+A Mac that already had AgenShield installed before the profile arrived is
+reconciled automatically too: the profile's network-filter entry takes over, and
+AgenShield removes the entry it created at install, silently, wherever that
+cleanup is supported. Where it is not — most often because the profile's own
+entry is switched off — the device's dashboard says so rather than retrying;
+[Duplicate filter entries](../../troubleshoot/duplicate-filter-entries.mdx) covers both.
 
 ## How a device joins your fleet
 

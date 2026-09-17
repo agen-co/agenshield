@@ -18,7 +18,15 @@ Or, when installing from a terminal:
 Login init failed: Not enrolled with agencloud
 ```
 
-Despite the wording, **waiting does not help**. Signing in requires this Mac to
+On newer versions the terminal names the state directly instead, and the
+AgenShield app is not opened:
+
+```text
+This device is not enrolled with your organization, so there is no account to
+sign in to.
+```
+
+Despite the wording of the first two, **waiting does not help**. Signing in requires this Mac to
 have a registration with your organization, and in this state it does not have
 one. Retrying produces the same message every time.
 
@@ -72,6 +80,14 @@ Under `Cloud`, a Mac in this state reports **not enrolled**. If it reports
 
 ## How to recover
 
+<Note>
+  From 2026.9.1 the Mac shows this state directly: the AgenShield dashboard
+  displays an enrollment screen with a field for a token instead of a sign-in
+  button, and the menubar panel carries the same field. Once an administrator has
+  revoked the old record (below), pasting a fresh token there completes the
+  enrollment — no terminal needed.
+</Note>
+
 An administrator needs to do the following:
 
 1. Open the Frontegg Portal and go to **Devices**.
@@ -109,4 +125,7 @@ fix once it ships.
 In the fixed versions the install fails loudly instead of reporting success, and
 names the revoke-then-reinstall remedy directly in the installer output. Where it
 cannot prove the device is healthy it says so rather than reporting a clean
-result.
+result. The sign-in surfaces also stop offering a sign-in that cannot succeed:
+starting AgenShield on an unregistered Mac no longer opens the app to show a
+sign-in button, and from 2026.9.1 the app and the menubar show an enrollment
+screen with a token field instead of holding you at the sign-in screen.

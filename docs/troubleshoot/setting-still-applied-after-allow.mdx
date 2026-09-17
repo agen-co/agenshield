@@ -26,13 +26,23 @@ occurs in **enforce** mode.
 
 ## Affected and fixed versions
 
-| Versions               | Behaviour                                           |
-| ---------------------- | --------------------------------------------------- |
-| `2026.8.5` and earlier | Turning a control off can leave the value in place  |
-| Later than `2026.8.5`  | The value is removed when the control is turned off |
+There were two versions of this problem, in two different files, fixed at
+different times.
 
-Upgrading is the complete fix. After upgrading, the leftover value is cleared on
-the next policy update — you do not have to re-apply anything.
+| Versions               | Behaviour                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `2026.8.5` and earlier | A value left behind in the agent's **organization-wide** configuration file  |
+| `2026.9.0` and earlier | A value left behind in the agent's **per-user** configuration file           |
+| Later than `2026.9.0`  | The value is removed from both, and new values are only written to the first |
+
+The second case is easy to mistake for the first: the organization-wide file
+looks correct — often completely empty — while the agent keeps reading a value
+from the per-user file underneath it. If you upgraded, confirmed the
+organization-wide file was clean, and the agent still disagreed with the Portal,
+this is what you were seeing.
+
+Upgrading is the complete fix for values written from now on. Values already left
+behind may need one extra step — see **How to recover**.
 
 ## How to confirm it
 
@@ -40,15 +50,23 @@ Ask the person who uses the Mac to check the agent's own behaviour first: if the
 Portal reads Allow and the agent still refuses, that matches this issue.
 
 If you want to confirm before upgrading, look at the value the agent is reading.
-For Claude Code, that is:
+For Claude Code there are three files, and the agent reads them in this order —
+**check all three**, because a leftover value in any of them produces this
+symptom:
 
 ```
 /Library/Application Support/ClaudeCode/managed-settings.json
+~/.claude/settings.json
+~/.claude/settings.local.json
 ```
 
-A setting you have already turned off in the Portal still being present in that
-file is the confirmation. Other agents keep an equivalent file in their own
-configuration directory.
+A setting you have already turned off in the Portal still being present in any of
+those files is the confirmation. Other agents keep an equivalent set of files in
+their own configuration directory.
+
+The first path is the organization-wide file. The two under the user's home
+belong to the person using the Mac, which is why a leftover value there is worth
+checking even when the first file is empty.
 
 <Warning>
   This file can also be managed directly by your MDM, independently of
@@ -76,10 +94,17 @@ no longer describes, that link is gone. Clear it in whichever way suits you:
 - **Turn the control back on, then off again.** The Mac re-applies the value,
   which re-establishes it as AgenShield's, and turning it off then removes it.
   Allow a policy update between the two steps.
-- **Or remove just that one setting by hand** on the affected Mac. Edit the
-  agent's managed settings file (for Claude Code,
-  `/Library/Application Support/ClaudeCode/managed-settings.json`) and delete
-  only the leftover key, leaving every other value in place.
+- **Or remove just that one setting by hand** on the affected Mac. Edit whichever
+  of the three files above still contains it and delete only the leftover key,
+  leaving every other value in place. If the person using the Mac has their own
+  settings in `~/.claude/settings.json`, take care to remove only the one key —
+  the rest of that file is theirs.
+
+<Note>
+  Turning the control back on and off again is the safer of the two, and it works
+  for both files. Editing by hand is worth it when you would rather not re-apply
+  a restriction, even briefly, on a Mac someone is working on.
+</Note>
 
 <Warning>
   Do not change your organization's enforcement mode to clear a leftover value.
@@ -93,7 +118,8 @@ no longer describes, that link is gone. Clear it in whichever way suits you:
 
 Contact support if, after upgrading:
 
-- the value is still present more than 15 minutes after a policy change, or
+- the value is still present in any of the three files more than 15 minutes after
+  a policy change, or
 - a control you never turned on appears to be applied on the Mac, or
 - the agent's behaviour and the Portal disagree in the opposite direction — the
   Portal shows a restriction that the agent is not applying.

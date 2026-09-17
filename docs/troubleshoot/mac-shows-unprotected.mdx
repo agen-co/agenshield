@@ -1,0 +1,73 @@
+---
+title: A Mac Shows Unprotected
+sidebarTitle: Mac Shows Unprotected
+icon: shield-off
+description: Why a Mac that was protected can stop being protected after an update, what the security extensions have to do with it, and why this now repairs itself.
+---
+
+A Mac that has been working normally starts reporting that it is **not
+protected**. Nothing was changed on it and nobody turned anything off. Opening a
+terminal and running `agenshield activate` fixes it immediately, every time.
+
+## What this means
+
+AgenShield enforces policy through two macOS system extensions — a security
+extension and a network extension. macOS keeps an approved extension active
+until something removes it, and several ordinary events do: installing a new
+version of AgenShield, a macOS update, or macOS resetting its own record of
+installed extensions.
+
+Once an extension is removed, macOS does not put it back on its own. Something
+has to ask it to. Until that happens the Mac is enrolled, reporting in, and
+visible in the Frontegg Portal — but not enforcing.
+
+The approval you gave originally is remembered, so restoring the security
+extension needs no prompt and no password. On a managed Mac the AgenShield
+configuration profile does the same for the network extension; without that
+profile, restoring the network filter asks the person at the Mac to approve
+filtering, which is why that one is left alone (see below). That is why running
+the command can look like it did nothing visible and yet restore protection.
+
+## What is fixed
+
+From **2026.9.1** onward, the background service notices an extension that is no
+longer active and asks macOS to restore it, without a prompt and without anyone
+opening a terminal. It retries on a widening schedule and then stops, so a Mac
+that genuinely cannot be repaired is not disturbed indefinitely.
+
+Two situations are deliberately left alone:
+
+- **A network extension on a Mac with no AgenShield configuration profile.**
+  Restoring the network filter there would make macOS ask the person using the
+  Mac to approve filtering. The Portal reports the Mac as needing attention
+  instead. If your Macs are managed, deploying the AgenShield configuration
+  profile removes the prompt and lets this repair run too.
+- **An extension somebody deliberately turned off** in System Settings on a Mac
+  that has not been updated or reinstalled recently. That is treated as a
+  decision, not a fault.
+
+## If a Mac still shows unprotected
+
+1. Open the AgenShield app on the Mac and check **Actions needed**. It names
+   what is missing and what to do about it.
+2. If it says macOS is blocking the extensions, that is an MDM policy decision —
+   only your IT administrator can change it. Ask them to allow AgenShield's
+   developer team, or to deploy the AgenShield configuration profile.
+3. If it asks you to restart, restart. macOS sometimes holds a new extension
+   until old versions are cleared at the next boot, and nothing can shortcut
+   that.
+4. If it says the extension was turned off, turn it back on in **System Settings
+   → General → Login Items & Extensions**.
+5. Otherwise, run `agenshield activate` in a terminal. It is safe to run at any
+   time and as often as you like.
+
+## When to escalate
+
+Collect a diagnostics bundle (see [Collecting
+diagnostics](../troubleshoot/collecting-diagnostics.mdx)) and include it if:
+
+- the Mac still reports unprotected after a restart and an `agenshield activate`;
+- the Portal shows a fleet of Macs going unprotected at the same time, which
+  points at a policy or deployment change rather than an individual Mac;
+- **Actions needed** is empty while the Portal still reports the Mac as not
+  protected — the two should never disagree.

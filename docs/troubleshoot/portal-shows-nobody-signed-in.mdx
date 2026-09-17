@@ -1,0 +1,65 @@
+---
+title: The Portal Shows Nobody Signed In on a Device
+sidebarTitle: Portal Shows Nobody Signed In
+icon: user-x
+description: What it means when a device says you are signed in but your administrator sees no user on it, what causes the two to disagree, and how it recovers.
+---
+
+The AgenShield app on a Mac shows a signed-in user. The Frontegg Portal shows
+the same device with **no signed-in user**. Both appear to be working, and
+neither says anything is wrong.
+
+## What this means
+
+Signing in does two things: it signs you in on the Mac, and it tells your
+organization which person is using that device. They are separate, and the
+second one can fail or lapse on its own.
+
+When it does, the Mac keeps working exactly as before — policy still applies,
+protection is unaffected — but activity on it is no longer attributed to you,
+and your administrator cannot see who is using it.
+
+It happens when the Mac stops being able to prove who is signed in: a saved
+sign-in that expired or could not be read, a long spell without a working
+connection, or signing in with an account that belongs to a different
+organization than the one the Mac was enrolled with.
+
+## What is fixed
+
+From **2026.9.1** onward:
+
+- The Mac notices the disagreement — your organization reports what it sees on
+  every check-in — and re-registers you automatically, without a prompt.
+- Your organization also re-registers the sign-in on its own side when a device
+  checks in with a valid session, so devices recover without needing an update.
+- The AgenShield app now says so. Under your name on the account card, and in
+  **Actions needed**, you will see one of:
+
+| What it says                                   | What to do                                                                                                                                      |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reconnecting your account                      | Nothing. It resolves on its own within a few minutes.                                                                                           |
+| Sign in again                                  | Sign out and back in from the AgenShield app. Your saved sign-in could not be read.                                                             |
+| Sign in with your company account              | You are signed in with an account from a different organization than the one this Mac was enrolled with. Sign out and use your company account. |
+| This Mac isn't reporting you to your admin yet | Usually temporary. If it persists for more than a few hours, escalate.                                                                          |
+
+## If it does not recover
+
+1. Sign out and back in from the AgenShield app. This is the fix for almost
+   every case and takes a few seconds.
+2. If it returns immediately, check that the account you are signing in with
+   belongs to the organization that enrolled the Mac. A personal or
+   wrong-organization account will be refused every time, and no amount of
+   waiting changes that.
+3. If the Mac has been offline for more than a day, connect it and give it a few
+   minutes.
+
+## When to escalate
+
+Collect a diagnostics bundle (see [Collecting
+diagnostics](../troubleshoot/collecting-diagnostics.mdx)) and include it if:
+
+- signing out and back in does not restore the user in the Portal;
+- the Portal shows many devices losing their users at once, which points at an
+  organization-level configuration change rather than the devices;
+- the AgenShield app shows no message at all while the Portal still shows no
+  user — the two should never disagree silently.

@@ -2,7 +2,7 @@
 title: 'AgenShield appears more than once under Filters & Proxies'
 sidebarTitle: 'Duplicate filter entries'
 icon: 'copy'
-description: 'System Settings → Network → Filters & Proxies shows two or more AgenShield "Content Filter" rows. The extra row is a stale configuration entry, not a second installation.'
+description: 'System Settings → Network → Filters & Proxies shows two or more AgenShield "Content Filter" rows. The extra row is a redundant configuration entry, not a second installation — on managed Macs it is removed automatically.'
 ---
 
 <img
@@ -27,41 +27,73 @@ Proxy_. Each row in this list is a stored **configuration entry**, and
 AgenShield uses both kinds.
 
 What is not normal is seeing the **Content Filter type twice**. That extra row
-is a leftover configuration entry. It usually appears when a company-managed
-(MDM) profile provides one filter entry while an earlier, manually-approved
-entry from the app is still present — or when an update raced the system's
-configuration store. A _Disabled_ duplicate carries no traffic, but it is
-confusing and can interfere with AgenShield's automatic network recovery, so
-it is worth removing.
+is a redundant configuration entry. It appears when AgenShield was installed
+**before** your company's configuration profile reached the Mac: the app
+created its own entry at install, and the profile later added the one your
+organization manages. macOS keeps both — it even renames the second one (for
+example _AgenShield Network Filter 1_). Less commonly, an update raced the
+system's configuration store and left an orphaned entry. A duplicate carries
+no extra traffic, but it is confusing and can interfere with AgenShield's
+automatic network recovery, so it is worth removing.
+
+On a company-managed Mac the entry provided by your organization's profile is
+the one that should stay: your IT admin controls it, and AgenShield treats it
+as the owner of network filtering.
 
 ## How to confirm
 
 1. Open **System Settings → Network**, scroll to **Filters & Proxies**.
 2. Count the rows named like _AgenShield Network Filter_ with type
-   **Content Filter**. One is correct; two or more means a stale duplicate.
-3. Recent versions of AgenShield also detect this automatically and show a
-   **"Remove the duplicate network filter entry"** card on the dashboard's
-   Overview page.
+   **Content Filter**. One is correct; two or more means a duplicate.
+3. AgenShield also detects this automatically and shows a **"Duplicate network
+   filter entry"** card on the dashboard's Overview page. The card names each
+   entry it found and marks the one provided by your company's profile.
 
 ## How to fix it
 
-**Update AgenShield to the latest version.** The update checks for duplicate
-entries and removes the stale one automatically. During the update, macOS may
-ask for your password (removing an entry requires it) and may ask _"AgenShield
-Would Like to Filter Network Content"_ — click **Allow**. On company-managed
-Macs the entry provided by your IT profile is kept automatically. Machines
-with a single, correct entry are not touched and see no extra prompts.
+**On a company-managed Mac, usually nothing.** Where the cleanup is
+supported — your company's profile provides the filter entry and it is switched
+on — AgenShield attempts to remove the entry it created itself, silently and
+with no click or password, within about a minute of noticing the duplicate. The
+dashboard card reads "The extra entry is removed automatically — no action
+needed" and disappears once the entry is gone. Network filtering keeps working
+throughout: the entry your company's profile provides stays in place and active.
 
-If the duplicate is still there after updating (for example, the password
-prompt during the update was dismissed), open the AgenShield dashboard: the
-Overview page shows a **"Remove the duplicate network filter entry"** card
-with a **Remove duplicate now** button. Click it, then enter your password
-when macOS asks — the card disappears once the duplicate is gone.
+The attempt is not a guarantee. Some states cannot be cleaned up from the Mac at
+all — for example when the company profile's entry is switched off, or when the
+profile installed its entry more than once. **The dashboard card's status line is
+the authority on what actually happened**: if the card is still there, read it
+before doing anything, then follow the manual steps below or bring in your IT
+admin as the card directs.
 
-If the extra entry was installed by your company's configuration profile,
-AgenShield cannot remove it and the card says so instead of offering the button:
-only your IT admin or MDM can remove that entry. Network filtering keeps working
-in the meantime.
+If the card keeps showing, read its status line — it tells you what it is
+waiting for:
+
+- **"waiting for the upgrade to finish"** / **"waiting for the installer"** —
+  the cleanup runs once the install or update completes.
+- **"waiting for the network extension to be active"** — approve or turn on
+  the AgenShield network extension first (the Overview page has a card for
+  that too).
+- **"didn't finish — remove the entry now"** — click **Remove entry**. No
+  password is needed on a normally installed Mac; the card says so next to
+  the button.
+- **"Company filter profile is switched off"** — your organization's entry
+  exists but is disabled, so AgenShield deliberately kept its own entry to
+  keep this Mac filtered. Ask your IT admin to enable the profile's filter
+  entry; the extra entry is then removed automatically.
+- **"more than once"** — your organization's profile installed the entry twice.
+  Only your IT admin or MDM can collapse profile-installed entries.
+
+If the extra entry is an orphan (no company profile involved), the card offers
+**Remove entry**; click it and AgenShield keeps one entry and removes the
+rest.
+
+**Manually.** Click **Open Network Settings** on the card, or open
+**System Settings → Network → Filters & Proxies**. Select the AgenShield
+**Content Filter** row that is **not** provided by your company's profile (the
+card names it — usually the one without a number suffix; profile-provided
+entries cannot be selected for removal) and click the **–** button below the
+list. Keep the profile-provided entry.
 
 You can also run the repair from Terminal:
 
@@ -69,33 +101,28 @@ You can also run the repair from Terminal:
 "/Applications/AgenShield.app/Contents/MacOS/AgenShield" --dedup-nf
 ```
 
-- Enter your password if macOS asks (each removal requires it).
-- If macOS asks _"AgenShield Would Like to Filter Network Content"_, click
-  **Allow** — that re-creates the single correct entry.
-
-If the command reports an unknown option, update AgenShield first, or remove
-the stale row manually: in **Filters & Proxies**, select the extra AgenShield
-**Content Filter** row (the _Disabled_ one) and click the **–** button below
-the list.
+Run from Terminal it asks for your password once per entry it removes. It
+reports what it did: `DEDUP_OK` (removed), `DEDUP_BLOCKED` (kept everything
+on purpose — the output names the reason), or `DEDUP_NOT_NEEDED`.
 
 ## If it comes back or won't remove
 
-- An entry that cannot be removed is usually owned by a company profile. Ask
-  your IT admin to review the AgenShield profile in your MDM console —
-  removing and re-pushing it replaces its entry cleanly. AgenShield detects this
-  case and stops re-trying automatically on later updates, so it will not keep
-  asking for your password.
+- An entry that cannot be removed by you is owned by your company's profile.
+  That is expected — it is the entry that should stay. If it is the one you
+  want gone (for example after leaving the organization), ask your IT admin to
+  retire the profile in the MDM console; removing the profile removes its
+  entry.
 
-  Once a repair has actually run and reported that it could not remove the
-  entry, the dashboard card replaces the Remove button with an explanation of
-  what is left to do. If the most recent thing that happened was an automatic
-  skip rather than a repair attempt, the button is still offered — clicking it
-  is harmless and gets you the same explanation.
-
-  In versions up to and including `2026.8.5` the card kept offering the button in
-  this situation and gave no feedback when it achieved nothing, so it looked as
-  though clicking it did nothing at all. Fixed in `2026.8.6`, which corrects the
-  reporting; the entry itself still has to be removed by your MDM.
+- **Version notes.** Up to and including `2026.8.5` the card kept offering the
+  button and gave no feedback when it achieved nothing. `2026.8.6` corrected
+  the reporting. Up to and including `2026.9.0` the repair could only address
+  whichever entry macOS happened to hand it — on some Macs that was the
+  profile-provided one, so the app's own entry was never removed and the
+  manual step above was the only way out; the repair also asked for a
+  password. From `2026.9.1` the app's own entry is identified directly and
+  removed automatically and silently wherever the cleanup is supported; where
+  it is not, the dashboard card says which state the Mac is in instead of
+  retrying.
 
 - If AgenShield reports that **no filter is active**, read which entry it names —
   the two cases need opposite responses, and this is reported whether or not the

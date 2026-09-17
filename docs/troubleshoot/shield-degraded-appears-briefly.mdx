@@ -36,7 +36,9 @@ persistent one as real, and use the escalation list at the end of this page rath
 than assuming either way.
 
 Versions before `2026.8.6` raised this more eagerly than intended when several
-parts of the product asked for the status at the same moment. Upgrading reduces
+parts of the product asked for the status at the same moment. Versions before
+`2026.9.1` could also raise it on the very first unanswered check on a busy Mac,
+instead of waiting to see whether the next check was answered. Upgrading reduces
 these reports.
 
 ## How to confirm it
@@ -58,7 +60,7 @@ For a brief report that clears on its own, there is nothing to do.
 
 If you want fewer of them:
 
-- Upgrade to `2026.8.6` or later.
+- Upgrade to `2026.9.1` or later.
 - Restart the Mac if it has been through several product upgrades without one.
   Superseded extension records accumulate until a restart, and a longer list
   makes the check slower and more likely to run out of time.

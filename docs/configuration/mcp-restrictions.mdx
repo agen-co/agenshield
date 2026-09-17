@@ -53,8 +53,35 @@ found and which agent used it. From there you can approve a server, block it,
 or block individual tools inside a server that is otherwise fine — useful when
 one destructive tool is the only problem.
 
-You can also approve a server before anyone has used it, so an approved server
-is ready on day one rather than being blocked the first time someone tries it.
+## Approving a server nobody has used yet
+
+The list above only shows servers the fleet has actually run. To approve one
+ahead of time — so it works the first time someone tries it, instead of being
+refused — name it directly:
+
+- **By address**, for a server your agents reach over the network: the
+  hostname it is served from, optionally with a port.
+- **By package**, for a server that runs locally on the developer's machine:
+  the package it is published as, written as `npm:<package>`, `pypi:<package>`,
+  or `oci:<image>`. Naming the package is the only way to approve a local
+  server in advance, because it has no address to name.
+
+Approving by package covers every way the same server can be started. A
+developer who writes the package name with a version tag, or starts it through
+a different package runner, is running the same approved server and is treated
+that way. This also means an unapproved server cannot get in by borrowing an
+approved one's name in a config file — what is checked is the package that
+actually runs, not the label a developer typed next to it.
+
+Entries are matched exactly, not as patterns. Approving `npm:@example/server`
+approves that package and nothing else — there is no way to approve a whole
+publisher or a whole domain at once, because that would hand approval to
+anything later published under the same name.
+
+<Note>
+Blocking always wins. If a server is approved by package or address and also
+blocked in the list above, it stays blocked.
+</Note>
 
 A blocked tool call is answered with an error the agent shows to the user,
 rather than a dropped connection. Agents retry dropped connections and report

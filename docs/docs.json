@@ -103,17 +103,20 @@
           "troubleshoot/extension-approval-never-appears",
           "troubleshoot/shield-degraded-appears-briefly",
           "troubleshoot/extension-self-disabled",
+          "troubleshoot/enforcement-off-after-reinstall",
+          "troubleshoot/mac-shows-unprotected",
           "troubleshoot/device-removed",
+          "troubleshoot/remote-command-never-runs",
           "troubleshoot/device-shows-drifted",
+          "troubleshoot/device-reappears-after-update",
           "troubleshoot/no-sign-in-link",
+          "troubleshoot/portal-shows-nobody-signed-in",
           "troubleshoot/install-succeeds-but-device-never-enrolls",
           "troubleshoot/network-stops-after-update",
           "troubleshoot/network-performance",
           "troubleshoot/slow-after-install",
           "troubleshoot/network-inspection-not-active-after-managed-install",
-          "troubleshoot/certificate-prompt-after-upgrade",
-          "troubleshoot/certificate-not-trusted",
-          "troubleshoot/certificate-expired-connections",
+          "troubleshoot/certificate-issues",
           "troubleshoot/claude-code-settings-warning",
           "troubleshoot/setting-still-applied-after-allow",
           "troubleshoot/duplicate-filter-entries",
@@ -219,6 +222,18 @@
     {
       "source": "/using/protected-agents",
       "destination": "/using/working-with-agents"
+    },
+    {
+      "source": "/troubleshoot/certificate-not-trusted",
+      "destination": "/troubleshoot/certificate-issues"
+    },
+    {
+      "source": "/troubleshoot/certificate-prompt-after-upgrade",
+      "destination": "/troubleshoot/certificate-issues"
+    },
+    {
+      "source": "/troubleshoot/certificate-expired-connections",
+      "destination": "/troubleshoot/certificate-issues"
     }
   ]
 }

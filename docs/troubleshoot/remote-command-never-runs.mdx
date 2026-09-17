@@ -1,0 +1,111 @@
+---
+title: A Command Sent From the Portal Never Runs
+sidebarTitle: Remote command never runs
+icon: satellite-dish
+description: What it means when a Mac ignores a forced update or a pause-enforcement request sent from the Frontegg Portal while every status indicator stays green, how to confirm it, and how to recover the device.
+---
+
+You send a command to a Mac from the Frontegg Portal — **Force update**, or
+**Pause enforcement** / **Resume enforcement** — and nothing happens on the
+device. The Portal shows the command as sent. The Mac keeps reporting itself
+healthy: policy is current, the extensions are active, and the version and
+last-seen timestamps keep advancing.
+
+This is a real failure mode, not a slow delivery. Waiting does not resolve it,
+and re-sending the command produces the same result.
+
+## What is actually happening
+
+Commands sent from the Portal are individually signed, and a Mac will only act
+on one whose signature it can verify. Verification needs a set of trusted
+signing keys, which the device receives while it enrolls.
+
+A device can end up **enrolled but holding no trusted signing keys**. That state
+is silent by design in every other respect:
+
+- Policy still arrives and is still applied, so the Mac looks fully governed.
+- Health reporting still works, so the device stays green in the Portal.
+- The command is delivered successfully — it is simply refused at the last
+  step, because there is nothing to check its signature against.
+
+The state does **not** repair itself. A device can sit this way indefinitely.
+
+Affected versions: `2026.8.x` and earlier. Fixed in `2026.9.1`. The fix makes
+the refusal loud instead of silent and re-attempts the key delivery, so an
+upgraded device recovers on its own.
+
+## When it happens
+
+The trigger is a device that was **re-enrolled after being removed**, most often
+during a recovery: an administrator removes the device in the Portal, then the
+Mac is enrolled again with a fresh token. Ordinary first-time installs and
+ordinary upgrades are not affected.
+
+## How to confirm it
+
+Run this on the affected Mac:
+
+```bash
+agenshield doctor --report
+```
+
+Two signals together confirm it:
+
+1. The report shows the device as **enrolled**, naming your organization and a
+   current policy.
+2. The command log shows deliveries that were skipped rather than run. Check:
+
+```bash
+grep -c "signing keyring" ~/.agenshield/logs/agenshield.log
+```
+
+A count that keeps climbing while the device reports itself healthy is the
+signature of this problem. On a healthy Mac the count stays at zero.
+
+<Note>
+  A device that is genuinely not enrolled, or whose enrollment token has
+  expired, produces a different symptom — see
+  [Token has expired](../troubleshoot/token-has-expired.mdx) and
+  [This device was removed](../troubleshoot/device-removed.mdx). Those states are
+  visible in the Portal and in the menubar; this one is not.
+</Note>
+
+## How to recover
+
+**Upgrade to `2026.9.1` or later.** This is the recommended fix — the device
+re-requests its trusted signing keys on the next policy sync and starts acting
+on commands again, with no further action needed.
+
+Because the stuck device may ignore a forced update sent from the Portal, run
+the upgrade locally on the Mac:
+
+```bash
+agenshield upgrade
+```
+
+If you cannot upgrade immediately, re-enrolling the device also restores the
+signing keys:
+
+```bash
+sudo agenshield setup --token <enrollment-token> --force
+```
+
+Ask your administrator for a current enrollment token from the Frontegg Portal.
+Re-enrolling replaces the device's registration; its policy and settings follow
+from the Portal, so nothing is lost.
+
+## Verifying the recovery
+
+Send a **Force update** from the Portal to the affected Mac and confirm the
+version advances within a few minutes. `agenshield doctor --report` should show
+the command completing rather than being skipped.
+
+## When to escalate
+
+Contact support, attaching a diagnostic bundle (see
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx)), if:
+
+- the device is on `2026.9.1` or later and commands are still ignored;
+- the skipped-command count keeps climbing after a successful re-enrollment; or
+- re-enrollment fails, or the device reappears in the Portal as a new entry each
+  time.

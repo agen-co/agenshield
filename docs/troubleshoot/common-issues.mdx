@@ -92,8 +92,22 @@ The **"Filter Network Content"** prompt was dismissed. Re-run
 in **System Settings → Network → Filters**.
 
 If your organization has enabled traffic inspection, also confirm the inspection
-certificate is present and trusted — see
-[Network inspection certificate](../reference/mitm-ca-for-end-users.md).
+certificate is present and trusted:
+
+```bash
+security verify-cert -c ~/.agenshield/mitm-ca.pem -l -L
+```
+
+If that reports anything other than `...certificate verification successful`,
+run it again with `-p ssl` added. A certificate trusted only for TLS — the way
+most MDM certificate profiles install it — fails the first check but passes
+the second, and that is a working setup. Only when **both** fail is encrypted
+traffic not being inspected — and on some versions an AI agent or other
+non-browser tool may fail to reach servers it used to reach. See
+[Certificate problems](../troubleshoot/certificate-issues.mdx) for the one-line fix
+and what to do if the warning will not clear, or
+[Network inspection certificate](../reference/mitm-ca-for-end-users.md) for
+background.
 
 ## Policy is stale or never synced
 
