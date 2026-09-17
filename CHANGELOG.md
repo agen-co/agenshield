@@ -9,6 +9,87 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.9.1 - 2026-09-17
+
+
+## What's New
+
+* **Console-managed updates** — Admins can remotely stage and control fleet updates, including interactive prompts, postponements, and update status tracking.
+* **Endpoint health reporting** — `agenshield doctor --report` now provides a complete view of enrollment, control-plane, MDM, profile, and setup health.
+* **Settings diagnostics** — Compare console-defined agent settings with the configuration actually applied on the Mac.
+* **MCP server pre-approval** — Admins can approve MCP servers before they are first used, including local command-based servers.
+* **In-app enrollment recovery** — Installed but unenrolled Macs can now complete registration directly from the dashboard or menu bar using an admin-provided token.
+
+## Improvements
+
+* **Faster and more reliable cloud commands** — Update, pause, and emergency commands now use the existing device heartbeat channel with delivery tracking, retries, and safer fleet-wide backoff.
+* **Better MDM deployment behavior** — Managed enrollment profiles are treated as bootstrap configuration and no longer unexpectedly move enrolled Macs between control planes.
+* **Cleaner approval flows** — System Settings opens only when macOS actually requires user approval, reducing unnecessary prompts on MDM-managed Macs.
+* **Improved extension health monitoring** — Health checks are more resilient on busy Macs and reduce false degraded-state alerts.
+* **Better diagnostics and troubleshooting** — Enrollment, certificates, MDM state, agent settings, remote commands, and extension failures now provide more specific causes and recovery guidance.
+* **Lower logging and disk overhead** — Policy updates log compact summaries and resource usage writes are batched.
+* **More consistent console data** — Device and MCP tables now sort before pagination, keeping displayed rows, ordering, and counts aligned.
+* **Clearer enrollment state** — The dashboard, menu bar, CLI, and diagnostics now distinguish removed, never-enrolled, local-mode, and partially enrolled devices.
+
+## Fixes
+
+### Enrollment & Updates
+
+* Fixed managed upgrades unexpectedly changing a device's control plane or enrollment identity.
+* Failed enrollment is no longer recorded as successfully completed.
+* Enrollment now preserves specific DNS, network, firewall, certificate, and TLS failures for diagnostics.
+* Enrollment correctly respects system-trusted certificates on managed networks.
+* Re-enrolled Macs now recover the signing keys required for remote console commands.
+* Interactive update retries preserve the requested version and no longer rerun already-completed updates.
+* Remote command receipts and results survive daemon replacement during upgrades and prevent duplicate privileged operations.
+
+### macOS & MDM
+
+* Fixed duplicate content-filter entries on MDM-managed Macs, including more complex disabled-profile and multi-filter states.
+* Uninstall now removes AgenShield-owned filters without deleting MDM-owned configuration.
+* System-extension approval detection now uses structured profile information for more accurate MDM state reporting.
+* Macs that lose security extensions after a macOS upgrade can automatically recover when managed policy permits it.
+* Installer activation now correctly distinguishes user approval requirements from MDM policy blocks.
+* Emergency pause waits for proxy configuration changes to finish and clearly reports when an MDM-owned profile must be changed by IT.
+
+### Certificates & Connectivity
+
+* Missing or untrusted inspection certificates no longer break AI agents, MCP servers, or command-line tools; encrypted inspection safely falls back instead.
+* Certificate repair now handles MDM trust, timeouts, retries, and menu-bar recovery more reliably.
+* Shielded agents now receive the correct trusted certificate bundle for tools such as Python, Git, and Cargo.
+
+### MCP Enforcement
+
+* Fixed Codex MCP discovery so AgenShield reads the configuration Codex actually uses.
+* Removing an MCP server from the approved list now also removes stale managed allowlist entries.
+* Remote MCP allowlists now use consistent host matching, including IPv6 and non-default ports.
+* Temporary package metadata lookup failures no longer cause MCP enforcement to be skipped.
+
+### Policy & Monitoring
+
+* Network rules that cannot be enforced because required app scope is missing are now reported as inactive instead of active.
+* Monitor-mode events retain rule, severity, decision-layer, and notification details for accurate console review.
+* File-activity monitoring failures now correctly mark endpoint health as degraded.
+* Deny notifications no longer write directly into agent terminal UIs.
+* User-level agent settings created by AgenShield are properly removed when an admin disables the corresponding control.
+
+### Console & User Experience
+
+* Revoked devices are hidden from default console views and related counts now match displayed devices.
+* Signed-in users remain correctly associated with their devices after stale cloud-session claims are repaired.
+* Unenrolled Macs no longer show login actions that cannot succeed and instead display the appropriate enrollment recovery flow.
+* The macOS dashboard icon now follows Apple's standard icon sizing.
+
+### Security
+
+* Hardened the local setup-retry flow to accept only native local callers and ignore caller-provided enrollment destinations.
+* Diagnostics and enrollment artifact handling were hardened to prevent token exposure.
+
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.9.0 - 2026-09-02
 
 
