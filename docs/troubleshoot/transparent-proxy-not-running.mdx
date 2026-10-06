@@ -1,0 +1,81 @@
+---
+title: 'Transparent proxy enabled but not running'
+sidebarTitle: 'Transparent proxy not running'
+icon: 'network'
+description: 'The menubar reports the transparent proxy as enabled but not running, and it does not recover on its own. What it means, how to confirm it, and how to restore network inspection.'
+---
+
+## What you are seeing
+
+The AgenShield menubar shows **Transparent proxy enabled but not running**, and
+the warning is still there minutes or hours later. At the same time:
+
+- inspected connections are not being inspected;
+- process and file controls keep working normally;
+- the device still appears in the Frontegg Portal and keeps syncing policy.
+
+It is most common on Macs that have not been restarted in several weeks,
+especially alongside other endpoint-security products.
+
+## What it means
+
+The transparent proxy is the part of the network extension that routes selected
+connections through network inspection. macOS stops it whenever a system
+extension is updated, and AgenShield restarts it automatically within about a
+minute.
+
+To decide whether it is safe to restart it, AgenShield first asks macOS for the
+list of installed system extensions. macOS keeps an entry for every superseded
+version of every system extension — from all vendors, not only AgenShield —
+until the Mac restarts. On a Mac with a very long list, affected versions of
+AgenShield could not read that list, so they waited indefinitely instead of
+restarting the proxy.
+
+**Nothing is misconfigured.** Your organization's policy is intact and the
+network extension is still approved; the proxy only needs to be started again.
+
+## How to confirm it
+
+In Terminal, run:
+
+```bash
+systemextensionsctl list | wc -c
+```
+
+A result above `65536` on an affected version means you are seeing this issue.
+
+## How to recover
+
+Either of these restores network inspection:
+
+- **Restart the Mac.** macOS clears the superseded entries, and AgenShield
+  restarts the proxy by itself shortly after you sign in.
+- **Without restarting**, as the signed-in user (no `sudo`), run:
+
+  ```bash
+  /Applications/AgenShield.app/Contents/MacOS/AgenShield --enable-proxy
+  ```
+
+  It prints `OK` once the proxy is running. You are not asked for a password when
+  the proxy configuration is already in place.
+
+Then open the AgenShield menubar item: the transparent proxy warning should be
+gone.
+
+## Affected and fixed versions
+
+- **Affected:** `2026.7.22` through `2026.9.1`, on Macs where the system
+  extension list is larger than 64 KiB.
+- **Fixed in:** the first release after `2026.9.1`. AgenShield now reads the
+  full list regardless of its size, so the proxy is restarted automatically again.
+  If the warning ever appears on a fixed version, the menubar also offers a
+  **Start Transparent Proxy** button that restarts it in one click.
+
+## When to escalate
+
+Contact support with a diagnostic bundle
+([Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx)) if:
+
+- the warning returns after a restart; or
+- `--enable-proxy` prints an `ERROR:` line instead of `OK`; or
+- you see the warning on a fixed version.

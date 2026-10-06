@@ -61,6 +61,17 @@ Look for `emergency-disabled` in the enforcement section. `agenshield status`
 shows the same posture: a `⚠ Degraded` verdict with `emergency-disabled` among
 its reasons.
 
+## If the background service is unavailable
+
+Automatic recovery needs the background service to be running. If AgenShield
+also reports that the service is unreachable, waiting for recovery is not
+enough, and a reboot may not restore it.
+
+Use **Start** in the AgenShield menu bar, then check `agenshield status`.
+If the service stays unreachable or stops again, collect a
+[diagnostics bundle](../troubleshoot/collecting-diagnostics.mdx) and contact support.
+Do not repeatedly reinstall or manually remove recovery protection.
+
 ## Restore enforcement
 
 ```bash
@@ -80,6 +91,16 @@ immediately.
   it is a separate, system-level safety flag. Use `doctor --fix`, or simply wait
   for the automatic recovery.
 </Note>
+
+## Recovery messages in 2026.9.1
+
+In **2026.9.1**, a failed startup recovery attempt can be described as a
+recurring security-extension fault even when recovery did not complete.
+That message alone does not prove another crash or restart.
+
+Check the current `agenshield status` and `agenshield doctor` results instead
+of treating an earlier startup warning as the current state. If protection
+remains paused, collect diagnostics and contact support.
 
 ## If it comes back
 

@@ -303,11 +303,15 @@ of the Mac being awake and online, see
 <Tip>
   **Prefer a package?** Use **Apps → macOS → Add → macOS app (PKG)** with the
   campaign's package instead of the shell script. Included app: bundle ID
-  `com.frontegg.AgenShield` and the package's version; assign as **Required**.
-  The unmanaged-PKG app type needs the management agent at version 2308.006 or
-  later. This is also the route to take if your Macs have no outbound internet
-  access, since nothing is downloaded at run time. See
-  [If you cannot run a script](../../deployment/mdm/overview.mdx#if-you-cannot-run-a-script).
+  `com.frontegg.AgenShield`, with **Ignore app version** set to **Yes** —
+  AgenShield updates itself, and **No** reinstalls the uploaded version over
+  every update. Assign as **Required**. The unmanaged-PKG app type needs the
+  management agent at version 2308.006 or later. This is also the route to take
+  if your Macs have no outbound internet access, since nothing is downloaded at
+  run time. See
+  [If you cannot run a script](../../deployment/mdm/overview.mdx#if-you-cannot-run-a-script),
+  and [Package scripts](../../deployment/mdm/package-scripts.mdx#intune) for the optional
+  pre-install and post-install scripts.
 </Tip>
 
 ### Choosing a profile

@@ -1,0 +1,74 @@
+---
+title: 'The AgenShield menu bar offers to install Claude Code'
+sidebarTitle: 'Offer to install an AI agent'
+icon: 'package-x'
+description: 'On AgenShield 2026.9.1 and earlier, the menu bar can show a card saying Claude Code is not installed and offering to install it, even when it is installed. What it means and what to do.'
+---
+
+## What you are seeing
+
+The AgenShield menu bar shows a card:
+
+> **Claude Code** — Not installed. Install & shield with AgenShield. **Install**
+
+It can appear even though Claude Code is installed, and even while the **Agents**
+count in the same menu includes it.
+
+A related symptom on some Macs set up by hand from the command line: running
+`claude` in a terminal prints
+
+```text
+Claude Code is not yet shielded. Please shield it using the AgenShield menu bar app, then try again.
+```
+
+and Claude Code does not start.
+
+## What it means
+
+Both come from an earlier generation of AgenShield that ran AI agents from a
+separate copy it installed and managed itself. Current versions protect an agent
+where it is already installed: your organization's policy applies to it without
+AgenShield installing, reinstalling or wrapping anything.
+
+The card checked for Claude Code in only a few fixed locations, so it missed
+common installs — for example through Homebrew or a Node version manager — and
+Macs set up by device management. The terminal message comes from an old
+AgenShield `claude` launcher that some manual installs placed ahead of the real
+Claude Code on your `PATH`.
+
+Your protection is not affected by either. The status card at the top of the
+menu still shows whether the Mac is protected.
+
+## What to do
+
+- **Ignore the card, and do not choose Install.** It would install a separate copy
+  of Claude Code and several developer tools on the Mac, which AgenShield does
+  not need.
+- **If `claude` prints the message above**, update AgenShield. To confirm it is
+  the old launcher first, run:
+
+  ```bash
+  which -a claude
+  head -3 "$(which claude)"
+  ```
+
+  The first result is the old launcher when its first lines mention
+  `AgenShield Claude Code Launcher`. The next result in the list is your own
+  Claude Code.
+
+## Versions
+
+- **Affected:** `2026.9.1` and earlier.
+- **Fixed in:** the first release after `2026.9.1`. AgenShield never offers to
+  install or wrap an AI agent. The update removes the old `claude` launcher and
+  puts back any Claude Code it had replaced, and it only ever touches files that
+  AgenShield itself wrote.
+
+## When to escalate
+
+Collect a diagnostics bundle (see [Collecting
+diagnostics](../troubleshoot/collecting-diagnostics.mdx)) and contact support if, after
+updating:
+
+- the card still appears; or
+- `claude` still prints the message above, or no longer starts at all.

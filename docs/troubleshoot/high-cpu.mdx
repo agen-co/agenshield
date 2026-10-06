@@ -1,0 +1,100 @@
+---
+title: 'AgenShield uses a lot of CPU while your Mac is otherwise idle'
+sidebarTitle: 'High CPU use'
+icon: 'cpu'
+description: 'Activity Monitor shows AgenShield processes using a steady share of CPU even when you are not doing much. What each AgenShield process is, which versions are affected, and how to confirm the fix.'
+---
+
+## What you are seeing
+
+Activity Monitor shows AgenShield near the top of the CPU list even when your
+Mac is otherwise quiet. Typical readings on an affected version:
+
+| Process in Activity Monitor            | Typical CPU on an affected version |
+| -------------------------------------- | ---------------------------------- |
+| `agenshield` (user `root`)             | 10–40%                             |
+| `com.frontegg.AgenShield.es-extension` | 10–25%                             |
+
+The Mac may also feel slower to launch programs at busy moments, and the battery
+drains faster on a laptop.
+
+## What it means
+
+Your Mac is still protected and nothing is being blocked incorrectly. The CPU
+goes to AgenShield's own housekeeping. Affected versions check the state of the
+security extension, configuration profiles and installed coding assistants much
+more often than they need to, launching several small system tools a second to
+do it. Every one of those launches is then inspected by the security extension
+too, so the two costs add up.
+
+The cost grows with how busy the Mac is: several coding assistants open at once,
+large builds, and other security software all increase it.
+
+## Affected and fixed versions
+
+|          |                                                     |
+| -------- | --------------------------------------------------- |
+| Affected | `2026.9.1` and earlier, and `2026.10.0` beta builds |
+| Fixed in | `2026.10.0`                                         |
+
+`2026.9.1` added an extra configuration-profile check to every status read, which
+made the problem more noticeable than on `2026.9.0`.
+
+## Why there are so many AgenShield processes
+
+Several AgenShield processes are normal. Each has its own job:
+
+| Process                                         | Runs as | What it is                                                                                                 |
+| ----------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------- |
+| `agenshield`                                    | `root`  | The background service that applies your organization's policy.                                            |
+| `agenshield`                                    | `root`  | A small helper for privileged tasks. It is usually idle.                                                   |
+| `AgenShield`                                    | `root`  | A safety monitor that steps in if program launches ever start to hang.                                     |
+| `AgenShield` (with the app icon)                | you     | The menu bar app.                                                                                          |
+| `AgenShield Dashboard` and its helper processes | you     | The dashboard window, only while it is open.                                                               |
+| `agenshield`                                    | you     | One per open coding-assistant session that uses AgenShield's built-in tools. Each closes with its session. |
+| `com.frontegg.AgenShield.es-extension`          | `root`  | The security extension.                                                                                    |
+| `com.frontegg.AgenShield.network-extension`     | `root`  | The network extension.                                                                                     |
+
+On versions before `2026.10.0` the dashboard window was also named
+**AgenShield**, so Activity Monitor showed two entries named "AgenShield" with the
+same icon. They are the menu bar app and the dashboard, not two copies of the
+same app.
+
+## What to do
+
+<Steps>
+  <Step title="Update to the fixed version">
+    `2026.10.0` and later launch far fewer system tools in the background, stop
+    re-checking AgenShield's built-in tools every minute, and pause the dashboard's
+    background refresh while its window is hidden.
+  </Step>
+  <Step title="Close the dashboard when you are not using it">
+    On affected versions the dashboard keeps refreshing even when its window is
+    hidden behind others. Closing it removes that part of the load. The menu bar
+    app keeps protecting the Mac.
+  </Step>
+</Steps>
+
+## How to confirm it is fixed
+
+After updating, open Activity Monitor, choose **All Processes**, and search for
+`AgenShield`. With your usual apps open, the `agenshield` (root) process should
+sit at a few percent most of the time, and the security extension should drop
+noticeably compared to before. Short peaks while you launch many programs at once
+are normal.
+
+## A separate cause worth ruling out
+
+If the high CPU starts right after installing or updating and settles within a
+few minutes, see [Slow after install or update](../troubleshoot/slow-after-install.mdx)
+instead. That is AgenShield taking its first inventory of the Mac, which is
+expected and temporary.
+
+## When to escalate
+
+Contact support if, on `2026.10.0` or later, either AgenShield root process stays
+above about 10% CPU for more than ten minutes while the Mac is otherwise idle.
+Include a diagnostic bundle (see
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx)). The bundle now
+records which part of AgenShield is using the CPU, so we can answer without a
+round trip.

@@ -1,0 +1,57 @@
+---
+title: Agent Closed on Launch
+sidebarTitle: Agent Closed on Launch
+icon: circle-x
+description: What it means when Claude Code exits the moment it starts — the terminal prints "killed" — while your organization's policy is in enforce mode, how to confirm it, and how to recover.
+---
+
+When you start Claude Code, it exits immediately and the terminal prints
+`zsh: killed claude` (or `Killed: 9` in bash). It happens on every attempt while
+your organization's policy is set to **enforce**, and stops as soon as the policy
+returns to **monitor**. Other agents, such as Codex, keep working. No block
+appears in the activity view or in the Frontegg Portal.
+
+**Affected:** AgenShield `2026.9.1` and earlier on macOS, when the policy runs in
+enforce mode. **Fixed** in the next release.
+
+## What this means
+
+Claude Code saves a small session file when it starts, and that file's name ends
+in `.key`. AgenShield protects credential files from being copied or moved by an
+AI agent, and it mistook this save for an agent moving a private key. The
+security extension ended the agent before it opened. Claude Code is not
+misbehaving, and nothing was copied.
+
+A second defect in the same versions meant that the security extension's reports
+of ending a process never reached the background service. That is why nothing
+appears in the activity view or the Frontegg Portal.
+
+## Confirm it
+
+Start Claude Code once, then in Terminal run:
+
+```bash
+/usr/bin/log show --last 5m \
+  --predicate 'process CONTAINS "es-extension" AND eventMessage CONTAINS "SIGKILL"' \
+  --style compact
+```
+
+If this issue is the cause, you see a line naming `agent=claude-code` whose
+path ends in `.key` under `.claude/sessions/` in your home folder.
+
+## Recover
+
+- **Upgrade AgenShield** to the release that contains the fix. Claude Code then
+  starts normally in enforce mode, and any genuine protection event appears in
+  the activity view and the Frontegg Portal again.
+- **Until you can upgrade,** set your organization's policy mode to **monitor**
+  in the Frontegg Portal. Claude Code starts again within a minute on every
+  device. Monitor mode still records what enforce mode would have blocked.
+- Do not delete or rename files under `.claude/sessions/` — Claude Code recreates
+  them on every start, and removing them does not help.
+
+## Escalate
+
+If Claude Code is still ended at launch on the fixed version, or the log line
+names a different path, [collect diagnostics](../troubleshoot/collecting-diagnostics.mdx)
+and contact support.

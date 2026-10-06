@@ -74,6 +74,10 @@ curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/i
 | 1    | **Library → Add → Custom Profile** — upload `deployment.mobileconfig`, assign via Blueprints          |
 | 2    | **Library → Add → Custom Script** — paste the install command, execution **Run once**, same Blueprint |
 
+Deploying the package as a Custom App instead? See
+[Package scripts](../../deployment/mdm/package-scripts.mdx#iru-formerly-kandji) for the
+audit, pre-install and post-install scripts.
+
 Kandji also has native System Extension and PPPC library items. If you prefer to
 mirror the payloads there, use the campaign's profile as the reference — and push
 either the native items or the uploaded profile, never both.
@@ -117,6 +121,10 @@ enroll, not that the script was noisy.
   [Profile fails to install](../../troubleshoot/mdm-profile-fails-to-install.mdx).
 </Warning>
 
+Deploying the package through **Apps → Native → Internal** instead of a
+script? See [Package scripts](../../deployment/mdm/package-scripts.mdx#workspace-one)
+for the install check, pre-install and post-install scripts.
+
 Workspace ONE fixes a profile's channel when it is **created**, so a profile made
 as a User Profile cannot be switched to Device afterwards — delete it and create
 it again. Upload the profile unsigned: signing it yourself grants no additional
@@ -133,7 +141,8 @@ Ask your MDM two questions:
 
 If the answer to the second is no, push the campaign's all-in-one profile and the
 signed `.pkg` instead — see
-[If you cannot run a script](../../deployment/mdm/overview.mdx#if-you-cannot-run-a-script).
+[If you cannot run a script](../../deployment/mdm/overview.mdx#if-you-cannot-run-a-script)
+and [Package scripts](../../deployment/mdm/package-scripts.mdx#any-other-mdm).
 You still push a profile either way; only the install mechanism changes.
 
 ## Verify

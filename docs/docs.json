@@ -70,7 +70,13 @@
           {
             "group": "MDM deployment",
             "icon": "building-2",
-            "pages": ["deployment/mdm/overview", "deployment/mdm/intune", "deployment/mdm/jamf", "deployment/mdm/other"]
+            "pages": [
+              "deployment/mdm/overview",
+              "deployment/mdm/intune",
+              "deployment/mdm/jamf",
+              "deployment/mdm/other",
+              "deployment/mdm/package-scripts"
+            ]
           },
           "deployment/devices",
           "deployment/rollout-playbook"
@@ -115,12 +121,17 @@
           "troubleshoot/network-stops-after-update",
           "troubleshoot/network-performance",
           "troubleshoot/slow-after-install",
+          "troubleshoot/high-cpu",
           "troubleshoot/network-inspection-not-active-after-managed-install",
+          "troubleshoot/transparent-proxy-not-running",
+          "troubleshoot/agent-stops-responding-after-update",
           "troubleshoot/certificate-issues",
           "troubleshoot/claude-code-settings-warning",
+          "troubleshoot/app-offers-to-install-an-agent",
           "troubleshoot/setting-still-applied-after-allow",
           "troubleshoot/duplicate-filter-entries",
           "troubleshoot/agent-helper-blocked",
+          "troubleshoot/agent-closed-on-launch",
           "troubleshoot/background-items-notification",
           "troubleshoot/token-has-expired",
           "troubleshoot/windows-install-warnings",

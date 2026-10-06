@@ -1,0 +1,423 @@
+---
+title: "Install checks and pre/post-install scripts"
+sidebarTitle: Package scripts
+icon: file-code
+description: What an install check, a pre-install script and a post-install script are for when you deploy the AgenShield package through an MDM, three ready-to-use scripts, and where each one goes in Workspace ONE, Munki, Iru, Jamf Pro, Intune, Addigy and other MDMs.
+---
+
+Most MDMs let you wrap a package with up to three scripts: an **install check**
+that decides whether a Mac needs the package, a **pre-install** script that runs
+just before it, and a **post-install** script that runs just after. This page
+explains what each one is for with AgenShield, gives you a script for each, and
+shows where each one goes in your MDM.
+
+<Note>
+  This page is for the **package route** — pushing the signed `.pkg` with the
+  all-in-one profile, as described in
+  [If you cannot run a script](../../deployment/mdm/overview.mdx#if-you-cannot-run-a-script).
+  If you deploy with the install command, you need none of this: the command
+  reports its own result.
+</Note>
+
+## What the package already does
+
+Installing the package is all AgenShield needs. On its own, the package:
+
+- **upgrades an existing install in place** while protection keeps running —
+  there is nothing to stop or remove first;
+- **sets itself up for whoever is signed in** and asks macOS to approve its
+  extensions, which the profile makes silent;
+- **enrolls the Mac** with the token from `agenshield.mobileconfig`, and keeps
+  trying every few minutes if the profile arrives after the package;
+- **installs and starts even when nobody is signed in**, and finishes extension
+  approval at the first sign-in;
+- **keeps itself up to date** afterwards.
+
+So none of the scripts on this page install, stop, configure or repair
+AgenShield. They only answer questions for your MDM.
+
+<Warning>
+  Do not wrap the package with scripts that stop AgenShield before the install,
+  edit its launch configuration, or move its data after it. They work against
+  the package: stopping it first leaves the Mac unprotected for the whole install
+  — and until someone intervenes if the install then fails — and moving its data
+  can leave an enrolled Mac looking unenrolled.
+</Warning>
+
+## What each script is for
+
+| Script                    | Its goal                                                                                                                                                                       | It must never                                                                                                                                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Install check (detection) | Tell your MDM whether this Mac needs the package — AgenShield is missing, older than the version you require, or damaged — so it installs there and leaves healthy Macs alone. | Depend on enrollment or extension approval: both finish after the install, often at the first sign-in, so the Mac would be reinstalled on every check-in. Or demand an exact version: AgenShield updates itself, so an exact match turns every update into a downgrade. |
+| Pre-install               | Turn away a Mac that cannot run AgenShield **before anything changes**, with a reason your MDM shows: macOS older than 14, not Apple silicon, or under 2 GB free.              | Stop, unload or delete AgenShield or any of its files.                                                                                                                                                                                                                  |
+| Post-install              | Confirm the install landed and write AgenShield's status to your MDM's log.                                                                                                    | Restart AgenShield, change its configuration, or fail because enrollment or extension approval is still pending — several MDMs retry, reinstall or even uninstall when a post-install script fails.                                                                     |
+
+All three are optional. Use the ones your MDM supports; the
+[table below](#where-each-script-goes) shows which.
+
+## The scripts
+
+All three are read-only, run as root the way MDM scripts do, and use only tools
+that ship with macOS.
+
+### Install check
+
+Set the two values at the top:
+
+- **`MODE`** — how your MDM reads the result. The
+  [table below](#where-each-script-goes) gives the value for your MDM.
+
+  | `MODE`         | The script reports                                                                             |
+  | -------------- | ---------------------------------------------------------------------------------------------- |
+  | `installcheck` | Exit `0` when the Mac **needs** the package; any other exit when it is installed and current   |
+  | `audit`        | Exit `0` when AgenShield is **installed and current**; non-zero when the Mac needs the package |
+  | `attribute`    | Prints `<result>current</result>` (or `outdated`, `missing`, `damaged`) and always exits `0`   |
+
+- **`MIN_VERSION`** — the oldest version you accept, for example `2026.10.0`.
+  Leave it empty to accept any installed version. A newer version always
+  passes, so devices that updated themselves are left alone.
+
+<Warning>
+  Exit codes mean opposite things in different MDMs. With the wrong `MODE`, your
+  MDM either skips every Mac that needs AgenShield or reinstalls it on every
+  check-in.
+</Warning>
+
+The script reports one of four states: `current`, `outdated`, `missing`, or
+`damaged` — the app is there but is not the signed AgenShield app, or the
+`agenshield` command is missing.
+
+```bash agenshield-install-check.sh
+#!/bin/bash
+# Reports whether this Mac needs the AgenShield package. Read-only.
+
+MODE="installcheck"
+MIN_VERSION=""
+
+APP_PATH="/Applications/AgenShield.app"
+INFO_PLIST="$APP_PATH/Contents/Info.plist"
+CLI_PATH="/Library/AgenShield/bin/agenshield"
+BUNDLE_ID="com.frontegg.AgenShield"
+TEAM_ID="3R2X6557U2"
+
+read_app_key() {
+    if [ -f "$INFO_PLIST" ]; then
+        /usr/libexec/PlistBuddy -c "Print :$1" "$INFO_PLIST" 2>/dev/null
+    fi
+}
+
+version_at_least() {
+    local installed_base="${1%%-*}"
+    local minimum_base="${2%%-*}"
+    local installed_parts minimum_parts index installed_part minimum_part
+
+    if ! [[ "$installed_base" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+        return 1
+    fi
+    IFS=. read -r -a installed_parts <<< "$installed_base"
+    IFS=. read -r -a minimum_parts <<< "$minimum_base"
+    for index in 0 1 2; do
+        installed_part="${installed_parts[index]:-0}"
+        minimum_part="${minimum_parts[index]:-0}"
+        if [ "$installed_part" -gt "$minimum_part" ]; then
+            return 0
+        fi
+        if [ "$installed_part" -lt "$minimum_part" ]; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+detect_state() {
+    local bundle_id signing_team
+
+    if [ ! -d "$APP_PATH" ]; then
+        echo "missing"
+        return
+    fi
+    bundle_id=$(read_app_key CFBundleIdentifier)
+    signing_team=$(/usr/bin/codesign -dv "$APP_PATH" 2>&1 | /usr/bin/awk -F= '/^TeamIdentifier=/ {print $2}')
+    if [ "$bundle_id" != "$BUNDLE_ID" ] || [ "$signing_team" != "$TEAM_ID" ] || [ ! -x "$CLI_PATH" ]; then
+        echo "damaged"
+        return
+    fi
+    if [ -n "$MIN_VERSION" ] && ! version_at_least "$INSTALLED_VERSION" "$MIN_VERSION"; then
+        echo "outdated"
+        return
+    fi
+    echo "current"
+}
+
+INSTALLED_VERSION=$(read_app_key CFBundleShortVersionString)
+STATE=$(detect_state)
+
+case "$MODE" in
+    installcheck)
+        echo "AgenShield ${INSTALLED_VERSION:-not installed}: $STATE"
+        if [ "$STATE" = "current" ]; then
+            exit 1
+        fi
+        exit 0
+        ;;
+    audit)
+        echo "AgenShield ${INSTALLED_VERSION:-not installed}: $STATE"
+        if [ "$STATE" = "current" ]; then
+            exit 0
+        fi
+        exit 1
+        ;;
+    attribute)
+        echo "<result>$STATE</result>"
+        exit 0
+        ;;
+    *)
+        echo "Unknown MODE '$MODE': use installcheck, audit or attribute"
+        exit 2
+        ;;
+esac
+```
+
+### Pre-install
+
+Exits non-zero with the reason when the Mac cannot run AgenShield. It changes
+nothing either way.
+
+```bash agenshield-preinstall.sh
+#!/bin/bash
+# Refuses a Mac that cannot run AgenShield, before anything is changed. Read-only.
+
+MIN_MACOS_MAJOR=14
+MIN_FREE_MB=2048
+
+refuse() {
+    echo "AgenShield cannot be installed on this Mac: $1"
+    exit 1
+}
+
+MACOS_VERSION=$(/usr/bin/sw_vers -productVersion)
+if [ "${MACOS_VERSION%%.*}" -lt "$MIN_MACOS_MAJOR" ]; then
+    refuse "macOS $MACOS_VERSION is older than macOS $MIN_MACOS_MAJOR"
+fi
+
+if [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" != "1" ]; then
+    refuse "it is not an Apple silicon Mac"
+fi
+
+FREE_MB=$(/bin/df -m /Library | /usr/bin/awk 'NR == 2 {print $4}')
+if [ "$FREE_MB" -lt "$MIN_FREE_MB" ]; then
+    refuse "only $FREE_MB MB free on the startup disk, $MIN_FREE_MB MB needed"
+fi
+
+echo "AgenShield can be installed: macOS $MACOS_VERSION, Apple silicon, $FREE_MB MB free"
+exit 0
+```
+
+### Post-install
+
+Waits up to 90 seconds for AgenShield to answer, then writes its status to the
+MDM log. It exits non-zero only when the package's files are missing after the
+install; a status that is not yet `healthy` is reported, not failed.
+
+```bash agenshield-postinstall.sh
+#!/bin/bash
+# Confirms the AgenShield package landed and records its status in the MDM log. Changes nothing.
+
+APP_PATH="/Applications/AgenShield.app"
+INFO_PLIST="$APP_PATH/Contents/Info.plist"
+CLI_PATH="/Library/AgenShield/bin/agenshield"
+WAIT_SECONDS=90
+
+if [ ! -f "$INFO_PLIST" ] || [ ! -x "$CLI_PATH" ]; then
+    echo "AgenShield files are missing after the install"
+    exit 1
+fi
+
+read_status_field() {
+    local field_value
+    if field_value=$(/usr/bin/plutil -extract "$1" raw -o - - <<< "$STATUS_JSON" 2>/dev/null); then
+        echo "$field_value"
+    fi
+}
+
+WAITED=0
+while true; do
+    STATUS_JSON=$("$CLI_PATH" status --json 2>/dev/null)
+    VERDICT=$(read_status_field verdict)
+    case "$VERDICT" in
+        "" | starting | not-running) ;;
+        *) break ;;
+    esac
+    if [ "$WAITED" -ge "$WAIT_SECONDS" ]; then
+        break
+    fi
+    sleep 5
+    WAITED=$((WAITED + 5))
+done
+
+INSTALLED_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST" 2>/dev/null)
+echo "AgenShield $INSTALLED_VERSION installed, status: ${VERDICT:-no answer}"
+
+STATUS_DETAIL=$(read_status_field enforcement.verdictLine)
+if [ -n "$STATUS_DETAIL" ]; then
+    echo "$STATUS_DETAIL"
+fi
+
+FIRST_REASON=$(read_status_field reasons.0)
+if [ -n "$FIRST_REASON" ]; then
+    echo "Needs attention: $FIRST_REASON"
+fi
+
+case "$(/usr/bin/stat -f %Su /dev/console)" in
+    root | _mbsetupuser | loginwindow)
+        echo "Nobody is signed in: extension approval completes at the first sign-in"
+        ;;
+esac
+exit 0
+```
+
+What the status means:
+
+| Status                               | Meaning                                                                                                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `healthy`                            | Installed, enrolled and protecting the Mac.                                                                                                             |
+| `degraded`                           | Running, with something to fix — the `Needs attention` line says what. Right after an install this is usually extension approval waiting for a sign-in. |
+| `not-enrolled`                       | Installed, but `agenshield.mobileconfig` has not reached this Mac yet. It enrolls within a few minutes of the profile arriving.                         |
+| `starting`, `not-running`, no answer | The background service did not answer within 90 seconds. On a busy Mac it can take a few minutes; check again with `agenshield status`.                 |
+| `removed`                            | This device was removed in the [Frontegg Portal](https://portal.frontegg.com).                                                                          |
+| `boot-locked`                        | The background service failed to start several times in a row. [Collect diagnostics](../../troubleshoot/collecting-diagnostics.mdx) and contact support.         |
+
+## Where each script goes
+
+| MDM                                                  | Install check                                                           | Pre-install                                       | Post-install                                               |
+| ---------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------- |
+| Workspace ONE                                        | Install Check Script, `MODE="installcheck"`                             | Pre-Install Script — non-zero skips the install   | Post-Install Script — non-zero shows a warning             |
+| Munki                                                | `installcheck_script`, `MODE="installcheck"`                            | `preinstall_script` — non-zero aborts the install | `postinstall_script` — non-zero is only logged             |
+| Iru (formerly Kandji)                                | Audit script, `MODE="audit"`                                            | Pre-install script — non-zero retries at check-in | Post-install script — non-zero reruns the item at check-in |
+| Jamf Pro                                             | Extension attribute, `MODE="attribute"`                                 | Policy Scripts payload, priority **Before**       | Policy Scripts payload, priority **After**                 |
+| Intune — macOS app (PKG)                             | Not a script — see [Intune](#intune)                                    | Pre-install script — non-zero fails the install   | Post-install script — the result is ignored                |
+| Addigy                                               | Custom condition, "Install if return value is 0", `MODE="installcheck"` | Not available — scope by OS instead               | Not available                                              |
+| Jamf Now, Mosyle, JumpCloud, Intune line-of-business | Not available — use app inventory                                       | Not available — scope by OS instead               | Not available                                              |
+
+### Workspace ONE
+
+**Resources → Apps → Native → Internal → Add → Application File**, upload the
+package, and open the **Scripts** tab. Paste the install check with
+`MODE="installcheck"` into **Install Check Script**, and the other two into
+**Pre-Install Script** and **Post-Install Script**.
+
+Without an install check, Workspace ONE decides from the package receipt alone —
+and a receipt survives the app being deleted, so a Mac with a removed
+AgenShield.app still counts as installed. The install check catches that.
+
+### Munki
+
+Add the scripts to the package's pkginfo as `installcheck_script` (with
+`MODE="installcheck"`), `preinstall_script` and `postinstall_script`. Munki uses
+the install check in place of its receipt and `installs` checks.
+
+### Iru (formerly Kandji)
+
+**Library → Add Library Item → Mac Custom App**, upload the package, and choose
+the **Audit and enforce** installation type. Paste the install check with
+`MODE="audit"` as the audit script — Iru runs it at every check-in, including
+before the first install. Add the other two as the pre-install and post-install
+scripts. A failing pre- or post-install script makes Iru run the item again at
+the next check-in, which is why the post-install script only fails when the
+package's files are missing.
+
+### Jamf Pro
+
+1. **Settings → Computer Management → Extension attributes → New**: data type
+   **String**, input type **Script**, paste the install check with
+   `MODE="attribute"`.
+2. Create a smart group where that attribute **is not** `current`, and scope the
+   package policy to it. Macs drop out of the group once their next inventory
+   reports `current`.
+3. In the package policy, add the **Scripts** payload — the pre-install script
+   with priority **Before** and the post-install script with priority **After** —
+   and **Maintenance → Update Inventory**, so the Mac leaves the smart group as
+   soon as the install finishes.
+
+Jamf does not document whether a failing **Before** script stops the package, so
+do not rely on the pre-install script alone. Also scope the policy to
+**Operating System Version** greater than or equal to `14.0` and **Architecture
+Type** `arm64`, so unsupported Macs never receive it.
+
+### Intune
+
+Intune detects packages by bundle ID rather than by script. In **Apps → macOS →
+Add → macOS app (PKG)**:
+
+- **Detection rules:** included app bundle ID `com.frontegg.AgenShield`, and set
+  **Ignore app version** to **Yes**. With **No**, Intune reinstalls whenever the
+  installed version differs from the uploaded one — including every time
+  AgenShield updates itself.
+- **Program:** paste the pre-install and post-install scripts. A failing
+  pre-install script reports the app as failed and Intune retries at a later
+  check-in. Intune reports the install as successful whatever the post-install
+  script returns, so read its output in the device's management agent log.
+
+Scripts need the Intune management agent at version 2309.007 or later.
+
+### Addigy
+
+In the Smart Software item, add a **Condition for Install** of type custom
+script, keep **Install if return value is 0** ticked, and paste the install check
+with `MODE="installcheck"`. Addigy has no separate pre- or post-install script
+slots, so scope the item to macOS 14 or later on Apple silicon instead.
+
+### Jamf Now, Mosyle, JumpCloud and Intune line-of-business apps
+
+These install the package without script hooks. Report install state from your
+MDM's app inventory (bundle ID `com.frontegg.AgenShield`), and scope the
+assignment to Macs on macOS 14 or later with Apple silicon. For Intune
+line-of-business apps, set **Ignore app version** to **Yes** for the reason
+given [above](#intune). If you want a status line in your MDM, run the
+post-install script on its own as a root command after the install.
+
+### Any other MDM
+
+Ask your MDM two questions:
+
+1. **For its detection or check script, does exit `0` mean "install needed" or
+   "installed"?** "Install needed" is `MODE="installcheck"`; "installed" is
+   `MODE="audit"`. If it collects inventory values instead, use
+   `MODE="attribute"`.
+2. **What does it do when a post-install script fails?** If the answer is
+   "retry", "reinstall" or "uninstall", keep the post-install script as it is — it
+   already fails only when the package's files are missing.
+
+## If nobody is signed in
+
+Installing at the login window or during Setup Assistant is supported.
+AgenShield installs, enrolls from the profile and starts protecting the Mac
+straight away. Extension approval completes at the first sign-in, and so does
+network inspection — see
+[Network inspection is not active after a managed install](../../troubleshoot/network-inspection-not-active-after-managed-install.mdx).
+The post-install script says so in its output; it is not a failure.
+
+AgenShield keeps its enrollment and history through later installs: when the
+next install or update runs with someone signed in, it carries everything over
+to that user, and an update installed at the login window leaves it where it is.
+
+## Verify
+
+On a target Mac:
+
+```bash
+sudo profiles show -type configuration | grep -i agenshield   # the profile installed
+systemextensionsctl list | grep frontegg                     # both extensions, after first login
+agenshield status                                            # service running, device enrolled
+```
+
+## Next
+
+<Columns cols={2}>
+  <Card title="MDM enrollment" icon="building-2" href="../../deployment/mdm/overview.mdx">
+    What each payload does and how a device joins your fleet.
+  </Card>
+  <Card title="Install campaigns" icon="send" href="../../deployment/campaigns.mdx">
+    Where the package and profiles come from, and how to pin a version.
+  </Card>
+</Columns>

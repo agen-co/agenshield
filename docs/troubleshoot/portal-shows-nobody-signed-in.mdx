@@ -9,6 +9,10 @@ The AgenShield app on a Mac shows a signed-in user. The Frontegg Portal shows
 the same device with **no signed-in user**. Both appear to be working, and
 neither says anything is wrong.
 
+A closely related case: the menu bar shows you signed in, while the AgenShield
+dashboard asks you to **Sign in again** because your saved sign-in could not be
+read. That one has its own section below.
+
 ## What this means
 
 Signing in does two things: it signs you in on the Mac, and it tells your
@@ -38,9 +42,33 @@ From **2026.9.1** onward:
 | What it says                                   | What to do                                                                                                                                      |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Reconnecting your account                      | Nothing. It resolves on its own within a few minutes.                                                                                           |
-| Sign in again                                  | Sign out and back in from the AgenShield app. Your saved sign-in could not be read.                                                             |
+| Sign in again                                  | Sign in again from the AgenShield app. Your saved sign-in could not be used; on `2026.9.1` and earlier, sign out first (see below).             |
 | Sign in with your company account              | You are signed in with an account from a different organization than the one this Mac was enrolled with. Sign out and use your company account. |
 | This Mac isn't reporting you to your admin yet | Usually temporary. If it persists for more than a few hours, escalate.                                                                          |
+
+## The menu bar shows you signed in, but the app asks you to sign in again
+
+**Affected:** `2026.9.1` and earlier. **Fixed in:** the first release after
+`2026.9.1`.
+
+On affected versions, the background service could mark you as signed in after
+a restart even though it no longer held a usable sign-in — for example after
+your sign-in expired, or after a one-time security setup step on managed Macs
+discarded it. The menu bar then kept showing your name, while nothing the Mac
+sent your organization carried your identity, so the Frontegg Portal showed
+nobody signed in. Choosing **Log in** did nothing, because the Mac believed you
+were already signed in.
+
+To recover on an affected version:
+
+1. Open the AgenShield icon in the menu bar and choose **Sign out**.
+2. Sign in again with the account your company enrolled this Mac under.
+
+From the first release after `2026.9.1`, the Mac only reports you as signed in
+while it holds a sign-in it can use. If it finds one it cannot use, it signs you
+out, tells you your session expired, and ends the stale session in the Frontegg
+Portal, so the two always agree. After updating, a Mac that was in this state
+asks you to sign in once.
 
 ## If it does not recover
 

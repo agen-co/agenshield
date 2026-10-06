@@ -1,0 +1,67 @@
+---
+title: 'An AI agent loses its connection or uses high CPU after AgenShield installs or updates'
+sidebarTitle: 'Agent stuck after an update'
+icon: 'unplug'
+description: 'Right after AgenShield installs, updates, or restarts its network filter, an AI coding agent keeps reporting lost connections or keeps a CPU core busy. What it means, how to confirm it, and how to recover.'
+---
+
+## What you are seeing
+
+Right after AgenShield is installed or updated — or after it restarts its
+network filter to recover from a problem — one or more AI coding agent sessions
+(for example Claude Code):
+
+- report errors such as **Connection lost mid-response** or **The response
+  stopped arriving**, again and again;
+- use close to 100% of a CPU core in Activity Monitor while doing nothing;
+- do not recover on their own, while browsers and chat apps reconnect within a
+  second.
+
+## What it means
+
+When a network filter on a Mac turns on, turns off, or restarts, macOS resets
+every network connection that was already open. Most apps notice and open a new
+connection immediately. Some AI coding agents keep retrying the reset
+connection instead, so they never recover on their own and keep a CPU core
+busy.
+
+This is how macOS treats every network filter, including those of other
+endpoint-security products. AgenShield cannot keep existing connections open
+across the change, so it tells you which sessions need a restart.
+
+## How to confirm
+
+- The AgenShield app lists **Restart Claude Code** (or **Restart N stuck
+  sessions**) among the steps that need your attention, naming each session and
+  its process ID.
+- `agenshield doctor` names the session under **Agent connections**.
+- `agenshield upgrade` prints a warning naming it when the update finishes.
+- Activity Monitor shows the agent's process at about 100% CPU.
+
+## How to recover
+
+Restart each session AgenShield names:
+
+1. Switch to the terminal running it.
+2. Quit it — press Ctrl-C twice, or close the terminal window.
+3. Start it again. Claude Code can pick the conversation back up with
+   `claude --resume`.
+
+The step clears on its own within a few minutes. Nothing else on the Mac needs
+to change.
+
+## Affected versions
+
+Every AgenShield version resets open connections when its network filter turns
+on, turns off, or restarts — this is macOS behaviour. Starting with AgenShield
+**2026.9.2**, AgenShield detects the stuck sessions and tells you which ones to
+restart. On earlier versions the agent stays stuck, with no notice, until you
+restart it.
+
+## When to contact support
+
+- AgenShield keeps naming a session after you restarted it.
+- Sessions get stuck repeatedly without AgenShield installing, updating, or
+  restarting its network filter.
+
+Include the output of `agenshield doctor` when you contact support.
