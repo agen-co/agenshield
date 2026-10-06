@@ -9,6 +9,37 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.10.0 - 2026-10-06
+
+### New
+
+- **Agent hooks for Cursor and Codex.** AgenShield can now enforce policy checks for additional AI coding agents before actions are executed.
+- **AgenShield MCP support.** Compatible agents can now check policy, view status and denials, and request approvals through AgenShield MCP.
+
+### Improved
+
+- **Stronger local security.** Improved local service communication, credential protection, log redaction, and policy-update validation.
+- **Clearer protection status.** The app and CLI now provide more accurate starting, degraded, and recovery states.
+- **Lower CPU and event volume.** Reduced unnecessary polling, background processes, scans, and duplicate telemetry.
+- **More accurate MCP behavior.** MCP requests are now linked to the correct agent session for better status, policy, denial, and approval handling.
+- **Better MDM deployment support.** Improved headless installation, deployment validation, extension approval detection, and macOS compatibility checks.
+- **Better resource verification.** Resource discovery, ordering, uploads, and git provenance are now more consistent.
+- **More reliable extension validation.** Release packages now verify macOS extension permissions before deployment.
+
+### Fixed
+
+- **More reliable upgrades and recovery.** Network-filter transitions, busy installations, startup recovery, and extension activation checks now recover more consistently and provide clearer guidance when action is required.
+- **Device state is now more accurate.** Sign-in status, disk health, extension state, and cloud-managed configuration now better reflect the device's actual condition.
+- **Upgrades preserve device configuration.** Package updates no longer reset enrollment, local history, agent catalogs, MCP posture data, or other cloud-managed settings.
+- **Safer agent file handling.** Legitimate atomic file writes, including Claude Code session updates, no longer trigger unnecessary enforcement.
+- **MCP behavior is more consistent.** Approval polling, read-only calls, dry runs, and internal AgenShield MCP reporting now behave correctly without unnecessary denials or activity.
+- **Agent discovery is cleaner.** AgenShield reports installed agents and newly created workspace skills without attempting to install agents automatically.
+- **MDM and system-extension handling is more reliable.** Newly applied profiles and Macs with large extension histories are detected correctly without stale or missing-extension states.
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.9.1 - 2026-09-17
 
 
