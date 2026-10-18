@@ -1,0 +1,71 @@
+---
+title: AgenShield Recommends Restarting Your Mac
+sidebarTitle: Restart Recommended
+icon: rotate-ccw
+description: What the "Restart recommended" note about unloaded system extensions means, why protection keeps working, and why older versions could report a protected Mac as not running or not protected.
+---
+
+AgenShield shows a **Restart recommended** note — in the AgenShield app, the
+menu bar, `agenshield status`, `agenshield doctor`, the end of an install, or
+the device page in the [Frontegg Portal](https://portal.frontegg.com). It says
+the Mac has many unloaded system extensions and recommends a restart. On the
+Mac itself it also names where they come from; the Portal shows only the
+counts, so it never learns which other products are installed.
+
+This is a note, not a warning. Nothing is broken and protection keeps working.
+
+## What this means
+
+Every time a product that uses a macOS system extension updates — AgenShield,
+or another security, VPN or device-management product — macOS keeps the
+previous version registered until the next restart. A Mac that takes many
+updates without restarting can collect hundreds of these old entries.
+
+macOS goes through all of them every time anything asks about system
+extensions. With hundreds waiting, those questions get slow for every product
+on the Mac, not only AgenShield. The note names each product's share, so you
+can see whether AgenShield or something else left most of them.
+
+Only a restart clears them. Nothing AgenShield, or you, can do while the Mac is
+running removes them.
+
+## What to do
+
+Restart the Mac when convenient. There is no rush: the note does not mean the
+Mac is unprotected.
+
+To see the count yourself, before and after the restart:
+
+```bash
+systemextensionsctl list | grep -c "waiting to uninstall"
+```
+
+After a restart it drops to zero or close to it, and the note goes away.
+
+## On AgenShield 2026.10.0 and earlier
+
+On a Mac with a very large backlog, versions up to and including 2026.10.0
+could report a protected Mac as down, because they waited too long for macOS to
+answer:
+
+- the install ended by saying it **could not reach** AgenShield and was **not
+  protecting this Mac yet**;
+- `agenshield doctor` said the background service was **not running**;
+- the AgenShield app showed **Protection: Partial** with both extensions as
+  **Unknown**;
+- the Portal showed the device as **Needs attention — Security ext. off**.
+
+The menu bar still showed **Protected**, and it was right. Releases after
+2026.10.0 report these Macs correctly and show the restart note instead. The
+Portal no longer reports these Macs as **Security ext. off**, even on 2026.10.0,
+once they next report in. On an older version, restarting the Mac also makes
+the misreport go away.
+
+## When to escalate
+
+Collect a diagnostics bundle (see [Collecting
+diagnostics](../troubleshoot/collecting-diagnostics.mdx)) and include it if:
+
+- the note is still shown after a restart;
+- after a restart, the app, the menu bar, `agenshield status` and the Portal
+  still disagree about whether the Mac is protected.

@@ -51,6 +51,8 @@ detail is included; the maximum available is:
 - the file paths and destinations involved
 - the policy decision — allowed, blocked, or observed
 - device health: version, extension status, last policy sync
+- the contents of the skills, plugins, and instruction files your AI agents
+  load, so your organization can review them before they are approved
 
 Administrators can reduce this. A common configuration keeps the _signal_ — "this
 agent read a credentials file", "this agent reached an unapproved host" — while
@@ -62,6 +64,12 @@ Anything that looks like a credential is detected and stripped **on the device,
 before the record is transmitted**. API keys, tokens, passwords, and private keys
 are replaced with a marker naming the kind of secret found. The secret value
 itself is never sent and is never written to a log.
+
+This includes the skills, plugins, and instruction files sent for review. When
+one contains a key, your administrator is told which kind of key it is and in
+which file, so it can be rotated and removed. For a key of 16 characters or
+more, the marker keeps its last three characters — `…xyz` — so the right key can
+be identified; the rest of it never leaves the Mac.
 
 This runs on the device rather than in the cloud on purpose: a secret that leaves
 the machine has already leaked, no matter what happens to it afterwards.

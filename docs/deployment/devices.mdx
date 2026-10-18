@@ -82,14 +82,14 @@ Activity tab shows the exact action and the rule that decided it.
 
 These do different things and are not interchangeable.
 
-| Action       | Effect on the device                                              | Effect on the software                   |
-| ------------ | ----------------------------------------------------------------- | ---------------------------------------- |
-| **Revoke**   | Stops receiving policy. Marked quarantined in the Frontegg Portal | **Still installed.** Nothing is removed  |
-| **Offboard** | Removed from the campaign group in your MDM                       | **Uninstalled** at the next MDM check-in |
+| Action       | Effect on the device                                              | Effect on the software                                                                                                   |
+| ------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Revoke**   | Stops receiving policy. Marked quarantined in the Frontegg Portal | **Still installed** without a connected MDM. With one, also **uninstalled** when your MDM manages the device — see below |
+| **Offboard** | Removed from the campaign group in your MDM                       | **Uninstalled** at the next MDM check-in                                                                                 |
 
-Revoke is the containment action — a lost or compromised Mac you want cut off
-from your policy immediately. Offboard is the lifecycle action — someone left,
-or the machine is being reassigned.
+Revoke is the containment action — a lost or compromised device you want cut
+off from your policy immediately. Offboard is the lifecycle action — someone
+left, or the machine is being reassigned.
 
 <Warning>
   With a connected MDM, removing a device from its group by hand in Intune or
@@ -102,6 +102,46 @@ or the machine is being reassigned.
 On an unmanaged Mac, the end user can remove AgenShield with the campaign's
 uninstall command, which carries no token and is safe to hand out — see
 [Install and uninstall](../getting-started/install-and-uninstall.md).
+
+### Revoking a device your MDM manages
+
+With a connected Microsoft Intune connection, revoking a Mac or Windows device
+also offboards it when AgenShield can identify the device in Intune, by either:
+
+- the link to its Intune device that AgenShield records when a campaign's push
+  view matches the device, as a direct member of the campaign group, to its
+  enrollment — see
+  [Track the rollout](../deployment/mdm/intune.mdx#track-the-rollout), or
+- a serial number that matches exactly one device of the same platform in your
+  complete Intune device inventory, where that device is a direct member of an
+  AgenShield campaign group.
+
+Both rely on Intune's device inventory, which needs the
+`DeviceManagementManagedDevices.Read.All` permission.
+
+AgenShield then removes the device from every AgenShield campaign group on that
+connection and adds it to `AgenShield — Uninstall`, whose script removes
+AgenShield at the device's next MDM check-in. The device ends up in the same
+state as after **Offboard**.
+
+Revoking changes nothing in your MDM, and AgenShield stays installed, when:
+
+- your organization has no connected Intune connection;
+- AgenShield cannot identify the device as above — for example, it was
+  installed by script and is not in a campaign group;
+- another active device record claims the same device, such as a record it
+  enrolled under later; or
+- the move would not be safe — for example, the device is also targeted through
+  its user's membership in a campaign group, or AgenShield cannot confirm that
+  the uninstall script is assigned to the uninstall group.
+
+The revoke itself completes either way, so check the device's group membership
+in Intune afterwards. If you meant to remove AgenShield and the device is still
+in its campaign group, use [Offboard](../deployment/mdm/intune.mdx#offboard-a-device).
+If you revoked an old record only so the device can enroll again, add the device
+back to its campaign with **Assign members**, which takes it out of the
+uninstall group — see
+[Re-enroll a previously enrolled Windows device](../deployment/mdm/intune.mdx#re-enroll-a-previously-enrolled-windows-device).
 
 ## What to check in the first week
 

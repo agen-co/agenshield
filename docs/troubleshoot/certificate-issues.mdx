@@ -14,15 +14,19 @@ description: 'Everything that can go wrong with the AgenShield network inspectio
 This is the single page for every AgenShield certificate symptom. Find yours in
 the table, then read that section.
 
-| What you are seeing                                         | Go to                                                                          |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Setup keeps showing **Trust the AgenShield certificate**    | [Certificate not trusted](#certificate-not-trusted)                            |
-| The menu bar has no **Trust Certificate** action            | [Certificate not trusted](#certificate-not-trusted)                            |
-| An AI agent or tool cannot reach a server that used to work | [Certificate not trusted](#certificate-not-trusted)                            |
-| macOS asks for your password after an update                | [Password prompt after an update](#password-prompt-after-an-update)            |
-| An update warns the certificate is not trusted              | [Password prompt after an update](#password-prompt-after-an-update)            |
-| Connections fail with `CERT_HAS_EXPIRED`                    | [Expired certificate errors](#expired-certificate-errors)                      |
-| You fixed it, but the warning will not clear                | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing) |
+| What you are seeing                                              | Go to                                                                          |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Setup keeps showing **Trust the AgenShield certificate**         | [Certificate not trusted](#certificate-not-trusted)                            |
+| The menu bar shows **Root CA: installed (not trusted)**          | [Certificate not trusted](#certificate-not-trusted)                            |
+| It started after an update that ran overnight                    | [Certificate not trusted](#certificate-not-trusted)                            |
+| The menu bar shows **Root CA: trusted for your account only**    | [Trusted for your account only](#trusted-for-your-account-only)                |
+| The menu bar has no **Trust Certificate** action                 | [Certificate not trusted](#certificate-not-trusted)                            |
+| An AI agent or tool cannot reach a server that used to work      | [Certificate not trusted](#certificate-not-trusted)                            |
+| macOS asks for your password after an update                     | [Password prompt after an update](#password-prompt-after-an-update)            |
+| An update warns the certificate is not trusted                   | [Password prompt after an update](#password-prompt-after-an-update)            |
+| Connections fail with `CERT_HAS_EXPIRED`                         | [Expired certificate errors](#expired-certificate-errors)                      |
+| You fixed it, but the warning will not clear                     | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing) |
+| You trusted it in Keychain Access, but it still says not trusted | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing) |
 
 ## The two commands, if you already know what you are doing
 
@@ -137,6 +141,21 @@ administrator password, and someone has to **approve** that prompt.
 The setup card clears only once AgenShield has confirmed the certificate is
 trusted — which is after the prompt is approved, not after the unlock.
 
+### The same cause after an overnight update
+
+AgenShield updates itself automatically, and an update can run while the Mac is
+asleep — macOS wakes briefly in the background for maintenance with the display
+off. If the certificate is not yet trusted when that happens, the update has to
+ask for an administrator password at a moment when nobody can see the request.
+
+|          |                                                                                                                                                                                                                    |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Affected | `2026.10.2` and earlier: the request failed silently within minutes and was **not asked again**. Only **Trust Certificate** in the menu bar (or the command below) could finish it, so the warning stayed all day. |
+| Fixed in | The release after `2026.10.2`: AgenShield recognises that nobody was there, waits, and asks **once** the next time someone is at the Mac — unlocked and using it. It never asks again after you dismiss it.        |
+
+On an affected version, use [How to fix it](#how-to-fix-it) below; it takes one
+password.
+
 ### How to fix it
 
 <Steps>
@@ -194,6 +213,34 @@ trusted — which is after the prompt is approved, not after the unlock.
 </Steps>
 
 <Note>
+  **Keychain Access works too — in the System keychain.** Open Keychain Access,
+  select the **System** keychain, double-click **AgenShield CA**, expand
+  **Trust**, set **When using this certificate** to **Always Trust**, then close
+  the window and enter your administrator password. Keychain Access should then
+  say "This certificate is marked as trusted for all users". If it says
+  "trusted for this account" instead, see
+  [Trusted for your account only](#trusted-for-your-account-only).
+</Note>
+
+### Trusted for your account only
+
+**What it means.** The certificate is trusted in your own macOS account's
+settings, not in the system-wide ones. Keychain Access describes this as
+"trusted for this account". Apps you run can verify inspected connections, but
+AgenShield's background service runs for the whole Mac, not as you — it still
+sees the certificate as untrusted, so it keeps network inspection suspended.
+
+**How to confirm.** In Keychain Access, open **AgenShield CA** and read the line
+under the certificate name: "trusted for this account" means this state; "trusted
+for all users" means system-wide trust is in place.
+
+**How to fix it.** Choose **Trust Certificate** in the menu bar (one
+administrator password), or run the command in
+[How to fix it](#how-to-fix-it). Either adds system-wide trust; the account-level
+setting can stay. The menu bar shows this state from the release after
+`2026.10.2`; earlier versions show it as **installed (not trusted)**.
+
+<Note>
   Administrator rights are needed **only** to approve the prompt. AgenShield
   tries the non-interactive route first and, where that succeeds, no password is
   asked for at all — so a standard-user account is not automatically blocked
@@ -227,8 +274,16 @@ Restart the background service and the card clears within a few seconds:
 sudo launchctl kickstart -k system/com.frontegg.AgenShield.daemon
 ```
 
-From `2026.9.1` the service re-checks on its own — within about 30 seconds of a
-manual fix — so this step is not needed.
+From `2026.9.1` the service re-checks on its own, but after the first few
+minutes only about once an hour, and after a day not at all. On `2026.10.2` and
+earlier that is why the menu bar can keep showing **installed (not trusted)**
+for up to an hour after you trusted the certificate yourself — in Keychain
+Access, with the command above, or even with **Trust Certificate** — because the
+menu bar defers to the background service's last answer.
+
+From the release after `2026.10.2`, the menu bar notices the change within
+about 30 seconds and asks the background service to check again immediately, so
+the warning clears on its own and the restart above is not needed.
 
 <Warning>
   On `2026.9.1` and later there is a second reason not to leave this stale:

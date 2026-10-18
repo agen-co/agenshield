@@ -73,6 +73,7 @@
             "pages": [
               "deployment/mdm/overview",
               "deployment/mdm/intune",
+              "deployment/mdm/windows",
               "deployment/mdm/jamf",
               "deployment/mdm/other",
               "deployment/mdm/package-scripts"
@@ -109,8 +110,11 @@
           "troubleshoot/extension-approval-never-appears",
           "troubleshoot/shield-degraded-appears-briefly",
           "troubleshoot/extension-self-disabled",
+          "troubleshoot/service-offline-after-wake",
           "troubleshoot/enforcement-off-after-reinstall",
           "troubleshoot/mac-shows-unprotected",
+          "troubleshoot/restart-recommended",
+          "troubleshoot/secret-found-in-skill",
           "troubleshoot/device-removed",
           "troubleshoot/remote-command-never-runs",
           "troubleshoot/device-shows-drifted",
@@ -118,6 +122,8 @@
           "troubleshoot/no-sign-in-link",
           "troubleshoot/portal-shows-nobody-signed-in",
           "troubleshoot/install-succeeds-but-device-never-enrolls",
+          "troubleshoot/upgrade-could-not-obtain-admin-token",
+          "troubleshoot/mac-stays-on-old-version",
           "troubleshoot/network-stops-after-update",
           "troubleshoot/network-performance",
           "troubleshoot/slow-after-install",
@@ -135,6 +141,7 @@
           "troubleshoot/background-items-notification",
           "troubleshoot/token-has-expired",
           "troubleshoot/windows-install-warnings",
+          "troubleshoot/windows-intune-device-not-protected",
           "troubleshoot/collecting-diagnostics"
         ]
       },

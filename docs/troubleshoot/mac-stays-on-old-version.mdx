@@ -1,0 +1,98 @@
+---
+title: A Mac Stays on an Older Version After an Update
+sidebarTitle: Mac stays on an old version
+icon: circle-arrow-up
+description: Why a Mac keeps running an older AgenShield release — either because no update was ever sent to it, or because the update was interrupted while the Mac was asleep — how to tell which, and how to move it to the current release.
+---
+
+## What you see
+
+One or more of these, for days at a time:
+
+- The Mac's version in the Frontegg Portal does not advance after a new release.
+- An update sent to the Mac from the Frontegg Portal shows as **timed out** or
+  **failed**, and the Mac is still on its previous version.
+- The AgenShield menu bar keeps saying an update is available, but nothing
+  installs it.
+
+The Mac is still protected throughout. A failed or never-started update leaves
+the installed version running and enforcing — nothing is half-installed.
+
+There are two different causes. Work out which one applies before you act.
+
+## Cause 1 — no update was ever sent to the Mac
+
+From version `2026.9.1`, AgenShield **never installs an update on its own**.
+The Mac checks for new releases and tells you one exists, but it installs it
+only when your organization asks it to:
+
+- **Automatic updates** are turned on for your organization in the Frontegg
+  Portal — they are **off by default**; or
+- an administrator sends an update to the device, or starts an update for a
+  group of devices, from the Frontegg Portal.
+
+On `2026.9.0`, automatic installation was a per-device setting, also off by
+default.
+
+So a Mac that reports "update available" for a week is usually doing exactly
+what it was configured to do. Nothing on the Mac is broken.
+
+**How to confirm:** in the Frontegg Portal, check whether automatic updates are
+enabled for your organization, and whether any update was sent to this device.
+If neither is the case, this is your cause.
+
+**How to fix:** turn on automatic updates, or send the update to the device from
+the Frontegg Portal. Devices pick it up within a few minutes while they are
+awake and online.
+
+## Cause 2 — the update was interrupted while the Mac was asleep
+
+A closed or idle Mac wakes briefly every few minutes for maintenance (to sync
+mail, back up, and so on) and goes back to sleep after well under a minute.
+An update sent from the Frontegg Portal can reach the Mac during one of those
+brief wakes. On affected versions the download was then timed against the clock
+**including the time the Mac spent asleep**, so it gave up as soon as the Mac
+woke again, and the update was reported as failed (or never reported at all).
+
+You may also see a message mentioning **GitHub Releases** and a `404` next to
+the real error. For pre-release builds that part is expected and is not the
+cause — those builds are published only to AgenShield's own download service.
+
+**Affected versions:** `2026.10.2` and earlier.
+**Fixed in:** the release after `2026.10.2`. From then on the download pauses
+while the Mac sleeps and resumes when it wakes, an interrupted update is retried
+automatically for up to about a day before it is reported as failed, and a
+failure message names the download problem that actually occurred.
+
+The fix applies to updates **from** a fixed version onward: a Mac still running
+an affected version needs one more update sent while it is awake.
+
+**How to confirm:** on the Mac, look at the end of the update log:
+
+```bash
+tail -n 5 /var/log/agenshield/upgrade.log
+```
+
+If the last lines say the download failed with `curl timed out after
+300000ms`, followed by a report that the upgrade was aborted and the Mac is
+still on its previous version, this is your cause.
+
+**How to fix:** send the update again from the Frontegg Portal while the Mac is
+**awake and in use** (or plugged in with the lid open), and leave it awake for a
+few minutes. Alternatively, run the update directly on the Mac:
+
+```bash
+agenshield upgrade
+```
+
+## When to escalate
+
+Contact support with a diagnostic bundle (see
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx)) if:
+
+- an update sent to an **awake** Mac still fails, or keeps failing on a version
+  later than `2026.10.2`;
+- the update log shows a checksum or signature failure — never work around
+  those; or
+- the Mac never shows that a newer release exists even though one has been
+  published for your organization's release channel.

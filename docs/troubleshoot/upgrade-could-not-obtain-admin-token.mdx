@@ -1,0 +1,103 @@
+---
+title: 'Upgrade prints "Could not obtain admin token" but still says complete'
+sidebarTitle: 'Upgrade: could not obtain admin token'
+icon: 'key-round'
+description: 'During agenshield upgrade from a 2026.9 release, the final refresh step retries ten times, fails with "Could not obtain admin token", and the upgrade still reports "Upgrade complete!", sometimes as "unknown → <version>". What it means, how to finish the refresh, and which version fixes it.'
+---
+
+## What you see
+
+You run `agenshield upgrade` on a Mac that has a 2026.9 release installed. The
+new version installs. Then the last step repeats several times and fails:
+
+```text
+Reapplying target configurations (attempt 1/10)...
+...
+Reapplying target configurations (attempt 10/10)...
+✗ Could not obtain admin token from daemon (daemon may still be starting).
+✓ Upgrade complete! (unknown → 2026.10.2)
+```
+
+Two related symptoms can appear on the same Mac:
+
+- The upgrade header shows `Current version: unknown` and the summary shows
+  `unknown → <new version>`, even though AgenShield was installed.
+- An AgenShield dashboard window that was open during the upgrade stops loading
+  data and shows authentication errors until you close it and open it again.
+
+## What it means
+
+The upgrade itself succeeded. The new version is installed and running, and your
+organization's policy is still enforced.
+
+The failing step comes after the install. It refreshes local helper files and
+re-syncs with the Frontegg Portal. From 2026.10 on, AgenShield refuses that step
+to any program whose own files were replaced while it was running. The upgrade
+command you started is that kind of program: the upgrade replaced it. The 2026.9
+command cannot recognize the refusal, so it retries ten times and then reports a
+misleading reason ("may still be starting").
+
+The `unknown` version comes from a different cause. If AgenShield was ever
+upgraded from the dashboard, the file that records the installed version could
+be left readable only by the system. Your own account then cannot read it.
+This only affects how the upgrade summary is labelled.
+
+## How to confirm
+
+1. Check that the new version is running:
+
+   ```bash
+   agenshield status
+   ```
+
+   The reported version should be the one the upgrade installed.
+
+2. Run the refresh that was skipped. The upgrade summary already said whether
+   it failed.
+
+## How to recover
+
+From a regular Terminal window, run the refresh yourself. Do not run it from
+inside an AI coding agent's session. AgenShield refuses administrative commands
+from there by design.
+
+```bash
+agenshield reshield
+```
+
+It should finish with `Refreshed N target(s)`. Running it more than once is
+safe.
+
+If a dashboard window was open during the upgrade and now shows authentication
+errors, quit the dashboard completely and open it again.
+
+You do not need to fix the `unknown` label. The next upgrade you run rewrites
+the version file with the right owner.
+
+## The fix
+
+Starting with the release that follows **2026.10.2**:
+
+- **The background service finishes the refresh on its own** the first time it
+  starts on a new version. That includes upgrades driven by an older 2026.9
+  command, which still prints the old failure lines; you can ignore them. The
+  upgrade summary reports the refresh as completed by the service.
+- When the refresh truly fails, the upgrade summary **lists it as a warning**
+  instead of only reporting "Upgrade complete!". The message says what
+  happened.
+- A dashboard window that an upgrade replaces now **restarts itself** onto the
+  new version, or asks you to restart it. It no longer retries in the
+  background indefinitely.
+- Upgrades started from the dashboard **keep the version file readable** by your
+  account, and the upgrade summary never shows a bare `unknown`.
+
+## When to escalate
+
+Contact support with a diagnostics bundle
+([Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx)) if:
+
+- `agenshield reshield` fails from a regular Terminal window.
+- `agenshield status` reports the old version after the upgrade said it
+  completed.
+- On the fixed release or later, the upgrade summary still reports that the
+  refresh did not run.

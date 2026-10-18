@@ -1,0 +1,331 @@
+---
+title: Windows MDM Deployment
+sidebarTitle: Windows MDM
+icon: monitor-cog
+description: Deploy AgenShield on managed Windows devices with enrollment policy and a signed installer, using Intune, Group Policy, Configuration Manager, or another management tool.
+---
+
+A Windows fleet deployment has **two separate parts**: machine-wide enrollment
+settings and a signed installer. Prefer delivering enrollment as managed policy,
+then install AgenShield without putting the campaign token on the install command
+line. No user needs to be signed in for the device to enroll.
+
+For the connected Intune path, see
+[Microsoft Intune](../../deployment/mdm/intune.mdx#windows-deployment). This guide covers
+manual Intune profiles, Group Policy, Configuration Manager, and other tools.
+
+<Note>
+  Use the Windows artifacts supplied by your campaign and selected release.
+  The ADMX templates, signed unattended bootstrap, and connected Windows push
+  require versions that expose those artifacts. If they are not available in
+  your environment, deliver the registry settings below and the signed MSI
+  instead. macOS profiles and packages cannot configure Windows.
+</Note>
+
+## Before you start
+
+- Windows 11 24H2 or later, x64, on devices supported by your management tool.
+- An [install campaign](../../deployment/campaigns.mdx), with its enrollment token and
+  cloud URL copied from the Frontegg Portal.
+- Permission to deploy machine settings and install software as **SYSTEM** or
+  an administrator. A user-scoped policy is not sufficient.
+- Access to the release download service and your organization's cloud URL.
+  A bootstrap downloads the MSI at installation time; distributing an MSI
+  directly avoids that download, but enrollment still needs cloud access.
+- An IT policy that permits the signed AgenShield installer, installation
+  script where used, and Microsoft-attested driver. Keep Secure Boot and your
+  organization's Windows security controls enabled.
+
+Pilot one device before widening assignments. Installer success, enrollment,
+and active protection are separate checks; do not treat an MDM success status
+as proof of all three.
+
+## 1. Deliver the enrollment policy
+
+Use the **64-bit machine registry view**:
+
+```text
+HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Frontegg\AgenShield
+```
+
+All values are strings (`REG_SZ`):
+
+| Value           | Required | Meaning                                                                                                                              |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `CampaignToken` | Yes      | The campaign's enrollment credential                                                                                                 |
+| `CloudUrl`      | Yes      | The cloud URL supplied with that campaign                                                                                            |
+| `Org`           | No       | Organization display label                                                                                                           |
+| `PinnedVersion` | No       | Exact release version for an unattended bootstrap install. It must name a published release that includes a signed Windows installer |
+
+Deliver `CampaignToken` and `CloudUrl` together from the same policy. Incomplete
+settings are not combined with a different enrollment source. Do not use
+`WOW6432Node`, and do not target the current user's registry hive.
+
+Use **one enrollment-policy source per device**. Do not overlap different
+campaigns from multiple Intune connections, or combine connected enrollment
+profiles with manual Intune or Group Policy enrollment for the same device.
+Different profile names do not prevent those policies from writing the same
+enrollment settings. Resolve that targeting conflict before deployment.
+
+<Warning>
+  A campaign token authorizes new devices to join your fleet. Managed policy
+  can be read by local users, so it is not a secret store. Restrict who can
+  obtain campaign artifacts, redact tokens from screenshots and exports, and
+  rotate a campaign if its token is exposed. Avoid passing it as an MSI property:
+  deployment-tool logs and process command lines can retain it.
+</Warning>
+
+### Group Policy with ADMX
+
+Where your selected release supplies the templates:
+
+1. Download `AgenShield.admx` and `AgenShield.adml` from the campaign's Windows
+   artifacts or that release. Verify them against the release's checksums.
+2. Add the ADMX to your Group Policy Central Store's `PolicyDefinitions`
+   directory and the ADML to its `en-US` subdirectory. On a local test machine,
+   use `%windir%\PolicyDefinitions` and `%windir%\PolicyDefinitions\en-US`.
+3. Under **Computer Configuration → Policies → Administrative Templates →
+   AgenShield** in Group Policy Management, enable **Configure campaign
+   enrollment**. Enter the token and cloud URL; set the
+   organization label and pinned version only if needed.
+4. Scope the policy to the same computer group as the installer and confirm
+   successful policy application on a pilot device.
+
+The language file supplied is English; it is not a claim that the installer
+has been qualified on every Windows language edition.
+
+Disabling the policy removes its four enrollment values. It does **not**
+uninstall AgenShield, revoke an existing device identity, or move the device
+to another campaign. Use your offboarding workflow for those actions.
+
+### Manual Intune custom profile
+
+The literal URIs below are **manual defaults**. For connected Intune, keep the
+generated profiles and their connection-specific URIs unchanged; do not replace
+them with these manual URI examples.
+
+Use **two separate Windows 10 and later → Templates → Custom** device
+configuration profiles. Each setting below has data type **String**:
+
+| Profile                                 | OMA-URI                                                                                     | Value                               |
+| --------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------- |
+| Shared definition profile, created once | `./Device/Vendor/MSFT/Policy/ConfigOperations/ADMXInstall/AgenShield/Policy/AgenShieldAdmx` | The complete `AgenShield.admx` text |
+| Enrollment profile, one per campaign    | `./Device/Vendor/MSFT/Policy/Config/AgenShield~Policy~AgenShield/CampaignEnrollment`        | The campaign's enrollment XML       |
+
+Reuse the shared definition profile across campaign groups. **Never assign
+duplicate ADMX definitions at the same ingestion URI**, and do not put ingestion
+in each campaign's enrollment profile. Removing a campaign enrollment profile
+must not remove the shared definitions needed by another campaign.
+
+Where available, use `AgenShield-template.oma.json` for the shared definition
+setting and `AgenShield-enrollment.oma.json` for the campaign setting. Each is a
+settings export for its own profile; they are not combined profiles or Intune
+app packages. The shared template export contains no campaign credential.
+
+A minimal enrollment value is:
+
+```xml
+<enabled/>
+<data id="CampaignToken" value="REPLACE_WITH_CAMPAIGN_TOKEN"/>
+<data id="CloudUrl" value="https://REPLACE_WITH_CLOUD_HOST"/>
+<data id="Org" value=""/>
+<data id="PinnedVersion" value=""/>
+```
+
+All four data elements are required in an enabled OMA-URI payload, even when
+the optional `Org` and `PinnedVersion` values are empty. Microsoft requires a
+data element for every text field in an
+[ADMX-backed policy](https://learn.microsoft.com/en-us/windows/client-management/understanding-admx-backed-policies#admx-files-and-the-group-policy-editor).
+Use the campaign-generated `AgenShield-enrollment.oma.json` export where
+available rather than constructing the XML yourself. If editing it,
+XML-escape attribute values, including ampersands, quotes, and angle brackets.
+An OMA-URI reference or settings export is **not** a directly importable Intune
+app package.
+
+Assign the shared definition profile, campaign enrollment profile, and installer
+to the intended device group. Review both profiles' setting results in Intune;
+enrollment depends on successful shared ADMX ingestion. `<disabled/>` removes
+the campaign's enrollment values only. To return enrollment to **Not configured**,
+use the management tool's policy deletion action on the campaign setting, not
+the shared ingestion setting. Remove shared definitions only when offboarding
+the entire shared configuration, after every campaign setting has been removed.
+
+### Registry settings without ADMX
+
+Group Policy Preferences, Configuration Manager, or another MDM can deliver the
+same four values directly. Use the campaign's `AgenShield-enrollment.reg`
+export where available, or define equivalent machine-scoped string settings.
+`CampaignEnrollment.reg` is a sample reference with replacement values, not
+the campaign-generated export; do not deploy it without substituting actual
+campaign settings.
+
+A one-time registry import is not a continuously managed policy. Your deployment
+tool must handle scope changes and remove settings when appropriate. Avoid two
+profiles or policies writing different campaigns to the same device.
+
+## 2. Install the signed release
+
+### Unattended bootstrap
+
+Where the campaign supplies the signed `AgenShield-Bootstrap.ps1`, package that
+file as a machine-context application or script. Versioned release downloads may
+include the release version in the filename; use the actual downloaded name.
+Before the `AllSigned` example below, IT must verify the script's signature and
+release checksum, then approve its signing certificate as a **trusted publisher
+for the machine** through your organization's certificate policy.
+An Authenticode **Valid** result alone is not trusted-publisher authorization;
+the non-interactive example refuses any publisher prompt instead of waiting
+for a user. See
+[PowerShell execution policies](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1).
+Run the approved script as SYSTEM:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy AllSigned -File .\AgenShield-Bootstrap.ps1 -Unattended
+```
+
+The unattended bootstrap reads the machine's `PinnedVersion` when no explicit
+version overrides it. Without a pin, it resolves the selected Windows release
+channel. Windows and macOS releases are published independently, so a version
+available for macOS may have no Windows installer. A pin, or `-Version 'YYYY.M.N'`,
+must name a published release that includes a signed Windows installer. Pinning
+a version without one fails with exit code `21`, and a version whose installer
+does not carry the expected signature is refused. Use `-Channel beta` only for
+an explicitly chosen beta pilot. The bootstrap verifies both the MSI checksum
+and its expected Authenticode signer; a failed check must not be bypassed.
+
+The unattended mode does not request elevation. Run in the required machine
+context; a standard-user execution is a deployment error. A 32-bit launch is
+redirected to 64-bit PowerShell. If the installed version is equal to or newer
+than the target, the install is a no-op, not a downgrade.
+
+| Exit code | Deployment interpretation                                                  |
+| --------- | -------------------------------------------------------------------------- |
+| `0`       | Installed, or already at the target or newer                               |
+| `3010`    | Installed; restart required                                                |
+| `1618`    | Another installation is running; retry later                               |
+| `20`      | Unsupported architecture                                                   |
+| `21`      | The release manifest, or the pinned Windows version, could not be resolved |
+| `22`      | Download failed                                                            |
+| `23`      | Checksum or signature verification failed                                  |
+| `5`       | Not running with required administrator rights                             |
+| `1`       | Bootstrap setup failed; inspect the log                                    |
+| Other     | Windows Installer result; inspect the install log                          |
+
+Preserve these return codes in your deployment tool. Installation logs for this
+mode are under `%ProgramData%\AgenShield\logs\install`; they require
+administrator access. A `0` result does not establish campaign enrollment.
+
+### Direct MSI, Configuration Manager, or GPO software installation
+
+Distribute the signed x64 MSI from the selected release and verify its checksum
+and Authenticode signature before deployment. With the enrollment policy
+already assigned, no token properties are needed:
+
+```powershell
+msiexec.exe /i "AgenShield.msi" /qn /norestart
+```
+
+In Configuration Manager, use a machine-context application deployment and
+configure reboot handling for Windows Installer's return codes. Group Policy
+Software Installation can assign the MSI to computers. For other management
+tools, use their machine installation mechanism and the same policy settings.
+
+Do not infer active protection from a completed `/qn` install. With
+`/norestart`, an install or upgrade that installs or updates the AgenShield
+driver returns `3010`: it succeeded and needs a restart. Complete the
+checks below, including that restart. MSI-property enrollment remains
+an alternative, but avoid it for fleets because of token exposure and because
+its secure enrollment handoff needs qualification on the Windows editions you
+use. See [Windows install warnings](../../troubleshoot/windows-install-warnings.mdx).
+
+## 3. Detect and verify the deployment
+
+For releases that supply the stable install marker, use a registry **existence**
+rule, not an exact-version rule:
+
+| Detection setting | Value                                    |
+| ----------------- | ---------------------------------------- |
+| Hive and key      | `HKEY_LOCAL_MACHINE\SOFTWARE\AgenShield` |
+| Value             | `Version`                                |
+| Registry view     | 64-bit                                   |
+| Rule              | Value exists                             |
+
+The marker is an installation indicator, not a health or enrollment indicator.
+An existence rule avoids reinstalling a device merely because a cloud-managed
+update made it newer than the initial MDM package.
+
+On a pilot device:
+
+1. Confirm the installer reports success. An installation or upgrade that
+   installs or updates the AgenShield driver returns `3010`, and the new
+   driver starts only after the device restarts. Until then AgenShield keeps
+   enforcing with a previously loaded driver if one is running, or reports
+   **Restart required to enable kernel protection**.
+2. After a `3010`, restart the device and confirm that it restarted after the
+   installation. `agenshield doctor` cannot show this: while a previously
+   loaded driver is still running, **Kernel enforcement** reads
+   `driver loaded and enforcing policy`, the same as after the restart.
+   Instead, compare the last boot time with the last time Windows Installer
+   installed AgenShield, in an administrator PowerShell session:
+
+   ```powershell
+   (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+   Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'MsiInstaller'; Id = 1033 } |
+     Where-Object { $_.Properties[0].Value -eq 'AgenShield' } |
+     Select-Object -First 1 -ExpandProperty TimeCreated
+   ```
+
+   The boot time, printed first, must be later than the installation time.
+   With Fast Startup turned on, shutting down and starting again is not a
+   restart, so use **Restart**.
+
+3. Run `agenshield status`. Confirm the device is enrolled with the expected
+   cloud URL, the background service is running, and protection has no required
+   action outstanding. Run `agenshield doctor` and confirm that **Kernel
+   enforcement** reads `driver loaded and enforcing policy`.
+4. Confirm the device appears under **Devices** in the Frontegg Portal and
+   receives your organization's policy. A connected device that has not
+   received policy is not proof of enforcement.
+5. Confirm the Windows tray appears for the signed-in user. Releases with
+   machine-wide tray startup start it at user sign-in; no UI runs in session 0.
+
+The installer and policy can arrive in either order. An installed, unenrolled
+device retries enrollment every few minutes until complete machine policy
+arrives; while it waits, the AgenShield app can show a form asking for an
+enrollment token. Do not enter a token on a managed device. Changing the
+policy does not silently re-enroll an already enrolled device into a different
+cloud or campaign.
+
+## Updates and offboarding
+
+On AgenShield 2026.10.2 or later, the Frontegg Portal can update Windows devices
+(**Update endpoint**, or automatic updates) without repackaging the MDM app.
+Earlier versions need a new signed installer through your MDM first. The
+installed signed bootstrap must be present, and the download and signature
+checks still apply.
+A restart-required result is not the same as a completed restart; schedule the
+restart through your IT process. The bootstrap does not downgrade a newer
+installation. See [Update limitations](../../troubleshoot/windows-install-warnings.mdx#update-limitations).
+
+For the signed unattended bootstrap, uninstall uses the installed MSI's current
+product identity rather than a fixed ProductCode:
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -ExecutionPolicy AllSigned -File .\AgenShield-Bootstrap.ps1 -Uninstall
+```
+
+The `AllSigned` uninstall example has the same machine trusted-publisher
+prerequisite as installation. Run it in machine context. **Uninstall leaves
+the machine enrollment policy** at
+`HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Frontegg\AgenShield`; that policy is
+owned by your management tool, not the installer. Remove required-install
+assignments and remove the managed enrollment policy separately during
+offboarding, or the device can be reinstalled and enrolled again. Removing
+enrollment policy alone does not uninstall an existing installation.
+
+## Troubleshooting
+
+- [Installed but not enrolled](../../troubleshoot/install-succeeds-but-device-never-enrolls.mdx#windows-managed-installations)
+- [Windows device not protected after an Intune push](../../troubleshoot/windows-intune-device-not-protected.mdx)
+- [Windows installation, policy blocks, certificates, and updates](../../troubleshoot/windows-install-warnings.mdx)
+- [Collecting diagnostics](../../troubleshoot/collecting-diagnostics.mdx)

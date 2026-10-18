@@ -2,18 +2,22 @@
 title: Install Succeeds but the Device Never Enrolls
 sidebarTitle: Installed but Not Enrolled
 icon: user-x
-description: What to do when a scripted or MDM-driven install reports success but the Mac never appears in the Frontegg Portal, and the campaign timeline shows Script fetched with no Registration.
+description: Diagnose a successful macOS or Windows installation that never registers in the Frontegg Portal, including missing managed enrollment settings, an unreadable management profile, inactive campaigns, and endpoint conflicts.
 ---
 
-AgenShield installed. The Mac has the app, the service answers, `agenshield status`
-looks reasonable — and the device is nowhere in the Frontegg Portal. The campaign
-timeline shows **Script fetched** but never **Registration**.
+AgenShield installed and `agenshield status` answers — but the device is
+nowhere in the Frontegg Portal. The campaign may show **Script fetched**
+without **Registration**.
 
 The software is installed. It just does not know which organization it belongs to.
 
+For a managed Windows installation, go directly to
+[Windows managed installations](#windows-managed-installations). The account
+and `root` explanations below apply to macOS, not Windows machine policy.
+
 ## Confirm it is this
 
-On the affected Mac:
+For macOS, on the affected Mac:
 
 ```bash
 agenshield status
@@ -102,6 +106,83 @@ On a freshly imaged Mac sitting at the login window there is no account to insta
 for yet. That device still enrolls, and its extensions activate at the first
 login — the same as a package deployment. That is expected, not this problem. See
 [MDM enrollment](../deployment/mdm/overview.mdx#how-a-device-joins-your-fleet).
+
+## Enrollment is waiting on the management profile
+
+The AgenShield dashboard or menu bar panel says **Enrollment is waiting on this
+device's management profile** (on a Mac, **this Mac's**), and the device is not
+in the Frontegg Portal.
+
+AgenShield has enrollment details for this device, but it cannot read the
+device's management profile, which it needs before it can use them. Rather than
+guess, it holds the enrollment, and the device is not protected until it
+completes. AgenShield keeps checking every few minutes, but an unreadable
+profile does not repair itself.
+
+Ask IT to do one of these:
+
+- **Re-push the management profile.** Reinstall the AgenShield configuration
+  profile from your MDM. On Windows, re-apply the configuration profile or Group
+  Policy that sets `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Frontegg\AgenShield`
+  for this computer.
+- **Re-run the AgenShield installer** with your campaign's install command or
+  package.
+
+Nobody needs to be at the device: enrollment continues on its own once the
+profile can be read. Confirm it the same way — the device appears under
+**Devices** and the campaign gains a **Registration** entry.
+
+## Windows managed installations
+
+A silent Windows MSI or tokenless unattended bootstrap can install successfully
+before enrollment policy arrives. That installer result is not a promise that the
+device registered. No signed-in user is required for Windows machine enrollment.
+
+Check these in order:
+
+1. **Enrollment status.** Run `agenshield status`. Under **Cloud**, confirm the
+   expected cloud URL and device identity, or note that setup is incomplete.
+2. **Policy assignment.** Confirm the Windows configuration profile or Group
+   Policy applies to this **computer**, not just a user. Intune app and profile
+   assignments must target the same intended devices.
+3. **Complete values.** The 64-bit machine key
+   `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Frontegg\AgenShield` needs both
+   `CampaignToken` and `CloudUrl` as strings. They must be supplied together;
+   a token in one source is not combined with a cloud URL in another.
+4. **Active campaign and connectivity.** Confirm the campaign is not revoked,
+   and that the device can reach the campaign's cloud URL. For a tokenless
+   install, a release download alone does not supply enrollment credentials.
+5. **Intentional enrollment opt-out.** On releases with managed enrollment
+   opt-out, an administrator-created
+   `%ProgramData%\AgenShield\config\ignore-managed-enrollment` file suppresses
+   managed enrollment. Ask IT whether it is intentional. Removing that file
+   re-enables reading the enrollment policy; do not weaken the directory's
+   permissions. The policy may still be shown as present while enrollment is
+   intentionally disabled.
+
+Repair the assigned settings rather than repeatedly reinstalling. AgenShield
+retries after complete policy arrives. If the installation used MSI token
+properties, prefer the managed policy or the campaign's Windows install link;
+see [Windows install warnings](../troubleshoot/windows-install-warnings.mdx).
+
+### Already enrolled with a different cloud URL
+
+Managed settings are an initial enrollment channel, not an automatic migration
+mechanism. An already-enrolled device is not re-registered or repointed when a
+different campaign policy arrives. A reported enrollment endpoint conflict
+means the new policy disagrees with the existing enrollment.
+
+Have IT correct the assignment or perform the approved offboarding and
+re-enrollment process. Do not delete credentials or change protected files to
+force a migration. Removing policy alone does not unenroll an existing device.
+
+### Confirm recovery
+
+Confirm a **Registration** entry and the expected device in the Frontegg Portal,
+then confirm the device received your organization's policy and has no outstanding
+protection required action. Installation, registration, and active protection
+are separate results. Exact settings and deployment choices are in
+[Windows MDM deployment](../deployment/mdm/windows.mdx).
 
 ## Escalate
 

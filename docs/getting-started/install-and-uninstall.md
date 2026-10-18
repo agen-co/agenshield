@@ -257,6 +257,27 @@ staged enrollment data here until that verification passes.
   it into a repository.
 </Warning>
 
+### What you see during an update (macOS)
+
+An update replaces the network extension and restarts the background service,
+so connections that are open at that moment can drop briefly. AgenShield tells
+the signed-in user with **one notification that updates itself** instead of
+stacking a new one for each step:
+
+| When                                                                         | Notification                                                                                  |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| One minute before an update your organization sends from the Frontegg Portal | **AgenShield will update in 60 seconds** — the version, and that the network may drop briefly |
+| The update begins                                                            | **Updating AgenShield** — the version, and that the network may drop briefly                  |
+| The update finished                                                          | **AgenShield updated** — the installed version                                                |
+| The update did not complete                                                  | **AgenShield update didn't finish**                                                           |
+
+An update that someone starts on the Mac — from the menu bar, the dashboard, or
+by running the installer — skips the one-minute warning. When nobody is signed
+in, the update runs at once and the result is shown at the next sign-in within a
+day. The
+notifications follow the user's Focus and notification settings for
+AgenShield.
+
 ## Uninstallation
 
 The preferred path is the CLI's own `uninstall` command; a campaign-served
@@ -275,12 +296,23 @@ enforcement, removes the services and configuration AgenShield created,
 deactivates the system extensions, removes the AgenShield certificate from the
 system trust store, and forgets the installer receipts.
 
+Apps that were already open during uninstall (terminals, IDEs) still point at
+`~/.agenshield/ca-bundle.pem` until you restart them. So that they keep working
+over HTTPS, uninstall leaves that one file in place with the AgenShield
+certificate removed; the other trusted roots it held, including any your
+organization deploys, stay. Apps opened afterwards do not use it. Delete it once
+you have restarted those apps.
+
 To also purge stale extension versions that macOS has marked "waiting to
 uninstall on reboot":
 
 ```bash
 agenshield doctor --cleanup-extensions
 ```
+
+macOS usually refuses this while System Integrity Protection is on. Restarting
+the Mac always clears them — see
+[AgenShield recommends restarting your Mac](../troubleshoot/restart-recommended.mdx).
 
 ### Campaign-served uninstall.sh
 
@@ -319,9 +351,10 @@ that also fails.
     sudo /Applications/AgenShield.app/Contents/MacOS/AgenShield --uninstall-all 2>/dev/null || true
     ```
 
-    **Remove the CA trust and the node-ca-trust env.** A leftover AgenShield root in
-    the System keychain is a security risk, and the stale `NODE_EXTRA_CA_CERTS` points at
-    a CA file that is about to be deleted:
+    **Remove the CA trust and the CA environment variables.** A leftover AgenShield root in
+    the System keychain is a security risk, and the CA variables AgenShield set point at
+    files that are about to be deleted. Left behind, they break HTTPS for curl, git,
+    Python and Node in every app you open afterwards:
 
     ```bash
     # Delete every AgenShield root from the System keychain by SHA-1 — the CN
@@ -331,14 +364,18 @@ that also fails.
       | awk '/^SHA-1/ {print $3}' \
       | while read -r SHA; do sudo security delete-certificate -Z "$SHA" /Library/Keychains/System.keychain 2>/dev/null || true; done
 
-    # Drop the node-ca-trust LaunchAgent and clear the env it set.
+    # Drop the node-ca-trust LaunchAgent and clear every CA variable that points into ~/.agenshield.
     launchctl bootout "gui/$(id -u)/com.frontegg.AgenShield.node-ca-trust" 2>/dev/null || true
-    launchctl unsetenv NODE_EXTRA_CA_CERTS 2>/dev/null || true
+    for KEY in NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO GIT_SSL_CAINFO; do
+      case "$(launchctl getenv "$KEY")" in */.agenshield/*) launchctl unsetenv "$KEY" ;; esac
+    done
     ```
 
     `launchctl unsetenv` only affects new launches — fully quit and reopen your
-    terminal and GUI apps (Cursor, Claude Desktop, VS Code) so they drop the stale
-    value, or `unset NODE_EXTRA_CA_CERTS` in any open shell.
+    terminal and GUI apps (Cursor, VS Code, JetBrains IDEs, Claude Desktop) so they drop
+    the stale values, or run
+    `unset NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO GIT_SSL_CAINFO`
+    in any open shell.
 
     **Remove plists and directories:**
 
@@ -360,6 +397,13 @@ that also fails.
     sudo rm -rf ~/.agenshield
     ```
 
+    If you cannot restart your open apps right away, give them a CA bundle that
+    holds only the macOS public roots, so they keep working over HTTPS:
+
+    ```bash
+    mkdir ~/.agenshield && cp /etc/ssl/cert.pem ~/.agenshield/ca-bundle.pem
+    ```
+
     **Forget pkg receipts:**
 
     ```bash
@@ -379,7 +423,7 @@ that also fails.
 systemextensionsctl list | grep frontegg        # should be empty (may need reboot)
 pkgutil --pkgs | grep frontegg                  # should be empty
 ls /Library/AgenShield /opt/agenshield /Applications/AgenShield.app 2>/dev/null
-ls ~/.agenshield 2>/dev/null
+ls ~/.agenshield 2>/dev/null                    # nothing, or only ca-bundle.pem (public roots)
 sudo security find-certificate -c "AgenShield CA" /Library/Keychains/System.keychain 2>/dev/null
 # ^ should print nothing (no AgenShield root left in the trust store)
 ```

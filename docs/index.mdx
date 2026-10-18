@@ -124,9 +124,9 @@ hands off to the next.
 - **macOS 14 or later, Apple silicon.** Intel Macs are not supported yet. Intel
   and Linux support are in development. Windows has a one-line install today
   (see [Install and uninstall](./getting-started/install-and-uninstall.md)), but
-  enforcement is not yet at full parity with macOS — see
-  [Windows install warnings](./troubleshoot/windows-install-warnings.mdx) for two
-  known limitations (an unsigned installer that triggers a Windows SmartScreen
-  warning, and the command-line enrollment token method — not the install link
-  or a Group Policy/Intune push — not completing on non-English Windows
-  editions).
+  enforcement is not yet at full parity with macOS. Current Windows
+  installers are code-signed; a signed installer can still show a SmartScreen
+  reputation prompt, and verification failures must not be bypassed. Passing the
+  enrollment token as an installer command-line property has not been qualified
+  on non-English Windows editions; prefer the install link or managed policy.
+  See [Windows install warnings](./troubleshoot/windows-install-warnings.mdx).

@@ -215,9 +215,10 @@ exit 0
 
 ### Post-install
 
-Waits up to 90 seconds for AgenShield to answer, then writes its status to the
-MDM log. It exits non-zero only when the package's files are missing after the
-install; a status that is not yet `healthy` is reported, not failed.
+Waits up to 90 seconds for AgenShield to answer, then writes its status — and
+any informational note — to the MDM log. It exits non-zero only when the
+package's files are missing after the install; a status that is not yet
+`healthy` is reported, not failed.
 
 ```bash agenshield-postinstall.sh
 #!/bin/bash
@@ -268,6 +269,11 @@ if [ -n "$FIRST_REASON" ]; then
     echo "Needs attention: $FIRST_REASON"
 fi
 
+FIRST_NOTE=$(read_status_field notes.0)
+if [ -n "$FIRST_NOTE" ]; then
+    echo "Note: $FIRST_NOTE"
+fi
+
 case "$(/usr/bin/stat -f %Su /dev/console)" in
     root | _mbsetupuser | loginwindow)
         echo "Nobody is signed in: extension approval completes at the first sign-in"
@@ -286,6 +292,14 @@ What the status means:
 | `starting`, `not-running`, no answer | The background service did not answer within 90 seconds. On a busy Mac it can take a few minutes; check again with `agenshield status`.                 |
 | `removed`                            | This device was removed in the [Frontegg Portal](https://portal.frontegg.com).                                                                          |
 | `boot-locked`                        | The background service failed to start several times in a row. [Collect diagnostics](../../troubleshoot/collecting-diagnostics.mdx) and contact support.         |
+
+A `Note:` line is information, not a problem: it never changes the status
+above and never makes the script fail. The one you are most likely to see is
+**Restart recommended** — macOS is holding many old versions of system
+extensions (from AgenShield and from other security products on the Mac)
+until the next restart. Protection is working; restarting the Mac when
+convenient clears them. See
+[AgenShield recommends restarting your Mac](../../troubleshoot/restart-recommended.mdx).
 
 ## Where each script goes
 
@@ -406,9 +420,9 @@ to that user, and an update installed at the login window leaves it where it is.
 On a target Mac:
 
 ```bash
-sudo profiles show -type configuration | grep -i agenshield   # the profile installed
-systemextensionsctl list | grep frontegg                     # both extensions, after first login
-agenshield status                                            # service running, device enrolled
+sudo profiles show -type configuration | grep -i agenshield          # the profile installed
+systemextensionsctl list | grep frontegg | grep "activated enabled"  # both extensions, after first login
+agenshield status                                                   # service running, device enrolled
 ```
 
 ## Next

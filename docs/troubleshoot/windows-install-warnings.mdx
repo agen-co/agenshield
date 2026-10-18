@@ -1,8 +1,8 @@
 ---
-title: 'A Windows install did not enroll, or shows a publisher warning'
-sidebarTitle: 'Windows install warnings'
-icon: 'app-window'
-description: 'An unattended Windows install completes but the device never enrolls, or Windows warns about an unrecognized publisher when the installer runs.'
+title: Windows Installation and Managed Deployment Warnings
+sidebarTitle: Windows Install Warnings
+icon: app-window
+description: Diagnose Windows enrollment failures, publisher verification, IT policy blocks, unsupported organization certificates, and managed update limitations without weakening Windows security.
 ---
 
 <img
@@ -11,101 +11,190 @@ description: 'An unattended Windows install completes but the device never enrol
   noZoom
 />
 
-## What you are seeing
+An installer reporting success does not prove the device enrolled or that every
+security component is active. Identify which stage failed before reinstalling.
 
-One of two things, both during or shortly after installing AgenShield on
-Windows:
-
-- An unattended install (for example, an install run silently from a script
-  or an IT deployment tool, with the organization token passed directly on the
-  install command) finishes without an error, but the device never shows up
-  as enrolled in the Frontegg Portal.
-- Windows shows a "Windows protected your PC" or unrecognized-publisher
-  warning when you run the installer.
-
-## Unattended install completed, but the device is not enrolled
+## Installed but not enrolled
 
 ### What it means
 
-Passing your organization's enrollment token directly on the install command
-line is one of several ways to enroll a Windows device — a Group Policy or
-Intune-managed push, and the install script from your organization's install
-link, are the other two. On some non-English editions of Windows, the
-command-line method cannot safely confirm that the folder it needs to write
-your token into is protected from other users on the machine. Rather than
-risk writing a sensitive token somewhere another local account could read it,
-it skips that step entirely and moves on — so the install itself finishes
-normally, but enrollment does not happen.
+AgenShield has installed, but the device has not completed registration with your
+organization. A tokenless MSI or unattended bootstrap needs a **separate machine
+enrollment policy**. If that policy is missing, incomplete, assigned to the
+wrong devices, or points to a revoked campaign, the software can install without
+the device appearing in the Frontegg Portal.
 
-**Nothing else about the install is affected.** The software is installed
-correctly; only the enrollment handoff for this one method is skipped, and it
-skips safely (nothing is written insecurely) rather than failing loudly.
+Older MSI enrollment handoffs also used a language-dependent permission check.
+On a non-English Windows edition, an MSI-property install could skip writing the
+enrollment details rather than store a token in an unverified location. Do not
+assume that a newer MSI has been qualified on your Windows language edition
+merely because the install completed. Use managed enrollment policy for fleets,
+and qualify any MSI-property method on the editions you deploy.
 
-### Affected versions
+### Confirm and recover
 
-This affects the command-line token method only, and only on non-English
-Windows language editions. It does not depend on the AgenShield version.
+1. Run `agenshield status` and check whether **Cloud** identifies the expected
+   organization and cloud URL.
+2. In Intune or your deployment tool, confirm that the **machine** enrollment
+   policy applied to this device. `CampaignToken` and `CloudUrl` must both be
+   present in the same 64-bit machine policy; do not paste the token into a
+   ticket or screenshot.
+3. Confirm the campaign is active. A revoked campaign refuses new enrollments;
+   removing policy does not revoke an existing enrollment.
+4. Repair the policy assignment or use the Windows install command copied from
+   the campaign in an administrator-approved PowerShell session. The installed
+   service retries enrollment after complete policy arrives.
+5. Confirm registration in the Frontegg Portal and receipt of your organization's
+   policy, not just a successful installer result.
 
-### What to do
+See [Windows managed enrollment](../troubleshoot/install-succeeds-but-device-never-enrolls.mdx#windows-managed-installations)
+and [Windows MDM deployment](../deployment/mdm/windows.mdx) for the supported settings.
+For a device in a connected Intune campaign, follow the
+[Intune delivery checks](../troubleshoot/windows-intune-device-not-protected.mdx).
 
-Use either of the other two enrollment methods instead — neither has this
-limitation:
-
-<Steps>
-  <Step title="Use the install link from your organization">
-    Run the install command from your campaign page in the Frontegg Portal
-    (the one that starts with `irm` and ends with `| iex`) in a PowerShell
-    window, rather than passing the token as a command-line property to the
-    installer package — the script requests administrator approval itself.
-    This method enrolls the device the same way, through a different
-    mechanism that is not affected by Windows language settings.
-  </Step>
-  <Step title="Or push enrollment through Group Policy or Intune">
-    If you are deploying to a fleet, set the enrollment token as a managed
-    policy (Group Policy or an Intune configuration profile) instead of as an
-    installer command-line property. See your organization's deployment guide
-    for the policy key to set.
-  </Step>
-  <Step title="Confirm enrollment">
-    After using either method, confirm the device shows as enrolled — check
-    `agenshield status` on the machine, or look for the device in the
-    Frontegg Portal.
-  </Step>
-</Steps>
-
-## Windows warns about an unrecognized publisher
+## Publisher or signature verification warning
 
 ### What it means
 
-The Windows installer package is not yet code-signed the way the macOS
-installer is. Until that is in place, Windows SmartScreen may warn that the
-publisher is unrecognized when you run it. This is expected on current
-Windows builds and does not mean the file was tampered with — the installer
-independently verifies the file's integrity against AgenShield's release
-records before installing anything, and refuses to proceed if that check
-fails.
+Published Windows releases use signed installers. The bootstrap checks the MSI's
+release checksum and expected Authenticode signer before installing. A
+SmartScreen reputation prompt and an **invalid or missing signature** are not
+the same thing: a valid signature does not guarantee a file has enough reputation
+to avoid a SmartScreen prompt.
 
-### What to do
+An unsigned development build is not an approved fleet installer. Do not
+interpret an old "unsigned installers are expected" instruction as permission to
+bypass verification.
 
-- If SmartScreen shows "Windows protected your PC," choose **More info**,
-  then **Run anyway** — only when you obtained the installer from your
-  organization's official install link or the Frontegg Portal.
-- If your organization's security policy blocks unsigned installers outright
-  (for example, via Application Control or Defender policy), deploy through
-  Group Policy or Intune instead, which can allowlist the specific installer
-  by its file hash.
-- If the installer itself reports a checksum or integrity failure and stops,
-  do not bypass it — that is a different, more serious problem. Contact
-  support instead of proceeding.
+### Confirm and recover
+
+Obtain a fresh installer from your organization's campaign or the selected
+release. Check it in PowerShell:
+
+```powershell
+Get-AuthenticodeSignature -FilePath .\AgenShield.msi |
+  Format-List Status, StatusMessage, SignerCertificate
+```
+
+Confirm **Valid** and the expected Frontegg publisher, and compare the file's
+SHA-256 with the selected release's checksums. A copied file may have a different
+filename; use the actual path.
+
+- If the checksum or signature check fails, **stop**. Do not edit the script to
+  disable the check, install a different certificate, or use **Run anyway** to
+  work around it.
+- If the signature is valid but SmartScreen still warns, ask IT to approve the
+  verified release through the organization's normal deployment process.
+- If IT policy blocks the installer, use the policy-blocked steps below. Intune
+  does not make an invalid signature acceptable.
+
+## Blocked by IT policy
+
+### What it means
+
+Releases with Windows policy-blocked reporting can show **Windows policy is
+blocking AgenShield's driver** or **Windows policy blocked an AgenShield
+installer action** when Windows provides matching blocking evidence. This is not
+the same as a generic access-denied, signature, download, or driver-start failure.
+An inconclusive result must still be investigated; it does not prove a policy
+block or prove that policy allowed the operation.
+
+Reporting is limited to confirmed current driver blocks and matching managed
+installation-script blocks. It cannot classify every application-control
+refusal; historical or audit-only events are not proof that the current action
+was blocked.
+
+The software may be installed while the affected security component is unavailable
+or an update action is blocked. Do not treat the presence of the app or an install
+marker as proof of active protection.
+
+### Confirm and recover
+
+1. Record the required action shown by AgenShield and the failure time.
+2. Ask IT to review the applicable Windows application-control and driver
+   policies. In Event Viewer, review **Microsoft → Windows → CodeIntegrity →
+   Operational** for driver failures and **Microsoft → Windows → AppLocker →
+   MSI and Script** for installation-script failures.
+3. Collect an AgenShield diagnostic bundle and share the matching event details
+   through your approved support channel. Avoid unrelated event dumps containing
+   user or device information.
+4. Have IT authorize the exact signed release where appropriate, then retry the
+   install or update and confirm component health again.
+
+**Do not disable Secure Boot, memory integrity, application control, or the driver
+blocklist to clear the warning.** A Microsoft-attested driver still needs to meet
+your organization's allow policy.
+
+## Organization certificate mode is unsupported on Windows
+
+### What it means
+
+When network inspection is enabled for a Windows installation and its applicable
+organization policy selects the shared organization certificate mode, AgenShield
+reports that this mode is unsupported on Windows. Releases with this warning
+surface it as a blocked network-inspection required action.
+
+This warning is conditional: it does not mean that all Windows certificate modes
+are unsupported, nor that a device configured without network inspection has a
+certificate failure. The affected inspection path remains fail-closed; AgenShield
+does not silently switch to a different certificate mode.
+
+### Recover
+
+Contact your IT administrator to choose a supported certificate mode for Windows
+and publish the updated organization policy. Installing the organization root
+certificate manually is **not sufficient** to make this mode supported. Confirm
+that the device receives the new policy and that the required action clears
+before claiming inspection is available.
+
+## Update limitations
+
+Windows devices on AgenShield 2026.10.2 or later can be updated from the
+Frontegg Portal; this needs an intact installed signed bootstrap. The Frontegg
+Portal refuses to update a device on an earlier version and names the minimum
+version; use a verified signed MSI through your normal IT deployment process to
+reach 2026.10.2 or later first.
+
+For supported releases:
+
+- Where IT enforces `AllSigned`, unattended script execution requires the
+  verified script publisher to be machine-trusted. Authenticode validity alone
+  is not publisher-trust authorization: the non-interactive host refuses an
+  unknown-publisher approval request and fails rather than waiting for a prompt.
+  Ask IT to deploy the verified approved publisher certificate through its normal
+  certificate policy; do not disable IT policy or signature verification.
+- If an update reports unsafe **legacy installation permissions**, it is refused
+  before scheduling, not queued for later. The updater does not take ownership
+  or rewrite those legacy shared folders to force the update through. Ask IT to
+  restore a secure installation with the reviewed signed installer or approved
+  administrator remediation; do not suppress the security check. This concerns
+  a reported unsafe legacy layout, not routine permission changes on normal
+  folders created by the current installer.
+- Both IT-forced and accepted interactive updates use the verified Windows
+  installation path. The update must survive the background service stopping
+  during MSI replacement; do not kill the install just because the service
+  temporarily disconnects.
+- The bootstrap refuses unsigned, wrongly signed, or checksum-mismatched MSIs.
+  It also does not downgrade an installed version that is equal to or newer
+  than the requested target. Changing a version pin is not a downgrade tool.
+- `3010` means the installation requires a restart. It is not evidence that
+  the restart occurred; arrange it through IT and recheck protection afterwards.
+- A scheduled action or a newer-looking version alone does not prove the update
+  succeeded. If an interrupted action has no confirmed result, investigate the
+  reported failure or unknown outcome before retrying.
+- Installation and updates need access to the selected release download service.
+  An offline MSI deployment avoids the bootstrap download, but enrollment and
+  policy receipt still require cloud connectivity.
+
+The update log is `%ProgramData%\AgenShield\logs\upgrade.log`; unattended
+installation logs are under `%ProgramData%\AgenShield\logs\install`. Ask IT to
+collect protected logs where administrator access is required.
 
 ## When to escalate
 
-Contact support if:
-
-- You used the install link or a Group Policy/Intune push (not the
-  command-line token method) and the device still does not enroll.
-- The installer reports a checksum or signature verification failure.
-- Anything above does not match what you are seeing.
-
-Include a diagnostic bundle — see
-[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
+Contact support if a valid machine policy and active campaign still do not enroll,
+if release verification fails, if a required action remains after IT approval, or
+if an update outcome cannot be established. Include the AgenShield version, Windows
+edition and language, deployment method, failure time, and a
+[diagnostic bundle](../troubleshoot/collecting-diagnostics.mdx). Never include a raw
+campaign token or an unredacted token-bearing policy export.

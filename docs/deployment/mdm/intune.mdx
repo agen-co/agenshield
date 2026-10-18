@@ -2,7 +2,7 @@
 title: "Microsoft Intune"
 sidebarTitle: Microsoft Intune
 icon: plug
-description: Connect your Microsoft Entra tenant to AgenShield and push install campaigns to Intune device groups from the Frontegg Portal — group creation, profile assignment, installer app, rollout progress, and clean offboarding.
+description: Connect Microsoft Intune to AgenShield and deploy campaigns to supported macOS and Windows device groups, with platform-specific installation, enrollment, rollout checks, and offboarding.
 ---
 
 <img
@@ -11,10 +11,11 @@ description: Connect your Microsoft Entra tenant to AgenShield and push install 
   noZoom
 />
 
-Intune is the one MDM AgenShield connects to directly. Connect your Microsoft
-Entra tenant once, and every campaign afterwards deploys from the Frontegg Portal:
-no downloading profiles, no uploading packages, no keeping two systems in
-sync by hand.
+Intune is the MDM AgenShield connects to directly. Connect your Microsoft
+Entra tenant once and deploy campaigns from the Frontegg Portal. macOS and
+Windows use different installation and configuration objects; see
+[Windows deployment](#windows-deployment) for Windows prerequisites and manual
+setup.
 
 <Columns cols={2}>
   <Card title="Connected (recommended)" icon="plug">
@@ -36,20 +37,28 @@ one click from the Frontegg Portal.
 Once connected, pushing a campaign creates and maintains these objects in your
 tenant:
 
-| Object                       | Purpose                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------ |
-| **Entra security group**     | One per campaign. Adding a device or user to it is what deploys AgenShield                 |
-| **Configuration profile**    | The campaign's all-in-one profile, assigned to that group                                  |
-| **Installer app**            | The signed package, published once per connection and assigned to every campaign group     |
-| **Uninstall script + group** | Shared across the connection. Offboarding moves a member here to remove AgenShield cleanly |
+| Object                        | Purpose                                                                                                                          |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Entra security group**      | One per campaign; membership targets deployment                                                                                  |
+| **Configuration profiles**    | macOS approvals and enrollment; shared Windows policy definitions plus a separate enrollment policy per campaign where available |
+| **Installer apps**            | A shared installer app per platform and connection, assigned to campaign groups                                                  |
+| **Uninstall scripts + group** | Shared offboarding objects for the supported platforms                                                                           |
 
-Your side of the deal is one thing: **put devices or users in the group.** You
-can do that from the Frontegg Portal or from Intune — both work.
+Your side of the deal is one thing: **put devices or users in the group** —
+always with **Assign members** in the Frontegg Portal, including when you bring
+back a device you offboarded earlier. Adding members there first takes each one
+out of the `AgenShield — Uninstall` offboarding group and refuses one that
+already belongs to another campaign's group (see
+[One device, one campaign](#one-device-one-campaign)). A device added directly
+in Entra or Intune skips both steps: if it is still in `AgenShield — Uninstall`
+from an earlier offboarding, the uninstall script assigned to that group
+uninstalls AgenShield from it again.
 
 <Note>
-  The connected push deploys the **all-in-one profile and the package** — the
-  same two objects it has always created. To push things yourself instead, use
-  [Manual upload](#manual-upload).
+  **The profile pairing below is for macOS.** Connected macOS push deploys the
+  all-in-one profile and package. Windows uses its own enrollment profile and
+  installer app; do not upload a macOS profile to Windows. To push macOS
+  objects yourself, use [Manual upload](#manual-upload).
 
 Mixing the two is what to avoid, and the rule is per device: **one profile and
 one installer.** Never both profiles (they carry the same payloads, and a
@@ -139,11 +148,11 @@ failure tells you exactly which one is missing.
   Each unlocks one specific feature and nothing else. To add one later, append
   the permission and re-run **Grant admin consent** — no reconnection needed.
 
-| Permission                                | Enables                                                              | If you skip it                                                                     |
-| ----------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `Device.Read.All`                         | Browsing your device directory from the Frontegg Portal              | Add devices to the group from Intune or Entra instead                              |
-| `User.Read.All`                           | Browsing your users from the Frontegg Portal                         | Manage user-group membership from Intune or Entra instead                          |
-| `DeviceManagementManagedDevices.Read.All` | Rollout progress, and matching enrolled Macs to their Intune records | Pushes and offboarding still work; the rollout view reports the missing permission |
+| Permission                                | Enables                                                                                                           | If you skip it                                                                                                                                                                                |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Device.Read.All`                         | Browsing your device directory from the Frontegg Portal                                                           | Add devices in Intune or Entra instead, without the Frontegg Portal's membership checks                                                                                                       |
+| `User.Read.All`                           | Browsing your users from the Frontegg Portal                                                                      | Manage user-group membership from Intune or Entra instead                                                                                                                                     |
+| `DeviceManagementManagedDevices.Read.All` | Rollout progress, matching enrolled devices to their Intune records, and uninstalling a device when you revoke it | Pushes and offboarding still work; the rollout view reports the missing permission. Revoking a device no longer uninstalls it through Intune, and no error is shown: use **Offboard** instead |
 
 </Accordion>
 
@@ -165,12 +174,13 @@ From **Devices** (on the campaign) or **Settings → Integrations**, choose
 **Push to Intune**:
 
 1. Pick the campaign.
-2. Name the group — e.g. `AgenShield — Engineering Macs`.
+2. Name the group — e.g. `AgenShield — Pilot`.
 3. Choose whether members will be **devices** or **users**.
 
-AgenShield creates the group, materializes and assigns the campaign profile,
-and assigns the installer app. It runs in the background and usually completes
-in under a minute; the screen updates itself.
+AgenShield creates the group, materializes and assigns the applicable campaign
+profiles, and assigns the installer apps. It runs in the background; check the
+reported result for each platform rather than assuming one platform's success
+proves the other.
 
 Then **add members**. Nothing deploys until the group has members — Intune
 applies a profile only to members of the group it is assigned to.
@@ -190,15 +200,15 @@ removes it from the other group first.
 
 ## Track the rollout
 
-With `DeviceManagementManagedDevices.Read.All` granted, the push view joins your
-group membership against Intune's device inventory and against the Macs that
-actually enrolled:
+With `DeviceManagementManagedDevices.Read.All` granted, the push view compares
+group membership with Intune's inventory and the devices that actually enrolled.
+Where Windows rollout is available, review macOS and Windows separately:
 
-| State         | Meaning                                                      |
-| ------------- | ------------------------------------------------------------ |
-| **Connected** | AgenShield is installed and the Mac is reporting recently    |
-| **Installed** | AgenShield is installed, but the Mac has not reported lately |
-| **Pending**   | In the group, AgenShield not installed yet                   |
+| State         | Meaning                                                                       |
+| ------------- | ----------------------------------------------------------------------------- |
+| **Connected** | AgenShield is enrolled and the device is reporting recently                   |
+| **Installed** | An AgenShield installation is matched, but the device has not reported lately |
+| **Pending**   | In the group, with no matching AgenShield installation yet                    |
 
 It also lists enrolled devices that are **not** in the group — usually machines
 that were installed by script before the MDM push existed.
@@ -214,10 +224,80 @@ Use **Offboard**, not "remove from group".
   unmanaged.
 </Warning>
 
-Offboarding does both halves: it removes the member from the campaign group
-**and** adds it to the connection's uninstall group, whose assigned script
-removes AgenShield at the next check-in. Re-onboarding later pulls it back out
-of the uninstall group automatically, so no device ever sits in both.
+Successful offboarding removes the selected member from this connection's install
+targeting **before** adding it to the uninstall group, whose assigned script
+removes AgenShield at the next check-in. Re-onboarding removes uninstall-group
+membership before restoring install targeting.
+
+<Note>
+  If offboarding reports conflicting user/device assignments or incomplete
+  inventory, it has not established a safe uninstall transition. Have IT remove
+  or migrate the relevant other install assignments, resolve the inventory
+  access issue where reported, then retry the supported offboarding action.
+  Do not remove an entire user from targeting just to offboard one of that
+  user's devices. A refused action is not successful uninstall evidence.
+</Note>
+
+### Windows offboarding and reinstall timing
+
+On Windows, the uninstall script and the installer app are run by the Intune
+Management Extension, which checks in on its own schedule — about every eight
+hours, separately from the device's MDM sync. An offboarded device can
+therefore keep AgenShield for hours. To make a device check in now, restart the
+**Microsoft Intune Management Extension** service on it, for example from an
+administrator PowerShell session:
+
+```powershell
+Restart-Service -Name IntuneManagementExtension
+```
+
+If you add a device back to a campaign within about 24 hours of offboarding
+it, Intune may not reinstall AgenShield until the Intune Management Extension's
+per-app re-evaluation (GRS) record expires — about 24 hours after the
+`AgenShield Installer` app was last processed on that device. Restarting the
+Intune Management Extension does not bypass it. Wait for the interval to pass,
+or clear the device's cached evaluation of the app by following
+[Microsoft's guidance](https://learn.microsoft.com/en-us/answers/questions/1180865/intune-install-apps-how-to-re-run-the-installation).
+
+A reinstalled app is not a re-enrolled device. After AgenShield is reinstalled,
+confirm that `agenshield status` reports the device enrolled with the expected
+organization and cloud URL, and that the device appears under **Devices** in
+the Frontegg Portal and receives your organization's policy. If enrollment is
+refused because the device was enrolled before, follow
+[Re-enroll a previously enrolled Windows device](#re-enroll-a-previously-enrolled-windows-device).
+
+### Re-enroll a previously enrolled Windows device
+
+Offboarding removes AgenShield from a Windows device, but it does not release
+the device's registration with your organization. When AgenShield is installed
+on that device again, in the same campaign or another one, enrollment can be
+refused: the AgenShield app says **Your organization already holds a
+registration for this device**, and `agenshield status` does not report the
+device as enrolled. The device keeps retrying, but nothing done on the device
+resolves this, including entering a token.
+
+To recover:
+
+1. In the Frontegg Portal, go to **Devices**, find the device's old record, and
+   **revoke** it.
+2. Check whether revoking also offboarded the device. It does when AgenShield
+   can identify the device in Intune and no other active record claims it, as
+   described in
+   [Revoking a device your MDM manages](../../deployment/devices.mdx#revoking-a-device-your-mdm-manages):
+   the device is removed from every AgenShield campaign group on this
+   connection and added to the `AgenShield — Uninstall` group, whose script
+   removes AgenShield at the next check-in. If the device is now in
+   `AgenShield — Uninstall`, promptly add it back to its campaign with
+   **Assign members**, which takes it out of the uninstall group.
+3. Confirm that the device enrolled again before you consider it done:
+   `agenshield status` reports it enrolled with the expected organization and
+   cloud URL, the device appears under **Devices** in the Frontegg Portal and
+   receives your organization's policy, and, after any required restart,
+   `agenshield doctor` shows **Kernel enforcement** as
+   `driver loaded and enforcing policy`.
+
+If the uninstall script ran before you added the device back, AgenShield has
+been removed again, and the reinstall timing above applies.
 
 ## Keep it healthy
 
@@ -231,14 +311,242 @@ Two maintenance actions, both in **Settings → Integrations**:
 If someone edits or deletes an AgenShield object in Intune or Entra, **Check
 setup** reports it and **Repair** converges it back.
 
-**Publishing a new release:** the installer app is published once per connection
-and shared by every campaign group. After a new AgenShield release, re-publish
-it from the connection — every campaign picks up the new version without being
-re-pushed.
+<Note>
+  If a revoked campaign still shows **cleanup pending**, use **Retry cleanup**
+  where that action is available, rather than repairing an install you revoked.
+  Resolve any reported assignment conflict or connection error first. Cleanup
+  can partially complete: a blocked or failed retry may have removed some
+  deployments while retaining others for a safe later retry. It is not an
+  all-or-nothing result and does not prove device uninstall succeeded. Review
+  the fully cleaned and remaining deployment counts before treating retained
+  objects as removed.
+</Note>
+
+The installer apps are shared across campaign groups. Refreshing one does not
+update devices that already have AgenShield; see
+[Update Windows devices](#update-windows-devices). Use **Check setup** and
+**Repair** when the Windows or macOS object reports drift.
+
+## Windows deployment
+
+Windows connected push needs devices that Intune already manages and a Windows
+release that includes the Intune assets. Check both once, below, before your
+first Windows push. Your environment must also expose the Windows installer
+app, enrollment profile, and setup checks; if those objects are not available
+in your connection, use [Manual Windows setup](#manual-windows-setup).
+Availability of a Windows download alone does not prove Intune delivery has
+completed.
+
+### Prepare Intune for Windows enrollment
+
+AgenShield reaches only Windows devices that are enrolled in Intune. A device
+that is Entra-joined but not enrolled never receives the app or the profiles,
+and does not appear under **Devices → Windows** in Intune. Check once per
+tenant:
+
+| Requirement                    | What to check                                                                                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **MDM user scope**             | **Devices → Device onboarding → Enrollment → Windows → Automatic Enrollment.** Set **MDM user scope** to **All**, or to **Some** with a group containing the users who sign in to the devices. **None** enrolls nothing automatically |
+| **Licensing**                  | Each enrolling user has an Intune license. Automatic enrollment also needs Microsoft Entra ID P1 or P2                                                                                                                                |
+| **MFA and Conditional Access** | If Conditional Access requires MFA, an automatic enrollment attempted during a password-only sign-in is refused — Entra's sign-in logs show `AADSTS50076` — and the device stays unenrolled                                           |
+| **Enrollment discovery**       | Automatic discovery for a custom sign-in domain needs Microsoft's `EnterpriseEnrollment` DNS record. Without it, enrolling by hand asks for a server address                                                                          |
+
+To enroll a device that missed automatic enrollment, sign in to it as a user in
+the MDM user scope and open **Settings → Accounts → Access work or school →
+Enroll only in device management**, then complete the MFA prompt. If Windows
+asks for a server address, enter
+`https://enrollment.manage.microsoft.com/enrollmentserver/discovery.svc`. An
+enrolled device shows an **Info** button on its work or school account; without
+one, Intune does not manage the device. See Microsoft's guides to
+[automatic enrollment](https://learn.microsoft.com/en-us/intune/device-enrollment/windows/enable-automatic-mdm)
+and
+[enrollment discovery](https://learn.microsoft.com/en-us/intune/device-enrollment/windows/create-cname-autodiscovery).
+
+<Note>
+  The MDM user-scope group and the AgenShield campaign group are unrelated. The
+  user scope decides which users' devices Intune manages at all; the campaign
+  group decides which managed devices receive AgenShield. A device needs both:
+  adding it to a campaign group does not enroll it in Intune.
+</Note>
+
+### Windows release requirements
+
+Intune delivery takes its Windows assets from the current release on the
+Windows release channel used for Intune. That release must include the signed
+installer, the bootstrap, and the policy definitions (ADMX and ADML). When it
+does not, the connection still reports connected but its test shows a Windows
+readiness warning, and a push reports Windows delivery as degraded with:
+
+```text
+Windows release <version> on channel "<channel>" is missing MDM assets: installer, bootstrap, admx, adml. Publish a Windows release that includes them, then run Check setup → Repair.
+```
+
+The list names only the assets that are missing, and macOS delivery is not
+affected. Windows releases are published by Frontegg: contact support with the
+version and channel from the message. Once a complete release is available,
+run [Check setup and then Repair](#keep-it-healthy) on the push. A failed
+Windows delivery is not retried by later pushes on its own.
+
+### What the push creates on Windows
+
+For supported x64 Windows devices, the connected path creates:
+
+- A **Win32 app**, `AgenShield Installer`, shared across the connection and
+  assigned as required. It runs a signed, tokenless bootstrap as SYSTEM; the
+  device downloads and verifies the MSI.
+- A **shared Windows definition profile**, `AgenShield Windows Policy Template`,
+  per connection. It ingests the AgenShield ADMX once and is assigned to
+  campaign groups.
+- A **Windows enrollment profile** per campaign, named after the campaign rather
+  than the group: `AgenShield — <campaign name> (Windows)`. It sets only the
+  machine enrollment policy, including the token and cloud URL, plus the
+  organization label and version pin when provided. It does not ingest another
+  ADMX copy. A campaign's version pin applies to Windows as well as macOS.
+  Windows and macOS releases are published independently, so pin a version that
+  includes a signed Windows installer, or clear the pin. Never bypass installer
+  verification.
+- A shared Windows uninstall script, `AgenShield (uninstall, Windows)`, for the
+  `AgenShield — Uninstall` offboarding group.
+
+Assign the shared definitions, campaign enrollment profile, and app to the same
+intended devices. A device already enrolled is not silently moved to another
+cloud or campaign.
+Do not assign duplicate ADMX definitions at the same URI. Revoking one campaign
+removes its enrollment profile, not definitions shared by other campaigns.
+Keep one enrollment-policy source per device: do not overlap another Intune
+connection's campaign or a manual/GPO enrollment policy on the same devices.
+Different profile names do not isolate the machine's enrollment settings.
+
+The Windows app detects the presence of the 64-bit machine `Version` value
+under `HKEY_LOCAL_MACHINE\SOFTWARE\AgenShield`. That is an install indicator,
+not proof of enrollment, current policy, or active protection. Confirm all of
+those on a pilot device before expanding the rollout.
+
+Windows Server is not an Intune enrollment target. Use Intune-supported Windows
+11 devices for delivery qualification, and do not count a server-side install
+test as proof that the app and profile reached an Intune-managed device.
+
+Your organization's PowerShell and application-control policies still apply.
+Where IT enforces `AllSigned`, approve the verified bootstrap signer as a
+machine trusted publisher before unattended execution; signature validity
+alone is not publisher-trust authorization. The generated non-interactive
+command fails rather than waiting for publisher approval. Paste the campaign's
+generated commands verbatim, and do not weaken IT policy to make a deployment run.
+
+### What to expect on a device
+
+Intune schedules the app and the configuration profiles independently, so they
+can reach a device in either order and tens of minutes apart — longer right
+after a group membership change. Installation does not depend on enrollment:
+
+- If the app arrives first, AgenShield installs and waits for its
+  configuration. It checks again every few minutes and enrolls on its own once
+  the enrollment profile arrives. No one needs to be signed in.
+- While it waits, the AgenShield app can show a form asking for an enrollment
+  token. **Do not enter a token on a managed device.** Let the profile arrive,
+  or follow the
+  [Intune delivery checks](../../troubleshoot/windows-intune-device-not-protected.mdx)
+  if it does not.
+
+### Restart to complete protection
+
+A newly installed or updated AgenShield driver starts after the device
+restarts. When an installation or upgrade installs or updates the driver, the
+installer returns `3010` (restart required). The Intune app treats `3010` as a
+soft restart: Intune reports the installation as successful and only shows a
+restart notification, as the assignment's end-user notification setting
+allows. That notification is easy to miss, and nobody sees it when no one is
+signed in. Intune does not force a soft restart, and the assignment's restart
+grace period does not apply to it. Use your normal restart process, or the
+**Restart** device action in Intune for a pilot device.
+
+Until the restart, AgenShield keeps protecting the device with the previously
+loaded driver if one is running — after an upgrade, for example. Otherwise it
+reports **Restart required to enable kernel protection**.
+
+`agenshield doctor` cannot tell the previous driver from the updated one. While
+the previous driver is still running, **Kernel enforcement** reads
+`driver loaded and enforcing policy`, the same as after the restart, so that
+result alone does not show that the update is complete. To confirm the restart
+happened, compare the device's last boot time with the last time AgenShield
+was installed or updated, in an administrator PowerShell session:
+
+```powershell
+(Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'MsiInstaller'; Id = 1033 } |
+  Where-Object { $_.Properties[0].Value -eq 'AgenShield' } |
+  Select-Object -First 1 -ExpandProperty TimeCreated
+```
+
+The first time is the last boot. The second is the last time Windows Installer
+installed AgenShield, whether through Intune or as an update from the Frontegg
+Portal. If the boot time is earlier, the device has not restarted since then:
+restart it. With Fast Startup turned on, shutting down and starting again is
+not a restart, so use **Restart**. If the second command finds no event, the
+Application log no longer holds it; restart the device to be sure. Once the
+boot time is later, run `agenshield doctor` and confirm that **Kernel
+enforcement** reads `driver loaded and enforcing policy`.
+
+Earlier releases return `0` without requesting the restart; restart those
+devices too before expecting kernel protection.
+
+### Update Windows devices
+
+Windows devices on AgenShield **2026.10.2 or later** update from the Frontegg
+Portal, like Macs: use **Update endpoint** on a device, or turn on **Automatic
+updates** under **Settings → Endpoint updates**. There is nothing to repackage
+or reassign in Intune. The device verifies the signed installer before it
+installs, and an update that replaces the driver needs the
+[restart above](#restart-to-complete-protection).
+
+A device on an earlier version cannot be updated from the Frontegg Portal:
+**Update endpoint** is refused with a message naming the minimum version, and
+automatic updates leave the device where it is. Bring it to 2026.10.2 or later
+with a new signed installer through Intune. The shared installer app does not
+do this for you, because its detection rule treats any installed version as
+present. See
+[Update limitations](../../troubleshoot/windows-install-warnings.mdx#update-limitations).
+
+### Manual Windows setup
+
+No tenant connection is needed:
+
+1. Create or reuse the shared ADMX definition profile once, then deliver a
+   separate enrollment-policy profile for the campaign. A direct registry-policy
+   deployment is an alternative when your management tool supports it.
+2. Where the campaign supplies `AgenShield.intunewin`, add it through
+   **Apps → Windows → Add → Windows app (Win32)**. Copy the campaign's install
+   and uninstall commands, choose **System** install behavior, and use its
+   64-bit registry existence detection rule. Assign as **Required** to the same
+   device group.
+3. If the package is unavailable, deploy the signed MSI or package the signed
+   Windows bootstrap using your normal Win32 app process. Do not rename a
+   `.ps1` or ZIP file to `.intunewin`.
+4. Preserve the installer return codes: `0` is success, `3010` requires a
+   restart, and `1618` is retryable. Signature or checksum failures must remain
+   failures.
+5. Check app installation, configuration-setting results, AgenShield
+   enrollment, received policy, and any required restart independently.
+
+The complete keys, ADMX setup, OMA-URIs, commands, detection rule, and offboarding
+steps are in [Windows MDM deployment](../../deployment/mdm/windows.mdx).
+
+<Warning>
+  Windows uninstall deliberately leaves
+  `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Frontegg\AgenShield`. During offboarding,
+  remove the managed enrollment policy separately and remove the device from
+  required-install targeting as well as uninstalling AgenShield. Leaving a
+  required app or another campaign assignment can reinstall it, and retained
+  enrollment settings can enroll it again. Removing only the enrollment profile
+  does not uninstall an already enrolled device.
+</Warning>
 
 ## Manual upload
 
 No tenant connection, no app registration. Push the two objects yourself.
+
+The instructions in this section are for **macOS**. For Windows, use
+[Manual Windows setup](#manual-windows-setup).
 
 ### 1. The configuration profile
 

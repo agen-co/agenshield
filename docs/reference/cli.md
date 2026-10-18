@@ -28,18 +28,23 @@ suppress progress display, which is what you want in MDM scripts and CI.
 
 ## Status and health
 
-| Command                                  | What it does                                                                                 |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `agenshield status`                      | The system report: service, policy, sync, sign-in, enforcement, detected agents. Start here. |
-| `agenshield status --install`            | What is installed — version, paths, and component state.                                     |
-| `agenshield doctor`                      | Check every component and name what is failing.                                              |
-| `agenshield doctor --fix`                | Attempt to repair what it can.                                                               |
-| `agenshield doctor --cleanup-extensions` | Purge stale extension versions macOS has left waiting to uninstall on reboot.                |
+| Command                                  | What it does                                                                                                                                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agenshield status`                      | The system report: service, policy, sync, sign-in, enforcement, detected agents. Start here.                                                                                          |
+| `agenshield status --install`            | What is installed — version, paths, and component state.                                                                                                                              |
+| `agenshield doctor`                      | Check every component and name what is failing.                                                                                                                                       |
+| `agenshield doctor --fix`                | Attempt to repair what it can.                                                                                                                                                        |
+| `agenshield doctor --cleanup-extensions` | Purge stale AgenShield extension versions macOS has left waiting to uninstall on reboot. Most Macs refuse this while System Integrity Protection is on; a restart always clears them. |
 
 The status report ends in one verdict line: `✅ Healthy`,
 `○ Running, not enrolled`, `⚠ Degraded` (with the reasons),
 `⛔ Boot-locked`, or `✗ Not running`.
 [Common issues](../troubleshoot/common-issues.mdx) covers what to do about each.
+
+A `○ Note:` line above the verdict is information, never a problem, and does
+not change the verdict — for example
+[Restart recommended](../troubleshoot/restart-recommended.mdx). With `--json`, notes
+are in the `notes` array, next to `reasons`.
 
 ## Working with agents
 

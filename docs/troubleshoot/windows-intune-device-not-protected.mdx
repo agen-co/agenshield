@@ -1,0 +1,149 @@
+---
+title: Windows Device Not Protected After an Intune Push
+sidebarTitle: Windows Intune Delivery
+icon: monitor-x
+description: Trace a Windows device in an Intune campaign from Intune enrollment through app and configuration delivery to enrollment and active protection, and find the stage that stopped.
+---
+
+A Windows device is in an AgenShield campaign group, but the Frontegg Portal
+does not show it as enrolled and protected. Delivery has five stages, and each
+depends on the one before it. Work through them in order and stop at the first
+one that fails.
+
+## 1. Intune manages the device
+
+- In the Intune admin center, the device is listed under **Devices → Windows**
+  with a recent check-in.
+- On the device, **Settings → Accounts → Access work or school** shows an
+  **Info** button on the work or school account. Selecting **Info → Sync** makes
+  the device check in now.
+
+If either is missing, the device is not enrolled in Intune and AgenShield
+cannot reach it. A refused sign-in with `AADSTS50076` in Entra's sign-in logs
+means enrollment ran without MFA. See
+[Prepare Intune for Windows enrollment](../deployment/mdm/intune.mdx#prepare-intune-for-windows-enrollment).
+
+## 2. The device is targeted correctly
+
+- The device belongs to exactly one AgenShield campaign group, and was added
+  with **Assign members** in the Frontegg Portal. Intune's MDM user-scope group
+  is a different group and does not deliver AgenShield.
+- The device is **not** in the `AgenShield — Uninstall` group. If it is, the
+  uninstall script assigned to that group removes AgenShield. Remove the device
+  from the campaign group, then add it again with **Assign members**, which
+  takes it out of the uninstall group first.
+- The push in the Frontegg Portal does not report Windows delivery as degraded.
+  A message that the Windows release is missing MDM assets is explained in
+  [Windows release requirements](../deployment/mdm/intune.mdx#windows-release-requirements).
+
+## 3. The app and the configuration arrived
+
+The app and the configuration profiles are delivered on independent schedules
+and can arrive tens of minutes apart. The app is installed by the Intune
+Management Extension, which checks in on its own schedule; restarting its
+service on the device makes it check in now. A device added back within about
+24 hours of being offboarded may not get the app until that interval has
+passed; see
+[Windows offboarding and reinstall timing](../deployment/mdm/intune.mdx#windows-offboarding-and-reinstall-timing).
+In the Intune admin center, check:
+
+- **Apps → Windows →** `AgenShield Installer` **→ Device install status**.
+- **Devices → Manage devices → Configuration →** `AgenShield Windows Policy Template`
+  and the campaign's profile, `AgenShield — <campaign name> (Windows)`. Review
+  each profile's device and per-setting status.
+
+Some report views stay empty until you select **Generate report**. Generate the
+report and check its timestamp before reading it as current.
+
+On the device, in an administrator PowerShell session:
+
+1. **Policy definitions.** A key whose name starts with `AgenShield` under
+   `HKLM\SOFTWARE\Microsoft\PolicyManager\AdmxInstalled` shows the definitions
+   were ingested:
+
+   ```powershell
+   Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\PolicyManager\AdmxInstalled' -Recurse |
+     Where-Object PSChildName -like 'AgenShield*' |
+     Select-Object -ExpandProperty Name
+   ```
+
+2. **Enrollment settings.** List the value **names** under
+   `HKLM\SOFTWARE\Policies\Frontegg\AgenShield`:
+
+   ```powershell
+   (Get-Item 'HKLM:\SOFTWARE\Policies\Frontegg\AgenShield').Property
+   ```
+
+   Expect `CampaignToken` and `CloudUrl`, plus `Org` and `PinnedVersion` when
+   the campaign sets them.
+
+3. **Configuration errors.** In Event Viewer, open **Applications and Services
+   Logs → Microsoft → Windows → DeviceManagement-Enterprise-Diagnostics-Provider
+   → Admin**. Errors there name the configuration settings Windows rejected.
+
+4. **App installation.** The Intune management extension records each download,
+   install, and detection attempt for Windows apps in
+   `%ProgramData%\Microsoft\IntuneManagementExtension\Logs\AppWorkload.log`.
+   Search it for `AgenShield` and note the installer exit code; the codes are
+   listed under [Unattended bootstrap](../deployment/mdm/windows.mdx#unattended-bootstrap).
+   AgenShield's own installation logs are under
+   `%ProgramData%\AgenShield\logs\install`.
+
+<Warning>
+  Never share the **values** under `HKLM\SOFTWARE\Policies\Frontegg\AgenShield`.
+  `CampaignToken` is your campaign's enrollment token. List names only, as
+  above, and do not attach registry exports or screenshots of that key to a
+  ticket.
+</Warning>
+
+## 4. The device enrolled
+
+If the AgenShield app says **Your organization already holds a registration
+for this device**, the device was enrolled before and its old record must be
+revoked first; follow
+[Re-enroll a previously enrolled Windows device](../deployment/mdm/intune.mdx#re-enroll-a-previously-enrolled-windows-device),
+and do not enter a token.
+
+Otherwise, if the app shows a form asking for an enrollment token, the
+configuration has not arrived yet: go back to stage 3. **Do not enter a token
+on a managed device.** AgenShield checks again every few minutes and enrolls on
+its own once the configuration arrives.
+
+Run `agenshield status` and confirm that **Cloud** shows the expected
+organization and cloud URL. If the configuration is present but the device
+still does not enroll, see
+[Windows managed installations](../troubleshoot/install-succeeds-but-device-never-enrolls.mdx#windows-managed-installations).
+
+## 5. Protection is active
+
+Run `agenshield doctor`. **Kernel enforcement** should read
+`driver loaded and enforcing policy`.
+
+If it reports **Restart required to enable kernel protection**, no AgenShield
+driver is running and the device has not restarted since AgenShield was
+installed or upgraded. Intune only shows a restart notification, which is easy
+to miss, and does not force the restart; see
+[Restart to complete protection](../deployment/mdm/intune.mdx#restart-to-complete-protection).
+For any other required action, see
+[Windows install warnings](../troubleshoot/windows-install-warnings.mdx).
+
+After an upgrade, `doctor` can read `driver loaded and enforcing policy`
+before the restart: the previously loaded driver keeps protecting the device
+until the restart loads the updated one, and `doctor` cannot tell the two
+apart. To confirm the device restarted after the upgrade, compare its last boot
+time with the installation time as shown in
+[Restart to complete protection](../deployment/mdm/intune.mdx#restart-to-complete-protection).
+
+## When to escalate
+
+Contact support if a device passes the checks up to a stage and that stage
+still fails. Include the stage, the Intune report for the app or profile, the
+`AgenShield` entries from `AppWorkload.log`, any matching Event Viewer errors,
+and a diagnostics bundle:
+
+```bash
+agenshield doctor --bundle
+```
+
+See [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx). Reference
+the campaign by name; never include the enrollment token.

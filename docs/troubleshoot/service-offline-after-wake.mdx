@@ -1,0 +1,80 @@
+---
+title: AgenShield Shows Offline After the Mac Wakes or Restarts
+sidebarTitle: Offline after wake or restart
+icon: power-off
+description: What it means when the AgenShield menu bar shows Offline and the dashboard never finishes connecting after a Mac wakes from sleep, resumes from a dead battery, or restarts — and how to bring protection back.
+---
+
+## What you see
+
+- The AgenShield menu bar shows **Offline**, or says the background service is
+  not running.
+- The AgenShield dashboard stays on its connecting screen and offers only
+  **Download diagnostics**, which reports that the background service was
+  unreachable.
+- Clicking **Start** in the menu bar asks for your password, starts the
+  service, and a few seconds later it is offline again.
+- In the Frontegg Portal the device stops reporting.
+
+This typically follows a moment when the Mac was very slow: waking from a long
+sleep, resuming after the battery ran out, or running out of memory.
+
+## What it means
+
+AgenShield includes an availability safeguard. If it sees that the Mac cannot
+start even basic system programs for about a minute, it assumes protection
+might be the cause, pauses enforcement and stops the background service so the
+Mac stays usable. That is the intended trade: a usable Mac first.
+
+In **2026.10.2 and earlier**, the safeguard did not reliably let the service
+come back afterwards. A restart could be undone if the service took longer than
+about three minutes to start, and a manual **Start** could be stopped again
+seconds later. The Mac stays usable, but it is **not protected** until the
+service is running again. This is fixed in the release after 2026.10.2: the
+safeguard no longer stops a service that is starting, and it brings the service
+back on its own once the Mac has been responsive for a few minutes.
+
+## Confirm it
+
+In Terminal:
+
+```bash
+sudo launchctl print system/com.frontegg.AgenShield.daemon
+```
+
+`Could not find service "com.frontegg.AgenShield.daemon" in domain for system`
+means the service is not loaded. If this file exists, the safeguard paused
+protection:
+
+```bash
+ls -l /var/db/com.frontegg.AgenShield/watchdog-engaged
+```
+
+The safeguard's log, with the time it acted, is
+`/var/log/agenshield/storm-watchdog.log`.
+
+## Bring protection back
+
+Upgrade to the current release when you can. Until then, run these two
+commands in order — removing the file first stops the safeguard from undoing
+the start:
+
+```bash
+sudo rm /var/db/com.frontegg.AgenShield/watchdog-engaged
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.frontegg.AgenShield.daemon.plist
+```
+
+Give the service up to three minutes to start on a busy Mac, then check:
+
+```bash
+agenshield status
+```
+
+If it still reports enforcement as paused, run `agenshield doctor --fix` — see
+[Enforcement Paused](../troubleshoot/extension-self-disabled.mdx).
+
+## When to contact support
+
+If the service stops again on its own, or the Mac becomes slow every time the
+service starts, [collect a diagnostics bundle](../troubleshoot/collecting-diagnostics.mdx)
+and contact support. Include roughly when the Mac woke up or restarted.
