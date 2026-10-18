@@ -9,6 +9,52 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.10.2 - 2026-10-18
+
+
+### New
+
+- **Skill approval requests.** Admins can now request and track individual skill approvals directly from the dashboard.
+- **Claude Code mod protection.** AgenShield now detects mods, reviews their capabilities, and requires explicit approval before use.
+- **Improved device enrollment.** Admin enrollment tokens now take priority over MDM profiles, enabling safer device re-enrollment and tenant switching.
+
+### Improved
+
+- **Security hardening:** Updated third-party components used by the desktop app, background service, MCP integrations, web server, parsers, and networking stack to patched versions, reducing exposure to known dependency vulnerabilities.
+- **Packaged dashboard reliability:** Added release-time checks that prevent AgenShield from shipping a desktop dashboard that would launch with missing packaged dependencies, helping keep tray, dashboard, and diagnostics features available after installation.
+- **Better MCP management.** More accurate server detection, safer approvals, improved configuration handling, and more reliable connections.
+- **Clearer scan reports.** More detailed results and warnings simplify troubleshooting.
+- **More reliable monitoring.** Improved automatic recovery for resource monitoring, MCP connections, and agent sessions.
+- **Better MDM enrollment recovery.** Clearer errors and recovery guidance when enrollment or management profiles fail.
+- **Lower resource usage.** Reduced disk writes, excessive logging, and background processing during heavy agent activity.
+- **More reliable upgrades.** Better recovery after sleep, automatic post-upgrade refresh, and improved update retries.
+- **Clearer secret-exposure alerts.** Admins receive safer details about redacted credentials and their destinations when identifiable.
+- **Smarter resource scanning.** Faster skill inventory scans and fewer repeated uploads for missing files.
+- **Clearer update status.** Users now receive a single notification before and after AgenShield updates, including cloud-forced updates, so brief network interruptions during extension replacement are easier to understand.
+
+### Fixed
+
+- **MCP security and stability.** Strengthened access controls, policy enforcement, approval handling, connection reliability, and inventory cleanup.
+- **Skill, mod, and workspace security.** Strengthened approval validation, credential protection, policy enforcement, and safe workspace cleanup and recovery.
+- **Secret redaction.** Credentials in skills, plugins, and instruction files are now redacted before upload.
+- **Enrollment and authentication security.** Fixed tenant-switching issues, incorrect profile selection, stale authentication responses, and sensitive token exposure.
+- **Sign-in stability.** Temporary connection issues no longer trigger unnecessary sign-ins.
+- **System extension status.** Fixed incorrect protection states caused by stale extension records, with clearer restart guidance.
+- **Network protection and reliability.** Fixed enforcement continuing while paused, intermittent HTTP 502 errors, and delayed emergency-disable status updates.
+- **Large plugin uploads.** Increased upload limits for Claude Code plugins.
+- **Cleaner uninstall recovery.** Uninstall now clears AgenShield certificate settings from the user's session and preserves a usable certificate bundle for already-open terminals and IDEs, so tools like curl and git keep working after removal.
+
+### Windows (alpha — coming soon)
+
+Windows support is in **alpha** and not yet available for production use. It is not installed or enabled by the macOS release; the items below track progress toward general availability.
+
+- **Windows tray packaging is more reliable:** Alpha Windows builds now run the same packaged-dashboard dependency checks before staging the tray app, so a tray that would fail to launch is caught during packaging instead of being silently included.
+- **Windows recovery evidence is validated more carefully.** Alpha Windows recovery checks now re-read and verify source contents before trusting cached evidence, reducing the chance that a rapid same-size file rewrite is missed.
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.10.0 - 2026-10-06
 
 ### New
