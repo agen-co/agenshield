@@ -9,6 +9,43 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.10.3 - 2026-10-29
+
+
+New
+
+* Zero-touch user assignment for MM-enrolled Macs. AgenShield automatically links devices to users defined in the MDM profile, without requiring login, and preserves assignments during temporary cloud failures.
+* Per-device inspection CAs. Managed Macs can use device-specific intermediate CAs chained to the campaign root, with keys secured in Keychain and safe, deferred issuance.
+
+Improved
+
+* Network health monitoring. Device health now tracks IPv4 and IPv6 reachability, helping identify broken connectivity.
+* Better responsiveness under load. Dashboard, alerts, activity, agent views, and Claude Code tools remain responsive during heavy system activity.
+* More efficient TLS inspection. Improved handling of large headers, connection closures, logging overhead, and rejected cloud uploads.
+* Safer inspection CA rotation. Root changes require signature, trust, and MDM pin validation, while failed issuance or locked devices retain their existing CA.
+* Enhanced network diagnostics. Diagnostic bundles now capture network-extension timings, DNS, proxy and network state, plus recent Wi-Fi events for easier troubleshooting.
+* More complete proxy troubleshooting. Diagnostic bundles now include recent content-filter drops from other apps and longer network logs, making it easier to investigate proxy-related connectivity issues after sleep or filter restarts.
+
+Fixed
+
+* Authentication & enrollment. Improved session recovery after sleep, preventing unnecessary sign-outs and credential loss. Fixed stale enrollment status, delayed login screens, and unnecessary System Settings prompts during MDM-approved installations.
+* Network & connection recovery. Fixed IPv6 fallback failures, hanging MCP calls, stale HTTP/2 connections, and connectivity issues after sleep or unattended content-filter restarts.
+* TLS inspection & certificates. Fixed compatibility with macOS’s built-in git and curl, certificate issuance while locked, and certificate persistence across restarts. Device CA policy changes now reliably trigger issuance. Existing roots may require a one-time trust approval.
+* Claude Code & managed settings. Improved compatibility with claude.ai-managed configurations, accurate reporting of applied controls, and safe cleanup of removed policies without overwriting developer-owned settings or crossing account boundaries.
+* Managed settings reporting. Shielded agent settings failures stay visible in the portal until the affected agent recovers or the control is no longer enforced, so successful updates elsewhere on the device no longer mask a remaining failure.
+* Agent activity & policy enforcement. Fixed merged activity records and incorrect timestamps, preserving distinct commands and enforcement details. Agent-specific command exceptions remain narrowly scoped, with unsupported argument-specific exceptions rejected.
+* Security & emergency controls. Strengthened local endpoint authentication, updated vulnerable Node2Shell runtimes, and added Electron HTTP-response protections. Emergency disable now persists through recovery until explicitly cleared, with safer command retries.
+* Installation and first-run enforcement. Fresh MDM installs now confirm AgenShield health on stock fleet Macs, clear fail-open mode faster once healthy, and correctly attach a sign-in started from the AgenShield window during installation.
+* Certificate rotation continuity. Macs now switch to a new device or tenant root only after macOS trusts it, unmanaged Macs can complete verified root rotations, running agent sessions keep trusting the proxy through staged rotations, and failed Trust Certificate actions explain what went wrong.
+* MDM-delivered certificate roots. Macs whose MDM profile already installs the AgenShield root now use a device certificate under that trusted root during upgrades, avoiding unnecessary administrator trust prompts even when the tenant has not switched certificate policy yet.
+* More accurate upgrade events. Brief content-filter and proxy handoff gaps during upgrades are no longer reported as divert evasions, reducing false enforcement noise while preserving required blocking behavior.
+* MDM profile updates no longer disable protection. Editing or reapplying an MDM profile can no longer leave AgenShield’s network extension off; AgenShield detects the macOS teardown and reactivates protection instead of treating it as a restart-required or user-disabled state.
+
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.10.2 - 2026-10-18
 
 
