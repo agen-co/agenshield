@@ -1,0 +1,66 @@
+---
+title: Network Filter Off After a Profile Change
+sidebarTitle: Network Filter Off After Profile Change
+icon: network
+description: Why the network extension can show "Restart required" and the network filter pauses right after your MDM updates the AgenShield configuration profile, and how to bring it back without waiting.
+---
+
+Right after your MDM updates the AgenShield configuration profile — for example
+after you switch campaigns, change the enrollment token, or edit any part of the
+profile — a Mac can show:
+
+> **Restart required** — This Mac needs a restart to finish activating the
+> Network extension.
+
+and the menu bar posts **AgenShield network filter paused**. In System Settings
+the AgenShield network extension may be missing, and the security extension may
+briefly show as disabled.
+
+## What this means
+
+macOS applies a profile update by removing everything the old profile installed
+and then installing the new one. Removing the system-extension approval, even
+for a moment, makes macOS turn off the extensions it approved. AgenShield turns
+the security extension back on within seconds.
+
+On affected versions, AgenShield misread the network extension's state as
+waiting for a restart and did not turn it back on. After two minutes it paused
+the network filter so your network keeps working. Network traffic is then
+allowed without inspection until the extension returns.
+
+Affected: 2026.10.4 release candidates and earlier. Later releases turn the
+network extension back on automatically after a profile change.
+
+## How to confirm
+
+```bash
+systemextensionsctl list | grep com.frontegg.AgenShield.network-extension
+```
+
+If no line ends in `[activated enabled]` and the newest one ends in
+`[terminated waiting to uninstall on reboot]`, the extension was turned off by
+the profile change.
+
+## How to recover
+
+Either of these brings the network extension back:
+
+- Run `agenshield activate` on the Mac. It re-activates the extensions without a
+  restart.
+- Restart the Mac. AgenShield turns the extension back on after the restart.
+
+On a Mac where AgenShield was installed or updated more than a day before the
+profile change, affected versions can also leave the security extension off.
+`agenshield activate` restores both.
+
+## Avoiding it
+
+Deliver the system-extension approval in a profile you do not edit. Every change
+to a profile that carries it makes macOS turn the extensions off and on again.
+
+## When to escalate
+
+If `agenshield activate` reports that the network extension activates on the
+next restart, and the extension is still off after a restart, download a
+diagnostics bundle from the AgenShield app and contact support. See
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).

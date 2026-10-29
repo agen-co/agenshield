@@ -460,16 +460,20 @@ signed in. Intune does not force a soft restart, and the assignment's restart
 grace period does not apply to it. Use your normal restart process, or the
 **Restart** device action in Intune for a pilot device.
 
-Until the restart, AgenShield keeps protecting the device with the previously
-loaded driver if one is running — after an upgrade, for example. Otherwise it
-reports **Restart required to enable kernel protection**.
+Until the restart, what protects the device depends on the installation:
 
-`agenshield doctor` cannot tell the previous driver from the updated one. While
-the previous driver is still running, **Kernel enforcement** reads
-`driver loaded and enforcing policy`, the same as after the restart, so that
-result alone does not show that the update is complete. To confirm the restart
-happened, compare the device's last boot time with the last time AgenShield
-was installed or updated, in an administrator PowerShell session:
+- **After an upgrade**, the previously loaded driver keeps protecting the
+  device. `agenshield doctor` reports **Kernel enforcement** as
+  `previous driver enforcing — restart to load the updated driver`.
+- **After a first installation**, no AgenShield driver is running, and
+  AgenShield reports **Restart required to enable kernel protection**. An
+  upgrade from an older AgenShield version can also stop the previous driver
+  during installation; `agenshield doctor` then reports the same message.
+
+After the restart, **Kernel enforcement** reads
+`driver loaded and enforcing policy`. To confirm the restart independently,
+compare the device's last boot time with the last time AgenShield was installed
+or updated, in an administrator PowerShell session:
 
 ```powershell
 (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
@@ -643,6 +647,26 @@ deploy **both** profiles, or **both** installers, to the same Mac.
 
 If your tenant uses Multi-Admin Approval, the profile and the script may sit in
 pending approval before they deploy.
+
+## Sign people in from the profile (macOS)
+
+The AgenShield settings in the macOS profile (preference domain
+`com.frontegg.AgenShield`) can carry an optional `UserEmail` key with the value
+`{{mail}}`. Intune fills it in with the email of each Mac's user, and with a
+valid email the Mac counts as signed in as that person and never shows a
+sign-in page; a real sign-in still wins.
+
+- Use the variable, never a literal email: a literal value names every Mac in
+  the group as the same person.
+- Leave `DeviceName` out. Intune has no variable for a Mac's computer name.
+- If Intune has no email to fill in for a Mac, the value counts as no email and
+  that Mac keeps the normal sign-in.
+
+Intune does not sign Windows devices in this way. On Windows computers in an
+Active Directory domain, a Group Policy startup script can; see
+[Sign people in with Group Policy](../../deployment/mdm/windows.mdx#sign-people-in-with-group-policy).
+The full behaviour, and what to check on a Mac, is under
+[Sign people in from the profile](../../deployment/mdm/other.mdx#sign-people-in-from-the-profile).
 
 ## Next
 

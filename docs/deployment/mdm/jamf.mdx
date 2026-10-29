@@ -79,6 +79,27 @@ reporting self-maintaining:
 Invert it (`is not`) to get "managed Macs still missing AgenShield" — a useful
 scope for the install policy and a useful dashboard for the rollout.
 
+### 4. Optional: sign people in from the profile
+
+The AgenShield settings in the profile (preference domain
+`com.frontegg.AgenShield`) can carry two optional keys that Jamf Pro fills in
+for each Mac with its payload variables:
+
+| Key          | Value           | Filled from                                          |
+| ------------ | --------------- | ---------------------------------------------------- |
+| `UserEmail`  | `$EMAIL`        | The email in the computer's User and Location record |
+| `DeviceName` | `$COMPUTERNAME` | The computer's name                                  |
+
+With a valid `UserEmail`, the Mac counts as signed in as that person and never
+shows a sign-in page; a real sign-in still wins. `DeviceName` names the Mac in
+the Frontegg Portal device list. Use the variables, never literal values. A Mac
+whose User and Location record has no email gets no usable value and keeps the
+normal sign-in. A Mac enrolled with an explicit token takes the email when the
+profile's campaign belongs to the same organization, and keeps the normal sign-in
+otherwise. The full
+behaviour, and what to check on a Mac, is under
+[Sign people in from the profile](../../deployment/mdm/other.mdx#sign-people-in-from-the-profile).
+
 ## Jamf Now
 
 Jamf Now groups everything into a **Blueprint**, and has no script object — so

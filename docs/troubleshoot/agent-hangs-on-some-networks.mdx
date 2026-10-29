@@ -1,0 +1,91 @@
+---
+title: 'An AI agent hangs on some networks but works without AgenShield'
+sidebarTitle: 'Agent hangs on some networks'
+icon: 'wifi-off'
+description: 'On some Wi-Fi or office networks an AI coding agent stalls while thinking, and the same agent works when AgenShield is not installed. What it means, how to confirm it, and how to work around it until you update.'
+---
+
+## What you are seeing
+
+On some networks, but not others, an AI coding agent such as Claude Code:
+
+- stops at a progress message such as **Choreographing…** or **Thinking…** and
+  never finishes;
+- sometimes recovers after a retry, then stalls again;
+- or fails with **API Error: EPROTO: The TLS handshake failed. Does the server
+  speak TLS on this port?**;
+- works normally on the same network when AgenShield is not installed.
+
+Browsers and other apps on the Mac keep working.
+
+## What it means
+
+The network gives your Mac an IPv6 address, but IPv6 traffic does not actually
+reach the internet. Apps cope with this by trying IPv6 and IPv4 at the same time
+and keeping whichever connects first, so you normally never notice.
+
+On affected AgenShield versions, a connection AgenShield inspects reported
+success to the agent before the real connection to the service existed. The
+agent then kept the IPv6 attempt, which could never connect, and dropped the
+IPv4 one that would have worked.
+
+## How to confirm
+
+1. Check whether IPv6 works on this network. In Terminal:
+
+   ```bash
+   curl -6 -sS -m 5 -o /dev/null https://www.apple.com && echo "IPv6 works"
+   curl -4 -sS -m 5 -o /dev/null https://www.apple.com && echo "IPv4 works"
+   ```
+
+   This issue applies when only **IPv4 works** is printed.
+
+2. Right after a hang, look for a matching line in the AgenShield log:
+
+   ```bash
+   grep connect-timeout ~/.agenshield/logs/daemon.log | tail
+   ```
+
+   A line with an IPv6 address after `connect=` and `up=0 down=0`, timed at the
+   moment of the hang, confirms it.
+
+## How to recover
+
+Update AgenShield. Fixed versions complete an inspected connection only after
+the connection to the service succeeds, and report a failure the same way the
+network would, so the agent falls back to IPv4 by itself.
+
+Until you can update, either use a network where IPv6 works, or turn IPv6 off
+for the network interface you are on:
+
+```bash
+networksetup -setv6off Wi-Fi
+```
+
+Turn it back on once you have updated:
+
+```bash
+networksetup -setv6automatic Wi-Fi
+```
+
+Replace `Wi-Fi` with the service name shown by
+`networksetup -listallnetworkservices` if you use a different interface.
+
+## Affected versions
+
+AgenShield **2026.10.2 and earlier**, on macOS and Windows. The release notes
+name the first version that includes the fix; macOS gets it first, and Windows
+in a later release. Some later macOS pre-release builds could still show the
+**EPROTO** error for a few minutes after AgenShield restarted or under heavy
+connection load. The next release reduces that: once AgenShield has seen an
+IPv6 address fail on your current network, it steers new connections to it
+away at once. Right after AgenShield or the network changes it has not seen
+that failure yet, so the error can still appear briefly. If it persists, use
+the workaround above.
+
+## When to contact support
+
+- The agent still hangs after you updated, on a network where only IPv4 works.
+- The agent hangs on a network where both IPv6 and IPv4 work.
+
+Include the output of `agenshield doctor` when you contact support.

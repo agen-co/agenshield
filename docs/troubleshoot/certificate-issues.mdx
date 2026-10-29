@@ -14,19 +14,21 @@ description: 'Everything that can go wrong with the AgenShield network inspectio
 This is the single page for every AgenShield certificate symptom. Find yours in
 the table, then read that section.
 
-| What you are seeing                                              | Go to                                                                          |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Setup keeps showing **Trust the AgenShield certificate**         | [Certificate not trusted](#certificate-not-trusted)                            |
-| The menu bar shows **Root CA: installed (not trusted)**          | [Certificate not trusted](#certificate-not-trusted)                            |
-| It started after an update that ran overnight                    | [Certificate not trusted](#certificate-not-trusted)                            |
-| The menu bar shows **Root CA: trusted for your account only**    | [Trusted for your account only](#trusted-for-your-account-only)                |
-| The menu bar has no **Trust Certificate** action                 | [Certificate not trusted](#certificate-not-trusted)                            |
-| An AI agent or tool cannot reach a server that used to work      | [Certificate not trusted](#certificate-not-trusted)                            |
-| macOS asks for your password after an update                     | [Password prompt after an update](#password-prompt-after-an-update)            |
-| An update warns the certificate is not trusted                   | [Password prompt after an update](#password-prompt-after-an-update)            |
-| Connections fail with `CERT_HAS_EXPIRED`                         | [Expired certificate errors](#expired-certificate-errors)                      |
-| You fixed it, but the warning will not clear                     | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing) |
-| You trusted it in Keychain Access, but it still says not trusted | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing) |
+| What you are seeing                                              | Go to                                                                             |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Setup keeps showing **Trust the AgenShield certificate**         | [Certificate not trusted](#certificate-not-trusted)                               |
+| The menu bar shows **Root CA: installed (not trusted)**          | [Certificate not trusted](#certificate-not-trusted)                               |
+| It started after an update that ran overnight                    | [Certificate not trusted](#certificate-not-trusted)                               |
+| The menu bar shows **Root CA: trusted for your account only**    | [Trusted for your account only](#trusted-for-your-account-only)                   |
+| The menu bar has no **Trust Certificate** action                 | [Certificate not trusted](#certificate-not-trusted)                               |
+| An AI agent or tool cannot reach a server that used to work      | [Certificate not trusted](#certificate-not-trusted)                               |
+| macOS asks for your password after an update                     | [Password prompt after an update](#password-prompt-after-an-update)               |
+| An update warns the certificate is not trusted                   | [Password prompt after an update](#password-prompt-after-an-update)               |
+| Your MDM profile installs the root, yet an update asked to trust | [Prompt although MDM installed the root](#prompt-although-mdm-installed-the-root) |
+| Connections fail with `CERT_HAS_EXPIRED`                         | [Expired certificate errors](#expired-certificate-errors)                         |
+| `git` or `curl` reports a **format error** in a certificate      | [Format error in git or curl](#format-error-in-git-or-curl)                       |
+| You fixed it, but the warning will not clear                     | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing)    |
+| You trusted it in Keychain Access, but it still says not trusted | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing)    |
 
 ## The two commands, if you already know what you are doing
 
@@ -357,6 +359,45 @@ To confirm your own Mac is fine, run the
 [check command](#first-check-what-state-you-are-in). If it reports success, the
 warning was the false one and there is nothing to do.
 
+### Prompt although MDM installed the root
+
+Your MDM profile installs the AgenShield root certificate, yet right after an
+update from `2026.10.2` macOS asked an administrator to trust an AgenShield
+certificate (seen on macOS 26.5).
+
+The update renews, once, the certificate this Mac had generated for itself, and
+macOS cannot trust that one without asking. Affected versions kept using it
+unless your organization's certificate policy was switched in the Frontegg
+Portal, so the root delivered by your profile was not used.
+
+From the fixed version on, a Mac whose profile installs the root uses a
+certificate issued under that root as soon as it updates, whatever the policy
+says, and never asks for trust. Until then, approving or dismissing the dialog
+are both safe: dismissing it only pauses inspection of encrypted traffic until
+the certificate is trusted.
+
+|          |                                                             |
+| -------- | ----------------------------------------------------------- |
+| Affected | updates from `2026.10.2` to `2026.10.4` up to `rc.28022428` |
+| Fixed in | the first `2026.10.4` build after `rc.28022428`             |
+
+**Macs installed with the installation script.** A Mac on which AgenShield was
+installed with an enrollment token (the installation script or a token on the
+command line) and that also receives your MDM profile kept asking after every
+update, even on the versions above. AgenShield deliberately keeps such a Mac in
+the organization its token chose, and it wrongly applied the same rule to the
+certificate your profile installs. From the fixed version on, the root your
+profile delivers is used on these Macs too, and they are not asked to trust a
+certificate.
+
+|          |                                                                       |
+| -------- | --------------------------------------------------------------------- |
+| Affected | Macs installed with an enrollment token, all versions before the fix  |
+| Fixed in | the first release after `2026.10.3-beta.28195143` (late October 2026) |
+
+You do not need to create a new campaign, re-upload the profile or reinstall:
+updating is enough.
+
 ### What to do
 
 <Steps>
@@ -378,7 +419,9 @@ warning was the false one and there is nothing to do.
 A genuine request for your password is normal in one case: when the certificate
 has actually been renewed or replaced. macOS treats a new certificate as new, and
 approving it once is required. That is a rare, deliberate event — not something
-that should accompany routine updates.
+that should accompany routine updates. The update that fixes the
+[format error in git or curl](#format-error-in-git-or-curl) is one of these: it
+re-issues the certificate once, so expect one prompt after it.
 
 ---
 
@@ -432,6 +475,97 @@ configuration change is needed.
 
 ---
 
+## Format error in git or curl
+
+### What you are seeing
+
+`git` or `curl` fails on a site that AgenShield inspects, while the same site
+works in a browser and in your AI agent's own requests:
+
+```text
+SSL certificate problem: format error in certificate's notBefore field
+```
+
+It happens with the `git` and `curl` that ship with macOS, which an AI agent
+uses whenever it fetches a repository or downloads a file.
+
+### What it means
+
+The certificates AgenShield used for inspection wrote their validity dates in a
+format the certificate standard does not allow for dates before 2050. Most
+software accepts it anyway; the TLS library built into macOS's own `git` and
+`curl` does not, and rejects the AgenShield root certificate itself. Nothing is
+expired and nothing is misconfigured on your Mac.
+
+### How to fix it
+
+Update AgenShield. The fixed version issues its certificates in the standard
+format and re-issues the AgenShield root certificate **once** on each Mac, with
+the same key. macOS treats the re-issued certificate as new, so you will be
+asked once to approve it (see
+[Certificate not trusted](#certificate-not-trusted) if nobody is at the Mac when
+the update runs). After that, `git` and `curl` work against inspected sites, and
+the previous certificate is removed automatically.
+
+|          |                        |
+| -------- | ---------------------- |
+| Affected | `2026.10.2` and before |
+| Fixed in | `2026.10.3` and later  |
+
+Until you update, a `git` or `curl` that you install yourself (for example from
+Homebrew) is not affected.
+
+---
+
+## An agent that was already running stops trusting AgenShield
+
+### What you are seeing
+
+An AI agent that has been running for a while (a Claude Code session, Cursor, an
+MCP client) suddenly fails every request to an inspected destination, often an
+HTTP MCP server, with:
+
+```text
+unable to get local issuer certificate
+```
+
+A new session of the same agent on the same Mac, started now, connects without a
+problem. So do `curl` and the browser.
+
+### What it means
+
+Most AI agents read the certificates they trust **once, when they start**, and
+never look again. AgenShield's root certificate changed while the agent was
+running, so the agent still trusts the old one and rejects the new one.
+
+The root certificate changes when:
+
+- AgenShield is reinstalled, or the Mac is enrolled into a different campaign;
+- your organization rotates its campaign certificate;
+- during installation, for a few seconds, while the Mac receives its own
+  certificate.
+
+Nothing is wrong with the Mac's trust settings. The certificate on disk and in
+the System keychain is the new one, and it is trusted.
+
+### How to fix it
+
+Quit the agent and start it again. For Claude Code, exit the session and run
+`claude` again (`claude --resume` continues where you left off). For Cursor or VS
+Code, quit the app completely and reopen it, so that its background processes
+restart too.
+
+### Planned certificate rotations
+
+From the first AgenShield release after October 27, 2026, AgenShield adds your
+organization's next certificate to the agents' trusted certificates as soon as
+the rotation is prepared, and reports the Mac as ready only after that. Agents
+started after that point keep working through the switch. An agent that was
+already running before the rotation was prepared still needs a restart, as does
+every running agent after a reinstall or a move to another campaign.
+
+---
+
 ## When to escalate
 
 Collect a diagnostics bundle and contact support if:
@@ -443,7 +577,8 @@ Collect a diagnostics bundle and contact support if:
 - the setup step clears and then returns without an update having been installed;
 - the prompt still appears on every update on `2026.8.5` or later;
 - connections still fail with a certificate-expired error after updating and
-  restarting.
+  restarting;
+- a newly started agent fails with `unable to get local issuer certificate`.
 
 Include the exact error text and the destination host. See
 [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).

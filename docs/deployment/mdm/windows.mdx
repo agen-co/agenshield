@@ -13,6 +13,8 @@ line. No user needs to be signed in for the device to enroll.
 For the connected Intune path, see
 [Microsoft Intune](../../deployment/mdm/intune.mdx#windows-deployment). This guide covers
 manual Intune profiles, Group Policy, Configuration Manager, and other tools.
+With Group Policy, a startup script can also sign each person in, with no
+sign-in; see [Deploy with Group Policy](#deploy-with-group-policy).
 
 <Note>
   Use the Windows artifacts supplied by your campaign and selected release.
@@ -56,6 +58,8 @@ All values are strings (`REG_SZ`):
 | `CloudUrl`      | Yes      | The cloud URL supplied with that campaign                                                                                            |
 | `Org`           | No       | Organization display label                                                                                                           |
 | `PinnedVersion` | No       | Exact release version for an unattended bootstrap install. It must name a published release that includes a signed Windows installer |
+| `UserEmail`     | No       | The device's user. Written only by the [Group Policy startup script](#deploy-with-group-policy); not part of the enrollment policy   |
+| `DeviceName`    | No       | The computer's name for the **Devices** list. Written only by the Group Policy startup script                                        |
 
 Deliver `CampaignToken` and `CloudUrl` together from the same policy. Incomplete
 settings are not combined with a different enrollment source. Do not use
@@ -90,6 +94,9 @@ Where your selected release supplies the templates:
    organization label and pinned version only if needed.
 4. Scope the policy to the same computer group as the installer and confirm
    successful policy application on a pilot device.
+
+To also sign people in from Group Policy, use the campaign's startup script
+instead of this policy; see [Deploy with Group Policy](#deploy-with-group-policy).
 
 The language file supplied is English; it is not a claim that the installer
 has been qualified on every Windows language edition.
@@ -227,7 +234,8 @@ msiexec.exe /i "AgenShield.msi" /qn /norestart
 
 In Configuration Manager, use a machine-context application deployment and
 configure reboot handling for Windows Installer's return codes. Group Policy
-Software Installation can assign the MSI to computers. For other management
+Software Installation can assign the MSI to computers; see
+[Deploy with Group Policy](#deploy-with-group-policy). For other management
 tools, use their machine installation mechanism and the same policy settings.
 
 Do not infer active protection from a completed `/qn` install. With
@@ -258,15 +266,19 @@ On a pilot device:
 
 1. Confirm the installer reports success. An installation or upgrade that
    installs or updates the AgenShield driver returns `3010`, and the new
-   driver starts only after the device restarts. Until then AgenShield keeps
-   enforcing with a previously loaded driver if one is running, or reports
+   driver starts only after the device restarts. Until then, after an upgrade,
+   the previous driver keeps protecting the device and `agenshield doctor`
+   reports **Kernel enforcement** as
+   `previous driver enforcing — restart to load the updated driver`. After a
+   first installation, or an upgrade from an older version that stopped its
+   driver during installation, it reports
    **Restart required to enable kernel protection**.
 2. After a `3010`, restart the device and confirm that it restarted after the
-   installation. `agenshield doctor` cannot show this: while a previously
-   loaded driver is still running, **Kernel enforcement** reads
-   `driver loaded and enforcing policy`, the same as after the restart.
-   Instead, compare the last boot time with the last time Windows Installer
-   installed AgenShield, in an administrator PowerShell session:
+   installation. Once the restart has loaded the updated driver,
+   **Kernel enforcement** reads `driver loaded and enforcing policy`. To check
+   the restart independently, compare the last boot time with the last time
+   Windows Installer installed AgenShield, in an administrator PowerShell
+   session:
 
    ```powershell
    (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
@@ -292,9 +304,155 @@ On a pilot device:
 The installer and policy can arrive in either order. An installed, unenrolled
 device retries enrollment every few minutes until complete machine policy
 arrives; while it waits, the AgenShield app can show a form asking for an
-enrollment token. Do not enter a token on a managed device. Changing the
-policy does not silently re-enroll an already enrolled device into a different
-cloud or campaign.
+enrollment token. Do not enter a token on a managed device.
+
+A policy never redirects an enrolled device to another cloud: changing
+`CloudUrl` does not move it, and moving a device to another cloud takes an
+uninstall. Within the same cloud, a device the policy enrolled follows the
+policy's campaign token: change `CampaignToken` to another campaign on that
+cloud and the device re-enrolls into it in place, in one step, keeping its user
+and name. If that fails, nothing changes and the device retries. A device
+enrolled with an explicit token, or opted out of managed enrollment, is not
+moved by the policy, and disabling the policy moves nothing. Neither is a
+device enrolled by an AgenShield version that did not yet record its enrollment
+token: it keeps its enrollment, and the background service logs that the token
+changed.
+
+## Deploy with Group Policy
+
+On computers in an Active Directory domain, one Group Policy Object (GPO) can
+deliver both parts and also sign each person in, with no sign-in:
+
+- the signed MSI, assigned to the computers through **Software Installation**;
+- the campaign's **configuration startup script**, which writes the enrollment
+  values, the device's user and the computer's name at every startup.
+
+The startup script replaces the **Configure campaign enrollment** ADMX policy
+for these computers. Both write the same enrollment values, so do not apply
+both to the same computer.
+
+### Install the MSI with Software Installation
+
+1. Verify the signed x64 MSI's checksum and signature, then copy it to a share
+   that **Domain Computers** can read, for example
+   `\\fileserver\Software\AgenShield\AgenShield.msi`. Use the UNC path, never a
+   mapped drive.
+2. In Group Policy Management, edit the GPO and open **Computer Configuration →
+   Policies → Software Settings → Software installation**. Choose **New →
+   Package**, select the MSI through its UNC path, and choose **Assigned**.
+3. A package assigned to computers installs at startup, before anyone signs in.
+
+To move the computers to a newer release later, add it as an upgrade of the
+existing package (the package's **Upgrades** tab), not as a second assigned
+package.
+
+### Add the configuration startup script
+
+1. In the Frontegg Portal, open the campaign and download its Group Policy
+   startup script, `gpo-enrollment.ps1`.
+2. In the same GPO, open **Computer Configuration → Policies → Windows Settings →
+   Scripts (Startup/Shutdown) → Startup**. On the **PowerShell Scripts** tab,
+   choose **Show Files…**, copy the script into that folder, then choose
+   **Add…** and select it.
+3. The script runs as SYSTEM at every startup and writes these string values
+   under `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Frontegg\AgenShield`:
+
+| Value                       | What the script writes                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------ |
+| `CampaignToken`, `CloudUrl` | The campaign's enrollment values                                                     |
+| `Org`, `PinnedVersion`      | The campaign's values when it sets them; removed when it does not                    |
+| `UserEmail`                 | The email of the work account that joined the computer to Microsoft Entra ID         |
+| `DeviceName`                | The computer's name, as Windows reports it in `COMPUTERNAME` (at most 15 characters) |
+
+When it finds no email or no name, it removes that value. Because it reads both
+again at every startup, a renamed or re-joined computer is picked up at its next
+restart.
+
+<Warning>
+  The script carries the campaign's enrollment token, and the scripts in a GPO
+  can be read by every user in the domain. Treat it like the policy value above:
+  restrict who can edit the GPO, and rotate the campaign if the token is
+  exposed. If your computers allow only signed PowerShell scripts (`AllSigned`),
+  sign the script with a certificate they trust before you add it.
+</Warning>
+
+### Sign people in with Group Policy
+
+When a computer joins Microsoft Entra ID, Windows records the account that
+joined it. The script writes the first email recorded there to `UserEmail`,
+skipping the placeholder accounts Windows Autopilot and provisioning packages
+use (`autopilot@…`, `foouser@…` and `package_…`).
+
+With a valid `UserEmail` and nobody signed in, the computer counts as signed in
+as that person from the moment it enrolls: the email travels with its
+registration. AgenShield shows the email as the user, offers no **Log in**,
+and your organization's policy rules for that email apply. Rules written for a
+user's id, role or group do not match, because there is no sign-in to read them
+from. Someone signing in still wins, and signing out falls back to the email.
+A new email switches the computer to that person. When the script finds no
+email and removes it, nothing changes: the computer stays signed in as the last
+person it named, until it names someone else or the device is re-enrolled.
+A computer enrolled with an explicit token instead of the policy's ignores the
+email: the explicit enrollment wins, and its people sign in as usual.
+
+Know where the email comes from before you rely on it:
+
+- **Only computers joined to Microsoft Entra ID**, including hybrid joined
+  ones, can have a join email, and only when the join recorded one. A computer
+  joined only to an on-premises domain gets no `UserEmail`; its people sign in
+  from the AgenShield app as before.
+- **The email is the account that joined the computer**, which is not always
+  the person who uses it. A computer that IT staff joined with their own account
+  is named as that staff member. Check the email on a pilot computer, and
+  re-join computers that were joined that way.
+- **The email belongs to the computer**, not to each Windows account on it: on
+  a shared computer, everyone is that one person.
+- **Administrators on the computer can change the value** until the next
+  startup rewrites it. The email is checked only for being an email address,
+  not against your user directory.
+
+This needs a Frontegg Portal version and an AgenShield release that support
+signing in from Group Policy. Earlier AgenShield releases ignore `UserEmail` and
+`DeviceName` and keep the normal sign-in.
+
+### Apply the GPO and verify
+
+1. Link the GPO to the organizational unit that holds the computers. Software
+   Installation and the startup script must reach the same computers.
+2. On a pilot computer, in an administrator command prompt, run:
+
+   ```powershell
+   gpupdate /force
+   ```
+
+   Then restart the computer. Software Installation and startup scripts run
+   only at startup, so the policy refresh alone installs nothing. If the
+   installation needs a restart to start the AgenShield driver, restart once
+   more; see [Detect and verify the deployment](#3-detect-and-verify-the-deployment).
+
+3. Confirm the GPO applied and the script wrote its values, without printing
+   the token:
+
+   ```powershell
+   gpresult /scope computer /r
+   Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Frontegg\AgenShield' |
+     Select-Object CloudUrl, UserEmail, DeviceName
+   ```
+
+   If `UserEmail` is missing, check that the computer is joined to Microsoft
+   Entra ID (`dsregcmd /status` shows `AzureAdJoined : YES`) and which email the
+   join recorded:
+
+   ```powershell
+   Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Control\CloudDomainJoin\JoinInfo' |
+     Get-ItemProperty | Select-Object UserEmail
+   ```
+
+4. Run `agenshield status`. It shows the device enrolled and the person's
+   email as its user, followed by `(from MDM)`.
+5. In the Frontegg Portal, open **Devices**. The computer appears under its
+   name, with the person's email as its user, signed in through MDM. The
+   AgenShield app on the computer shows the email and offers no **Log in**.
 
 ## Updates and offboarding
 
@@ -321,7 +479,11 @@ the machine enrollment policy** at
 owned by your management tool, not the installer. Remove required-install
 assignments and remove the managed enrollment policy separately during
 offboarding, or the device can be reinstalled and enrolled again. Removing
-enrollment policy alone does not uninstall an existing installation.
+enrollment policy alone does not uninstall an existing installation. With
+[Group Policy](#deploy-with-group-policy), remove the computer from the GPO's
+scope, or the startup script and the assigned package from the GPO, before you
+uninstall; otherwise the next startup writes the values and installs the
+package again.
 
 ## Troubleshooting
 

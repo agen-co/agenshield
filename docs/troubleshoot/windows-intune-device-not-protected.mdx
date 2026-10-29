@@ -75,7 +75,8 @@ On the device, in an administrator PowerShell session:
    ```
 
    Expect `CampaignToken` and `CloudUrl`, plus `Org` and `PinnedVersion` when
-   the campaign sets them.
+   the campaign sets them. `UserEmail` and `DeviceName` appear only on
+   computers that run the [Group Policy startup script](../deployment/mdm/windows.mdx#deploy-with-group-policy).
 
 3. **Configuration errors.** In Event Viewer, open **Applications and Services
    Logs → Microsoft → Windows → DeviceManagement-Enterprise-Diagnostics-Provider
@@ -127,11 +128,11 @@ to miss, and does not force the restart; see
 For any other required action, see
 [Windows install warnings](../troubleshoot/windows-install-warnings.mdx).
 
-After an upgrade, `doctor` can read `driver loaded and enforcing policy`
-before the restart: the previously loaded driver keeps protecting the device
-until the restart loads the updated one, and `doctor` cannot tell the two
-apart. To confirm the device restarted after the upgrade, compare its last boot
-time with the installation time as shown in
+If it reports `previous driver enforcing — restart to load the updated driver`,
+the driver that was loaded before an upgrade is still protecting the device and
+the updated driver loads at the next restart. Restart the device; to confirm
+the restart happened, compare its last boot time with the installation time as
+shown in
 [Restart to complete protection](../deployment/mdm/intune.mdx#restart-to-complete-protection).
 
 ## When to escalate

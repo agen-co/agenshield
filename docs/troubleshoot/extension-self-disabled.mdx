@@ -95,6 +95,18 @@ immediately.
   for the automatic recovery.
 </Note>
 
+## Paused from the Frontegg Portal
+
+When an administrator pauses enforcement from the Frontegg Portal, it stays
+paused until they resume it there. `doctor --fix` also ends it on the Mac.
+
+<Note>
+  In **2026.10.2 and earlier**, and in the 2026.10.4 release candidates, a pause
+  made from the portal ended on its own about ten minutes later, and again after
+  each restart. If you pause enforcement to test whether AgenShield is behind a
+  problem, upgrade first so the pause lasts for the whole test.
+</Note>
+
 ## Recovery messages in 2026.9.1
 
 In **2026.9.1**, a failed startup recovery attempt can be described as a

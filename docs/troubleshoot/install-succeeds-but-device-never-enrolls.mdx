@@ -167,10 +167,13 @@ see [Windows install warnings](../troubleshoot/windows-install-warnings.mdx).
 
 ### Already enrolled with a different cloud URL
 
-Managed settings are an initial enrollment channel, not an automatic migration
-mechanism. An already-enrolled device is not re-registered or repointed when a
-different campaign policy arrives. A reported enrollment endpoint conflict
-means the new policy disagrees with the existing enrollment.
+Managed settings never redirect an enrolled device to another cloud, so a
+policy that names a different cloud URL does not move it, whatever its token;
+moving clouds takes an uninstall. A reported enrollment endpoint conflict means
+the new policy disagrees with the existing enrollment. Within the same cloud, a
+device the policy enrolled re-enrolls in place when the campaign token changes,
+and keeps its current enrollment if that fails. A device enrolled with an
+explicit token is never moved.
 
 Have IT correct the assignment or perform the approved offboarding and
 re-enrollment process. Do not delete credentials or change protected files to

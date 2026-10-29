@@ -1,0 +1,73 @@
+---
+title: You Are Signed Out of AgenShield Every Few Days
+sidebarTitle: Signed Out Every Few Days
+icon: log-out
+description: Understand repeated sign-in prompts after sleep, distinguish a temporary connection problem from an expired session, and collect the information support needs.
+---
+
+The AgenShield app asks you to **sign in again**, typically after the Mac has
+been asleep overnight or for a long meeting. It happens again a day or two later,
+even though you did not sign out and nothing about your account changed.
+
+**Confirmed affected version:** `2026.10.2`. Additional recovery improvements
+are being validated for an upcoming release. Contact support to confirm whether
+your installed version contains them.
+
+## What this means
+
+Your sign-in is renewed in the background. A renewal can replace the previous
+sign-in credential. If its answer is lost, a later renewal may be refused.
+
+A sleeping Mac can wake briefly for maintenance. On affected versions, time
+asleep counted against a renewal's waiting period. A slow answer could be lost
+even though the sign-in service had already issued a replacement.
+
+Temporary network trouble, unavailable saved sign-in information, or a slow
+connection to the app can also resemble a sign-out. These conditions do not by
+themselves mean your account session expired. Support can distinguish them from
+a confirmed refusal by the sign-in service.
+
+## What state your Mac is in
+
+Signing out does not remove the Mac's enrollment or your organization's policy.
+While the account connection is unavailable, the Frontegg Portal may show stale
+information or a device without a signed-in user. Check the app's protection
+status separately: a network-inspection problem can affect connections even
+when your saved sign-in is intact.
+
+## How to confirm it
+
+Record the exact message, app version, and approximate time. Note whether the
+Mac had just woken, was locked, or was offline. If you collect diagnostics
+([Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx)) right after it
+happens, support can check whether your session ended or recovery was delayed.
+
+## How to recover
+
+If the app says **Your session expired**, sign in again from AgenShield.
+If it says it is reconnecting or your saved sign-in is unavailable, unlock the
+Mac, restore its network connection, and allow recovery to finish. Contact
+support if the message persists. If your version offers **Sign in to repair**,
+that action lets you replace unavailable sign-in information while keeping your
+saved account until the new sign-in succeeds. A temporary lock does not require
+this action. Do not remove saved credentials or inspection certificates as a
+troubleshooting step.
+
+## Recovery improvements being validated
+
+- Time asleep does not consume a renewal's response deadline, and renewal
+  happens before account reporting resumes after wake.
+- Temporary connection and storage failures preserve your saved user and keep
+  retrying automatically, including after a long outage.
+- Delayed answers from an earlier sign-in cannot replace a newer one.
+- The app distinguishes unavailable saved sign-in information from a confirmed
+  expired session.
+
+A session that the sign-in service has expired or revoked still requires a new
+sign-in. Support may also need to help if saved sign-in information is damaged.
+
+## When to escalate
+
+Contact support if prompts repeat, recovery never completes, or protection
+reports a separate problem. Include the app version, the approximate time, and
+a diagnostics bundle collected soon afterward.

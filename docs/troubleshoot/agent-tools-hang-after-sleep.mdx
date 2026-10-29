@@ -1,0 +1,60 @@
+---
+title: 'AI agent tools stop responding after the Mac wakes from sleep'
+sidebarTitle: 'Agent tools hang after sleep'
+icon: 'moon'
+description: 'After the Mac wakes from sleep, an AI coding agent''s connected tools hang until Wi-Fi is turned off and on. What it means, how to confirm it, and how to recover.'
+---
+
+## What you are seeing
+
+After you open the lid or wake the Mac on the same network:
+
+- an AI coding agent such as Claude Code waits a long time on a connected tool
+  (an MCP server or connector), or the tool call fails;
+- turning Wi-Fi off and on again makes the tools work at once;
+- the agent's own chat and your browser keep working.
+
+## What it means
+
+AgenShield inspects the traffic your organization's policy asks it to inspect,
+such as calls to MCP servers. To keep those calls fast, it reuses connections to
+the services between calls.
+
+While the Mac sleeps, the service closes those connections. A Mac that wakes on
+the same network does not hear about it. On affected versions AgenShield reused
+a closed connection after wake, and the call waited until the network gave up.
+Turning Wi-Fi off and on changes the Mac's network address, which made
+AgenShield drop every reused connection.
+
+## How to confirm
+
+Right after a hang, look at the AgenShield log:
+
+```bash
+grep -E "system wake detected|host addresses changed" ~/.agenshield/logs/daemon.log | tail
+```
+
+A `system wake detected` line shortly before the hang, followed by
+`host addresses changed` only after you toggled Wi-Fi, matches this issue.
+
+## How to recover
+
+Update AgenShield. Fixed versions check the connections they reuse on every
+wake and close the ones that no longer answer, so the agent reconnects on its
+own. They never reuse a connection that has been idle for a minute or more.
+
+Until you can update, turn Wi-Fi off and on after waking the Mac, or restart the
+agent session.
+
+## Affected versions
+
+AgenShield **2026.10.4 and earlier** on macOS. The release notes name the first
+version that includes the fix.
+
+## When to contact support
+
+- Tools still hang after a wake on a fixed version.
+- Websites or other apps also stop working after a wake. That is a different
+  problem: note the time, then collect diagnostics as described in
+  [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx) before you
+  toggle Wi-Fi.

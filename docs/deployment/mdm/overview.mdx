@@ -139,6 +139,18 @@ Step 4 is why a leaked token cannot impersonate an enrolled Mac: the device's
 lasting identity is a keypair generated on the device, and the token authorizes
 joining and nothing else.
 
+A profile never redirects an enrolled Mac to another cloud; moving a Mac to
+another cloud takes an uninstall. Within the same cloud, a Mac the profile
+enrolled follows the profile's token: push a profile with another campaign's
+token on that cloud and the Mac re-enrolls into that campaign in place, in one
+step, keeping its user and name. If that fails, nothing changes and the Mac
+retries. A Mac enrolled with an explicit token, by the install command or by
+hand, keeps the campaign that token chose; when the profile's campaign belongs to
+the same organization, the Mac still takes the profile's user and trusted root.
+A Mac enrolled by an AgenShield version that did not yet record its enrollment
+token is not moved either: it keeps its enrollment,
+and the background service logs that the token changed.
+
 Treat it as a secret all the same. It is a **bearer credential that does not
 expire**, and anyone holding it can enroll a machine into your fleet — so scope
 it to the devices you mean to deploy to, and reissue the campaign if it leaks.
@@ -220,19 +232,32 @@ what each one is for and ready-to-use versions.
 
 You do not need this to deploy — it is here for security review.
 
-| Payload                        | What it does                                                           | Prompt it removes                           |
-| ------------------------------ | ---------------------------------------------------------------------- | ------------------------------------------- |
-| **System extension policy**    | Pre-approves the AgenShield security and network extensions            | Extension approval dialogs                  |
-| **Web content filter**         | Pre-approves the AgenShield network filter                             | The "Filter Network Content" consent dialog |
-| **Privacy preferences (PPPC)** | Grants Full Disk Access to the security extension                      | The Full Disk Access toggle                 |
-| **Notification settings**      | Pre-enables AgenShield alerts                                          | Notification-permission prompt              |
-| **Service management**         | Manages the AgenShield background items so they cannot be switched off | "Background Items Added" notice             |
-| **Settings**                   | Your backend URL and, if you pinned one, the version to install        | —                                           |
+| Payload                        | What it does                                                                 | Prompt it removes                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **System extension policy**    | Pre-approves the AgenShield security and network extensions                  | Extension approval dialogs                                                         |
+| **Web content filter**         | Pre-approves the AgenShield network filter                                   | The "Filter Network Content" consent dialog                                        |
+| **Transparent proxy**          | Provides the AgenShield network proxy as a setting your organization manages | The "VPN is trying to modify your system settings" prompt AgenShield updates cause |
+| **Privacy preferences (PPPC)** | Grants Full Disk Access to the security extension                            | The Full Disk Access toggle                                                        |
+| **Notification settings**      | Pre-enables AgenShield alerts                                                | Notification-permission prompt                                                     |
+| **Service management**         | Manages the AgenShield background items so they cannot be switched off       | "Background Items Added" notice                                                    |
+| **Settings**                   | Your backend URL and, if you pinned one, the version to install              | —                                                                                  |
 
 <Note>
   The Full Disk Access payload is the one never to trim: without it a device
   enrolls and reports healthy but cannot enforce file policy until someone
   toggles the grant by hand — the manual step MDM deployment exists to avoid.
+</Note>
+
+<Note>
+  Profiles downloaded before the transparent-proxy payload was added do not
+  carry it. Replace them with a fresh download from the campaign. macOS applies
+  a profile update by removing every payload and installing the new profile, so
+  AgenShield's extensions restart for a moment; current releases bring them back
+  on their own. Each Mac that had set up its network proxy itself then removes
+  that older setting once: on its own for an administrator, or through a
+  **Remove old copy** button explained by a **One last approval for AgenShield**
+  notification — see
+  [VPN password prompt during an update](../../troubleshoot/vpn-password-prompt-after-update.mdx).
 </Note>
 
 Apple accepts these approval payloads **only from an MDM**; a profile someone

@@ -1,0 +1,37 @@
+---
+title: 'Profile Shows "Not Found in Keychain" for the AgenShield Root CA After Uninstalling'
+sidebarTitle: Root CA Missing After Uninstall
+icon: badge-alert
+description: Why your organization's AgenShield profile reports its root certificate as "Not found in keychain" after AgenShield was uninstalled, what it affects, and how to restore it.
+---
+
+After AgenShield was uninstalled with `agenshield uninstall` on a Mac that keeps your organization's AgenShield
+configuration profile, **System Settings › General › Device Management** shows the profile's **Certificate** item
+(**AgenShield Root CA**) with the error **Not found in keychain**.
+
+## What it means
+
+The uninstaller removed the AgenShield root certificate that your organization's profile installed. The rest of the
+profile is unaffected. Until the certificate is back, a reinstalled AgenShield cannot use it, and macOS may ask an
+administrator to trust a certificate instead.
+
+Affected: 2026.10.2 and earlier. 2026.10.3 and later leave a root certificate that a configuration profile installed in
+place; only the profile can remove it.
+
+## How to confirm
+
+Open the AgenShield profile in **System Settings › General › Device Management**. The **Certificate** item shows
+**Not found in keychain**.
+
+## How to restore it
+
+Ask your IT team to deliver the AgenShield profile to the Mac again. A plain device sync is not enough, because the
+profile itself did not change: they can remove the Mac from the profile's assignment and add it back, or upload the
+same profile again. macOS re-installs the profile and its certificate.
+
+Then reinstall AgenShield if you need it.
+
+## When to contact support
+
+If the certificate is still missing after the profile was delivered again, contact support with the output of
+`agenshield doctor`.

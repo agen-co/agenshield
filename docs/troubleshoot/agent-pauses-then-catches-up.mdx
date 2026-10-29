@@ -1,0 +1,62 @@
+---
+title: 'Your coding assistant pauses for a few seconds, then catches up'
+sidebarTitle: 'Assistant pauses, then catches up'
+icon: 'hourglass'
+description: 'Answers stop for a few seconds and then appear all at once, and the AgenShield dashboard shows an event-loop reading of thousands of milliseconds. What it means, which versions are affected, and what to do.'
+---
+
+## What you are seeing
+
+- Your coding assistant (for example Claude Code) stops updating for a few
+  seconds — the elapsed-time counter freezes — and then catches up all at
+  once, even in a short conversation.
+- The AgenShield dashboard's metrics panel shows **Event loop p99** in the
+  thousands of milliseconds (for example `3428.8 ms`) instead of a few
+  milliseconds.
+- The dashboard itself is slow to load right after you open it.
+
+## What it means
+
+The AgenShield background service handles the dashboard, the AgenShield tools
+your assistant can call, and the record of what your agents do. On affected
+versions it could pause for one to five seconds at a time while it waited for
+its own database to become free. During a pause, anything waiting on the
+service waits too: the dashboard, and the assistant's calls to the AgenShield
+tools.
+
+**Your Mac is not at risk while this happens, and nothing is blocked that
+should not be.** Enforcement decisions are made by the security extension,
+which does not wait for the background service.
+
+## Affected and fixed versions
+
+|          |                                                                           |
+| -------- | ------------------------------------------------------------------------- |
+| Affected | `2026.10.4` and earlier                                                   |
+| Fixed in | a fix is in testing; this page will name the release once it is confirmed |
+
+## What to do
+
+<Steps>
+  <Step title="Update AgenShield when the fix is released">
+    The release notes will say when the fix ships. You can then check with the
+    dashboard's metrics panel: **Event loop p99** should stay at a few
+    milliseconds.
+  </Step>
+  <Step title="Until then, or if it continues, collect diagnostics">
+    Right after a pause, download the diagnostics bundle from the AgenShield
+    app's **Support** page and send it to your administrator. Each pause is
+    recorded with what was running at the time, so a single bundle shows the
+    cause. See [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
+  </Step>
+</Steps>
+
+## Not the cause
+
+- **Opening a new terminal slowly** is usually the shell's own startup files
+  (version managers such as `nvm` take most of a second on their own). Time
+  `zsh -i -c exit` against `zsh -f -c exit` to see how much is the shell
+  configuration.
+- **A "Background Items Added" notification for another vendor's updater** is
+  unrelated — see
+  [Background Items notification](../troubleshoot/background-items-notification.mdx).

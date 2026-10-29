@@ -56,6 +56,12 @@ directly — they run a build tool, which runs a package manager, which reaches
 the network. A sub-command grant lets you permit exactly that chain (agent →
 build tool → registry) without granting the agent unrestricted network access.
 
+**Filesystem grants** list the folders an agent may work in. On Windows, a
+filesystem grant does not cut a governed agent off from its own working data:
+when AgenShield keeps a private folder for an agent, where it stores its
+settings and temporary files, that folder stays available to it. You do not need
+to grant it.
+
 ## Where an agent is allowed to run
 
 Separate from rules, and coarser: **agent run-control** decides which kind of

@@ -149,6 +149,79 @@ signed `.pkg` instead — see
 and [Package scripts](../../deployment/mdm/package-scripts.mdx#any-other-mdm).
 You still push a profile either way; only the install mechanism changes.
 
+## Sign people in from the profile
+
+On **macOS**, the AgenShield settings in the profile (preference domain
+`com.frontegg.AgenShield`) can name each Mac's user and computer, so people
+never see a sign-in page. Both keys are optional strings, and each must be your
+MDM's own **variable**, never a literal value: the MDM fills in every Mac's own
+value when it installs the profile, while a literal email would name every Mac
+in the group as the same person.
+
+| Key          | Fill it with                                | What it does                                            |
+| ------------ | ------------------------------------------- | ------------------------------------------------------- |
+| `UserEmail`  | Your MDM's variable for the user's email    | Signs the Mac in as that person, with no sign-in page   |
+| `DeviceName` | Your MDM's variable for the computer's name | Names the Mac in the device list of the Frontegg Portal |
+
+| MDM           | `UserEmail`      | `DeviceName`                    |
+| ------------- | ---------------- | ------------------------------- |
+| Jamf Pro      | `$EMAIL`         | `$COMPUTERNAME`                 |
+| Intune        | `{{mail}}`       | Leave it out — no variable      |
+| Workspace ONE | `{EmailAddress}` | Leave it out — no variable      |
+| Any other MDM | Its own variable | Its own variable, if it has one |
+
+What the Mac does with them:
+
+- **`UserEmail` holds a valid email address and nobody has signed in:** the Mac
+  counts as signed in as that person from the moment it enrolls (the email
+  travels with its registration). AgenShield shows the email as the user, shows
+  no sign-in page, and your organization's policy rules for that email apply.
+  Rules written for a user's id, role or group do not match, because there is
+  no sign-in to read them from.
+- **Someone signs in:** the sign-in wins. When they sign out, the Mac falls back
+  to the profile's email, not to the sign-in page.
+- **The email changes:** the Mac switches to the new person.
+- **The email is removed, or the profile is:** nothing changes. The Mac stays
+  signed in as the last person the profile named, until the profile names
+  someone else or the Mac is re-enrolled.
+- **An unfilled variable, an empty value, or anything that is not an email
+  address** counts as no email, and the Mac keeps the normal sign-in.
+- **The Mac was enrolled with an explicit token** (the campaign install script,
+  or `agenshield setup --token`), even on a Mac that has the profile: the
+  explicit token decides the campaign. If the profile's campaign belongs to the
+  same organization, the Mac adopts the profile on its next start, which includes
+  an upgrade: it takes the profile's email and trusted root, and keeps the
+  campaign the token chose. No uninstall is needed. A profile from another
+  organization is ignored, and its people sign in as usual. Releases up to
+  2026.10.4 ignore the profile on any explicitly enrolled Mac until a full
+  uninstall.
+- **`DeviceName`** is ignored when it is still a variable, empty, or longer than
+  128 characters.
+- **Without either key**, nothing changes.
+
+This needs a Frontegg Portal version that supports signing in from the
+profile; with an older one, the Mac keeps the normal sign-in. On Windows, a
+Group Policy startup script signs people in instead; see
+[Sign people in with Group Policy](../../deployment/mdm/windows.mdx#sign-people-in-with-group-policy).
+
+<Note>
+  The email is checked only for being an email address, not against your user
+  directory, so people who reach you through SSO with just-in-time provisioning
+  can be named before their first sign-in. Anyone with administrator rights on a
+  Mac can edit its managed preferences, and with them the email it reports.
+</Note>
+
+To see what your MDM filled in on a Mac:
+
+```bash
+plutil -extract UserEmail raw "/Library/Managed Preferences/com.frontegg.AgenShield.plist"
+plutil -extract DeviceName raw "/Library/Managed Preferences/com.frontegg.AgenShield.plist"
+```
+
+A value that still reads `$EMAIL`, `{{mail}}` or `{EmailAddress}` is a variable
+your MDM could not fill for that Mac — usually because its inventory record has
+no user assigned.
+
 ## Verify
 
 On a target Mac:
