@@ -9,6 +9,21 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.10.4 - 2026-10-30
+
+
+### Fixed
+
+- **Agents keep working through inspection certificate changes.** Long-running agents that started before a certificate rotation now continue to use the previous trusted certificate for a grace period, so inspected connections do not fail just because the agent has not restarted yet.
+- **Restart prompts are more precise.** When an agent genuinely needs a restart after a certificate change, AgenShield identifies the affected agent in the app instead of treating the destination host as unsafe and bypassing inspection for other traffic.
+- **The transparent proxy recovers after profile updates.** If an MDM profile replacement drops the proxy session, AgenShield now restarts it automatically without prompting the user.
+- **Admin health reporting catches proxy outages.** Devices now report when the transparent proxy remains down, so the portal can show affected Macs instead of appearing healthy while inspection is unavailable.
+- **Pre-release upgrades choose the newest build correctly.** The macOS bootstrap installer now compares alpha, beta, and release-candidate builds by build stamp when they share the same release version, so a newer beta is not skipped or replaced by an older release candidate during managed testing.
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.10.3 - 2026-10-29
 
 
