@@ -9,6 +9,58 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.11.0 - 2026-11-10
+
+
+### New
+
+- **Agent settings review now shows workspace and branch context.** AgenShield reports sanitized agent settings per workspace and branch, including Claude Code MCP servers, trust flags, local workspace settings, and installed agent version, so admins can review agent configuration in context.
+- **Native MCP lockdown now covers more AI apps.** Admins can use one lockdown switch to enforce approved-only or managed-only MCP servers across Claude Code, GitHub Copilot, Codex, and Claude Desktop, with required gateways and AgenShield-managed MCP access handled automatically where supported.
+
+### Improved
+
+- **Settings inventory uses less endpoint work at scale.** AgenShield skips unchanged settings files, avoids repeating redaction work, refreshes Git context only when needed, and periodically resends unchanged settings so large workspaces stay responsive.
+- **Desktop diagnostics now preserve tray activity.** The AgenShield desktop app keeps a bounded, redacted tray log with startup, quit, connectivity, and error events, giving support better context when investigating dashboard or menubar issues.
+- **Diagnostics bundles handle large and unusual logs more safely.** Oversized text logs are clipped only at redaction-safe record boundaries, ambiguous text encodings are withheld instead of guessed, and collection failures are recorded as warnings rather than crashing the diagnostics download.
+- **Policy guidance clarifies inherited access for agent-launched tools.** The public policy docs now explain that shells, scripts, package managers, and other programs started by an agent inherit that agent's restrictions, and how admins can make targeted exceptions without weakening the agent's overall policy.
+- **Troubleshooting guidance more accurately explains Claude Code pauses.** The public troubleshooting page now distinguishes AgenShield tool-call delays from Claude Code's Reduce motion display behavior, so admins can avoid mistaking a quiet timer for intercepted model traffic.
+- **MCP approvals are matched more precisely.** Where the agent supports it, AgenShield now locks MCP access by exact command, URL, or plugin identity instead of relying only on server names, so renamed local servers and unapproved plugin servers cannot inherit trust.
+- **Managed MCP settings are safer to apply and withdraw.** AgenShield updates only the MCP settings it owns, preserves administrator or MDM-managed values, removes stale managed MCP entries on uninstall, and avoids creating root-owned config folders for apps that are not installed.
+- **MCP catalog entries now explain why a device allows a server.** Settings and plugin detections report the same allow or refuse decision that AgenShield enforces locally, so the dashboard no longer labels organization-distributed Claude plugin servers as refused when the endpoint actually allows them.
+
+### Fixed
+
+- **Security hardening: credentials stay out of settings reports.** Health checks and settings snapshots now sanitize tokens, headers, authorization values, environment secrets, URL credentials, secret command flags, and permission-rule command text before settings data leaves the device while preserving non-secret signals needed for review.
+- **Security hardening: diagnostics redaction is stricter around truncated logs.** Diagnostics bundles no longer risk exposing credentials when a size limit cuts through an authorization header, wrapped secret, PEM key, or mixed-encoding installer log; unsafe tails are withheld and called out in the bundle manifest.
+- **Uninstall removes AgenShield-managed agent settings.** Uninstall now asks AgenShield to withdraw settings it previously wrote, helping prevent stale company announcements or managed Claude Code settings from lingering after removal while preserving user- or MDM-owned values.
+- **Network protection recovery is clearer and more reliable.** AgenShield now restarts a stuck transparent proxy when it can, has `activate` and `doctor --fix` try to restart an approved but stopped network extension, and reports when macOS requires a full restart instead of claiming protection is active.
+- **Security hardening: MCP lockdown closes agent-specific bypasses.** Copilot no longer discards a managed allowlist because of an invalid server name, Codex plugin servers are filtered under lockdown, and Claude Code policy stays locked through version lookups, restarts, and unreadable plugin files.
+- **MCP gateway and Codex cleanup are more reliable.** Claude Code now receives usable remote gateway entries, Claude Desktop no longer gets gateways it cannot run, and removed Codex servers no longer leave behind configuration fragments that can make Codex reject its config.
+- **MDM-managed Macs keep AgenShield protections harder to disable.** On macOS 15 and later, the MDM profile now prevents users from turning off or removing the AgenShield Endpoint Security and Network extensions in System Settings or Finder, while still allowing approved uninstall and offboarding workflows.
+
+### Windows (alpha — coming soon)
+
+Windows support is in **alpha** and not yet available for production use. It is not installed or enabled by the macOS release; the items below track progress toward general availability.
+
+- **Windows process tracking no longer depends on a macOS-only attribution file.** The alpha daemon now starts the Windows liveness recovery path directly, eliminating misleading startup warnings and cleaning up process-view entries when a driver exit event is missed while preserving a grace period for late file activity.
+- **Audit-mode network checks no longer block off-envelope traffic.** The alpha Windows driver now observes and reports traffic outside a governed agent's assigned destinations in audit mode instead of denying it, while explicit network blocks and enforcing policies still block as expected.
+- **Endpoint-security interference is handled with fewer repeated PowerShell starts.** When endpoint security repeatedly kills or prevents Windows PowerShell probes, the alpha service backs off, pauses affected process scans or host probes, reports the condition in status and diagnostics, limits command-line reads to processes policy can act on, and documents narrow EDR exclusions for admins.
+- **Governed Windows agents are contained even without a network allowlist.** In enforce mode, an agent with no authored network allow can still reach its own signed profile hosts, but general internet access stays blocked; removing the last allowlist no longer reopens every destination.
+- **"Allow only these hosts" preserves each agent's required service access.** A broad allowlist baseline no longer cuts an identified agent off from the API hosts in its signed profile, while explicit host blocks still take precedence and profile-host support is reported in policy health.
+- **Windows command, host-policy, and installer-upgrade fixes passed signed laptop validation.** The alpha Windows build now has physical-laptop evidence that the allowlist behavior, Bash-to-PowerShell deny coverage, and installer-permission fix work across an in-place upgrade and reboot on a signed beta install.
+- **Windows installs tolerate non-default system-folder permissions.** The Windows installer now verifies AgenShield-owned folders instead of rejecting a PC because a Windows system folder has broad inherited permissions, preventing affected installs from rolling back with installer error 1603 while keeping AgenShield product folders protected.
+- **Windows diagnostics bundles collect native troubleshooting evidence.** The alpha build can gather service and installation logs, driver health and traces, relevant Windows Event Log records, certificate trust state, network and performance snapshots, tray logs, and crash metadata while leaving kernel dump memory out of the bundle.
+- **Windows diagnostics preserve network evidence and judge the Windows driver directly.** Alpha diagnostics now prioritize network configuration and Windows Filtering Platform details before slower event-history collection, report probe timing, and evaluate the Windows kernel driver's live enforcement state instead of showing irrelevant macOS extension warnings.
+- **Windows diagnostics passed attested beta validation.** The alpha beta build was verified through upgrade, rollback, reboot, uninstall, reinstall, and authenticated diagnostics checks with a Microsoft-attested driver; remaining gaps are recorded for tray-log archive coverage, display-version reporting, and production-posture validation.
+- **Windows component logs are more durable and support-friendly.** Service-host, network-filter, broker, driver-operation, tray, and kernel diagnostic logs now rotate with bounded retention, and driver health includes latency measurements that help diagnose enforcement slowdowns without changing enforcement behavior.
+- **Windows diagnostic collection reports gaps instead of hiding them.** Missing files, unavailable event channels, permission failures, collection timeouts, and skipped oversized or unsafe artifacts are listed in the bundle manifest so support can distinguish "nothing happened" from "evidence could not be collected."
+- **Windows uninstall now removes AgenShield instead of stopping at a sudo error.** From an elevated Administrator terminal, the alpha CLI signs the device out, restores agent CLIs, removes the app, background service, security driver, leftover folders, and AgenShield-created local accounts, then reports anything still present; non-elevated runs stop without changing the system.
+- **Full Windows uninstall now cleans up AgenShield's local CA trust.** The alpha uninstall removes AgenShield's own trusted CA root and private key after product removal, preserves customer-owned campaign roots or unproven certificates, and reports when admin follow-up is needed.
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.10.4 - 2026-10-30
 
 
