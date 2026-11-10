@@ -79,6 +79,7 @@
               "deployment/mdm/package-scripts"
             ]
           },
+          "deployment/endpoint-security-interoperability",
           "deployment/devices",
           "deployment/rollout-playbook"
         ]
@@ -127,6 +128,7 @@
           "troubleshoot/mac-stays-on-old-version",
           "troubleshoot/network-stops-after-update",
           "troubleshoot/network-filter-off-after-profile-change",
+          "troubleshoot/network-protection-off-until-restart",
           "troubleshoot/vpn-password-prompt-after-update",
           "troubleshoot/profile-root-certificate-missing-after-uninstall",
           "troubleshoot/network-performance",
@@ -140,6 +142,7 @@
           "troubleshoot/agent-tools-hang-after-sleep",
           "troubleshoot/certificate-issues",
           "troubleshoot/claude-code-settings-warning",
+          "troubleshoot/old-company-message-in-claude-code",
           "troubleshoot/app-offers-to-install-an-agent",
           "troubleshoot/setting-still-applied-after-allow",
           "troubleshoot/duplicate-filter-entries",

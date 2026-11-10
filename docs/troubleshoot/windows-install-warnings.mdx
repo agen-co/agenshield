@@ -125,6 +125,41 @@ marker as proof of active protection.
 blocklist to clear the warning.** A Microsoft-attested driver still needs to meet
 your organization's allow policy.
 
+## Installation fails with error 1603
+
+### What it means
+
+The installer stopped and rolled back, so nothing was installed. If the install
+log contains `DRIVER_ROLLBACK_CAPTURE_REFUSED` and names a Windows folder, for
+example `(C:\Windows)`, the installer refused because standard users can change
+that Windows folder. This happens on PCs whose Windows folder permissions were
+changed from the Windows defaults, for example `C:\Windows` set to inherit
+**Everyone: Full Control** from `C:\`. Intune retries fail the same way.
+
+Windows releases up to and including **2026.10.7**, and beta builds published
+before **2026.11.0-beta.1102703** (including **2026.10.8-beta.26124055**), can be
+affected.
+
+The fix was first published in beta **2026.11.0-beta.1102703** and is included
+in subsequent stable Windows releases. Fixed releases check only AgenShield's
+own folders rather than requiring default Windows-folder permissions.
+
+### Confirm and recover
+
+1. Search the newest `install-*-msiexec.log` under
+   `%ProgramData%\AgenShield\logs\install` for `DRIVER_ROLLBACK_CAPTURE_REFUSED`.
+   The folder in parentheses is the one that was refused.
+2. Install a current stable Windows release containing this fix through your
+   organization's normal deployment process. You do not need to reset
+   Windows-folder permissions just to satisfy the installer.
+3. Separately, ask IT to restore the default Windows permissions on the named
+   folder. While standard users can modify a Windows system folder, any local
+   user may be able to run code with full system rights, whether or not
+   AgenShield is installed.
+
+If a release that includes the fix still fails with this message and names a
+folder under `AgenShield`, contact support with the install log.
+
 ## Organization certificate mode is unsupported on Windows
 
 ### What it means

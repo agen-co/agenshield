@@ -73,6 +73,15 @@ For a full support bundle, see
 | `agenshield upgrade --dry-run`  | Show what would happen without doing it.                                                                            |
 | `agenshield uninstall`          | Remove AgenShield completely — no `sudo`; it prompts for the admin password itself. `--yes` skips the confirmation. |
 
+On Windows, run `agenshield uninstall` from an elevated (Administrator)
+terminal; otherwise it stops and asks you to. It signs the device out of your
+organization, restores your agent CLIs, removes the AgenShield app, background
+service, and security driver, then removes the leftover AgenShield folders and
+the local accounts AgenShield created. Anything it could not remove is listed
+under **Still present:**. If it reports **restart Windows to finish**, restart
+to complete the removal. See
+[Install and uninstall](../getting-started/install-and-uninstall.md#windows-uninstall).
+
 ## When something is wrong
 
 <Steps>

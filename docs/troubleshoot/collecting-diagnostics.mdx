@@ -19,18 +19,19 @@ it for you — there are no files to find and nothing to run as root.
 
 <Steps>
   <Step title="Open the AgenShield app">
-    From the menubar icon, or from `/Applications`.
+    On macOS, use the menubar icon or `/Applications`. On Windows, use the
+    system-tray icon or Start menu.
   </Step>
   <Step title="Go to Support">
     The **Diagnostics** card is near the top of the page.
   </Step>
   <Step title="Click “Download diagnostics (.zip)”">
     The app shows collection progress; a full bundle can take up to a minute.
-    macOS then asks where to save the archive.
+    Choose where to save the archive.
   </Step>
   <Step title="Send that one file to support">
-    The app shows the saved path and its size, with a button to reveal it in
-    Finder.
+    The app shows the saved path and its size. Send the archive through the
+    support channel you were given.
   </Step>
 </Steps>
 
@@ -44,17 +45,32 @@ health status.
 
 ## What the bundle contains
 
-| Area              | Contents                                                                   |
-| ----------------- | -------------------------------------------------------------------------- |
-| Logs              | AgenShield logs and relevant macOS system-log excerpts                     |
-| Permission status | Full Disk Access, and whether each system extension is approved and active |
-| Health status     | Background service state, policy sync, and network inspection status       |
-| Environment       | macOS version, chip, installed versions, and configuration profiles        |
-| `README.txt`      | An index — including anything that **could not** be read, and why          |
+| Area              | Contents                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| Logs              | AgenShield logs and relevant operating-system event excerpts                                         |
+| Permission status | Security-component approval, installation and trust status                                           |
+| Health status     | Background service state, policy sync, and network inspection status                                 |
+| Environment       | Operating-system version, installed versions and management configuration                            |
+| Index             | `MANIFEST.txt` (full bundle) or `README.txt` (reduced bundle), including skipped sources and reasons |
 
 That last row matters: if a log was unreadable rather than absent, the bundle
 says so. It lets support tell "there is nothing here" apart from "we could not
 open it".
+
+### Additional Windows evidence
+
+The Windows bundle includes service and installation logs, driver health and
+recovery state, relevant Windows Event Log records, certificate trust, network
+configuration, and available driver traces. It also includes the signed-in
+user's tray log and proxy settings when that user can be resolved.
+
+Crash-dump files are **not** included. Only file metadata and the bugcheck code
+from the dump header are collected. Organization settings that can contain a
+credential are represented as present or absent, not by their values.
+
+Unavailable event channels, missing files, permission failures, and collection
+timeouts are recorded in `MANIFEST.txt`; a missing source does not make the
+whole download fail.
 
 ## If the app says it saved a reduced bundle
 
@@ -91,9 +107,9 @@ Each log is also truncated to its most recent portion, so archives stay small �
 usually single-digit megabytes.
 
 <Note>
-  Some files are readable only by an administrator. The app runs as you, so those
-  appear in `README.txt` as skipped with a reason rather than causing the
-  collection to fail.
+  Some files are readable only by an administrator. If the background service
+  cannot collect them, or the app is building a reduced bundle, the index names
+  skipped sources and the reason rather than failing the whole collection.
 </Note>
 
 ## Handling the bundle
@@ -110,7 +126,7 @@ profiles, and the policy in force. Treat it as confidential.
 
 - what you were doing when the problem appeared
 - roughly when it started, and whether it followed an upgrade
-- whether the Mac is MDM-managed
+- whether the device is managed by your organization
 - the output of `agenshield status` and `agenshield doctor`
 
 The **Support** page also links to the public issue tracker and the release notes

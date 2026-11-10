@@ -1,15 +1,15 @@
 ---
-title: 'Your coding assistant pauses for a few seconds, then catches up'
-sidebarTitle: 'Assistant pauses, then catches up'
+title: 'AgenShield tool calls take seconds and the event loop reads high'
+sidebarTitle: 'AgenShield tool calls are slow'
 icon: 'hourglass'
-description: 'Answers stop for a few seconds and then appear all at once, and the AgenShield dashboard shows an event-loop reading of thousands of milliseconds. What it means, which versions are affected, and what to do.'
+description: 'Calls to AgenShield tools take seconds and the AgenShield dashboard shows an event-loop reading of thousands of milliseconds. What it means, which versions are affected, what to do, and why a frozen Claude Code timer is usually its Reduce motion setting.'
 ---
 
 ## What you are seeing
 
-- Your coding assistant (for example Claude Code) stops updating for a few
-  seconds — the elapsed-time counter freezes — and then catches up all at
-  once, even in a short conversation.
+- A call your coding assistant (for example Claude Code) makes to an
+  AgenShield tool takes several seconds, and the assistant waits for it before
+  it continues.
 - The AgenShield dashboard's metrics panel shows **Event loop p99** in the
   thousands of milliseconds (for example `3428.8 ms`) instead of a few
   milliseconds.
@@ -53,6 +53,14 @@ which does not wait for the background service.
 
 ## Not the cause
 
+- **Claude Code's spinner timer freezing, then jumping.** When Claude Code's
+  **Reduce motion** setting is on, its status line redraws only when new output
+  arrives, so the elapsed time and the token count stop while the model thinks
+  and jump when it answers. The glyph in front of the status stays a still `●`.
+  Turn **Reduce motion** off in `/config` (it can also be set as
+  `prefersReducedMotion` in a project's `.claude/settings.local.json`). The
+  background service pauses described on this page do not reach Claude Code's
+  screen or its connection to the model.
 - **Opening a new terminal slowly** is usually the shell's own startup files
   (version managers such as `nvm` take most of a second on their own). Time
   `zsh -i -c exit` against `zsh -f -c exit` to see how much is the shell

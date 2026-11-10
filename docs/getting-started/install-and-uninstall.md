@@ -444,6 +444,89 @@ then they may show `[terminated waiting to uninstall on reboot]`.
   bootstrapped; confirm the `launchctl bootout` step succeeded (no
   `com.frontegg.AgenShield.daemon` in `sudo launchctl list`).
 
+### Windows uninstall
+
+<Note>
+  Earlier Windows releases, up to and including the current beta, stop
+  `agenshield uninstall` at once with a `sudo` error and remove nothing. Use the
+  campaign's uninstall command or Apps & features on those versions. The full
+  Windows removal described here is in the release after 2026.11.0.
+</Note>
+
+#### `agenshield uninstall` (preferred)
+
+Open PowerShell or Terminal with **Run as administrator**, then run:
+
+```powershell
+agenshield uninstall        # add --yes for scripted, non-interactive runs
+```
+
+Run from a terminal that is not elevated, it stops with
+**Run it from an elevated (Administrator) terminal** and changes nothing. From
+an elevated terminal it removes AgenShield in this order:
+
+1. Signs the device out of your organization.
+2. Removes protection from your agents and restores your agent CLIs.
+3. Uninstalls the AgenShield package — the same removal Apps & features runs —
+   which stops the background service and removes the security driver.
+4. Removes the leftover folders (`C:\Program Files\AgenShield`,
+   `C:\ProgramData\AgenShield`, and AgenShield's system-account state) and the
+   local accounts AgenShield created.
+5. Lists anything it could not remove under **Still present:**.
+
+Before step 3 it prints the path of a result file in your Windows TEMP folder.
+The terminal window may close while the package is removed; removal continues
+in the background and writes its outcome to that file.
+
+If it reports **restart Windows to finish** (Windows Installer exit code
+`3010`), restart to complete the removal.
+
+If it reports that the AgenShield certificate is still trusted, run the
+campaign's Windows uninstall command (below) to remove it.
+
+#### The campaign's Windows uninstall command
+
+The [campaign](../deployment/campaigns.mdx) detail view in the Frontegg Portal also
+offers a Windows **Uninstall command**. Paste it into a **new PowerShell window
+of its own**: the command ends by closing the window it runs in, with the
+command's exit code. It asks for administrator approval itself if the window is
+not already elevated. See
+[Install Campaigns](../deployment/campaigns.mdx#the-windows-uninstall-command) for
+what it reports.
+
+#### Apps & features or `msiexec /x`
+
+Removing AgenShield from **Settings → Apps → Installed apps**, or with
+`msiexec /x`, also works, but:
+
+- it does **not** sign the device out of your organization — revoke the device
+  in the Frontegg Portal afterwards (see [Enrolled devices](../deployment/devices.mdx));
+- it can leave `C:\ProgramData\AgenShield` and the local accounts AgenShield
+  created behind. Run `agenshield uninstall` first when you can.
+
+Restart if Windows Installer reports exit code `3010`.
+
+#### After removal
+
+- **Cloud sign-out failed, or the device still appears** in the Frontegg
+  Portal — revoke it there.
+- **Policy delivered by MDM or Group Policy is kept.** Uninstall does not
+  touch it; remove the assignment from your management tool.
+
+#### Verify a clean removal (Windows)
+
+In PowerShell:
+
+```powershell
+Get-Service AgenShield                       # should return nothing (an error)
+fltmc filters | Select-String AgenShield     # should print nothing
+Test-Path 'C:\Program Files\AgenShield','C:\ProgramData\AgenShield'   # False, False
+```
+
+Then confirm there is no AgenShield entry in **Settings → Apps → Installed
+apps**, and that the device is gone from the **Devices** page of the Frontegg
+Portal.
+
 ### Related commands
 
 - `agenshield install` — installs or repairs a self-managed installation.

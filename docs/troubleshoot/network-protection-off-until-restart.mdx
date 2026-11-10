@@ -1,0 +1,59 @@
+---
+title: Network Protection Stays Off Until a Restart
+sidebarTitle: Network Protection Off Until Restart
+icon: network
+description: Why the network extension can stop and not come back after a long, heavily loaded period, how to confirm it, and how to bring it back.
+---
+
+After a long period of heavy load, for example AI agents running for hours while
+the Mac sits locked, `agenshield doctor` can report:
+
+> ⚠ Transparent proxy not running
+>
+> ⚠ Network filter not loaded — NE provider is not running; connection policy is NOT enforced.
+
+and `agenshield status` shows **Degraded**. On affected versions
+`agenshield activate` still prints **Transparent proxy already on**.
+
+## What this means
+
+AgenShield watches for a network extension that has stopped answering, and
+restarts it so your network keeps working. On a very busy Mac a slow extension
+can look like a stopped one. On affected versions macOS sometimes did not start
+the network extension again after that restart, and AgenShield did not notice.
+Network traffic then flows without inspection or network policy until the
+extension returns.
+
+Your network itself keeps working. The security extension (process and file
+policy) is not affected.
+
+Affected: 2026.10.4 and earlier. Later releases notice the stopped network
+extension and restart its session once on their own. If that does not bring it
+back, AgenShield sends a notification: **Restart your Mac to resume network
+protection**. If notifications are off for AgenShield, use the confirmation
+steps below.
+
+## How to confirm
+
+```bash
+agenshield doctor
+pgrep -fl com.frontegg.AgenShield.network-extension
+```
+
+The issue is present when `doctor` reports the transparent proxy not running and
+`pgrep` prints nothing.
+
+## How to recover
+
+Run `agenshield doctor --fix`. On versions later than 2026.10.4 it tries to
+start the network extension again and tells you whether it came back.
+`agenshield activate` does the same.
+
+If it does not come back, or on 2026.10.4 and earlier, restart the Mac. The
+network extension starts with the system and AgenShield reports healthy again.
+
+## When to contact support
+
+Contact support with a diagnostics bundle (`agenshield diagnostics`) if the
+network extension is not running after a restart, or if this happens again on a
+version later than 2026.10.4. See [Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).

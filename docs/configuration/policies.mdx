@@ -62,6 +62,44 @@ when AgenShield keeps a private folder for an agent, where it stores its
 settings and temporary files, that folder stays available to it. You do not need
 to grant it.
 
+## What an agent's programs inherit
+
+An agent rarely works alone. The shells, scripts, `curl` calls, Python and Node
+programs, build tools, and package managers it starts, and everything those
+start in turn, **inherit the agent's policy**. They are attributed to the agent
+and evaluated against its rules, including where it may connect: a destination
+the agent may not reach is also out of reach for a script the agent runs. This
+is the [execution tree](../how-it-works.mdx#the-execution-tree), and it is what stops
+an agent from getting around its policy by writing a script that does the
+forbidden thing for it.
+
+The practical consequence: a tool that works when a developer runs it can be
+blocked when an agent runs it. A `curl` command or a Python script started by
+the agent fails because the agent's policy does not cover its destination, not
+because AgenShield singled out the tool. Programs a developer runs outside an
+agent are not governed.
+
+### Making a targeted exception
+
+Start from the evidence. The trace for the blocked action shows the agent and
+the chain of programs that led to it, so you can see which program needs the
+access. Then pick the narrowest grant that covers it:
+
+| What you need                                                                                | Grant                                                                                       | Effect                                                                                                         |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| One program the agent runs needs a destination or file that the agent itself should not have | A **sub-command** grant for that hop (agent → program), with its own network or file access | Only that program, when the agent starts it, gets the access. The agent and its other programs stay restricted |
+| The agent and everything it runs need the destination, for example your package registry     | A **network** grant on the agent                                                            | Applies to the agent and every program it starts                                                               |
+| A deny rule catches more than you intended                                                   | Narrow that rule's scope                                                                    | Keeps the rest of the policy meaningful                                                                        |
+
+[GitHub only through the `gh` CLI](#github-only-through-the-gh-cli) below is a
+sub-command exception in practice. There is no local override on the device:
+exceptions are made in the Frontegg Portal and reach devices with the next
+policy sync.
+
+An exclusion configured in another endpoint security product does not change
+AgenShield's policy, and an AgenShield grant does not change what that product
+allows. See [Endpoint security interoperability](../deployment/endpoint-security-interoperability.mdx).
+
 ## Where an agent is allowed to run
 
 Separate from rules, and coarser: **agent run-control** decides which kind of

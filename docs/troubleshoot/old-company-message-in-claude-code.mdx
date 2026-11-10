@@ -1,0 +1,43 @@
+---
+title: An Old Company Message Stays in Claude Code
+sidebarTitle: Old Company Message in Claude Code
+icon: message-square-warning
+description: Why Claude Code can keep showing an earlier company message next to the current one after AgenShield was reinstalled, and how to remove it.
+---
+
+Claude Code's startup banner can show a company message your organization no
+longer uses, next to the current one. Often only one is visible, with
+**1 more notice hidden** below it.
+
+## What this means
+
+AgenShield adds your organization's company message to Claude Code's settings.
+On affected versions, uninstalling AgenShield left that message in place and
+removed AgenShield's record of having written it. After a reinstall, AgenShield
+treats the old message as one you added yourself, so it never removes it. It
+only adds the current message next to it.
+
+Affected: 2026.10.4 and earlier. Later releases remove the messages AgenShield
+wrote when you uninstall. A message left behind by an earlier uninstall still
+has to be removed by hand once.
+
+## How to confirm
+
+```bash
+jq '.companyAnnouncements' ~/.claude/settings.json
+```
+
+The issue is present when the list holds a message your organization no longer
+shows.
+
+## How to recover
+
+Edit `~/.claude/settings.json` and delete the old entries from
+`companyAnnouncements`, keeping any message you added yourself. AgenShield does
+not add them back. Restart Claude Code to see the change.
+
+## When to contact support
+
+Contact support if the old message comes back after you remove it, or if it
+appears on a version later than 2026.10.4. See
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).

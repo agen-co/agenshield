@@ -1,0 +1,289 @@
+---
+title: "Endpoint Security Interoperability"
+sidebarTitle: EDR Interoperability
+icon: handshake
+description: Run AgenShield on Windows alongside an endpoint detection and response (EDR) or antivirus product — what AgenShield installs and starts, what it reads, how to exclude it narrowly, and how to recognize interference.
+---
+
+AgenShield is a security product in its own right. On Windows its background
+service runs as **LocalSystem** and, as part of normal operation, starts
+Windows' own administration tools: Windows PowerShell with Base64-encoded
+scripts, the .NET C# compiler, and `certutil.exe`. Endpoint detection and
+response (EDR) products watch for exactly these building blocks, because
+attackers use them too. A product that judges the pattern alone can classify
+AgenShield's helpers as malicious, stop them, or quarantine AgenShield's files.
+
+This page tells your security team what to expect, so that it can recognize
+AgenShield's activity and exclude it **narrowly**. It is general guidance that
+applies to most endpoint security products. Your security product's own
+documentation is authoritative for how its exclusions behave.
+
+<Note>
+  An exclusion in your security product changes what **that product** watches.
+  It does not change what AgenShield allows a governed agent to do. To let an
+  agent, or a program it starts, reach something your policy blocks, see
+  [What an agent's programs inherit](../configuration/policies.mdx#what-an-agents-programs-inherit).
+</Note>
+
+## What AgenShield installs on Windows
+
+The installer places AgenShield's programs under `%ProgramFiles%\AgenShield`
+(normally `C:\Program Files\AgenShield`) and its machine-wide configuration
+under `%ProgramData%\AgenShield`.
+
+| Program (under `%ProgramFiles%\AgenShield`) | Responsible for                                                                                                                                                                                                    | Runs as                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------- |
+| `bin\agenshield-service.exe`                | The Windows service `AgenShield`, display name **AgenShield Endpoint Security**. Starts at boot, keeps the background service running, manages the driver, and starts the governed agents that AgenShield confines | LocalSystem                         |
+| `bin\agenshield-daemon.exe`                 | The background service: applies your organization's policy, records agent activity, and runs the checks described below                                                                                            | LocalSystem, started by the service |
+| `bin\agenshield.exe`                        | The `agenshield` command-line tool. A developer typing an agent's command also goes through it, to have that agent started under AgenShield                                                                        | The person who runs it              |
+| `bin\agenshield-broker.exe`                 | A per-agent helper. Some governed agents get their own Windows service, whose name starts with `agenshield-broker-`, to run it                                                                                     | LocalSystem                         |
+| `tray\AgenShield.exe`                       | The tray app, started for each signed-in user                                                                                                                                                                      | The signed-in user                  |
+| `lib\node\node.exe`                         | The Node.js runtime bundled with AgenShield. When AgenShield protects an agent, it copies the runtime into that agent's private AgenShield folder, where it runs as part of the governed agent                     | The governed agent                  |
+| `driver\agenshield.sys`                     | The AgenShield driver, registered with Windows during installation                                                                                                                                                 | Kernel                              |
+
+The Windows service restarts automatically if it stops unexpectedly.
+
+### How the programs are signed
+
+Current Windows releases sign every program image they install (`.exe`, `.dll`,
+`.node`) with Frontegg's EV code-signing certificate:
+
+| Field      | Value                                                                                                                                                                 |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Subject    | `OID.1.3.6.1.4.1.311.60.2.1.3=IL, OID.2.5.4.15=Private Organization, CN=Frontegg LTD, SERIALNUMBER=516093648, O=Frontegg LTD, L=Ramat Gan, S=Tel Aviv District, C=IL` |
+| Thumbprint | `49B952276504FDECD540E7878CF3B2FAD5245A4C`                                                                                                                            |
+| Valid to   | 21 November 2027                                                                                                                                                      |
+
+The certificate is renewed before it expires, and a renewed certificate has a
+new thumbprint. An exclusion pinned to this exact certificate, rather than to
+the **Frontegg LTD** publisher, must then be updated.
+
+Two exceptions are expected:
+
+- A bundled third-party runtime file that already carries its publisher's valid
+  signature keeps that signature.
+- The driver is signed by **Microsoft Windows Hardware Compatibility
+  Publisher**, through Microsoft's driver attestation.
+
+Check the signatures on a device rather than relying on this list, in an
+administrator PowerShell session:
+
+```powershell
+Get-ChildItem "$env:ProgramFiles\AgenShield" -Recurse -Include *.exe, *.dll, *.node, *.sys |
+  Get-AuthenticodeSignature |
+  Select-Object Status, @{ Name = 'Signer'; Expression = { $_.SignerCertificate.Subject } }, Path
+```
+
+Every row should read `Valid`. A `NotSigned` or `HashMismatch` row is not
+something to exclude: report it, and reinstall a current release from your
+organization's campaign.
+
+## What AgenShield starts, and why
+
+AgenShield does not ship its own copies of Windows tools. It starts the ones in
+Windows. Long-lived PowerShell sessions do most of the routine work, so a
+healthy device shows a few long-running `powershell.exe` processes under
+`agenshield-daemon.exe`, not a new one for every check. Some sessions close
+after a period without use and start again when next needed. A few checks start
+a short-lived PowerShell instead, as listed below.
+
+| Purpose                                                                                                                                                                                          | Programs started                                                                                                 | Started by                                                                 | When                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Process inventory.** Finds the AI agents running on the device                                                                                                                                 | `powershell.exe`                                                                                                 | `agenshield-daemon.exe`                                                    | One long-lived session; closes after a minute without use                                                                                                         |
+| **Process view rebuild.** Rebuilds the full view of which running processes belong to which agent                                                                                                | `cmd.exe`, which starts one short-lived `powershell.exe`                                                         | `agenshield-daemon.exe`                                                    | When the background service starts, when the driver restarts, when your organization's agent catalog changes, and when AgenShield may have missed process events  |
+| **Agent identity.** Finds a possible agent's program file and checks its publisher signature                                                                                                     | `powershell.exe`                                                                                                 | `agenshield-daemon.exe`                                                    | Up to two long-lived sessions, started when first needed. A session stopped from outside three times waits from 30 seconds up to 5 minutes before it starts again |
+| **Installed agent check.** Reads the publisher signature of each AI agent program installed at a location in your organization's catalog                                                         | One short-lived `powershell.exe` per program file                                                                | `agenshield-daemon.exe`                                                    | Checked every 10 seconds; each answer is reused for up to an hour while the program file is unchanged                                                             |
+| **Host information.** Signed-in user and session, hardware model and serial number, Windows version, firewall and BitLocker state, MDM enrollment, network byte counters, agents' CPU and memory | `powershell.exe`, and `quser.exe` if the session helper below is unavailable                                     | `agenshield-daemon.exe`                                                    | One long-lived session; closes after 5 minutes without use                                                                                                        |
+| **Device identity.** The Windows machine ID and the BIOS serial number, which identify the device to your organization                                                                           | `reg.exe`, `powershell.exe`, and `wmic.exe` if PowerShell cannot read the serial number                          | `agenshield-daemon.exe`, or `agenshield.exe` during enrollment             | Once after the background service starts, and during enrollment                                                                                                   |
+| **Stored secrets.** Encrypts and decrypts values AgenShield keeps on the device, with Windows Data Protection (DPAPI)                                                                            | `powershell.exe`                                                                                                 | The AgenShield program using the value                                     | When such a value is saved or read                                                                                                                                |
+| **Session helpers.** A small C# helper for Windows session and management APIs, compiled by PowerShell's `Add-Type`                                                                              | `csc.exe`, which can start `cvtres.exe`                                                                          | `powershell.exe`                                                           | Each time the host information session starts, and in some protection-setup and diagnostics scripts                                                               |
+| **Agent protection setup.** File permissions, per-agent services, and the command routing that starts agents under AgenShield                                                                    | `cmd.exe`, `powershell.exe`, `icacls.exe`, `sc.exe`                                                              | `agenshield-daemon.exe`, directly or through `cmd.exe` or `powershell.exe` | When protection for an agent is set up, repaired, or removed                                                                                                      |
+| **Certificate trust.** The per-device certificate used for network inspection                                                                                                                    | `certutil.exe`                                                                                                   | `agenshield-daemon.exe`                                                    | When it is installed, verified, or removed                                                                                                                        |
+| **Driver trace session** named `AgenShield-Driver`                                                                                                                                               | `logman.exe`                                                                                                     | `agenshield-service.exe`                                                   | When the service registers the driver or sees it start                                                                                                            |
+| **Driver registration**                                                                                                                                                                          | `pnputil.exe`                                                                                                    | `msiexec.exe`, `agenshield-service.exe`                                    | Installation, upgrade, and driver repair                                                                                                                          |
+| **Diagnostics.** A diagnostic bundle                                                                                                                                                             | `powershell.exe`, which runs `logman.exe`, `sc.exe`, `fltmc.exe`, `pnputil.exe`, `dsregcmd.exe`, and `netsh.exe` | `agenshield-daemon.exe`                                                    | Only when someone collects a diagnostic bundle                                                                                                                    |
+| **Installer rollback.** Captures the previous driver and restores it if an installation fails                                                                                                    | `powershell.exe` (which compiles a helper with `csc.exe`), `cmd.exe`, `reg.exe`, `pnputil.exe`                   | `msiexec.exe`                                                              | Installation, upgrade, repair, and removal only                                                                                                                   |
+| **Notifications** while the tray app is not connected                                                                                                                                            | `powershell.exe`                                                                                                 | `agenshield-daemon.exe`                                                    | When AgenShield shows a notification                                                                                                                              |
+
+PowerShell is started with `-NoProfile -NonInteractive`, and its script is
+passed on the command line, usually Base64-encoded with `-EncodedCommand`. That
+is what an EDR product typically reports as an encoded or obfuscated PowerShell
+command. The driver trace session writes to
+`%SystemRoot%\System32\LogFiles\WMI\AgenShield-Driver.etl`.
+
+When AgenShield confines a governed agent, the AgenShield service starts the
+agent itself, under a separate local account. In your security product's process
+tree, that agent and everything it runs appear **below**
+`agenshield-service.exe`. This matters for exclusions; see
+[Choosing exclusions](#choosing-exclusions).
+
+## What AgenShield reads
+
+AgenShield reads two levels of process detail.
+
+**Routinely**, to recognize AI agents, it reads the process list: each
+process's ID, parent, start time, and program name. This listing does not read
+any command line. It then reads the command line and the program's path of the
+processes it can act on, once for each process, when it first sees it. That
+includes the ones already running when a PowerShell session starts. These are:
+
+- the AI agents in your organization's policy catalog;
+- programs a process rule in your policy could match, and script interpreters
+  such as Node.js or Python when your policy has process rules;
+- programs that start MCP servers, such as `npx`, `uvx`, or `docker`, and the
+  shells and runtimes that host them.
+
+Other applications, such as browsers and password managers, are not read
+routinely unless your policy names them.
+
+**On specific events**, it reads the ID,
+parent, start time, program path, and command line of **every** running process
+once, to rebuild its view of which processes belong to which agent. That
+happens when the background service starts, when the driver restarts, when your
+organization's agent catalog changes, and when AgenShield may have missed
+process events. These reads include whatever applications are running at that
+moment and also occur on Windows devices without the AgenShield driver.
+
+For possible agents, AgenShield also checks the program file's publisher
+signature. The host information it reads is listed in the table above. What
+AgenShield records and sends is described in
+[Privacy and data handling](../configuration/privacy-and-data.mdx).
+
+AgenShield does not read browser data, saved passwords, or credential stores.
+Windows keeps a process's command line in that process's own memory, so some EDR
+products report a command-line query as a **read of another process's memory**,
+and name the process it was read from. Earlier releases also read the command
+line of every new process routinely, so a security product monitoring those
+releases can show such reads against unrelated applications at any time, not
+only at the events above.
+
+## Choosing exclusions
+
+Apply these principles whichever product you use:
+
+1. **Identify AgenShield by its signer, not by file hashes.** Every AgenShield
+   update changes the hashes, so a hash-based exclusion stops matching at the
+   next update. An exclusion for the **Frontegg LTD** publisher keeps matching;
+   one pinned to the certificate itself needs updating when it is renewed.
+2. **A signer exclusion does not cover the Windows tools.** `powershell.exe`,
+   `csc.exe`, `certutil.exe`, and `logman.exe` are signed by Microsoft. Never
+   exclude them globally, or by Microsoft's certificate: that would exempt every
+   PowerShell session on the device, including an attacker's.
+3. **Cover the tools only as children of `agenshield-daemon.exe`.** Where your
+   product offers it, use an exclusion that applies to the AgenShield background
+   service and the processes **it** starts, or tune the specific detection to
+   that parent. `agenshield-daemon.exe` starts Windows tools such as those
+   listed above; it does not start AI agents.
+4. **Never extend a child-process exclusion to `agenshield-service.exe` or
+   `agenshield.exe`.** Governed agents are started through them. An exclusion
+   that covers their children also covers the AI agents and every program the
+   agents run, which is the activity you most want your security product to see.
+5. **Scope and review.** Apply exclusions to the device groups where AgenShield
+   is installed, use the least permissive option that resolves the problem, and
+   review them when you upgrade either product.
+
+### Exclusion types to look for
+
+Most endpoint security products offer some of these. Prefer them in this order:
+
+1. **A publisher or certificate exclusion** for **Frontegg LTD**. It covers
+   AgenShield's own programs and keeps matching across updates. Some products
+   need the signing certificate itself, which you can export from a signed
+   AgenShield file:
+
+   ```powershell
+   $signature = Get-AuthenticodeSignature "$env:ProgramFiles\AgenShield\bin\agenshield-daemon.exe"
+   Export-Certificate -Cert $signature.SignerCertificate -FilePath .\Frontegg-LTD.cer
+   ```
+
+2. **Tuning of a single detection** on an AgenShield helper, created from that
+   detection, with conditions on its parent process (`agenshield-daemon.exe`) and
+   limited to the device groups where AgenShield is installed. Keep any image
+   name or command line condition as narrow as the detection allows.
+3. **A path exclusion for `agenshield-daemon.exe` that also covers its child
+   processes**, if helpers are still stopped. Where a product offers several
+   exclusion modes, start with the least permissive one. Use a mode that covers
+   child processes only for `agenshield-daemon.exe`; see principle 4.
+
+Avoid:
+
+- exclusions that stop a product from monitoring a process and all its
+  descendants;
+- antivirus process exclusions for `powershell.exe`, and any exclusion of the
+  Windows tools by path or by Microsoft's certificate (principle 2);
+- assuming one exclusion covers every engine: in some products an antivirus
+  exclusion applies only to file scanning, not to behavioral detection. Check
+  which part of the product acted before choosing.
+
+Your security product's documentation describes how to configure each of these.
+AgenShield support can provide product-specific steps on request.
+
+## When a security product interferes
+
+### Symptoms
+
+In your security product:
+
+- Repeated detections or terminations of `powershell.exe` or `csc.exe` whose
+  parent is `agenshield-daemon.exe`, often classified as suspicious script
+  activity or as an encoded PowerShell command.
+- AgenShield files quarantined, or the AgenShield service stopped. Windows
+  restarts the service, so the same detection repeats.
+
+On the device:
+
+- `agenshield status` and `agenshield doctor` show a **Host probes** warning.
+  There is no such row while everything is healthy, and the warning never names
+  what stopped AgenShield. The same state is included in the device health that
+  AgenShield reports, and in a diagnostic bundle. It has three forms:
+
+  | Warning                                                                                                                                             | When it shows                                                                                                                                 | When it clears                                                        |
+  | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+  | `PowerShell probe interpreter repeatedly terminated externally (3 times in 10 min) — process scans and host probes paused, retrying with backoff`   | Something outside AgenShield stopped its PowerShell three times within 10 minutes                                                             | 10 minutes after the last stop, once PowerShell has answered again    |
+  | `PowerShell probe interpreter repeatedly prevented from starting (3 times in 10 min) — process scans and host probes paused, retrying with backoff` | Windows refused to start PowerShell three times within 10 minutes                                                                             | 10 minutes after the last refusal, once PowerShell has answered again |
+  | `PowerShell probe interpreter not answering (3 failed starts in a row) — process scans paused, retrying with backoff`                               | PowerShell failed to start or answer three times in a row with nothing stopping it, for example when Windows Management Instrumentation hangs | As soon as PowerShell answers again                                   |
+
+  The number in the message is the actual count. The last part names what is
+  paused: process scans, host probes, or both.
+
+- While a warning shows, AgenShield waits between attempts, from 30 seconds
+  growing to 5 minutes, and starts at most one PowerShell per attempt.
+  AgenShield's periodic process checks or host information pause until
+  PowerShell answers again. Newly started AI agents can be recognized late,
+  device details such as hardware or Windows version can show as unknown, and
+  the signed-in user shows as the last one seen for up to 2 minutes and as
+  nobody after that.
+- Network inspection can fail to activate when `certutil.exe` is blocked.
+- If the background service itself is stopped or quarantined, the device's
+  **Last sync** in the Frontegg Portal stops advancing, and the device moves to
+  **Drifted** and then **Offline**; see [Devices](../deployment/devices.mdx).
+
+Earlier releases started a new encoded PowerShell for every check while a
+session was unavailable. A security product that kept stopping those sessions
+therefore saw a rapid series of encoded PowerShell commands from AgenShield.
+
+### Confirm it
+
+1. Run `agenshield status` or `agenshield doctor`, and note the time of any
+   **Host probes** warning.
+2. In your security product, open the detections or blocked events from that
+   time, and confirm that the process tree leads to `agenshield-daemon.exe` or
+   `agenshield-service.exe` under `C:\Program Files\AgenShield\bin`, with a
+   **Frontegg LTD** signer.
+3. Apply the narrowest exclusion above. A warning about outside termination
+   clears about 10 minutes after the detections stop, and `agenshield status`
+   no longer shows it. A **not answering** warning without matching detections
+   points to a problem on the device itself, such as Windows Management
+   Instrumentation, rather than to your security product.
+
+If the security product blocks AgenShield's installer or driver rather than its
+helpers, see [Windows install warnings](../troubleshoot/windows-install-warnings.mdx#blocked-by-it-policy).
+To share evidence with support, see
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
+
+## macOS
+
+On macOS, AgenShield's app and both extensions are signed with the Apple
+Developer ID of **Frontegg LTD**, Team ID `3R2X6557U2`, and identified by bundle
+identifiers that start with `com.frontegg.AgenShield`. Use the Team ID for
+publisher-based exclusions in your security product.

@@ -71,6 +71,43 @@ Once created, the campaign detail view carries everything a rollout needs.
 | **Enrollment token**  | Scripted installs and testing, where you supply the token yourself                                                        |
 | **Uninstall command** | Removing AgenShield. Carries no token, so it is safe to hand to any end user, put in a runbook, or run from an MDM script |
 
+### The Windows uninstall command
+
+Windows devices get their own **Uninstall command**, a one-line PowerShell
+command shaped like this — copy the real one from the campaign:
+
+```powershell
+irm '<UNINSTALL_SCRIPT_URL>' | iex; exit $LASTEXITCODE
+```
+
+Like the Mac command, it carries no token.
+
+- **Paste it into a new PowerShell window of its own.** It ends with
+  `exit $LASTEXITCODE`, which closes the window it runs in — pasted into a
+  window you are still using, it closes that one too.
+- **It elevates itself.** In a window that is not elevated it shows the
+  standard Windows administrator prompt and runs the removal in a separate
+  administrator window, which also closes when it finishes.
+- **It removes everything AgenShield installed** — the app, the background
+  service and security driver, AgenShield's folders, the local accounts
+  AgenShield created, and agent CLI changes — and leaves policy that your MDM
+  or Group Policy delivered for that tool to remove.
+- **It ends with a report** of anything still present, such as a folder, a
+  service, or a local account. Because the window closes, the full output is
+  also saved as `agenshield-uninstall-<date>.log` in the Windows TEMP folder,
+  and the report's last line names it.
+
+| Exit code | Means                                                                                                                     |
+| --------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `0`       | AgenShield was removed and nothing was left behind                                                                        |
+| `1`       | Something remains or a step failed — read the report in the log. Also returned when the administrator prompt was declined |
+
+Run as a script from an MDM, the exit code is what your MDM's result view
+shows. If the device still appears on the **Devices** page afterwards, revoke
+it there. See
+[Install and uninstall](../getting-started/install-and-uninstall.md#windows-uninstall)
+for the other ways to remove AgenShield from Windows.
+
 ### For a managed fleet
 
 The campaign's **MDM artifacts** section carries per-campaign download URLs. The
