@@ -9,6 +9,45 @@ Entries are grouped as **New** (features), **Improved** (enhancements), and
 
 ## Unreleased
 
+## v2026.11.1 - 2026-11-15
+
+
+### New
+
+- **Signed agent identity catalog for macOS:** AgenShield can now receive service-signed updates to known AI agent identities from AgenShield Cloud, so protections can recognize new vendor app builds without every tenant policy carrying the full identity list. The catalog is downloaded only when enabled by a verified signed policy.
+- **Catalog health in device status:** Device status now reports whether the shared identity catalog is enabled, which environment it is bound to, and whether the latest catalog is fresh, pending, or applied.
+- **Silent MDM install:** Admins can deploy AgenShield through MDM without opening the dashboard on first install. The menu bar app still starts in the background so protection can come up without interrupting the user.
+
+### Improved
+
+- **Agent identity updates are safer to roll out:** macOS verifies the catalog's signature, environment, channel, generation, and expiry before using it, and keeps the last verified catalog active during CDN or network outages.
+- **Policy application is tied to the current installation:** Catalog and policy writes are fenced to the enrollment that started them, preventing a re-enrollment from applying policy data that belonged to the previous installation.
+- **Agent app detection is more precise:** AgenShield can identify supported agent apps from declared install locations, native hashes, package metadata, and version files without launching the apps, and treats uncertain probes as unknown instead of silently dropping related evidence.
+- **Catalog downloads recover better after restart:** Devices remember the cloud-provided CDN location so catalog polling can resume after a daemon restart before the next successful cloud sync, and validation prevents cached download metadata from being reused for the wrong origin.
+- **MDM install reporting is more accurate:** The MDM deployment instructions now use a download-first script so a failed installer download is reported as a failed MDM job instead of a successful run that installed nothing.
+- **Unattended MDM uninstall is clearer:** Admins can run the campaign uninstall flow with no user at the Mac, with documented exit codes that distinguish completed removal, removal waiting for profile removal or restart, and unfinished cleanup.
+
+### Fixed
+
+- **Agent catalog updates finish cleanly on healthy Macs:** The catalog no longer stays pending with repeated retries after macOS protections have already accepted the policy. If confirmation times out, diagnostics now identify which condition blocked it.
+- **Stale catalogs no longer block policy updates:** If a catalog expires while the device is offline or the CDN is unavailable, AgenShield keeps using the last verified catalog instead of failing subsequent policy writes.
+- **Native policy receipts are stricter on macOS:** AgenShield now waits for the Endpoint Security extension, content filter, and transparent proxy to confirm the exact policy bytes before marking catalog-backed policy changes as applied.
+- **Transparent proxy readiness is no longer confused by restarts:** Proxy liveness and policy-receipt heartbeats are bound to the current proxy start attempt, avoiding stale acknowledgements after a provider restart.
+- **Connection drops from other network filters are detected and mitigated:** When another vendor's macOS network filter repeatedly restarts and interrupts open connections, AgenShield now warns in the desktop app, menubar, and `agenshield doctor`, temporarily pauses its own filter when safe, and restores protection after the other filter has been quiet.
+- **Profile-owned proxy rows are reported clearly:** During emergency stand-down, AgenShield now recognizes when an MDM profile owns the transparent proxy row, stops retrying an impossible disable, and exposes the condition in status and diagnostics.
+- **Catalog status failures are clearer:** If local catalog health cannot be loaded, AgenShield now reports and logs that failure instead of making catalog updates look like they are simply not running.
+- **Approved Claude Code MCP packages can be added normally:** `claude mcp add` no longer rejects approved npm or PyPI MCP packages before they appear in a local config. Admin-managed-only mode still admits only the servers administrators manage.
+- **Claude Code MCP blocks are more precise:** A catalog block now blocks only the matching MCP launch instead of every server that shares the same name, while blocked organization plugin launches and blocked expanded commands or endpoints still stay out of Claude Code's managed allowlist.
+- **First-install certificate trust is reliable on managed Macs:** New MDM installs switch to the trusted device certificate in seconds instead of waiting for the next polling cycle, and apps that were already running during first install receive certificates from the trusted authority rather than the interim one.
+- **The dashboard connects correctly after Intune installs:** The dashboard no longer inherits the wrong home directory from an MDM-launched install, which could leave it stuck on "Connecting…" even while the daemon and extensions were healthy.
+- **Dashboard diagnostics explain connection failures better:** When the dashboard cannot reach the daemon, its own logs now record what failed and fallback diagnostics include those dashboard logs so support can identify the cause.
+- **Security hardening:** Catalog data with an invalid environment, excessive validity window, unsafe generation rollback, malformed content, or untrusted local storage is rejected before it can affect enforcement.
+
+
+_macOS (Apple Silicon / arm64) is the supported platform for this release. Windows support is in alpha and not yet available for production use._
+
+
+
 ## v2026.11.0 - 2026-11-10
 
 
