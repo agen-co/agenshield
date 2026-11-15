@@ -567,15 +567,20 @@ The instructions in this section are for **macOS**. For Windows, use
   create a new one.
 </Warning>
 
-### 2. The install command
+### 2. The install script
 
 1. **Devices → macOS → Shell scripts → Add**.
-2. Upload a script containing the campaign's install command:
+2. Upload the install script from your campaign's MDM guide in the Frontegg
+   Portal:
 
    ```bash
    #!/bin/bash
-   curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+   script="$(curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh')" || exit
+   printf '%s\n' "$script" | bash
    ```
+
+   It downloads the whole installer before running it, so a failed download is
+   reported as a failure instead of a success.
 
 3. **Run script as signed-in user: No.**
 4. Assign it to the same device group.

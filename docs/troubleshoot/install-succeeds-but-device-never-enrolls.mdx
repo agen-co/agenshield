@@ -61,12 +61,15 @@ Two other causes produce the same symptom:
   <Step title="Upgrade to 2026.9 or later">
     Releases from 2026.9 resolve the signed-in user themselves, so an install run
     as `root` with nobody at a terminal enrolls correctly with no wrapper. They
-    also **fail loudly** — the command exits non-zero — when a device does not
-    finish enrolling, so a green result in your MDM means the device is really on
-    your fleet.
+    also **fail loudly** — the install script exits non-zero — when a device does
+    not finish enrolling, so a green result in your MDM means the device is really
+    on your fleet. Use the install script from your campaign's MDM guide in the
+    Frontegg Portal:
 
     ```bash
-    curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+    #!/bin/bash
+    script="$(curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh')" || exit
+    printf '%s\n' "$script" | bash
     ```
 
   </Step>
@@ -96,8 +99,10 @@ Name the one AgenShield should install for, rather than letting the installer
 choose:
 
 ```bash
+#!/bin/bash
 export AGENSHIELD_TARGET_USER='jdoe'
-curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+script="$(curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh')" || exit
+printf '%s\n' "$script" | bash
 ```
 
 ## A Mac with nobody signed in is a different case

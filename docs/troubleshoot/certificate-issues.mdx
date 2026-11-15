@@ -14,21 +14,43 @@ description: 'Everything that can go wrong with the AgenShield network inspectio
 This is the single page for every AgenShield certificate symptom. Find yours in
 the table, then read that section.
 
-| What you are seeing                                              | Go to                                                                             |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Setup keeps showing **Trust the AgenShield certificate**         | [Certificate not trusted](#certificate-not-trusted)                               |
-| The menu bar shows **Root CA: installed (not trusted)**          | [Certificate not trusted](#certificate-not-trusted)                               |
-| It started after an update that ran overnight                    | [Certificate not trusted](#certificate-not-trusted)                               |
-| The menu bar shows **Root CA: trusted for your account only**    | [Trusted for your account only](#trusted-for-your-account-only)                   |
-| The menu bar has no **Trust Certificate** action                 | [Certificate not trusted](#certificate-not-trusted)                               |
-| An AI agent or tool cannot reach a server that used to work      | [Certificate not trusted](#certificate-not-trusted)                               |
-| macOS asks for your password after an update                     | [Password prompt after an update](#password-prompt-after-an-update)               |
-| An update warns the certificate is not trusted                   | [Password prompt after an update](#password-prompt-after-an-update)               |
-| Your MDM profile installs the root, yet an update asked to trust | [Prompt although MDM installed the root](#prompt-although-mdm-installed-the-root) |
-| Connections fail with `CERT_HAS_EXPIRED`                         | [Expired certificate errors](#expired-certificate-errors)                         |
-| `git` or `curl` reports a **format error** in a certificate      | [Format error in git or curl](#format-error-in-git-or-curl)                       |
-| You fixed it, but the warning will not clear                     | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing)    |
-| You trusted it in Keychain Access, but it still says not trusted | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing)    |
+| What you are seeing                                              | Go to                                                                                       |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Setup keeps showing **Trust the AgenShield certificate**         | [Certificate not trusted](#certificate-not-trusted)                                         |
+| Right after a managed install it is **not trusted** for a minute | [Briefly not trusted after a managed install](#briefly-not-trusted-after-a-managed-install) |
+| The menu bar shows **Root CA: installed (not trusted)**          | [Certificate not trusted](#certificate-not-trusted)                                         |
+| It started after an update that ran overnight                    | [Certificate not trusted](#certificate-not-trusted)                                         |
+| The menu bar shows **Root CA: trusted for your account only**    | [Trusted for your account only](#trusted-for-your-account-only)                             |
+| The menu bar has no **Trust Certificate** action                 | [Certificate not trusted](#certificate-not-trusted)                                         |
+| An AI agent or tool cannot reach a server that used to work      | [Certificate not trusted](#certificate-not-trusted)                                         |
+| macOS asks for your password after an update                     | [Password prompt after an update](#password-prompt-after-an-update)                         |
+| An update warns the certificate is not trusted                   | [Password prompt after an update](#password-prompt-after-an-update)                         |
+| Your MDM profile installs the root, yet an update asked to trust | [Prompt although MDM installed the root](#prompt-although-mdm-installed-the-root)           |
+| Connections fail with `CERT_HAS_EXPIRED`                         | [Expired certificate errors](#expired-certificate-errors)                                   |
+| `git` or `curl` reports a **format error** in a certificate      | [Format error in git or curl](#format-error-in-git-or-curl)                                 |
+| You fixed it, but the warning will not clear                     | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing)              |
+| You trusted it in Keychain Access, but it still says not trusted | [Warning will not clear](#the-command-worked-but-the-warning-is-still-showing)              |
+
+## Briefly not trusted after a managed install
+
+On a Mac where your MDM profile delivers your organization's root certificate,
+AgenShield starts on a temporary certificate of its own. It moves to a
+certificate issued under your organization's root once macOS trusts that root.
+On `2026.11.0` and earlier the move took about two minutes after a first
+install. Until it finished, the menu bar showed **Root CA: installed (not
+trusted)**. Releases after `2026.11.0` move within seconds.
+
+Encrypted traffic is not inspected while that is shown, so connections keep
+working, and it clears by itself. There is nothing to do.
+
+On `2026.11.0` and earlier, apps that were already open while AgenShield was
+installing can also report certificate errors for inspected connections
+afterwards, for example an AI desktop app that cannot reach its service. Quit
+and reopen that app. Releases after `2026.11.0` give those apps the trusted
+certificate.
+
+If the menu bar still says **not trusted** five minutes after the install, see
+[Certificate not trusted](#certificate-not-trusted).
 
 ## The two commands, if you already know what you are doing
 

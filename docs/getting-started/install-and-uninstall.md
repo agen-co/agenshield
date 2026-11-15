@@ -73,9 +73,12 @@ to their team, role, or group.
 
 #### Running it unattended
 
-This same command is what a fleet deployment runs. If you are rolling out to
-managed Macs, start at [MDM enrollment](../deployment/mdm/overview.mdx) — it covers the
-profile you push alongside it. What follows is the mechanism.
+A fleet deployment runs the same installer through the install script in your
+campaign's MDM guide in the Frontegg Portal. The script downloads the whole
+installer before running it, so a failed download fails the MDM job instead of
+reporting success. If you are rolling out to managed Macs, start at
+[MDM enrollment](../deployment/mdm/overview.mdx) — it covers the profile you push
+alongside it. What follows is the mechanism.
 
 MDM script runners execute it directly — JumpCloud Commands, Kandji custom
 scripts, Mosyle custom commands, Jamf policy scripts, Intune shell scripts. Run
@@ -88,18 +91,23 @@ trustworthy.
 
 These variables tune that. All are optional; a normal rollout sets none.
 
-| Variable                      | Default            | What it does                                                                                                                                                              |
-| ----------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENSHIELD_TARGET_USER`      | the signed-in user | Names the account to install for, when the Mac has several and inference would be a guess                                                                                 |
-| `AGENSHIELD_INSTALL_HEADLESS` | auto-detected      | `1` forces unattended mode instead of letting the installer detect it                                                                                                     |
-| `AGENSHIELD_INSTALL_NO_START` | unset              | `1` skips the installer's own start step. On macOS the service still starts at the next boot, and on a package install it is already running by then — see the note below |
-| `AGENSHIELD_CLIENT_BETA`      | unset              | `true` installs from the beta channel                                                                                                                                     |
-| `AGENSHIELD_CLIENT_ALPHA`     | unset              | `true` installs from the alpha channel. Outranks the beta setting                                                                                                         |
-| `AGENSHIELD_PORT`             | `5200`             | The local port the health check probes                                                                                                                                    |
+| Variable                      | Default            | What it does                                                                                                                                                                                                          |
+| ----------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENSHIELD_TARGET_USER`      | the signed-in user | Names the account to install for, when the Mac has several and inference would be a guess                                                                                                                             |
+| `AGENSHIELD_INSTALL_HEADLESS` | auto-detected      | `1` forces unattended mode instead of letting the installer detect it                                                                                                                                                 |
+| `AGENSHIELD_INSTALL_NO_START` | unset              | `1` skips the installer's own start step. On macOS the service still starts at the next boot, and on a package install it is already running by then — see the note below                                             |
+| `AGENSHIELD_INSTALL_SILENT`   | unset              | `1` (or `bash -s -- --silent`) installs, enrolls and starts everything without opening the AgenShield app window. The menu bar icon still appears. The Frontegg Portal's **Silent install** switch gives this command |
+| `AGENSHIELD_CLIENT_BETA`      | unset              | `true` installs from the beta channel                                                                                                                                                                                 |
+| `AGENSHIELD_CLIENT_ALPHA`     | unset              | `true` installs from the alpha channel. Outranks the beta setting                                                                                                                                                     |
+| `AGENSHIELD_PORT`             | `5200`             | The local port the health check probes                                                                                                                                                                                |
+
+Set them at the top of the install script from your campaign's MDM guide:
 
 ```bash
+#!/bin/bash
 export AGENSHIELD_TARGET_USER='jdoe'
-curl -fsSL '<CAMPAIGN_INSTALL_URL>' | bash
+script="$(curl -fsSL '<CAMPAIGN_INSTALL_URL>')" || exit
+printf '%s\n' "$script" | bash
 ```
 
 <Note>
@@ -322,9 +330,43 @@ If AgenShield was installed from a campaign URL, it can be removed the same way:
 curl -fsSL '<CAMPAIGN_URL>/uninstall.sh' | bash
 ```
 
-This delegates to `agenshield uninstall --force --non-interactive` and then
-runs the manual cleanup below as a belt-and-suspenders step, so it still
-completes if the CLI has been partially torn down.
+Run by a person, it asks for your password once. It runs the `agenshield
+uninstall --force` command and then the manual cleanup below as a
+belt-and-suspenders step, so it still completes if the command line tool has
+been partially removed.
+
+#### Unattended, through your MDM
+
+Your MDM runs the uninstall script from the **Uninstall** section of your
+campaign's MDM guide in the Frontegg Portal, as a script that runs as **root**:
+
+```bash
+#!/bin/bash
+script="$(curl -fsSL '<CAMPAIGN_URL>/uninstall.sh')" || exit
+printf '%s\n' "$script" | bash
+```
+
+It downloads the whole uninstall script before running it, so a failed download
+is reported as a failure, never as a success. It needs nobody at the Mac and
+asks nothing: it finds the signed-in user itself (or, with nobody signed in, the
+account AgenShield was installed for) and removes that account's AgenShield
+files too.
+
+Its exit code tells your MDM how it went:
+
+| Exit code | Meaning                                                                                                                                                          |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`       | AgenShield is removed                                                                                                                                            |
+| `2`       | AgenShield is removed, but macOS still runs one of its system extensions. It goes when you remove the AgenShield configuration profile, or when the Mac restarts |
+| `1`       | The removal did not finish. Run it again                                                                                                                         |
+| Any other | The script could not be downloaded, so nothing was changed. Check the Mac's network and proxy, then run it again                                                 |
+
+A failed download exits with curl's own code. Curl only rarely uses `1` or `2` (an unsupported protocol, or a
+failure to start), so if your MDM reports one of them and its log shows no AgenShield output, the script never ran.
+
+Then remove the AgenShield configuration profile from those Macs in your MDM.
+Uninstalling never removes a profile your MDM installed, and the root
+certificate that profile delivers stays trusted until the profile is removed.
 
 ### Manual fallback
 
@@ -425,7 +467,8 @@ pkgutil --pkgs | grep frontegg                  # should be empty
 ls /Library/AgenShield /opt/agenshield /Applications/AgenShield.app 2>/dev/null
 ls ~/.agenshield 2>/dev/null                    # nothing, or only ca-bundle.pem (public roots)
 sudo security find-certificate -c "AgenShield CA" /Library/Keychains/System.keychain 2>/dev/null
-# ^ should print nothing (no AgenShield root left in the trust store)
+# ^ should print nothing (no AgenShield root left in the trust store). A root
+#   your MDM profile delivers stays until you remove that profile.
 ```
 
 macOS finalizes the removal of system extensions on the next reboot — until

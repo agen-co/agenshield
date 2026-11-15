@@ -34,16 +34,19 @@ Configuration Manager, or another management tool use
     across campaign rotations and new releases.
 
   </Step>
-  <Step title="Run the install command as root">
-    Add the campaign's install command as a root script or command object,
-    targeting the same group:
+  <Step title="Run the install script as root">
+    Add the install script from your campaign's MDM guide in the Frontegg Portal
+    as a root script or command object, targeting the same group:
 
     ```bash
-    curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+    #!/bin/bash
+    script="$(curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh')" || exit
+    printf '%s\n' "$script" | bash
     ```
 
     Give it a generous timeout — the download and install together take a few
-    minutes. It exits non-zero if the device does not finish enrolling.
+    minutes. It exits non-zero if the installer cannot be downloaded or the
+    device does not finish enrolling.
 
   </Step>
 </Steps>
@@ -57,18 +60,31 @@ Configuration Manager, or another management tool use
 
 ### Options for unattended runs
 
-Set these before the `curl`. Most rollouts need none of them; the full list with
+Set these at the top of the script. Most rollouts need none of them; the full list with
 defaults is in
 [Installing and uninstalling](../../getting-started/install-and-uninstall.md#running-it-unattended).
 
-| Variable                      | Use it when                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `AGENSHIELD_TARGET_USER`      | The Mac has several accounts and you want to name the one AgenShield installs for                                         |
-| `AGENSHIELD_INSTALL_NO_START` | You do not want the installer itself to start the service. Set it to `1` — note the service still starts at the next boot |
+| Variable                      | Use it when                                                                                                                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENSHIELD_TARGET_USER`      | The Mac has several accounts and you want to name the one AgenShield installs for                                                                                                   |
+| `AGENSHIELD_INSTALL_NO_START` | You do not want the installer itself to start the service. Set it to `1` — note the service still starts at the next boot                                                           |
+| `AGENSHIELD_INSTALL_SILENT`   | The install must not open a window in front of the user. Set it to `1`: everything installs and starts, the AgenShield app window stays closed, and the menu bar icon still appears |
+
+For a silent install, set the variable on the `bash` that runs the script. The
+**Silent install** switch in the Frontegg Portal's MDM section gives you this
+script to copy:
 
 ```bash
+#!/bin/bash
+script="$(curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh')" || exit
+printf '%s\n' "$script" | AGENSHIELD_INSTALL_SILENT=1 bash
+```
+
+```bash
+#!/bin/bash
 export AGENSHIELD_TARGET_USER='jdoe'
-curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+script="$(curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh')" || exit
+printf '%s\n' "$script" | bash
 ```
 
 ## Kandji

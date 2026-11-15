@@ -1,0 +1,51 @@
+---
+title: Dashboard Stays on Its Connecting Screen After a Managed Install
+sidebarTitle: Dashboard stuck connecting
+icon: loader
+description: Why the AgenShield dashboard can stay on its connecting screen on a Mac where AgenShield was installed by Microsoft Intune or another device-management tool, and how to recover.
+---
+
+## What you see
+
+- AgenShield was installed by Microsoft Intune or another device-management tool
+  while you were signed in to the Mac.
+- The AgenShield dashboard stays on its connecting screen and never loads.
+- Reopening the dashboard from the menu bar does not help.
+- The Mac is otherwise protected, and in the Frontegg Portal the device reports
+  normally.
+
+## What it means
+
+Protection is running. Only the dashboard is affected.
+
+In **2026.11.0 and earlier**, when a device-management tool installed
+AgenShield while a user was signed in, it could start the dashboard and the menu
+bar app with the system administrator's settings instead of yours. The
+dashboard then looked for the background service in the wrong place and kept
+waiting for it. The condition lasts until the menu bar app is restarted, so
+reopening the dashboard from it reproduces the problem.
+
+This is fixed in the release after 2026.11.0.
+
+## Confirm it
+
+On the connecting screen, choose **Download diagnostics** and open `README.txt`
+in the bundle. If it mentions `/var/root/.agenshield/version.json`, this page
+applies.
+
+## Recover
+
+Do one of the following:
+
+- Sign out of macOS and sign back in, or restart the Mac.
+- Without signing out: quit the dashboard (**Cmd-Q**), choose
+  **Quit AgenShield** in the menu bar, then open **AgenShield** from the
+  Applications folder.
+
+The dashboard connects within a few seconds.
+
+## When to contact support
+
+If the dashboard still does not connect after a restart, or `README.txt` does
+not mention `/var/root`, [collect a diagnostics bundle](../troubleshoot/collecting-diagnostics.mdx)
+and contact support. Include how AgenShield was installed on the Mac.

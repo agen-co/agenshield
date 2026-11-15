@@ -89,12 +89,15 @@ enrollment.
 
   </Step>
 
-  <Step title="Run the install command">
-    Copy the campaign's install command and run it from your MDM as a **root**
-    shell script against the same device group:
+  <Step title="Run the install script">
+    Copy the install script from your campaign's MDM guide in the Frontegg Portal
+    and run it from your MDM as a **root** shell script against the same device
+    group:
 
     ```bash
-    curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+    #!/bin/bash
+    script="$(curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh')" || exit
+    printf '%s\n' "$script" | bash
     ```
 
     Run as `root`, which is what MDM script runners do by default. No wrapper is
@@ -103,6 +106,13 @@ enrollment.
 
     It exits non-zero if the device does not finish enrolling, so a green result
     in your MDM means the device is genuinely on your fleet.
+
+    The script downloads the whole installer before it runs anything. If the
+    download fails (an expired or revoked campaign, no network, a proxy that
+    blocks it), it exits non-zero and your MDM reports a failure. The one-line
+    `curl … | bash` command for a single Mac also installs, but it exits `0` when
+    the download fails, so in an MDM it would report a success for a Mac that
+    installed nothing.
 
   </Step>
 

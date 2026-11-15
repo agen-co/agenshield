@@ -35,15 +35,20 @@ Get both artifacts from your [install campaign](../../deployment/campaigns.mdx) 
   stays valid across campaign rotations and new releases.
 </Note>
 
-### 2. Run the install command from a policy
+### 2. Run the install script from a policy
 
-1. **Settings → Computer Management → Scripts → New** — paste the campaign's
-   install command as a shell script. Jamf runs scripts as `root`.
+1. **Settings → Computer Management → Scripts → New** — paste the install
+   script from your campaign's MDM guide in the Frontegg Portal. Jamf runs
+   scripts as `root`.
 
    ```bash
    #!/bin/bash
-   curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh' | bash
+   script="$(curl -fsSL 'https://<your-backend-url>/resources/campaigns/v1/<campaign-token>/install.sh')" || exit
+   printf '%s\n' "$script" | bash
    ```
+
+   It downloads the whole installer before running it, so a failed download
+   fails the policy instead of reporting success.
 
 2. **Computers → Policies → New**:
    - Triggers: **Enrollment Complete** and **Recurring Check-in**.

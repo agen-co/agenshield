@@ -1,0 +1,83 @@
+---
+title: Connections Drop Every 30 Seconds
+sidebarTitle: Connections Drop Every 30 Seconds
+icon: unplug
+description: Why video calls reconnect and AI tools report a lost connection at a steady interval on a Mac that runs AgenShield next to another endpoint-security product, how to confirm it, and how to stop it.
+---
+
+On a Mac that runs AgenShield together with another endpoint-security product
+that has its own network filter, you may see, at a steady interval of about 30
+seconds:
+
+- a video call freezing, dropping and reconnecting;
+- AI coding tools reporting `Connection lost mid-response`;
+- browsers and chat apps reconnecting in the background.
+
+## What this means
+
+The other product's network filter is being restarted over and over. macOS
+treats each restart as a change to the set of network filters on the Mac. When
+that set changes while another filter stays active, macOS drops the data of
+every connection that is already open.
+
+AgenShield's network filter is the one that stays active, so each restart of
+the other filter interrupts every open connection for a moment. On a Mac where
+the restarting filter is the only one, connections that are already open are
+not interrupted.
+
+## What AgenShield does
+
+Current versions notice the restarts within a few minutes and then:
+
+- show **Another security product's network filter keeps restarting** in the
+  AgenShield app, naming the other product's extension, and post a notification;
+- pause AgenShield's own network filter, so open connections survive each
+  restart;
+- turn the filter back on by themselves once the restarts have stopped for 10
+  minutes.
+
+While the filter is paused, your organization's network rules are not applied
+to AI agents on that Mac. Everything else AgenShield does keeps working.
+
+On version 2026.11.0 and earlier AgenShield does none of this: the app and the
+Frontegg Portal show the Mac as healthy while connections keep dropping.
+
+## How to confirm
+
+`agenshield doctor` prints a **Network filters** section while this is
+happening. To check without AgenShield, count the extension replacements macOS
+has recorded:
+
+```bash
+systemextensionsctl list | grep -c "terminated waiting to uninstall on reboot"
+```
+
+Run it twice, a few minutes apart. A count that grows by about two a minute
+means an extension is being replaced repeatedly. To see which one:
+
+```bash
+/usr/bin/log show --last 10m --style compact \
+  --predicate 'process == "sysextd" AND eventMessage CONTAINS "client activation request for"' \
+  | grep -oE 'client activation request for [A-Za-z0-9.-]+' | sort | uniq -c
+```
+
+One extension with about 20 requests in 10 minutes, and an identifier that does
+not start with `com.frontegg.AgenShield`, is the filter that keeps restarting.
+
+## How to recover
+
+- Restart the Mac. This ended the restarts in the case we investigated.
+- If it returns, the other product needs attention from its administrator or
+  vendor: its own service is asking macOS to re-install its network extension
+  again and again.
+
+On 2026.11.0 and earlier, removing AgenShield also ends the interruptions, but
+the other filter keeps restarting and the Mac loses AgenShield's protection.
+Prefer the restart, then update AgenShield.
+
+## When to escalate
+
+If connections still drop at a steady interval and the count above is not
+growing, download a diagnostics bundle from the AgenShield app while it is
+happening and contact support. See
+[Collecting diagnostics](../troubleshoot/collecting-diagnostics.mdx).
